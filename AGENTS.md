@@ -514,6 +514,8 @@ All 4 Z.AI MCP servers use a single API key:
 | 01-20-2026 | Phase 2 UI components | Complete OpenTUI component set for core functionality |
 | 01-20-2026 | Context providers | Mode, Session, Todo contexts for state management |
 | 01-20-2026 | Global keyboard handler | Tab mode cycling, Ctrl+P/M commands, double-press safety |
+| 01-20-2026 | MCP Manager pattern | Single manager class with unified initialization for all 4 MCPs |
+| 01-20-2026 | MCP overlay integration | Reuse existing Overlay component for MCP status display |
 
 ## How to Run
 
