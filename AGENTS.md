@@ -16,9 +16,29 @@
 
 ## Current State
 
-**Status:** Pre-development (Documentation Phase)
+**Status:** Phase 1 In Progress (Foundation)
 
-The project is currently in the planning and documentation phase. No source code has been written yet. This documentation serves as the blueprint for implementation.
+### Completed Tasks
+- [x] Task 1.1: Initialize Project (with known config issues to fix)
+- [x] Task 1.2: Global Paths Configuration
+- [x] Task 1.3: Storage Module
+- [x] Task 1.4: File Locking Utility
+- [x] Task 1.5: Event Bus
+- [x] Task 1.6: Configuration System
+- [x] Task 1.7: Logger Utility
+
+### In Progress
+- [ ] Task 1.8: GLM API Client
+
+### Pending (Phase 1)
+- [ ] Task 1.9: Streaming Handler
+- [ ] Task 1.10: Instruction File Discovery
+- [ ] Task 1.11: Design Constants File (NEW)
+
+### Known Issues to Fix
+1. **tsconfig.json** - Missing JSX configuration for SolidJS
+2. **bunfig.toml** - Missing OpenTUI Solid preload
+3. **package.json** - Using platform-specific @opentui/core-linux-x64 instead of @opentui/core
 
 ## Tech Stack
 
@@ -30,13 +50,34 @@ The project is currently in the planning and documentation phase. No source code
 | **API** | Z.AI API (OpenAI-compatible) |
 | **Endpoint** | `https://api.z.ai/api/coding/paas/v4/` |
 
-### Dependencies (Planned)
+### Dependencies
 
-- `@opentui/core` - Core TUI rendering engine
-- `@opentui/solid` - SolidJS bindings for OpenTUI
-- `solid-js` - Reactive UI framework
-- `openai` - OpenAI-compatible SDK for Z.AI API
-- `zod` - Runtime type validation
+```json
+{
+  "@opentui/core": "^0.1.74",
+  "@opentui/solid": "^0.1.74",
+  "solid-js": "^1.9.0",
+  "openai": "^4.73.0",
+  "zod": "^3.24.0"
+}
+```
+
+### Required Configuration
+
+**tsconfig.json** must include:
+```json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
+  }
+}
+```
+
+**bunfig.toml** must include:
+```toml
+preload = ["@opentui/solid/preload"]
+```
 
 ## Models Supported
 
@@ -53,13 +94,222 @@ The project is currently in the planning and documentation phase. No source code
 
 ## Modes
 
-| Mode | Color | Purpose | Tools |
-|------|-------|---------|-------|
-| **AUTO** | White `#ffffff` | AI decides based on prompt | Switches dynamically |
-| **AGENT** | Cyan `#5cffff` | Full execution + looper skill | All tools |
-| **PLANNER** | Purple `#b48eff` | Research + documentation | Read-only + docs/ |
-| **PLAN-PRD** | Blue `#5c8fff` | Quick PRD via Q&A | Read-only + docs/ |
-| **DEBUG** | Orange `#ffaa5c` | 7-step systematic debugging | All tools |
+| Mode | Color | Hex | Purpose | Tools |
+|------|-------|-----|---------|-------|
+| **AUTO** | White | `#ffffff` | AI decides based on prompt | Switches dynamically |
+| **AGENT** | Cyan | `#5cffff` | Full execution + looper skill | All tools |
+| **PLANNER** | Purple | `#b48eff` | Research + documentation | Read-only + docs/ |
+| **PLAN-PRD** | Blue | `#5c8fff` | Quick PRD via Q&A | Read-only + docs/ |
+| **DEBUG** | Orange | `#ffaa5c` | 7-step systematic debugging | All tools |
+
+## Visual Design System
+
+### Design Philosophy: Brutally Minimal
+
+1. **Function over decoration** - Every element serves a purpose
+2. **Raw and honest** - No unnecessary embellishment
+3. **Dense and information-forward** - Maximize useful content
+4. **High contrast** - Clear visual hierarchy
+5. **Monospace precision** - Embrace the grid
+6. **No emojis** - ASCII indicators only
+
+### Color Palette
+
+**Mode Colors:**
+| Mode | Color | Hex |
+|------|-------|-----|
+| AUTO | White | `#ffffff` |
+| AGENT | Cyan | `#5cffff` |
+| PLANNER | Purple | `#b48eff` |
+| PLAN-PRD | Blue | `#5c8fff` |
+| DEBUG | Orange | `#ffaa5c` |
+
+**Status Colors:**
+| Status | Color | Hex |
+|--------|-------|-----|
+| Success | Green | `#6fca6f` |
+| Warning | Yellow | `#e6c655` |
+| Error | Red | `#ff6b6b` |
+| Info | Blue | `#5c8fff` |
+
+**UI Colors:**
+| Purpose | Color | Hex |
+|---------|-------|-----|
+| Primary accent | Cyan | `#5cffff` |
+| Secondary/Dim | Gray | `#666666` |
+| Primary text | White | `#ffffff` |
+| Diff addition | Green | `#6fca6f` |
+| Diff deletion | Red | `#ff6b6b` |
+
+### ASCII Indicators
+
+```
+Status:
+  ▶  Collapsed/play
+  ▼  Expanded
+  ●  Status dot
+  
+Todo:
+  [ ]  Pending (muted)
+  [>]  In progress (cyan)
+  [x]  Completed (muted)
+  [-]  Cancelled (muted)
+
+Tool Results:
+  [OK]    Success (green)
+  [FAIL]  Failure (red)
+
+Progress Bar:
+  [████████░░] 80%
+  █  Filled block
+  ░  Empty block
+```
+
+### Layout Mockups
+
+**Main Session View:**
+```
+┌─────────────────────────────────────────────────────────────────┬──────────────────────────────────────────┐
+│                                                                 │ Session                                  │
+│  You                                              12:34 PM      │ ───────────────────────────────────────  │
+│  ───                                                            │ Context: 42% (84k/200k)                  │
+│  Can you help me implement the API client?                      │ Cost: $0.12                              │
+│                                                                 │                                          │
+│  GLM-4.7                                          12:34 PM      │ ▼ Todo                                   │
+│  ────────                                                       │ [ ] Set up project structure             │
+│  I'll help you implement the API client.                        │ [>] Implement API client                 │
+│                                                                 │ [x] Write configuration                  │
+│  ▶ file_write src/api/types.ts                          [OK]    │                                          │
+│  ▶ file_write src/api/client.ts                         [OK]    │ ▶ MCPs 4/4                               │
+│                                                                 │                                          │
+├─────────────────────────────────────────────────────────────────┤ ▶ Modified Files                         │
+│ ┌─ AGENT (Thinking) ────────────────────────────────────────┐   │                                          │
+│ │  > _                                                      │   │                                          │
+│ │    What are we building, breaking, or making better?      │   │                                          │
+│ └───────────────────────────────────────────────────────────┘   │                                          │
+├─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
+│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026                           │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Welcome Screen:**
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                            │
+│     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                                                   │
+│    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                                                   │
+│    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                                                   │
+│    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                                                   │
+│    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                                                   │
+│     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
+│                                                                                                            │
+│    v0.1.0                                                              built 01-20-2026                    │
+│    Model: GLM-4.7                                                      Dir: ~/glm-cli                      │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ AUTO (Thinking) ──────────────────────────────────────────────────────────────────────────────────────────┐
+│  > _                                                                                                       │
+│    What are we building, breaking, or making better?                                                       │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+```
+
+**Status Line Format:**
+```
+GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+   │        │            │              │           │          │          │
+   │        │            │              │           │          │          └── Date
+   │        │            │              │           │          └── MCP connection status
+   │        │            │              │           └── Git branch
+   │        │            │              └── Working directory (truncated)
+   │        │            └── Context usage progress bar
+   │        └── Mode (color-coded)
+   └── Model name
+```
+
+**Tool Block (Collapsed/Expanded):**
+```
+▶ file_read src/api/client.ts                                                     [OK]
+
+▼ file_read src/api/client.ts                                                     [OK]
+  ┌────────────────────────────────────────────────────────────────────────────────────┐
+  │  1  import { OpenAI } from "openai"                                                │
+  │  2                                                                                 │
+  │  3  export class GLMClient {                                                       │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Session End Summary:**
+```
+────────────────────────────────────────────────────────────────────────────────────────
+  GLM-CLI SESSION COMPLETE
+────────────────────────────────────────────────────────────────────────────────────────
+
+  Duration        1h 23m 45s
+  Modes           AGENT (primary) → PLANNER (1 switch)
+  
+────────────────────────────────────────────────────────────────────────────────────────
+  TOOLS
+────────────────────────────────────────────────────────────────────────────────────────
+
+  Calls           15 total        12 success      3 failed
+  Code            +142 lines      -38 lines
+
+────────────────────────────────────────────────────────────────────────────────────────
+
+  Until next time!
+
+────────────────────────────────────────────────────────────────────────────────────────
+```
+
+## OpenTUI Patterns (SolidJS)
+
+### Critical Rules
+
+1. **Never use `process.exit()` directly** - Use `renderer.destroy()` for clean exit
+2. **Use underscore naming for multi-word components** - `<tab_select>`, `<ascii_font>`, `<line_number>`
+3. **Use `onInput` not `onChange` for inputs** - Solid convention
+4. **Call signals with `()`** - `count()` not `count`
+5. **Don't destructure props** - Use `props.value` not `{ value }`
+6. **ScrollBox needs explicit height** - Always set `height` prop
+7. **FlexGrow needs sized parent** - Parent must have explicit dimensions
+8. **Use `onCleanup()` for intervals/subscriptions**
+
+### Component Patterns
+
+**Text Styling (nested modifiers):**
+```tsx
+<text>
+  <span fg="#5cffff"><strong>AGENT</strong></span>
+  <span fg="#666666"> │ </span>
+  <span fg="#ffffff">GLM-4.7</span>
+</text>
+```
+
+**Input with Solid:**
+```tsx
+<input
+  value={value()}           // Signal accessor with ()
+  onInput={setValue}        // Not onChange!
+  placeholder="..."
+  focused                   // Required for keyboard input
+/>
+```
+
+**Select Events:**
+| Event | Trigger | Use |
+|-------|---------|-----|
+| `onSelect` | Enter pressed | Confirm selection |
+| `onChange` | Arrow keys | Preview/navigate |
+
+### Hooks Reference
+
+- `useRenderer()` - Access renderer for cleanup
+- `useKeyboard(handler, options?)` - Keyboard events
+- `usePaste(handler)` - Paste events
+- `useTerminalDimensions()` - Reactive terminal size
+- `useTimeline(options?)` - Animations
 
 ## Agents
 
@@ -185,8 +435,16 @@ All 4 Z.AI MCP servers use a single API key:
 | Document | Purpose | Generated |
 |----------|---------|-----------|
 | [docs/Requirements.md](docs/Requirements.md) | Functional and non-functional requirements | 01-19-2026 |
-| [docs/Design.md](docs/Design.md) | Architecture and system design | 01-19-2026 |
-| [docs/Tasks.md](docs/Tasks.md) | Implementation tasks (BMAD-method) | 01-19-2026 |
+| [docs/Design.md](docs/Design.md) | Architecture and visual design system | 01-20-2026 |
+| [docs/Tasks.md](docs/Tasks.md) | Implementation tasks (BMAD-method) | 01-20-2026 |
+
+## Installed Skills
+
+| Skill | Location | Purpose |
+|-------|----------|---------|
+| OpenTUI | `.opencode/skill/opentui/` | TUI development with Core, React, Solid reconcilers |
+| Frontend Design | `.opencode/skills/frontend-design/` | Brutalist terminal UI design patterns |
+| Agent Browser | `.opencode/skills/agent-browser/` | Browser automation for research |
 
 ## Known Gotchas
 
@@ -194,6 +452,9 @@ All 4 Z.AI MCP servers use a single API key:
 - Uses Yoga for flexbox layout (not CSS)
 - Mouse events require explicit handlers
 - Scrollbox needs `stickyScroll` for auto-scroll behavior
+- Never call `process.exit()` - use `renderer.destroy()`
+- Solid uses underscores: `<tab_select>`, `<ascii_font>`, `<line_number>`
+- Text styling requires nested tags: `<strong>`, `<em>`, `<span fg="...">`
 
 ### GLM API Specifics
 - Thinking mode enabled by default on GLM-4.7
@@ -206,6 +467,11 @@ All 4 Z.AI MCP servers use a single API key:
 - `batch()` from solid-js for coalesced updates
 - `reconcile()` for efficient deep state updates
 
+### Configuration
+- tsconfig.json needs `jsx: "preserve"` and `jsxImportSource: "@opentui/solid"`
+- bunfig.toml needs `preload = ["@opentui/solid/preload"]`
+- Use `@opentui/core` not platform-specific packages
+
 ## Decision Log
 
 | Date | Decision | Rationale |
@@ -217,6 +483,12 @@ All 4 Z.AI MCP servers use a single API key:
 | 01-19-2026 | No @ syntax for subagents | Agent controls delegation, simpler UX |
 | 01-19-2026 | 70% auto-compact threshold | Balance between context preservation and limits |
 | 01-19-2026 | Double-press safety (Esc, Ctrl+C) | Prevent accidental interruption/exit |
+| 01-20-2026 | Install OpenTUI skill | Comprehensive reference for TUI development |
+| 01-20-2026 | Install frontend-design skill | Brutalist visual design patterns |
+| 01-20-2026 | Add Welcome Screen | First impression, shows key info at startup |
+| 01-20-2026 | Enhanced Status Line | Progress bar, git branch, current tool activity |
+| 01-20-2026 | Session End Summary | Clean exit with useful stats |
+| 01-20-2026 | Design constants file | Single source of truth for colors/indicators |
 
 ## How to Run
 
@@ -247,28 +519,39 @@ bun test --watch
 bun test src/path/to/test.ts
 ```
 
-## Project Structure (Planned)
+## Project Structure
 
 ```
 glm-cli/
-├── .opencode/skills/        # AI assistance skills
+├── .opencode/
+│   ├── skill/opentui/       # OpenTUI skill references
+│   ├── skills/              # Other skills (frontend-design, etc.)
+│   └── command/             # Slash commands
 ├── docs/                    # Project documentation
 ├── src/
-│   ├── index.ts            # CLI entry point
+│   ├── index.tsx           # CLI entry point
+│   ├── global.ts           # Global paths configuration
 │   ├── agent/              # GLM agent and subagents
 │   ├── api/                # Z.AI API client
+│   ├── bus/                # Event bus
 │   ├── mcp/                # MCP server integrations
 │   ├── session/            # Session management
+│   ├── storage/            # File-based storage
 │   ├── tools/              # Built-in tools
 │   ├── ui/                 # OpenTUI components
 │   │   ├── components/     # Reusable UI components
-│   │   └── context/        # SolidJS contexts
+│   │   ├── context/        # SolidJS contexts
+│   │   └── design.ts       # Design constants (colors, indicators)
 │   ├── input/              # Input handling (paste, @refs)
-│   └── utils/              # Utilities
-├── AGENTS.md               # This file
+│   ├── commands/           # Slash commands
+│   ├── modes/              # Mode-specific logic
+│   └── util/               # Utilities
+├── AGENTS.md               # This file (project brain)
 ├── PRINCIPLES.md           # Non-negotiable rules
 ├── README.md               # Project overview
-└── package.json
+├── package.json
+├── tsconfig.json
+└── bunfig.toml
 ```
 
 ## Instruction File Discovery

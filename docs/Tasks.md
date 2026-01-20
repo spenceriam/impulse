@@ -3,6 +3,7 @@
 > Implementation tasks for glm-cli using BMAD-method
 
 Generated: 01-19-2026
+Updated: 01-20-2026 (OpenTUI + frontend-design skill integration)
 
 ---
 
@@ -12,13 +13,41 @@ Generated: 01-19-2026
 
 | Phase | Name | Tasks | Est. Effort |
 |-------|------|-------|-------------|
-| 1 | Foundation | 10 | Large |
-| 2 | Core UI + Modes | 14 | Large |
+| 1 | Foundation | 11 | Large |
+| 2 | Core UI + Modes | 15 | Large |
 | 3 | MCP Integration | 6 | Medium |
 | 4 | Multi-Modal Input | 5 | Medium |
 | 5 | Agent & Tools | 14 | Large |
 | 6 | Session Management | 8 | Medium |
 | 7 | Polish + Release | 6 | Medium |
+
+### Critical Configuration Requirements
+
+Before starting Phase 2, ensure these configurations are correct:
+
+**tsconfig.json** must include:
+```json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
+  }
+}
+```
+
+**bunfig.toml** must include:
+```toml
+preload = ["@opentui/solid/preload"]
+```
+
+**package.json** dependencies:
+```json
+{
+  "@opentui/core": "^0.1.74",
+  "@opentui/solid": "^0.1.74",
+  "solid-js": "^1.9.0"
+}
+```
 
 ---
 
@@ -33,6 +62,7 @@ Generated: 01-19-2026
 **Prerequisites:** None
 **Dependencies:** Bun 1.0+
 **Estimated Effort:** Small
+**Status:** COMPLETED (with known issues to fix)
 
 #### Description
 Create project structure with Bun, TypeScript strict mode, and core dependencies.
@@ -54,7 +84,7 @@ glm-cli/
 ├── README.md
 ├── docs/
 ├── src/
-│   └── index.ts
+│   └── index.tsx
 ├── package.json
 ├── tsconfig.json
 ├── bunfig.toml
@@ -63,20 +93,41 @@ glm-cli/
 
 #### Steps
 1. Run `bun init` to create package.json
-2. Create tsconfig.json with strict mode enabled
-3. Create bunfig.toml for Bun configuration
-4. Create src/index.ts with placeholder entry point
+2. Create tsconfig.json with strict mode AND JSX configuration:
+   ```json
+   {
+     "compilerOptions": {
+       "jsx": "preserve",
+       "jsxImportSource": "@opentui/solid",
+       "strict": true,
+       // ... other strict options
+     }
+   }
+   ```
+3. Create bunfig.toml with Solid preload:
+   ```toml
+   preload = ["@opentui/solid/preload"]
+   ```
+4. Create src/index.tsx with placeholder entry point (note .tsx extension)
 5. Add dependencies to package.json:
-   - `@opentui/core`, `@opentui/solid`, `solid-js`
+   - `@opentui/core` (NOT platform-specific package)
+   - `@opentui/solid`
+   - `solid-js`
    - `openai`, `zod`
 6. Create .gitignore with node_modules, dist, .env
 7. Run `bun install` to verify
 
+#### Known Issues (to fix)
+- tsconfig.json missing `jsx` and `jsxImportSource` settings
+- bunfig.toml missing `preload` for Solid
+- package.json using `@opentui/core-linux-x64` instead of `@opentui/core`
+
 #### Verification
 - [ ] `bun install` completes without errors
-- [ ] `bun run src/index.ts` executes without errors
+- [ ] `bun run src/index.tsx` executes without errors
 - [ ] TypeScript strict mode catches type errors
 - [ ] All dependencies listed in package.json
+- [ ] JSX files compile correctly with Solid transform
 
 ---
 
@@ -484,9 +535,182 @@ src/util/
 
 ---
 
+### Task 1.11: Design Constants File
+
+**Prerequisites:** Task 1.1
+**Dependencies:** None
+**Estimated Effort:** Small
+
+#### Description
+Create centralized design constants for colors, indicators, and spacing values used throughout the UI.
+
+#### Before
+```
+src/ui/
+└── (empty or missing)
+```
+
+#### After
+```
+src/ui/
+└── design.ts
+```
+
+#### Steps
+1. Create `src/ui/design.ts`
+2. Define Colors namespace with mode colors:
+   - AUTO: `#ffffff`
+   - AGENT: `#5cffff`
+   - PLANNER: `#b48eff`
+   - PLAN-PRD: `#5c8fff`
+   - DEBUG: `#ffaa5c`
+3. Define Colors namespace with status colors:
+   - success: `#6fca6f`
+   - warning: `#e6c655`
+   - error: `#ff6b6b`
+   - info: `#5c8fff`
+4. Define Colors namespace with UI colors:
+   - primary: `#5cffff`
+   - secondary/dim: `#666666`
+   - text: `#ffffff`
+5. Define Indicators namespace:
+   - collapsed: `▶`, expanded: `▼`
+   - todo status: `[ ]`, `[>]`, `[x]`, `[-]`
+   - tool status: `[OK]`, `[FAIL]`
+   - progress: `█`, `░`
+6. Export as `const` for type safety
+
+#### Expected Output
+```typescript
+// src/ui/design.ts
+export const Colors = {
+  mode: {
+    AUTO: "#ffffff",
+    AGENT: "#5cffff",
+    PLANNER: "#b48eff",
+    "PLAN-PRD": "#5c8fff",
+    DEBUG: "#ffaa5c",
+  },
+  status: {
+    success: "#6fca6f",
+    warning: "#e6c655",
+    error: "#ff6b6b",
+    info: "#5c8fff",
+  },
+  ui: {
+    primary: "#5cffff",
+    secondary: "#666666",
+    text: "#ffffff",
+    dim: "#666666",
+  },
+} as const
+
+export const Indicators = {
+  collapsed: "▶",
+  expanded: "▼",
+  todo: {
+    pending: "[ ]",
+    in_progress: "[>]",
+    completed: "[x]",
+    cancelled: "[-]",
+  },
+  tool: {
+    success: "[OK]",
+    error: "[FAIL]",
+  },
+  progress: {
+    filled: "█",
+    empty: "░",
+  },
+} as const
+
+export type Mode = keyof typeof Colors.mode
+export type Status = keyof typeof Colors.status
+```
+
+#### Verification
+- [ ] All mode colors defined
+- [ ] All status colors defined
+- [ ] All ASCII indicators defined
+- [ ] TypeScript types exported
+- [ ] Can import in other files
+
+---
+
 ## Phase 2: Core UI + Modes
 
 > OpenTUI setup, core components, sidebar, and mode system
+
+**Important OpenTUI/Solid Patterns:**
+- Use underscore naming for multi-word components: `<tab_select>`, `<ascii_font>`, `<line_number>`
+- Use `onInput` not `onChange` for input components
+- Call signals with `()`: `count()` not `count`
+- Don't destructure props: use `props.value` not `{ value }`
+- Never use `process.exit()` - use `renderer.destroy()`
+- ScrollBox needs explicit height prop
+- Text styling uses nested tags: `<strong>`, `<em>`, `<span fg="...">`
+
+---
+
+### Task 2.0: Welcome Screen Component
+
+**Prerequisites:** Task 2.1, Task 1.11
+**Dependencies:** None
+**Estimated Effort:** Medium
+
+#### Description
+Create the welcome/startup screen with ASCII logo, version info, and initial input area.
+
+#### Before
+```
+src/ui/components/
+└── (empty)
+```
+
+#### After
+```
+src/ui/components/
+└── WelcomeScreen.tsx
+```
+
+#### Steps
+1. Create `src/ui/components/WelcomeScreen.tsx`
+2. Implement ASCII logo using `<ascii_font>` or manual box drawing
+3. Apply cyan-to-dim gradient to logo (left to right)
+4. Display version and build date (left/right aligned)
+5. Display current model and working directory
+6. Show input area below logo (reuse InputArea component)
+7. Show status line at bottom
+
+#### Visual Specification
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                            │
+│     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                                                   │
+│    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                                                   │
+│    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                                                   │
+│    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                                                   │
+│    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                                                   │
+│     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
+│                                                                                                            │
+│    v0.1.0                                                              built 01-20-2026                    │
+│    Model: GLM-4.7                                                      Dir: ~/glm-cli                      │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ AUTO (Thinking) ──────────────────────────────────────────────────────────────────────────────────────────┐
+│  > _                                                                                                       │
+│    What are we building, breaking, or making better?                                                       │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+```
+
+#### Verification
+- [ ] ASCII logo displays with gradient
+- [ ] Version and date visible
+- [ ] Model and directory visible
+- [ ] Input area functional
+- [ ] Status line shows initial state
 
 ---
 
@@ -509,37 +733,80 @@ src/
 #### After
 ```
 src/
-├── index.ts (entry point)
+├── index.tsx (entry point - note .tsx extension)
 └── ui/
     ├── App.tsx
+    ├── design.ts
     └── index.ts
 ```
 
 #### Steps
-1. Update `src/index.ts` as CLI entry point
+1. Rename `src/index.ts` to `src/index.tsx`
 2. Create `src/ui/App.tsx` with root component
-3. Initialize OpenTUI renderer
-4. Connect SolidJS reconciler
-5. Set up full terminal size layout
-6. Implement double-press Ctrl+C exit handler
-7. Create `src/ui/index.ts` with re-exports
+3. Initialize OpenTUI renderer using `render()` from `@opentui/solid`
+4. Set up full terminal size layout using flexbox:
+   ```tsx
+   <box flexDirection="column" width="100%" height="100%">
+     {/* Content */}
+   </box>
+   ```
+5. Use `useRenderer()` hook to access renderer
+6. Implement double-press Ctrl+C exit handler using `useKeyboard()`:
+   ```tsx
+   const renderer = useRenderer()
+   let ctrlCCount = 0
+   useKeyboard((key) => {
+     if (key.ctrl && key.name === "c") {
+       ctrlCCount++
+       if (ctrlCCount >= 2) renderer.destroy()
+       setTimeout(() => ctrlCCount = 0, 500)
+     }
+   })
+   ```
+7. **NEVER use `process.exit()` directly** - always use `renderer.destroy()`
+8. Create `src/ui/index.ts` with re-exports
+
+#### OpenTUI Patterns
+```tsx
+import { render, useRenderer, useKeyboard } from "@opentui/solid"
+
+function App() {
+  const renderer = useRenderer()
+  
+  // Exit handler
+  useKeyboard((key) => {
+    if (key.name === "escape") {
+      renderer.destroy()  // NOT process.exit()!
+    }
+  })
+  
+  return (
+    <box flexDirection="column" width="100%" height="100%">
+      {/* Main content */}
+    </box>
+  )
+}
+
+render(() => <App />)
+```
 
 #### Verification
 - [ ] App renders to terminal
 - [ ] Full terminal size utilized
-- [ ] Ctrl+C (2x) exits cleanly
+- [ ] Ctrl+C (2x) exits cleanly via `renderer.destroy()`
 - [ ] No render errors on startup
+- [ ] Terminal restored properly on exit
 
 ---
 
 ### Task 2.2: Status Line Component
 
-**Prerequisites:** Task 2.1
+**Prerequisites:** Task 2.1, Task 1.11
 **Dependencies:** None
-**Estimated Effort:** Small
+**Estimated Effort:** Medium
 
 #### Description
-Implement bottom status line with mode and model display.
+Implement bottom status line with comprehensive information display.
 
 #### Before
 ```
@@ -554,38 +821,79 @@ src/ui/
 ├── App.tsx
 ├── index.ts
 └── components/
-    └── StatusLine.tsx
+    ├── StatusLine.tsx
+    └── ProgressBar.tsx
+```
+
+#### Visual Specification
+```
+GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+```
+
+During tool execution:
+```
+GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/glm-cli │  main │ MCPs: 4/4 │ file_write...
 ```
 
 #### Steps
 1. Create `src/ui/components/StatusLine.tsx`
-2. Display current mode with mode-specific color:
-   - AUTO: #ffffff
-   - AGENT: #5cffff
-   - PLANNER: #b48eff
-   - PLAN-PRD: #5c8fff
-   - DEBUG: #ffaa5c
-3. Display current model name
-4. Show "(Thinking)" indicator when thinking enabled
-5. Show session stats (tokens used, cost)
-6. Position at bottom of terminal
+2. Create `src/ui/components/ProgressBar.tsx` helper component
+3. Import colors from `src/ui/design.ts`
+4. Display segments separated by `│`:
+   - Model name (white)
+   - Mode (mode-specific color from Colors.mode)
+   - Context usage progress bar with percentage
+   - Working directory (dim, truncated with ellipsis)
+   - Git branch with  icon (dim)
+   - MCP status (green if all connected)
+   - Date or current tool activity (dim)
+5. Use nested `<span>` tags for coloring:
+   ```tsx
+   <text>
+     <span fg={Colors.ui.text}>{model}</span>
+     <span fg={Colors.ui.dim}> │ </span>
+     <span fg={Colors.mode[mode()]}>{mode()}</span>
+   </text>
+   ```
+6. Position at bottom using flexbox (fixed height of 1)
+
+#### Progress Bar Implementation
+```tsx
+function ProgressBar(props: { percent: number; width?: number }) {
+  const width = props.width ?? 10
+  const filled = Math.round((props.percent / 100) * width)
+  const empty = width - filled
+  
+  return (
+    <text>
+      <span fg={Colors.ui.text}>[</span>
+      <span fg={Colors.ui.text}>{Indicators.progress.filled.repeat(filled)}</span>
+      <span fg={Colors.ui.dim}>{Indicators.progress.empty.repeat(empty)}</span>
+      <span fg={Colors.ui.text}>] {props.percent}%</span>
+    </text>
+  )
+}
+```
 
 #### Verification
-- [ ] Mode displays with correct color
+- [ ] Mode displays with correct color from design constants
 - [ ] Model name visible
-- [ ] Thinking indicator shows when enabled
-- [ ] Positioned at terminal bottom
+- [ ] Progress bar shows context percentage
+- [ ] Git branch displayed
+- [ ] MCP status shows connected count
+- [ ] Date/activity shown
+- [ ] Positioned at terminal bottom (height: 1)
 
 ---
 
 ### Task 2.3: Input Area Component
 
-**Prerequisites:** Task 2.1
+**Prerequisites:** Task 2.1, Task 1.11
 **Dependencies:** None
 **Estimated Effort:** Medium
 
 #### Description
-Create multi-line input with Shift+Enter support and ghost text.
+Create boxed input area with mode in title, ghost text, and multi-line support.
 
 #### Before
 ```
@@ -597,24 +905,94 @@ src/ui/components/
 ```
 src/ui/components/
 ├── StatusLine.tsx
+├── ProgressBar.tsx
 └── InputArea.tsx
+```
+
+#### Visual Specification
+Empty with ghost text:
+```
+┌─ AGENT (Thinking) ──────────────────────────────────────────────────────────────────┐
+│                                                                                     │
+│  > _                                                                                │
+│                                                                                     │
+│    What are we building, breaking, or making better?                                │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+With content:
+```
+┌─ AGENT (Thinking) ──────────────────────────────────────────────────────────────────┐
+│                                                                                     │
+│  > Can you help me implement a streaming handler?                                   │
+│    I need it to:                                                                    │
+│    - Parse SSE chunks                                                               │
+│    - Extract thinking content_                                                      │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 #### Steps
 1. Create `src/ui/components/InputArea.tsx`
-2. Implement single-line input by default
-3. Handle Shift+Enter for newline insertion
-4. Handle Enter for submission
-5. Show ghost text when empty: "What are we building, breaking, or making better?"
-6. Ensure cursor is visible
-7. Handle paste events (delegate to paste handler later)
+2. Wrap in `<box>` with border and title showing mode + "(Thinking)" if enabled
+3. Use `<textarea>` for multi-line input (or `<input>` with custom handling)
+4. **Use `onInput` not `onChange`** (Solid convention):
+   ```tsx
+   <input
+     value={value()}
+     onInput={setValue}
+     placeholder="..."
+     focused
+   />
+   ```
+5. Show prompt cursor `>` before input
+6. Show ghost text below prompt when empty (dim color)
+7. Handle Shift+Enter for newline insertion
+8. Handle Enter for submission
+9. Title format: `─ MODE (Thinking) ─` with mode color
+
+#### Implementation Pattern
+```tsx
+function InputArea() {
+  const [value, setValue] = createSignal("")
+  const { mode, thinking } = useMode()
+  
+  return (
+    <box 
+      border 
+      title={`${mode()}${thinking() ? " (Thinking)" : ""}`}
+      titleAlignment="left"
+    >
+      <box flexDirection="column" padding={1}>
+        <box flexDirection="row">
+          <text fg={Colors.ui.dim}>{">"} </text>
+          <input
+            value={value()}
+            onInput={setValue}
+            focused
+          />
+        </box>
+        <Show when={!value()}>
+          <text fg={Colors.ui.dim}>
+            {"  "}What are we building, breaking, or making better?
+          </text>
+        </Show>
+      </box>
+    </box>
+  )
+}
+```
 
 #### Verification
-- [ ] Single-line input works
+- [ ] Box with border displays
+- [ ] Mode shown in title with correct color
+- [ ] "(Thinking)" shown when enabled
+- [ ] Prompt cursor `>` visible
+- [ ] Ghost text shows when empty (dim)
 - [ ] Shift+Enter adds newline
 - [ ] Enter submits content
-- [ ] Ghost text shows when empty
-- [ ] Cursor visible and blinking
+- [ ] Input receives keyboard focus
 
 ---
 
@@ -742,12 +1120,12 @@ src/ui/components/
 
 ### Task 2.7: Tool Block Component
 
-**Prerequisites:** Task 2.5
+**Prerequisites:** Task 2.5, Task 1.11
 **Dependencies:** None
-**Estimated Effort:** Small
+**Estimated Effort:** Medium
 
 #### Description
-Create collapsible tool result display.
+Create collapsible tool result display with diff support.
 
 #### Before
 ```
@@ -764,19 +1142,102 @@ src/ui/components/
 └── ToolBlock.tsx
 ```
 
+#### Visual Specification
+
+Collapsed:
+```
+▶ file_read src/api/client.ts                                                     [OK]
+```
+
+Expanded:
+```
+▼ file_read src/api/client.ts                                                     [OK]
+  ┌────────────────────────────────────────────────────────────────────────────────────┐
+  │  1  import { OpenAI } from "openai"                                                │
+  │  2                                                                                 │
+  │  3  export class GLMClient {                                                       │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+With diff:
+```
+▼ file_edit src/api/client.ts                                                     [OK]
+  ┌────────────────────────────────────────────────────────────────────────────────────┐
+  │  + import { z } from "zod"                                                         │
+  │    import { OpenAI } from "openai"                                                 │
+  │  - old line                                                                        │
+  │  + new line                                                                        │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Error state:
+```
+▶ bash npm install                                                               [FAIL]
+```
+
 #### Steps
 1. Create `src/ui/components/ToolBlock.tsx`
-2. Display tool name and status (running/success/error)
-3. Collapse by default
-4. Expand with Enter key
-5. Truncate long output when collapsed
-6. Show full output when expanded
+2. Import indicators from `src/ui/design.ts`
+3. Display collapsed state by default:
+   - Indicator: `▶` (Indicators.collapsed)
+   - Tool name
+   - Path/arguments (dim)
+   - Status: `[OK]` green or `[FAIL]` red
+4. Handle click/Enter to toggle expand
+5. Expanded state shows content in bordered box:
+   - Indented with 2 spaces
+   - Line numbers for file content
+   - Diff coloring: `+` green, `-` red
+6. Use `<code>` or `<line_number>` for syntax highlighting
+
+#### Implementation Pattern
+```tsx
+function ToolBlock(props: { tool: ToolResult }) {
+  const [expanded, setExpanded] = createSignal(false)
+  
+  const statusText = () => props.tool.success 
+    ? Indicators.tool.success 
+    : Indicators.tool.error
+  const statusColor = () => props.tool.success 
+    ? Colors.status.success 
+    : Colors.status.error
+  
+  return (
+    <box flexDirection="column">
+      <box 
+        flexDirection="row" 
+        onMouseDown={() => setExpanded(e => !e)}
+      >
+        <text fg={Colors.ui.dim}>
+          {expanded() ? Indicators.expanded : Indicators.collapsed}{" "}
+        </text>
+        <text>{props.tool.name} </text>
+        <text fg={Colors.ui.dim}>{props.tool.path}</text>
+        <box flexGrow={1} />
+        <text fg={statusColor()}>{statusText()}</text>
+      </box>
+      
+      <Show when={expanded()}>
+        <box border marginLeft={2} marginTop={1}>
+          <line_number
+            code={props.tool.output}
+            language={props.tool.language ?? "text"}
+          />
+        </box>
+      </Show>
+    </box>
+  )
+}
+```
 
 #### Verification
-- [ ] Shows tool name and status
+- [ ] Shows `▶` when collapsed, `▼` when expanded
+- [ ] Tool name and path displayed
+- [ ] `[OK]` green for success, `[FAIL]` red for error
+- [ ] Click/Enter toggles expanded state
+- [ ] Content shows in bordered box when expanded
+- [ ] Diff lines colored correctly (+green, -red)
 - [ ] Collapsed by default
-- [ ] Expands on Enter
-- [ ] Long output truncated when collapsed
 
 ---
 
@@ -824,12 +1285,12 @@ src/ui/components/
 
 ### Task 2.9: Todo Item Component
 
-**Prerequisites:** Task 2.8
+**Prerequisites:** Task 2.8, Task 1.11
 **Dependencies:** None
 **Estimated Effort:** Small
 
 #### Description
-Create individual todo display component.
+Create individual todo display component with ASCII status indicators.
 
 #### Before
 ```
@@ -846,19 +1307,53 @@ src/ui/components/
 └── TodoItem.tsx
 ```
 
+#### Visual Specification
+```
+[ ] Set up project structure          <- pending (dim)
+[>] Implement API client              <- in_progress (cyan)
+[ ] Add error handling                <- pending (dim)
+[x] Write configuration loader        <- completed (dim)
+[-] Cancelled task                    <- cancelled (dim)
+```
+
 #### Steps
 1. Create `src/ui/components/TodoItem.tsx`
-2. Display status indicator:
-   - `[ ]` for pending (muted color)
-   - `[>]` for in_progress (cyan color)
-   - `[x]` for completed (muted color)
-3. Display content with word wrap
-4. No emojis (brutalist design)
+2. Import indicators and colors from `src/ui/design.ts`
+3. Map status to indicator:
+   - pending: `Indicators.todo.pending` (`[ ]`)
+   - in_progress: `Indicators.todo.in_progress` (`[>]`)
+   - completed: `Indicators.todo.completed` (`[x]`)
+   - cancelled: `Indicators.todo.cancelled` (`[-]`)
+4. Color based on status:
+   - in_progress: `Colors.mode.AGENT` (cyan `#5cffff`)
+   - All others: `Colors.ui.dim` (gray `#666666`)
+5. Display content with word wrap
+6. **No emojis** - ASCII only (brutalist design)
+
+#### Implementation Pattern
+```tsx
+function TodoItem(props: { todo: Todo }) {
+  const indicator = () => Indicators.todo[props.todo.status]
+  const color = () => props.todo.status === "in_progress" 
+    ? Colors.mode.AGENT 
+    : Colors.ui.dim
+  
+  return (
+    <text>
+      <span fg={color()}>{indicator()}</span>
+      <span fg={color()}> {props.todo.content}</span>
+    </text>
+  )
+}
+```
 
 #### Verification
-- [ ] Status indicators correct
-- [ ] in_progress highlighted cyan
-- [ ] Content wraps properly
+- [ ] `[ ]` for pending
+- [ ] `[>]` for in_progress (cyan)
+- [ ] `[x]` for completed
+- [ ] `[-]` for cancelled
+- [ ] Only in_progress is cyan, others are dim
+- [ ] Content displays correctly
 - [ ] No emojis anywhere
 
 ---

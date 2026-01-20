@@ -3,6 +3,7 @@
 > Architecture and system design for glm-cli
 
 Generated: 01-19-2026
+Updated: 01-20-2026 (Visual Design System from OpenTUI + frontend-design skills)
 
 ---
 
@@ -156,12 +157,468 @@ flowchart LR
 
 ---
 
-## 4. Directory Structure
+## 4. Visual Design System
+
+### 4.1 Design Philosophy: Brutally Minimal
+
+1. **Function over decoration** - Every element serves a purpose
+2. **Raw and honest** - No unnecessary embellishment
+3. **Dense and information-forward** - Maximize useful content
+4. **High contrast** - Clear visual hierarchy
+5. **Monospace precision** - Embrace the grid
+6. **No emojis** - ASCII indicators only
+
+### 4.2 Color Palette
+
+**Mode Colors:**
+| Mode | Color | Hex | Usage |
+|------|-------|-----|-------|
+| AUTO | White | `#ffffff` | Default mode indicator |
+| AGENT | Cyan | `#5cffff` | Primary accent, active state |
+| PLANNER | Purple | `#b48eff` | Planning mode indicator |
+| PLAN-PRD | Blue | `#5c8fff` | PRD mode indicator |
+| DEBUG | Orange | `#ffaa5c` | Debug mode indicator |
+
+**Status Colors:**
+| Status | Color | Hex | Usage |
+|--------|-------|-----|-------|
+| Success | Green | `#6fca6f` | [OK], additions, connected |
+| Warning | Yellow | `#e6c655` | Caution states |
+| Error | Red | `#ff6b6b` | [FAIL], deletions, errors |
+| Info | Blue | `#5c8fff` | Informational messages |
+
+**UI Colors:**
+| Purpose | Color | Hex |
+|---------|-------|-----|
+| Primary accent | Cyan | `#5cffff` |
+| Secondary/Dim | Gray | `#666666` |
+| Primary text | White | `#ffffff` |
+| Background | Terminal default | - |
+
+**Logo Gradient (left to right):**
+```
+#5cffff → #4ad4d4 → #38a9a9 → #267e7e → #1a6666
+(Bright)                                    (Dim)
+```
+
+### 4.3 Typography
+
+**Hierarchy through weight, not size:**
+- **Bold** - Headings, labels, role names
+- Normal - Primary content
+- *Italic* - Thinking/reasoning content
+- Dim - Secondary info, timestamps, muted states
+
+**Text Treatments:**
+```
+UPPERCASE         Section headers (rare)
+Normal case       Primary content
+lowercase         Commands, paths, technical
+dim/muted         Secondary info, timestamps
+italic            AI thinking, metadata
+```
+
+### 4.4 ASCII Indicators
+
+**Status Indicators:**
+```
+▶  Collapsed/play
+▼  Expanded
+●  Status dot (rare)
+```
+
+**Todo Status:**
+```
+[ ]  Pending (dim)
+[>]  In progress (cyan)
+[x]  Completed (dim)
+[-]  Cancelled (dim)
+```
+
+**Tool Results:**
+```
+[OK]    Success (green)
+[FAIL]  Failure (red)
+```
+
+**Progress Bar:**
+```
+[████████░░] 80%
+█  Filled block
+░  Empty block
+```
+
+**Separators:**
+```
+│  Vertical pipe (status line segments)
+───  Light horizontal rule (underlines)
+════  Heavy horizontal rule (section dividers)
+```
+
+### 4.5 Borders and Boxes
+
+**Box Characters:**
+```
+┌──────────────────────┐
+│  Single line box     │
+└──────────────────────┘
+
+╭──────────────────────╮
+│  Rounded box         │  (NOT used in main UI)
+╰──────────────────────╯
+```
+
+**Usage Rules:**
+- Single line (`┌─┐`) for primary containers
+- Horizontal rules (`───`) for section dividers
+- No rounded corners in main UI (too soft for brutalist)
+- Minimal nested boxes
+
+### 4.6 Spacing
+
+**Grid:** 1 character = 1 unit
+
+**Padding:**
+- Minimal internal padding (1-2 chars)
+- Consistent margins between sections
+
+**Density:**
+- Prefer dense layouts over spread out
+- Use whitespace strategically, not liberally
+
+---
+
+## 5. Layout Specifications
+
+### 5.1 Welcome Screen
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                            │
+│     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                                                   │
+│    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                                                   │
+│    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                                                   │
+│    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                                                   │
+│    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                                                   │
+│     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
+│                                                                                                            │
+│    v0.1.0                                                              built 01-20-2026                    │
+│    Model: GLM-4.7                                                      Dir: ~/glm-cli                      │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ AUTO (Thinking) ──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                            │
+│  > _                                                                                                       │
+│                                                                                                            │
+│    What are we building, breaking, or making better?                                                       │
+│                                                                                                            │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+```
+
+**Elements:**
+- ASCII logo with cyan-to-dim gradient
+- Version and build date (left/right aligned)
+- Model and working directory info
+- Input box with mode in title
+- Ghost text placeholder
+- Status line at bottom
+
+### 5.2 Main Session View
+
+```
+┌─────────────────────────────────────────────────────────────────┬──────────────────────────────────────────┐
+│                                                                 │ Session                                  │
+│  You                                              12:34 PM      │ ───────────────────────────────────────  │
+│  ───                                                            │ Context: 42% (84k/200k)                  │
+│  Can you help me implement the API client?                      │ Cost: $0.12                              │
+│                                                                 │                                          │
+│  GLM-4.7                                          12:34 PM      │ ▼ Todo                                   │
+│  ────────                                                       │ [ ] Set up project structure             │
+│  I'll help you implement the API client. Let me start by        │ [>] Implement API client                 │
+│  creating the types and then the client class.                  │ [ ] Add error handling                   │
+│                                                                 │ [x] Write configuration                  │
+│  ▶ file_write src/api/types.ts                          [OK]    │                                          │
+│  ▶ file_write src/api/client.ts                         [OK]    │ ▶ MCPs 4/4                               │
+│                                                                 │                                          │
+│  The API client is now ready. It includes:                      │ ▶ Modified Files                         │
+│  - Type definitions for all 8 GLM models                        │                                          │
+│  - Retry logic with exponential backoff                         │                                          │
+│                                                                 │                                          │
+├─────────────────────────────────────────────────────────────────┤                                          │
+│ ┌─ AGENT (Thinking) ────────────────────────────────────────┐   │                                          │
+│ │                                                           │   │                                          │
+│ │  > _                                                      │   │                                          │
+│ │                                                           │   │                                          │
+│ │    What are we building, breaking, or making better?      │   │                                          │
+│ │                                                           │   │                                          │
+│ └───────────────────────────────────────────────────────────┘   │                                          │
+├─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
+│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026                           │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Layout Structure:**
+- Chat area (left, flexible width)
+- Sidebar (right, fixed 42 chars)
+- Input area (below chat)
+- Status line (bottom, full width)
+
+### 5.3 Status Line
+
+**Format:**
+```
+MODEL │ MODE │ [PROGRESS] XX% │ DIR │  BRANCH │ MCPs: X/X │ DATE
+```
+
+**Example:**
+```
+GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+```
+
+**During tool execution:**
+```
+GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/glm-cli │  main │ MCPs: 4/4 │ file_write...
+```
+
+**Segments:**
+| Segment | Content | Color |
+|---------|---------|-------|
+| Model | Model name | White |
+| Mode | Mode name | Mode color |
+| Progress | Context % bar | White/dim |
+| Dir | Working directory | Dim |
+| Branch | Git branch | Dim |
+| MCPs | Connection status | Green if all connected |
+| Date/Activity | Current date or tool | Dim |
+
+### 5.4 Message Block
+
+**User Message:**
+```
+You                                              12:34 PM
+───
+Can you help me implement the API client?
+```
+
+**Assistant Message:**
+```
+GLM-4.7                                          12:34 PM
+────────
+I'll help you implement the API client. Let me start by
+creating the types and then the client class.
+
+▶ file_write src/api/types.ts                        [OK]
+▶ file_write src/api/client.ts                       [OK]
+
+The API client is now ready.
+```
+
+**Styling:**
+- Role name: Bold, left-aligned
+- Timestamp: Dim, right-aligned
+- Underline: Short for user (`───`), longer for assistant (`────────`)
+- Content: Normal text
+- Tool blocks: Inline with message
+
+### 5.5 Tool Block
+
+**Collapsed:**
+```
+▶ file_read src/api/client.ts                                                     [OK]
+```
+
+**Expanded:**
+```
+▼ file_read src/api/client.ts                                                     [OK]
+  ┌────────────────────────────────────────────────────────────────────────────────────┐
+  │  1  import { OpenAI } from "openai"                                                │
+  │  2                                                                                 │
+  │  3  export class GLMClient {                                                       │
+  │  4    private client: OpenAI                                                       │
+  │  ...                                                                               │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**With Diff:**
+```
+▼ file_edit src/api/client.ts                                                     [OK]
+  ┌────────────────────────────────────────────────────────────────────────────────────┐
+  │  + import { z } from "zod"                                                         │
+  │    import { OpenAI } from "openai"                                                 │
+  │  -                                                                                 │
+  │  + const ConfigSchema = z.object({                                                 │
+  │  +   apiKey: z.string(),                                                           │
+  │  + })                                                                              │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Styling:**
+- Indicator: `▶` collapsed, `▼` expanded (dim)
+- Tool name: Normal
+- Path: Dim
+- Status: `[OK]` green, `[FAIL]` red
+- Content box: Single-line border, indented
+- Diff: `+` green, `-` red, context white
+
+### 5.6 Thinking Block
+
+**During Streaming:**
+```
+│ Thinking: I need to analyze the current API structure and determine the best
+│ approach for implementing retry logic. The exponential backoff pattern works
+│ well for transient failures...█
+```
+
+**Collapsed (after completion):**
+```
+▶ Thinking                                                                  [collapsed]
+```
+
+**Expanded:**
+```
+▼ Thinking
+  │ I need to analyze the current API structure and determine the best approach
+  │ for implementing retry logic. The exponential backoff pattern works well for
+  │ transient failures. I'll use a base delay of 1000ms with a multiplier of 2,
+  │ capped at 5 retries maximum.
+```
+
+**Styling:**
+- Left border indicator during streaming
+- Italic text
+- Dim color
+- Blinking cursor during streaming
+- Auto-collapse after generation completes
+
+### 5.7 Sidebar
+
+**Structure:**
+```
+Session
+───────────────────────────────────────
+Context: 42% (84k/200k)
+Cost: $0.12
+
+▼ Todo
+[ ] Set up project structure
+[>] Implement API client
+[ ] Add error handling
+[x] Write configuration
+
+▶ MCPs 4/4
+
+▶ Modified Files
+```
+
+**Specifications:**
+- Fixed width: 42 characters
+- Left border separator from main content
+- Collapsible sections with `▶`/`▼`
+- Section headers: Bold
+- Todo items: Status indicators with content
+- MCP count: Green if all connected
+
+### 5.8 Input Area
+
+**Empty with ghost text:**
+```
+┌─ AGENT (Thinking) ──────────────────────────────────────────────────────────────────┐
+│                                                                                     │
+│  > _                                                                                │
+│                                                                                     │
+│    What are we building, breaking, or making better?                                │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**With content:**
+```
+┌─ AGENT (Thinking) ──────────────────────────────────────────────────────────────────┐
+│                                                                                     │
+│  > Can you help me implement a streaming handler?                                   │
+│    I need it to:                                                                    │
+│    - Parse SSE chunks                                                               │
+│    - Extract thinking content_                                                      │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**With autocomplete:**
+```
+┌─ AGENT (Thinking) ──────────────────────────────────────────────────────────────────┐
+│                                                                                     │
+│  > Review @src/api/cl_                                                              │
+│    ┌────────────────────────────────────────┐                                       │
+│    │ > src/api/client.ts                    │                                       │
+│    │   src/api/client.test.ts               │                                       │
+│    └────────────────────────────────────────┘                                       │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Specifications:**
+- Box with mode in title
+- "(Thinking)" shown when thinking mode enabled
+- Prompt cursor: `>`
+- Ghost text: Dim, below prompt
+- Multi-line support via Shift+Enter
+- Autocomplete dropdown positioned at cursor
+
+### 5.9 Command Palette
+
+```
+                    ┌─ Commands ─────────────────────────────────── [Esc] ──┐
+                    │                                                       │
+                    │  > /new                                               │
+                    │    /new         New session                           │
+                    │    /save        Save session                          │
+                    │    /load        Load session                          │
+                    │    /undo        Revert last change                    │
+                    │    /redo        Restore undone                        │
+                    │    /model       Switch model                          │
+                    │    /mode        Switch mode                           │
+                    │    /think       Toggle thinking                       │
+                    │    /stats       Session stats                         │
+                    │    /help        Show help                             │
+                    │    /quit        Exit                                  │
+                    │                                                       │
+                    └───────────────────────────────────────────────────────┘
+```
+
+### 5.10 Session End Summary
+
+```
+────────────────────────────────────────────────────────────────────────────────────────
+  GLM-CLI SESSION COMPLETE
+────────────────────────────────────────────────────────────────────────────────────────
+
+  Duration        1h 23m 45s
+  Modes           AGENT (primary) → PLANNER (1 switch)
+  
+────────────────────────────────────────────────────────────────────────────────────────
+  TOOLS
+────────────────────────────────────────────────────────────────────────────────────────
+
+  Calls           15 total        12 success      3 failed
+  Code            +142 lines      -38 lines
+
+────────────────────────────────────────────────────────────────────────────────────────
+
+  Until next time!
+
+────────────────────────────────────────────────────────────────────────────────────────
+```
+
+---
+
+## 6. Directory Structure
 
 ```
 glm-cli/
 ├── src/
-│   ├── index.ts                 # CLI entry point
+│   ├── index.tsx                # CLI entry point
 │   ├── global.ts                # Global paths configuration
 │   │
 │   ├── bus/
@@ -211,16 +668,20 @@ glm-cli/
 │   │
 │   ├── ui/
 │   │   ├── App.tsx              # Root component
+│   │   ├── design.ts            # Design constants (colors, indicators)
 │   │   ├── components/
-│   │   │   ├── ChatView.tsx     # Message list
-│   │   │   ├── InputArea.tsx    # User input
-│   │   │   ├── StatusLine.tsx   # Bottom status
-│   │   │   ├── Sidebar.tsx      # Right sidebar panel
-│   │   │   ├── TodoItem.tsx     # Individual todo display
-│   │   │   ├── ToolBlock.tsx    # Collapsible tool result
-│   │   │   ├── ThinkingBlock.tsx # Collapsible thinking
-│   │   │   ├── MessageBlock.tsx # Single message
-│   │   │   └── Overlay.tsx      # Modal overlays
+│   │   │   ├── WelcomeScreen.tsx  # Welcome/startup screen
+│   │   │   ├── ChatView.tsx       # Message list
+│   │   │   ├── InputArea.tsx      # User input
+│   │   │   ├── StatusLine.tsx     # Bottom status
+│   │   │   ├── Sidebar.tsx        # Right sidebar panel
+│   │   │   ├── TodoItem.tsx       # Individual todo display
+│   │   │   ├── ToolBlock.tsx      # Collapsible tool result
+│   │   │   ├── ThinkingBlock.tsx  # Collapsible thinking
+│   │   │   ├── MessageBlock.tsx   # Single message
+│   │   │   ├── Autocomplete.tsx   # @ reference dropdown
+│   │   │   ├── Overlay.tsx        # Modal overlays
+│   │   │   └── ProgressBar.tsx    # Context usage bar
 │   │   │
 │   │   └── context/
 │   │       ├── session.tsx      # Session context
@@ -278,9 +739,9 @@ glm-cli/
 
 ---
 
-## 5. Data Flow
+## 7. Data Flow
 
-### 5.1 User Input Flow
+### 7.1 User Input Flow
 
 1. Keyboard event captured by OpenTUI
 2. Input handler processes event
@@ -292,7 +753,7 @@ glm-cli/
 8. Streaming response batched at 16ms
 9. UI re-renders via SolidJS reconciliation
 
-### 5.2 Streaming Response Flow
+### 7.2 Streaming Response Flow
 
 1. GLM API returns SSE stream
 2. Stream handler parses chunks
@@ -302,7 +763,7 @@ glm-cli/
 6. `reconcile()` applies minimal DOM changes
 7. Scrollbox auto-scrolls to bottom
 
-### 5.3 Tool Execution Flow
+### 7.3 Tool Execution Flow
 
 1. Agent requests tool execution
 2. Tool registry validates parameters (Zod)
@@ -311,7 +772,7 @@ glm-cli/
 5. ToolBlock component renders result
 6. Block starts collapsed, expandable
 
-### 5.4 Session Checkpoint Flow
+### 7.4 Session Checkpoint Flow
 
 1. Assistant message completes
 2. File changes detected
@@ -319,7 +780,7 @@ glm-cli/
 4. Checkpoint reference stored in session
 5. /undo pops stash, /redo re-applies
 
-### 5.5 Todo Update Flow
+### 7.5 Todo Update Flow
 
 1. Agent calls TodoWrite tool with updated todo list
 2. Tool validates todos via Zod schema
@@ -331,43 +792,65 @@ glm-cli/
 
 ---
 
-## 6. Key Design Decisions
+## 8. Key Design Decisions
 
-### 6.1 OpenTUI + SolidJS
+### 8.1 OpenTUI + SolidJS
 
 **Why:** Flicker-free rendering is non-negotiable. OpenTUI's Zig-powered renderer with SolidJS fine-grained reactivity eliminates the re-render storms common with React-based TUI solutions.
 
 **Trade-off:** Smaller ecosystem than Ink, but performance gains are substantial.
 
-### 6.2 Single API Endpoint
+**Configuration Required:**
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
+  }
+}
+```
+
+```toml
+# bunfig.toml
+preload = ["@opentui/solid/preload"]
+```
+
+### 8.2 Single API Endpoint
 
 **Why:** The Coding Plan endpoint (`https://api.z.ai/api/coding/paas/v4/`) enables thinking mode by default. Falling back to standard endpoints would lose this capability.
 
 **Trade-off:** No graceful API fallback, but explicit failure is better than silent degradation.
 
-### 6.3 Git-Based Undo/Redo
+### 8.3 Git-Based Undo/Redo
 
 **Why:** Git stash provides atomic, reliable file state snapshots. Per-message checkpoints enable granular undo.
 
 **Trade-off:** Requires git repository, but most coding projects already have this.
 
-### 6.4 Agent-Controlled Delegation
+### 8.4 Agent-Controlled Delegation
 
 **Why:** Simpler UX than exposing @ syntax for subagents. The primary agent decides when to delegate based on task complexity.
 
 **Trade-off:** Less user control, but more coherent agent behavior.
 
-### 6.5 16ms Event Batching
+### 8.5 16ms Event Batching
 
 **Why:** 60fps target requires updates no faster than 16ms. Batching prevents render thrashing during high-frequency streaming.
 
 **Trade-off:** Slight latency increase (imperceptible), major stability gain.
 
+### 8.6 Design Constants File
+
+**Why:** Single source of truth for colors, indicators, and spacing values. Prevents inconsistency across components.
+
+**Location:** `src/ui/design.ts`
+
 ---
 
-## 7. State Management
+## 9. State Management
 
-### 7.1 Global State (SolidJS Stores)
+### 9.1 Global State (SolidJS Stores)
 
 ```typescript
 // Session store
@@ -406,14 +889,14 @@ interface UIState {
 }
 ```
 
-### 7.2 Context Providers
+### 9.2 Context Providers
 
 - `SessionProvider` - Session lifecycle, auto-save
 - `ModeProvider` - Mode switching, mode-specific tools
 - `TodoProvider` - Todo state, event subscription
 - `UIProvider` - Overlay state, input focus
 
-### 7.3 Event Bus
+### 9.3 Event Bus
 
 ```typescript
 // Todo events
@@ -429,9 +912,9 @@ namespace TodoEvents {
 
 ---
 
-## 8. Todo System Design
+## 10. Todo System Design
 
-### 8.1 Data Model
+### 10.1 Data Model
 
 ```typescript
 // src/session/todo.ts
@@ -447,14 +930,14 @@ const TodoSchema = z.object({
 type Todo = z.infer<typeof TodoSchema>
 ```
 
-### 8.2 Storage
+### 10.2 Storage
 
 Todos are stored per-session in the storage layer:
 - Key: `["todo", sessionID]`
 - Format: JSON array of Todo objects
 - Location: `~/.config/glm-cli/storage/todo/{sessionID}.json`
 
-### 8.3 Tools
+### 10.3 Tools
 
 **TodoWrite** - Replaces the entire todo list
 - Parameters: `{ todos: Todo[] }`
@@ -466,24 +949,24 @@ Todos are stored per-session in the storage layer:
 - Returns: Current todos array
 - Use: Agent checks status before/after tasks
 
-### 8.4 UI Display (Sidebar)
+### 10.4 UI Display (Sidebar)
 
 ```
-Todo
+▼ Todo
 [ ] Set up project structure
-[>] Implement API client        <- in_progress (highlighted)
+[>] Implement API client        <- in_progress (cyan)
 [ ] Add error handling
-[x] Write configuration loader  <- completed (muted)
+[x] Write configuration loader  <- completed (dim)
 ```
 
 **Brutalist Design Rules:**
-- No emojis - use ASCII: `[ ]`, `[>]`, `[x]`
-- Status colors: pending=muted, in_progress=cyan, completed=muted
+- No emojis - use ASCII: `[ ]`, `[>]`, `[x]`, `[-]`
+- Status colors: pending=dim, in_progress=cyan, completed=dim
 - Collapsible when >2 items
 - Hidden when all completed
 - Click to expand/collapse section
 
-### 8.5 Agent Guidelines
+### 10.5 Agent Guidelines
 
 The agent should use TodoWrite proactively when:
 1. Task requires 3+ distinct steps
@@ -502,7 +985,7 @@ The agent should NOT use todos when:
 
 ---
 
-## 9. Error Handling Strategy
+## 11. Error Handling Strategy
 
 | Error Type | Handling |
 |------------|----------|
@@ -516,7 +999,7 @@ The agent should NOT use todos when:
 
 ---
 
-## 10. Security Considerations
+## 12. Security Considerations
 
 1. **API Key** - Stored in environment variable or `~/.config/glm-cli/config.json`
 2. **File Access** - Tools operate within working directory by default
@@ -526,7 +1009,79 @@ The agent should NOT use todos when:
 
 ---
 
-## 11. Related Specifications
+## 13. OpenTUI Implementation Patterns
+
+### 13.1 Component Naming (Solid)
+
+Multi-word components use underscores:
+```tsx
+<tab_select />    // Not <tab-select>
+<ascii_font />    // Not <ascii-font>
+<line_number />   // Not <line-number>
+```
+
+### 13.2 Text Styling
+
+Use nested modifier tags, not props:
+```tsx
+// CORRECT
+<text>
+  <span fg="#5cffff"><strong>AGENT</strong></span>
+  <span fg="#666666"> │ </span>
+  <span fg="#ffffff">GLM-4.7</span>
+</text>
+
+// WRONG
+<text bold fg="#5cffff">AGENT</text>
+```
+
+### 13.3 Input Handling
+
+```tsx
+<input
+  value={value()}           // Signal accessor with ()
+  onInput={setValue}        // Use onInput, not onChange
+  placeholder="..."
+  focused                   // Required for keyboard input
+/>
+```
+
+### 13.4 Select Events
+
+| Event | Trigger | Use |
+|-------|---------|-----|
+| `onSelect` | Enter pressed | Confirm selection |
+| `onChange` | Arrow keys | Preview/navigate |
+
+### 13.5 Exit Handling
+
+```tsx
+// NEVER use process.exit() directly
+// ALWAYS use renderer.destroy()
+
+const renderer = useRenderer()
+
+const handleExit = () => {
+  renderer.destroy()  // Cleans up and exits properly
+}
+```
+
+### 13.6 ScrollBox Requirements
+
+```tsx
+<scrollbox
+  height={someHeight}      // REQUIRED - must have explicit height
+  focused                  // For keyboard scrolling
+>
+  <For each={items()}>
+    {(item) => <text>{item}</text>}
+  </For>
+</scrollbox>
+```
+
+---
+
+## 14. Related Specifications
 
 For detailed implementation specifications, see:
 
