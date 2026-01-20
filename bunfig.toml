@@ -1,10 +1,2 @@
-[install]
-# Don't install devDependencies by default
-dev = false
-
-[run]
-# Run scripts with sh instead of node
-shell = "sh"
-
 # OpenTUI SolidJS preload for JSX transformation
 preload = ["@opentui/solid/preload"]

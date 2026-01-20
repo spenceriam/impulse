@@ -69,6 +69,152 @@
 - [ ] Task 4.4: Autocomplete Dropdown
 - [ ] Task 4.5: Message History Navigation
 
+## Version Bumping Protocol
+
+**CRITICAL:** AI agents MUST follow this semantic versioning workflow when creating commits/PRs.
+
+### Semantic Versioning Format
+
+Version numbers follow format: **MAJOR.MINOR.PATCH** (e.g., 0.1.0)
+
+- **MAJOR** (X.0.0): Breaking changes, API changes, architectural overhauls
+  - Example: 0.5.2 → 1.0.0
+- **MINOR** (0.X.0): New features, new components, significant enhancements (backwards compatible)
+  - Example: 0.1.0 → 0.2.0
+- **PATCH** (0.0.X): Bug fixes, typos, minor tweaks, performance improvements (backwards compatible)
+  - Example: 0.1.0 → 0.1.1
+
+### AI Agent Workflow for Version Bumping
+
+**Step 1: Analyze Changes**
+Before committing or tagging, review all changes and categorize them.
+
+**Step 2: Ask User for Confirmation**
+Present your analysis to the user and ask for confirmation:
+```
+Based on changes in this session, I've identified:
+- [List key changes]
+
+I recommend a [PATCH/MINOR/MAJOR] version bump because [reasoning].
+
+Current version: X.Y.Z
+Proposed version: X.Y.Z
+
+Does this classification seem correct? Should I proceed with this version bump?
+```
+
+**Step 3: Update What's New (Changelog)**
+Before bumping version, update CHANGELOG.md:
+- Add new entry at TOP of changelog
+- Use current date in format "YYYY-MM-DD"
+- Set type to "patch", "minor", or "major"
+- Write clear, user-friendly title
+- List changes as bullet points describing what users will see/experience
+- Keep descriptions concise and benefit-focused
+
+**Step 4: Apply Version Bump**
+After updating changelog, bump version:
+```bash
+bun version patch  # or minor, or major
+git commit -m "chore: bump version to X.Y.Z"
+```
+
+**Step 5: Document in Commit**
+- Update commit message to include new version
+- Mention version bump and reasoning in commit description
+- List what changed to justify bump type
+
+### Decision Tree for AI Agents
+
+**MAJOR bump (X.0.0)** - Use when:
+- Removing or renaming public components or APIs
+- Changing component props in breaking ways
+- Restructuring application architecture
+- Changing build output or deployment requirements
+- Any change that requires users/developers to modify their code
+
+**MINOR bump (0.X.0)** - Use when:
+- Adding new feature or component
+- Adding new props or options (backwards compatible)
+- Significant enhancement to existing feature
+- Adding new API endpoints or services
+- Adding new agents, tools, or commands
+- New user-facing functionality
+
+**PATCH bump (0.0.X)** - Use when:
+- Fixing bugs or errors
+- Correcting typos in UI text or documentation
+- Improving error messages or logging
+- CSS/styling fixes or adjustments
+- Performance optimizations (no API changes)
+- Accessibility improvements
+- Dependency updates (no breaking changes)
+- Security patches
+
+**SKIP version bump** - Use when:
+- Updating documentation only (README, comments)
+- Modifying AGENTS.md or workflow files
+- Changing CI/CD configurations
+- Updating .gitignore or similar tooling files
+- In these cases, note "version: skip" in commit
+
+### Examples
+
+**PATCH: 0.1.0 → 0.1.1**
+- "Fix type error in InputArea component"
+- "Correct tool result formatting"
+- "Improve error handling in API client"
+
+**MINOR: 0.1.0 → 0.1.1**
+- "Add @ reference autocomplete"
+- "Implement message history navigation"
+- "Add MCP status overlay"
+
+**MAJOR: 0.5.2 → 1.0.0**
+- "Redesign tool execution architecture"
+- "Remove deprecated agent API"
+- "Change from direct tool calls to orchestration pattern"
+
+### Integration with Existing Workflow
+
+Version bumping happens after task completion, before committing:
+
+1. Complete task (feature, fix, enhancement)
+2. **Analyze changes and ask user about version bump type**
+3. **Update CHANGELOG.md** (if applicable)
+4. **Bump version**: `bun version patch/minor/major`
+5. Commit: `git commit -m "feat/diff/fix: description"`
+6. Create git tag: `git tag -a v0.X.Y -m "Release v0.X.Y"`
+7. **Ask user before pushing**: Push tags and commits?
+
+### Verification Commands
+
+```bash
+# Check current version
+grep '"version"' package.json
+
+# Check if tags exist
+git tag -l | tail -5
+
+# View recent version bumps
+git log --oneline --grep="version" -10
+```
+
+### When You Forget
+
+If a commit was made without version bump:
+1. Run `bun version patch/minor/major`
+2. Commit: `git commit -m "chore: bump version to X.Y.Z"`
+3. Create tag: `git tag -a v0.X.Y -m "Release v0.X.Y"`
+
+### Human Override
+
+Users can always override AI agent version decisions:
+- Manually edit package.json
+- Run `bun version X.Y.Z` to set specific version
+- Document reasoning in commit comments
+- AI agents should defer to user judgment when corrected
+
 ## Tech Stack
 
 | Category | Technology |
@@ -523,6 +669,10 @@ All 4 Z.AI MCP servers use a single API key:
 | 01-20-2026 | Global keyboard handler | Tab mode cycling, Ctrl+P/M commands, double-press safety |
 | 01-20-2026 | MCP Manager pattern | Single manager class with unified initialization for all 4 MCPs |
 | 01-20-2026 | MCP overlay integration | Reuse existing Overlay component for MCP status display |
+| 01-20-2026 | Paste detection | Timing-based multi-line paste detection with line count indicator |
+| 01-20-2026 | @ reference parser | Fuzzy filename matching, @~ expansion, line range support |
+| 01-20-2026 | Input history navigation | Up/down arrow for browsing previous submissions |
+| 01-20-2026 | Autocomplete dropdown | Positioned @ reference completion with keyboard navigation |
 
 ## How to Run
 

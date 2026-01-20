@@ -1,0 +1,21 @@
+Performs exact string replacements in files.
+
+Usage:
+- You must use the Read tool at least once before editing a file
+- When editing text, preserve the exact indentation (tabs/spaces) as it appears in the file
+- ALWAYS prefer editing existing files over writing new files
+- Only use emojis if the user explicitly requests it
+
+Parameters:
+- filePath (required): The absolute path to the file to modify
+- oldString (required): The text to replace
+- newString (required): The text to replace it with (must be different from oldString)
+- replaceAll (optional): Replace all occurrences of oldString (default false)
+
+Error Conditions:
+- The edit will FAIL if oldString is not found in the file
+- The edit will FAIL if oldString is found multiple times (unless replaceAll is true)
+- Provide more context in oldString to make it unique if needed
+
+Notes:
+- Use replaceAll for renaming variables or strings across a file

@@ -1,4 +1,4 @@
-import { render, useRenderer, useKeyboard } from "@opentui/solid";
+import { useRenderer, useKeyboard } from "@opentui/solid";
 import { StatusLine, InputArea, ChatView } from "./components";
 import { Mode } from "./design";
 
@@ -43,5 +43,3 @@ export function App() {
     </box>
   );
 }
-
-render(() => <App />);

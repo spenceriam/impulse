@@ -21,17 +21,26 @@ export const TodoEvents = {
 };
 
 export const SessionEvents = {
+  Created: BusEvent.define(
+    "session.created",
+    z.object({
+      sessionID: z.string(),
+      session: z.any(),
+    })
+  ),
+
   Updated: BusEvent.define(
     "session.updated",
     z.object({
-      id: z.string(),
+      sessionID: z.string(),
+      session: z.any(),
     })
   ),
 
   Deleted: BusEvent.define(
     "session.deleted",
     z.object({
-      id: z.string(),
+      sessionID: z.string(),
     })
   ),
 
@@ -40,6 +49,24 @@ export const SessionEvents = {
     z.object({
       sessionID: z.string(),
       status: z.enum(["idle", "working", "compacting"]),
+    })
+  ),
+
+  Checkpoint: BusEvent.define(
+    "session.checkpoint",
+    z.object({
+      sessionID: z.string(),
+      action: z.enum(["create", "undo", "redo"]),
+      toIndex: z.number().optional(),
+    })
+  ),
+
+  Compacted: BusEvent.define(
+    "session.compacted",
+    z.object({
+      sessionID: z.string(),
+      summary: z.string(),
+      removedCount: z.number(),
     })
   ),
 };

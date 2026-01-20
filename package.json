@@ -1,11 +1,11 @@
 {
   "name": "glm-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI coding agent powered by GLM-4.7",
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.tsx",
-    "build": "bun build src/index.tsx --outdir dist --target node",
+    "build": "bun run scripts/build.ts",
     "start": "bun run dist/index.js",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
@@ -13,13 +13,14 @@
   "dependencies": {
     "@opentui/core": "^0.1.74",
     "@opentui/solid": "^0.1.74",
-    "solid-js": "^1.9.0",
     "openai": "^4.73.0",
+    "solid-js": "^1.9.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
-    "@types/node": "^22.10.0"
+    "@types/bun": "^1.3.6",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
   },
   "bin": {
     "glm": "./dist/index.js"
