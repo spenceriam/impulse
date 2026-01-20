@@ -1,7 +1,7 @@
 {
   "name": "glm-cli",
   "version": "0.1.2",
-  "description": "AI coding agent powered by GLM-4.7",
+  "description": "OpenTUI coding harness powered by Z.ai GLM models",
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.tsx",
