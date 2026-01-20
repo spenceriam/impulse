@@ -16,7 +16,7 @@
 
 ## Current State
 
-**Status:** Phase 1 COMPLETE - Ready for Phase 2 (Core UI)
+**Status:** Phase 2 COMPLETE - Ready for Phase 3 (MCP Integration)
 
 ### Phase 1 Completed Tasks
 - [x] Task 1.1: Initialize Project
@@ -31,14 +31,29 @@
 - [x] Task 1.10: Instruction File Discovery
 - [x] Task 1.11: Design Constants File
 
-### Next Up (Phase 2)
-- [ ] Task 2.0: Welcome Screen Component
-- [ ] Task 2.1: App Shell + Layout
-- [ ] Task 2.2: Input Component
-- [ ] Task 2.3: Message Component
-- [ ] Task 2.4: Tool Block Component
-- [ ] Task 2.5: Todo Panel Component
-- [ ] Task 2.6: Status Line Component
+### Phase 2 Completed Tasks
+- [x] Task 2.1: OpenTUI App Shell
+- [x] Task 2.2: Status Line Component
+- [x] Task 2.3: Input Area Component
+- [x] Task 2.4: Chat View Component
+- [x] Task 2.5: Message Block Component
+- [x] Task 2.6: Thinking Block Component
+- [x] Task 2.7: Tool Block Component
+- [x] Task 2.8: Sidebar Panel Component
+- [x] Task 2.9: Todo Item Component
+- [x] Task 2.10: Overlay System
+- [x] Task 2.11: Mode Context
+- [x] Task 2.12: Session Context
+- [x] Task 2.13: Todo Context
+- [x] Task 2.14: Keyboard Shortcuts
+
+### Next Up (Phase 3)
+- [ ] Task 3.1: MCP Manager
+- [ ] Task 3.2: Vision MCP (Stdio)
+- [ ] Task 3.3: Web Search MCP (HTTP)
+- [ ] Task 3.4: Web Reader MCP (HTTP)
+- [ ] Task 3.5: Zread MCP (HTTP)
+- [ ] Task 3.6: MCP Status Overlay
 
 ## Tech Stack
 
@@ -489,6 +504,9 @@ All 4 Z.AI MCP servers use a single API key:
 | 01-20-2026 | Enhanced Status Line | Progress bar, git branch, current tool activity |
 | 01-20-2026 | Session End Summary | Clean exit with useful stats |
 | 01-20-2026 | Design constants file | Single source of truth for colors/indicators |
+| 01-20-2026 | Phase 2 UI components | Complete OpenTUI component set for core functionality |
+| 01-20-2026 | Context providers | Mode, Session, Todo contexts for state management |
+| 01-20-2026 | Global keyboard handler | Tab mode cycling, Ctrl+P/M commands, double-press safety |
 
 ## How to Run
 
@@ -540,9 +558,24 @@ glm-cli/
 │   ├── tools/              # Built-in tools
 │   ├── ui/                 # OpenTUI components
 │   │   ├── components/     # Reusable UI components
+│   │   │   ├── ProgressBar.tsx
+│   │   │   ├── StatusLine.tsx
+│   │   │   ├── InputArea.tsx
+│   │   │   ├── ChatView.tsx
+│   │   │   ├── MessageBlock.tsx
+│   │   │   ├── ThinkingBlock.tsx
+│   │   │   ├── ToolBlock.tsx
+│   │   │   ├── Sidebar.tsx
+│   │   │   ├── TodoItem.tsx
+│   │   │   └── Overlay.tsx
 │   │   ├── context/        # SolidJS contexts
+│   │   │   ├── mode.tsx
+│   │   │   ├── session.tsx
+│   │   │   └── todo.tsx
 │   │   └── design.ts       # Design constants (colors, indicators)
 │   ├── input/              # Input handling (paste, @refs)
+│   │   ├── shortcuts.ts     # Global keyboard handler
+│   │   └── index.ts
 │   ├── commands/           # Slash commands
 │   ├── modes/              # Mode-specific logic
 │   └── util/               # Utilities
