@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-01-20
+
+### Fixed
+
+- **Paste Support** - Input components now properly support paste (Ctrl+V / Cmd+V) via textarea `onPaste` event
+- **Input Components** - Switched from `<input>` to `<textarea>` with proper event handling following OpenTUI patterns
+- **Undo Support** - Native undo (Ctrl+Z / Cmd+Z) now works in text inputs
+
 ## [0.2.0] - 2026-01-20
 
 ### Added

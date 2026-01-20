@@ -1,6 +1,6 @@
 {
   "name": "glm-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenTUI coding harness powered by Z.ai GLM models",
   "type": "module",
   "scripts": {
