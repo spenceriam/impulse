@@ -16,7 +16,7 @@
 
 ## Current State
 
-**Status:** Phase 2 COMPLETE - Ready for Phase 3 (MCP Integration)
+**Status:** Phase 3 COMPLETE - Ready for Phase 4 (Multi-Modal Input)
 
 ### Phase 1 Completed Tasks
 - [x] Task 1.1: Initialize Project
@@ -47,13 +47,20 @@
 - [x] Task 2.13: Todo Context
 - [x] Task 2.14: Keyboard Shortcuts
 
-### Next Up (Phase 3)
-- [ ] Task 3.1: MCP Manager
-- [ ] Task 3.2: Vision MCP (Stdio)
-- [ ] Task 3.3: Web Search MCP (HTTP)
-- [ ] Task 3.4: Web Reader MCP (HTTP)
-- [ ] Task 3.5: Zread MCP (HTTP)
-- [ ] Task 3.6: MCP Status Overlay
+### Phase 3 Completed Tasks
+- [x] Task 3.1: MCP Manager
+- [x] Task 3.2: Vision MCP (Stdio)
+- [x] Task 3.3: Web Search MCP (HTTP)
+- [x] Task 3.4: Web Reader MCP (HTTP)
+- [x] Task 3.5: Zread MCP (HTTP)
+- [x] Task 3.6: MCP Status Overlay
+
+### Next Up (Phase 4)
+- [ ] Task 4.1: Paste Handler
+- [ ] Task 4.2: Image Paste Handler
+- [ ] Task 4.3: @ Reference Parser
+- [ ] Task 4.4: Autocomplete Dropdown
+- [ ] Task 4.5: Message History Navigation
 
 ## Tech Stack
 
