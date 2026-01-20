@@ -3,13 +3,13 @@
 > Implementation tasks for glm-cli using BMAD-method
 
 Generated: 01-19-2026
-Updated: 01-20-2026 (OpenTUI + frontend-design skill integration)
+Updated: 01-20-2026 (Phase 8 added - Integration Wiring discovered during testing)
 
 ---
 
 ## Overview
 
-7 phases, sequential execution (with Phases 3-4 parallelizable). Each task includes prerequisites, before/after states, steps, and verification.
+8 phases, sequential execution (with Phases 3-4 parallelizable). Each task includes prerequisites, before/after states, steps, and verification.
 
 | Phase | Name | Tasks | Est. Effort |
 |-------|------|-------|-------------|
@@ -20,6 +20,9 @@ Updated: 01-20-2026 (OpenTUI + frontend-design skill integration)
 | 5 | Agent & Tools | 14 | Large |
 | 6 | Session Management | 8 | Medium |
 | 7 | Polish + Release | 6 | Medium |
+| 8 | Integration Wiring | 5 | Medium |
+
+**Note:** Phase 8 was discovered during testing. Phases 1-7 built infrastructure in silos; Phase 8 wires everything together in App.tsx.
 
 ### Critical Configuration Requirements
 
@@ -3095,6 +3098,9 @@ Phase 3         Phase 4             │
             │
             ▼
       Phase 7 (Polish + Release)
+            │
+            ▼
+      Phase 8 (Integration Wiring)
 ```
 
 **Notes:**
@@ -3102,6 +3108,237 @@ Phase 3         Phase 4             │
 - Phase 5 depends on Phases 3 and 4 for MCP tools and input handling
 - Phase 6 depends on Phase 5 for agent integration
 - Phase 7 is final polish after all features complete
+- **Phase 8** was discovered during testing - it wires all infrastructure together in App.tsx
+
+---
+
+## Phase 8: Integration Wiring
+
+> Wire all infrastructure together in App.tsx - discovered during testing
+
+**Background:** Phases 1-7 created all the infrastructure (API client, UI components, contexts, session management, tools, commands) but App.tsx was never wired up to use them. The app showed hardcoded placeholder data instead of being functional. This phase connects everything.
+
+---
+
+### Task 8.1: Context Provider Integration
+
+**Prerequisites:** Phases 1-7 complete
+**Dependencies:** None
+**Estimated Effort:** Small
+
+#### Description
+Wrap App.tsx with all required context providers.
+
+#### Before
+```tsx
+// App.tsx renders components without contexts
+function App() {
+  return <box>...</box>
+}
+```
+
+#### After
+```tsx
+// App.tsx wrapped with all providers
+function App() {
+  return (
+    <ModeProvider>
+      <SessionProvider>
+        <TodoProvider>
+          {/* App content */}
+        </TodoProvider>
+      </SessionProvider>
+    </ModeProvider>
+  )
+}
+```
+
+#### Steps
+1. Import ModeProvider from `src/ui/context/mode.tsx`
+2. Import SessionProvider from `src/ui/context/session.tsx`
+3. Import TodoProvider from `src/ui/context/todo.tsx`
+4. Wrap root component with providers in correct order
+5. Verify contexts are accessible in child components
+
+#### Verification
+- [ ] ModeProvider wraps app
+- [ ] SessionProvider wraps app
+- [ ] TodoProvider wraps app
+- [ ] useMode() works in children
+- [ ] useSession() works in children
+- [ ] useTodo() works in children
+
+---
+
+### Task 8.2: API Key Check and Welcome Screen
+
+**Prerequisites:** Task 8.1
+**Dependencies:** None
+**Estimated Effort:** Medium
+
+#### Description
+Check for API key on startup and show appropriate screen.
+
+#### Before
+```tsx
+// App always shows session view
+function App() {
+  return <SessionView />
+}
+```
+
+#### After
+```tsx
+// App checks API key, shows welcome or prompt
+function App() {
+  const [hasApiKey, setHasApiKey] = createSignal(false)
+  const [messages] = useSession().messages
+  
+  return (
+    <Show when={!hasApiKey()}>
+      <ApiKeyPrompt onSave={...} />
+    </Show>
+    <Show when={hasApiKey() && messages().length === 0}>
+      <WelcomeScreen />
+    </Show>
+    <Show when={hasApiKey() && messages().length > 0}>
+      <SessionView />
+    </Show>
+  )
+}
+```
+
+#### Steps
+1. Load config using `load()` from `src/util/config.ts`
+2. Check if apiKey exists (now optional in schema)
+3. If no API key: show prompt overlay to enter one
+4. Save API key to config file when entered
+5. If API key exists but no messages: show WelcomeScreen
+6. If API key exists and has messages: show SessionView
+
+#### Verification
+- [ ] Missing API key shows prompt
+- [ ] Entered API key saves to config
+- [ ] New session shows welcome screen
+- [ ] Existing session shows chat view
+
+---
+
+### Task 8.3: Input Submission to GLMClient
+
+**Prerequisites:** Task 8.2
+**Dependencies:** None
+**Estimated Effort:** Medium
+
+#### Description
+Connect InputArea submission to GLMClient for actual API calls.
+
+#### Before
+```tsx
+// Input submission does nothing
+<InputArea onSubmit={(text) => console.log(text)} />
+```
+
+#### After
+```tsx
+// Input submission sends to GLMClient and streams response
+<InputArea onSubmit={async (text) => {
+  addMessage({ role: "user", content: text })
+  const stream = await client.chat(messages())
+  // Handle stream...
+}} />
+```
+
+#### Steps
+1. Initialize GLMClient with API key from config
+2. On input submit: add user message to session
+3. Build messages array for API call
+4. Call GLMClient.chat() with streaming enabled
+5. Create StreamProcessor to handle SSE chunks
+6. Update assistant message as chunks arrive
+7. Handle thinking content separately
+8. Handle tool calls when present
+
+#### Verification
+- [ ] User message added to session
+- [ ] API call made with messages
+- [ ] Streaming response updates UI
+- [ ] Thinking content extracted
+- [ ] Tool calls processed
+
+---
+
+### Task 8.4: Session Manager Integration
+
+**Prerequisites:** Task 8.3
+**Dependencies:** None
+**Estimated Effort:** Medium
+
+#### Description
+Wire up SessionManager for persistence and lifecycle.
+
+#### Before
+```tsx
+// Session state in memory only
+const [messages, setMessages] = createSignal([])
+```
+
+#### After
+```tsx
+// Session state persisted via SessionManager
+const session = useSession()
+// Auto-saves, loads on startup, supports /new, /load, /save
+```
+
+#### Steps
+1. Initialize SessionManager on app startup
+2. Load existing session if available
+3. Wire auto-save (30 second interval)
+4. Connect session context to SessionManager
+5. Ensure messages persist across restarts
+6. Wire up /new, /load, /save commands
+
+#### Verification
+- [ ] Sessions persist to disk
+- [ ] Auto-save triggers every 30s
+- [ ] App loads last session on startup
+- [ ] /new creates fresh session
+- [ ] /load opens session picker
+- [ ] /save persists current session
+
+---
+
+### Task 8.5: Final Integration Testing
+
+**Prerequisites:** Tasks 8.1-8.4
+**Dependencies:** None
+**Estimated Effort:** Medium
+
+#### Description
+End-to-end testing of the integrated application.
+
+#### Steps
+1. Run typecheck: `bun run typecheck`
+2. Run tests: `bun test`
+3. Run build: `bun run build`
+4. Manual test: start app, enter API key, send message
+5. Verify streaming response renders
+6. Verify tool calls work
+7. Verify session saves and loads
+8. Verify all keyboard shortcuts work
+9. Test all slash commands
+
+#### Verification
+- [ ] Typecheck passes
+- [ ] Tests pass
+- [ ] Build succeeds
+- [ ] App starts without crash
+- [ ] API key prompt works
+- [ ] Messages stream correctly
+- [ ] Tools execute and display results
+- [ ] Sessions persist
+- [ ] Mode switching works (Tab)
+- [ ] Commands work (/new, /quit, etc.)
 
 ---
 

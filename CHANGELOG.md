@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-01-20
+
+### Added
+
+- **Phase 8: Integration Wiring** - Connected all infrastructure built in Phases 1-7
+- **API Key Setup Flow** - App now prompts for Z.AI API key on first launch if not configured
+- **Welcome Screen** - ASCII logo display with version, model, and directory info on fresh sessions
+- **Streaming Chat** - Messages stream from GLMClient with real-time UI updates
+- **Session Persistence** - Sessions auto-save every 30 seconds via SessionManager
+- **Session Management Methods** - `createNewSession`, `loadSession`, `saveSession`, `listSessions` in SessionContext
+
+### Changed
+
+- **App.tsx** - Complete rewrite to integrate context providers, API client, and session management
+- **SessionContext** - Now integrates with SessionManager/SessionStore for persistence
+- **StatusLine** - Uses reactive contexts instead of hardcoded values, shows dynamic progress
+- **Config** - API key now optional, enabling first-time setup flow
+
+### Fixed
+
+- **App Not Functional** - App previously showed hardcoded placeholder data; now fully wired up
+
 ## [0.1.2] - 2026-01-20
 
 ### Fixed
