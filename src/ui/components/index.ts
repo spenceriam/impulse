@@ -8,3 +8,4 @@ export { ToolBlock } from "./ToolBlock";
 export { Sidebar } from "./Sidebar";
 export { TodoItem } from "./TodoItem";
 export { Overlay, type OverlayMode, type CommandOption } from "./Overlay";
+export { Autocomplete } from "./Autocomplete";
