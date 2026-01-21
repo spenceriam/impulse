@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-01-21
+
+### Fixed
+
+- **`/model` Selection Highlighting** - Fixed bug where all rows showed highlight color; now only selected row is highlighted
+- **`/model` Column Alignment** - Added proper column alignment with MODEL, INPUT, DESCRIPTION headers
+- **`/model` Descriptions** - Improved model descriptions with input type (text vs text + vision)
+- **`/mcp` Column Alignment** - Added header row and consistent column widths for cleaner output
+- **System Prompt** - Removed hardcoded model name, strengthened English language instruction
+
+### Changed
+
+- **AGENTS.md** - Added UI Implementation References section (OpenTUI skill, Context7 MCP, codebase patterns)
+
 ## [0.3.0] - 2026-01-21
 
 ### Added
