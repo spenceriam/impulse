@@ -10,3 +10,4 @@ export { todoRead } from "./todo-read";
 export { taskTool } from "./task";
 export { questionTool, resolveQuestion, rejectQuestion, hasPendingQuestion } from "./question";
 export type { Question, QuestionOption, QuestionToolInput, QuestionToolOutput } from "./question";
+export { setHeader } from "./set-header";

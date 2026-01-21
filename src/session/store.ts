@@ -12,6 +12,7 @@ export interface Session {
   todos: Todo[]
   context_window: number
   cost: number
+  headerTitle?: string  // AI-generated session header title
   metadata?: Record<string, unknown>
 }
 

@@ -2,6 +2,7 @@ import { createContext, createSignal, useContext, ParentComponent, Accessor, Set
 import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
 import { type Mode } from "../design";
+import { type HeaderPrefix } from "../components/HeaderLine";
 
 /**
  * Message type (UI-friendly version)
@@ -41,6 +42,12 @@ interface SessionContextType {
   stats: Accessor<SessionStats>;
   sessionId: Accessor<string | null>;
   sessionName: Accessor<string | null>;
+  // Header state
+  headerTitle: Accessor<string>;
+  setHeaderTitle: (title: string, clearPrefix?: boolean) => void;
+  headerPrefix: Accessor<HeaderPrefix>;
+  setHeaderPrefix: Setter<HeaderPrefix>;
+  // Session operations
   createNewSession: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
   saveSession: (name?: string) => Promise<void>;
@@ -87,6 +94,18 @@ export const SessionProvider: ParentComponent = (props) => {
   const [totalCost, setTotalCost] = createSignal<number>(0);
   const [sessionId, setSessionId] = createSignal<string | null>(null);
   const [sessionName, setSessionName] = createSignal<string | null>(null);
+  
+  // Header state
+  const [headerTitle, setHeaderTitleSignal] = createSignal<string>("New session");
+  const [headerPrefix, setHeaderPrefix] = createSignal<HeaderPrefix>(null);
+  
+  // Set header title with optional prefix clearing
+  const setHeaderTitle = (title: string, clearPrefix: boolean = true) => {
+    setHeaderTitleSignal(title);
+    if (clearPrefix) {
+      setHeaderPrefix(null);
+    }
+  };
 
   // Auto-save interval
   let autoSaveInterval: ReturnType<typeof setInterval> | null = null;
@@ -132,6 +151,15 @@ export const SessionProvider: ParentComponent = (props) => {
     setMessages(uiMessages);
     
     setTotalCost(session.cost);
+    
+    // Restore header title if saved, otherwise reset
+    // The session store may have a headerTitle field (added later)
+    const savedTitle = (session as any).headerTitle;
+    if (savedTitle) {
+      setHeaderTitle(savedTitle, true);
+    } else {
+      setHeaderTitle("New session", true);
+    }
   };
 
   // Start auto-save interval
@@ -205,6 +233,7 @@ export const SessionProvider: ParentComponent = (props) => {
       const session = await SessionManager.createNew();
       loadSessionIntoContext(session);
       setMessages([]); // Clear messages for new session
+      setHeaderTitle("New session", true); // Reset header for new session
       startAutoSave();
     } catch (error) {
       console.error("Failed to create new session:", error);
@@ -234,12 +263,13 @@ export const SessionProvider: ParentComponent = (props) => {
     }
 
     try {
-      // Persist current state immediately
+      // Persist current state immediately (including header title)
       const storeMessages = messages().map(uiToStoreMessage);
       await SessionStoreInstance.update(currentSessionId, {
         messages: storeMessages,
         model: model(),
         cost: totalCost(),
+        headerTitle: headerTitle(), // Persist header title
         ...(name ? { name } : {}),
       });
 
@@ -278,6 +308,12 @@ export const SessionProvider: ParentComponent = (props) => {
     stats,
     sessionId,
     sessionName,
+    // Header state
+    headerTitle,
+    setHeaderTitle,
+    headerPrefix,
+    setHeaderPrefix,
+    // Session operations
     createNewSession,
     loadSession,
     saveSession,

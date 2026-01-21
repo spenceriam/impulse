@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -483,7 +483,7 @@ export function App(props: { initialExpress?: boolean }) {
 
 // App that decides between welcome screen and session view
 function AppWithSession() {
-  const { messages, addMessage, updateMessage, model, setModel } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
@@ -507,7 +507,7 @@ function AppWithSession() {
   // Permission prompt state (from tool permission requests)
   const [pendingPermission, setPendingPermission] = createSignal<PermissionRequest | null>(null);
   
-  // Subscribe to question and permission events from the bus
+  // Subscribe to question, permission, and header events from the bus
   onMount(() => {
     const unsubscribe = Bus.subscribe((event) => {
       if (event.type === "question.asked") {
@@ -517,6 +517,10 @@ function AppWithSession() {
       if (event.type === "permission.asked") {
         const payload = event.properties as PermissionRequest;
         setPendingPermission(payload);
+      }
+      if (event.type === "header.updated") {
+        const payload = event.properties as { title: string };
+        setHeaderTitle(payload.title, true); // Clear any prefix when AI sets header
       }
     });
     
@@ -652,6 +656,48 @@ function AppWithSession() {
         // No confirmation overlay - just toggle silently
         return;
       }
+      
+      // Handle /compact - set "Compacted:" prefix on header
+      if (parsed && parsed.name === "compact") {
+        const result = await CommandRegistry.execute(trimmedContent);
+        setHeaderPrefix("Compacted");
+        setCommandOverlay({
+          title: "/compact",
+          content: result.success 
+            ? result.output || "Session compacted"
+            : result.error || "Compact failed",
+          isError: !result.success,
+        });
+        return;
+      }
+      
+      // Handle /undo - set "Reverted:" prefix on header
+      if (parsed && parsed.name === "undo") {
+        const result = await CommandRegistry.execute(trimmedContent);
+        setHeaderPrefix("Reverted");
+        setCommandOverlay({
+          title: "/undo",
+          content: result.success 
+            ? result.output || "Changes reverted"
+            : result.error || "Undo failed",
+          isError: !result.success,
+        });
+        return;
+      }
+      
+      // Handle /redo - set "Reapplied:" prefix on header
+      if (parsed && parsed.name === "redo") {
+        const result = await CommandRegistry.execute(trimmedContent);
+        setHeaderPrefix("Reapplied");
+        setCommandOverlay({
+          title: "/redo",
+          content: result.success 
+            ? result.output || "Changes reapplied"
+            : result.error || "Redo failed",
+          isError: !result.success,
+        });
+        return;
+      }
 
       // Execute other commands - show result in overlay (not as a message)
       const result = await CommandRegistry.execute(trimmedContent);
@@ -757,11 +803,14 @@ function AppWithSession() {
           flexDirection="column" 
           width="100%" 
           height="100%"
-          paddingTop={2}
+          paddingTop={1}
           paddingBottom={2}
           paddingLeft={4}
           paddingRight={4}
         >
+          {/* Header line at top */}
+          <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
+          
           <box flexDirection="row" flexGrow={1}>
             {/* Chat + Input + Status column */}
             <box flexDirection="column" flexGrow={1}>

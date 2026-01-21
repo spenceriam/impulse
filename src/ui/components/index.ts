@@ -1,5 +1,6 @@
 export { ProgressBar } from "./ProgressBar";
 export { StatusLine } from "./StatusLine";
+export { HeaderLine, type HeaderPrefix } from "./HeaderLine";
 export { InputArea } from "./InputArea";
 export { ChatView } from "./ChatView";
 export { MessageBlock } from "./MessageBlock";

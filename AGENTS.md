@@ -381,26 +381,25 @@ Progress Bar:
 
 **Main Session View:**
 ```
-┌─────────────────────────────────────────────────────────────────┬──────────────────────────────────────────┐
-│                                                                 │ Session                                  │
-│  You                                              12:34 PM      │ ───────────────────────────────────────  │
-│  ───                                                            │ Context: 42% (84k/200k)                  │
-│  Can you help me implement the API client?                      │ Cost: $0.12                              │
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ [GLM-CLI] | Implementing API client                                                                        │
+│────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│                                                                 │ ▼ Todo (2)                               │
+│  You                                              12:34 PM      │   [ ] Set up project structure           │
+│  Can you help me implement the API client?                      │   [>] Implement API client               │
 │                                                                 │                                          │
-│  GLM-4.7                                          12:34 PM      │ ▼ Todo                                   │
-│  ────────                                                       │ [ ] Set up project structure             │
-│  I'll help you implement the API client.                        │ [>] Implement API client                 │
-│                                                                 │ [x] Write configuration                  │
+│  GLM-4.7                                          12:34 PM      │                                          │
+│  I'll help you implement the API client.                        │                                          │
+│                                                                 │                                          │
 │  ▶ file_write src/api/types.ts                          [OK]    │                                          │
-│  ▶ file_write src/api/client.ts                         [OK]    │ ▶ MCPs 4/4                               │
+│  ▶ file_write src/api/client.ts                         [OK]    │                                          │
 │                                                                 │                                          │
-├─────────────────────────────────────────────────────────────────┤ ▶ Modified Files                         │
+├─────────────────────────────────────────────────────────────────┤                                          │
 │ ┌─ AGENT (Thinking) ────────────────────────────────────────┐   │                                          │
 │ │  > _                                                      │   │                                          │
-│ │    What are we building, breaking, or making better?      │   │                                          │
 │ └───────────────────────────────────────────────────────────┘   │                                          │
 ├─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
-│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026                           │
+│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCP: ● │ 01-20-2026                              │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -532,6 +531,41 @@ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  ma
 | `general` | Subagent | Most (no todo) | Complex multi-step tasks |
 
 Agent-controlled delegation (no @ syntax for users).
+
+## Session Header
+
+Dynamic header line at the top of the session screen showing context about the current conversation/task. Similar to how ChatGPT/Claude/Gemini auto-generate chat titles.
+
+### Format
+
+```
+[GLM-CLI] | <context>
+```
+
+### Header States
+
+| Scenario | Format | Example |
+|----------|--------|---------|
+| New session | `[GLM-CLI] \| New session` | `[GLM-CLI] \| New session` |
+| AI sets context | `[GLM-CLI] \| <description>` | `[GLM-CLI] \| Express mode permission system` |
+| After `/compact` | `[GLM-CLI] \| Compacted: <description>` | `[GLM-CLI] \| Compacted: Express mode` |
+| After `/undo` | `[GLM-CLI] \| Reverted: <description>` | `[GLM-CLI] \| Reverted: Express mode` |
+| After `/redo` | `[GLM-CLI] \| Reapplied: <description>` | `[GLM-CLI] \| Reapplied: Express mode` |
+| After `/load` | Restore saved header | `[GLM-CLI] \| Express mode permission system` |
+
+### Tool: `set_header`
+
+AI uses the `set_header` tool to update the header. Guidelines:
+- Set at meaningful milestones (initial understanding, phase changes)
+- Do NOT update constantly
+- Keep titles concise (max 50 characters)
+- Let the description naturally indicate the action
+
+### Persistence
+
+- Header title persists with session on `/save`
+- Restored when session is loaded via `/load`
+- Prefixes (Compacted/Reverted/Reapplied) are cleared on next AI update
 
 ## Todo System
 

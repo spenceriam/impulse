@@ -121,3 +121,12 @@ export const QuestionEvents = {
     })
   ),
 };
+
+export const HeaderEvents = {
+  Updated: BusEvent.define(
+    "header.updated",
+    z.object({
+      title: z.string().describe("Concise description of current task/conversation"),
+    })
+  ),
+};

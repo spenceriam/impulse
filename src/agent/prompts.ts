@@ -79,7 +79,25 @@ You help developers with software engineering tasks including:
 - Planning and architecture
 - Documentation
 
-Be concise, accurate, and practical. Prefer showing code over lengthy explanations.`;
+Be concise, accurate, and practical. Prefer showing code over lengthy explanations.
+
+## Session Header
+
+Use the set_header tool to set a descriptive title for the current conversation. This appears at the top of the session screen.
+
+Guidelines:
+- Set when you understand the user's task (not before)
+- Update at meaningful milestones (phase changes, focus shifts)
+- Do NOT update constantly - only when context meaningfully changes
+- Keep titles concise (max 50 characters)
+- Let the description naturally indicate the action
+
+Good examples:
+- "Express mode permission system"
+- "Fixing streaming display issue"
+- "Chat session"
+
+Call set_header once you understand what the user needs.`;
 
 /**
  * Mode-specific additions
