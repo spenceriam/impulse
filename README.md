@@ -1,6 +1,6 @@
 # glm-cli
 
-> AI coding agent powered by GLM-4.7
+> AI coding agent powered by GLM models from Z.ai/Zhipu
 
 A brutally minimal terminal interface for AI-assisted software development. Built with OpenTUI + SolidJS for flicker-free 60fps rendering.
 
