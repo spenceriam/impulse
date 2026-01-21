@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-01-21
+
+### Fixed
+
+- **Command Autocomplete Overlay** - Fixed dropdown appearing behind chat:
+  - Lifted autocomplete state from InputArea to App.tsx
+  - Render as absolute-positioned overlay at root level
+  - Now properly floats OVER chat content
+
+- **Exit Handler** - Fixed `/quit` and `/exit` not showing session summary:
+  - Removed `window` reference (doesn't exist in Node/Bun)
+  - Added `exitPending` signal to track exit state
+  - Summary overlay now displays before app exits
+
+- **Chat Auto-Scroll** - Fixed scrollbox not auto-scrolling during streaming:
+  - Wrapped scrollbox in box with `flexGrow={1}` to fill available space
+  - `stickyScroll` now works correctly
+
+- **Thinking Display** - Improved reasoning/thinking section:
+  - Italics text using `<em>` tag
+  - 5-row scrollbox height when expanded
+  - Collapsible/expandable with mouse click toggle
+
+- **Permission Prompt** - Added defensive check for null/undefined patterns
+
 ## [0.9.4] - 2026-01-21
 
 ### Fixed

@@ -83,9 +83,12 @@ export function PermissionPrompt(props: PermissionPromptProps) {
 
   // Format the permission description
   const getDescription = () => {
-    const patterns = props.request.patterns;
-    const label = getPermissionLabel(props.request.permission);
+    const patterns = props.request.patterns ?? [];
+    const label = getPermissionLabel(props.request.permission ?? "unknown");
     
+    if (patterns.length === 0) {
+      return label;
+    }
     if (patterns.length === 1) {
       return `${label} ${patterns[0]}`;
     }

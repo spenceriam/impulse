@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StackedSpinner } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StackedSpinner, type CommandCandidate } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -518,6 +518,15 @@ function AppWithSession() {
   // Permission prompt state (from tool permission requests)
   const [pendingPermission, setPendingPermission] = createSignal<PermissionRequest | null>(null);
   
+  // Exit pending state - when true, closing the command overlay will exit the app
+  const [exitPending, setExitPending] = createSignal(false);
+  
+  // Command autocomplete state - lifted to App for proper z-index overlay
+  const [autocompleteData, setAutocompleteData] = createSignal<{
+    commands: { name: string; description: string }[];
+    selectedIndex: number;
+  } | null>(null);
+  
   // Subscribe to question, permission, and header events from the bus
   onMount(() => {
     const unsubscribe = Bus.subscribe((event) => {
@@ -527,7 +536,10 @@ function AppWithSession() {
       }
       if (event.type === "permission.asked") {
         const payload = event.properties as PermissionRequest;
-        setPendingPermission(payload);
+        // Ensure payload has required fields before showing permission prompt
+        if (payload && payload.id && payload.patterns) {
+          setPendingPermission(payload);
+        }
       }
       if (event.type === "header.updated") {
         const payload = event.properties as { title: string };
@@ -818,11 +830,22 @@ function AppWithSession() {
     if (trimmedContent.startsWith("/")) {
       const parsed = CommandRegistry.parse(trimmedContent);
       
-      // Handle /exit and /quit specially - they need renderer.destroy()
+      // Handle /exit and /quit specially - show summary then exit
       if (parsed && (parsed.name === "exit" || parsed.name === "quit")) {
-        // Execute the command to get summary, then exit
-        await CommandRegistry.execute(trimmedContent);
-        renderer.destroy();
+        // Execute the command to get summary
+        const result = await CommandRegistry.execute(trimmedContent);
+        
+        // Show the session summary in an overlay before exiting
+        if (result.output) {
+          setExitPending(true); // Flag to exit when overlay closes
+          setCommandOverlay({
+            title: "Session Complete",
+            content: result.output,
+            isError: false,
+          });
+        } else {
+          renderer.destroy();
+        }
         return;
       }
       
@@ -1084,6 +1107,7 @@ function AppWithSession() {
                     thinking={thinking()}
                     loading={isLoading()}
                     onSubmit={handleSubmit}
+                    onAutocompleteChange={setAutocompleteData}
                   />
                 </box>
               </box>
@@ -1114,7 +1138,13 @@ function AppWithSession() {
             title={overlay().title}
             content={overlay().content}
             isError={overlay().isError}
-            onClose={() => setCommandOverlay(null)}
+            onClose={() => {
+              setCommandOverlay(null);
+              // If exit is pending (from /quit or /exit), destroy renderer after overlay closes
+              if (exitPending()) {
+                setTimeout(() => renderer.destroy(), 100);
+              }
+            }}
           />
         )}
       </Show>
@@ -1177,6 +1207,59 @@ function AppWithSession() {
       {/* Express mode warning - shown first time Express is enabled */}
       <Show when={showWarning()}>
         <ExpressWarning onAcknowledge={acknowledgeExpress} />
+      </Show>
+      
+      {/* Command autocomplete overlay - positioned above input area */}
+      <Show when={autocompleteData()}>
+        {(data: () => { commands: CommandCandidate[]; selectedIndex: number }) => (
+          <box
+            position="absolute"
+            bottom={12}
+            left={8}
+            width={70}
+            border
+            borderColor={Colors.ui.dim}
+            flexDirection="column"
+            backgroundColor="#1a1a1a"
+          >
+            <scrollbox height={Math.min(10, data().commands.length + 1)}>
+              <box flexDirection="column">
+                <For each={data().commands}>
+                  {(cmd, index) => {
+                    const isSelected = () => index() === data().selectedIndex;
+                    return (
+                      <Show
+                        when={isSelected()}
+                        fallback={
+                          <box flexDirection="row" height={1}>
+                            <text fg={Colors.ui.text}>
+                              {` /${cmd.name.padEnd(12)}`}
+                            </text>
+                            <text fg={Colors.ui.dim} wrapMode="none">
+                              {cmd.description}
+                            </text>
+                          </box>
+                        }
+                      >
+                        <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
+                          <text fg="#000000">
+                            {` /${cmd.name.padEnd(12)}`}
+                          </text>
+                          <text fg="#000000" wrapMode="none">
+                            {cmd.description}
+                          </text>
+                        </box>
+                      </Show>
+                    );
+                  }}
+                </For>
+              </box>
+            </scrollbox>
+            <box height={1} paddingLeft={1}>
+              <text fg={Colors.ui.dim}>Tab: complete | Enter: select | Esc: close</text>
+            </box>
+          </box>
+        )}
       </Show>
     </>
   );

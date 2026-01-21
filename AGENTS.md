@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.9.4
+- **Version:** v0.9.5
 - **Tagline:** OpenTUI coding harness powered by Z.ai GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -114,12 +114,19 @@
 
 Version numbers follow format: **MAJOR.MINOR.PATCH** (e.g., 0.1.0)
 
+**Pre-1.0 Versioning (Current):**
+- Version 0.x.y continues until 0.100.0, then becomes 1.0.0
+- MINOR can go from 0 to 100 (e.g., 0.9.5 → 0.10.0 → ... → 0.100.0 → 1.0.0)
+- PATCH can go from 0 to 99 within each minor (e.g., 0.9.0 → 0.9.99 → 0.10.0)
+
+**Version Bump Rules:**
 - **MAJOR** (X.0.0): Breaking changes, API changes, architectural overhauls
-  - Example: 0.5.2 → 1.0.0
+  - Pre-1.0: Only bump to 1.0.0 when reaching 0.100.0 OR when project is production-ready
+  - Example: 0.100.0 → 1.0.0
 - **MINOR** (0.X.0): New features, new components, significant enhancements (backwards compatible)
-  - Example: 0.1.0 → 0.2.0
+  - Example: 0.9.5 → 0.10.0
 - **PATCH** (0.0.X): Bug fixes, typos, minor tweaks, performance improvements (backwards compatible)
-  - Example: 0.1.0 → 0.1.1
+  - Example: 0.9.5 → 0.9.6
 
 ### AI Agent Workflow for Version Bumping
 
@@ -874,6 +881,9 @@ This ensures:
 | 01-21-2026 | Hardcoded initial MCPs | Z.AI servers + Context7 as MVP, registry integration later |
 | 01-21-2026 | Strip null from tool args | Z.AI sends null for optional fields, Zod rejects null - strip before validation |
 | 01-21-2026 | Use signals for abort refs | `let` variables in keyboard handlers capture stale closures - use SolidJS signals |
+| 01-21-2026 | Lift autocomplete to App.tsx | Overlays need root-level rendering for proper z-index stacking |
+| 01-21-2026 | Collapsible thinking section | Click-to-expand with 5-row scroll height, reduces visual noise |
+| 01-21-2026 | exitPending signal pattern | Avoid `window` object in Node/Bun - use signals for cross-component state |
 
 ## Future Work
 

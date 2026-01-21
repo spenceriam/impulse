@@ -1,4 +1,4 @@
-import { createSignal, Show, For, createMemo } from "solid-js";
+import { createSignal, createMemo, createEffect } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { Colors, Mode, Layout } from "../design";
@@ -31,14 +31,17 @@ const TEXTAREA_KEY_BINDINGS = [
   { name: "return", shift: true, action: "newline" as const },
 ];
 
-// Fixed width for command column in autocomplete (for alignment)
-const COMMAND_COL_WIDTH = 12;
+export interface CommandCandidate {
+  name: string;
+  description: string;
+}
 
 interface InputAreaProps {
   mode: Mode;
   thinking: boolean;
   loading?: boolean;
   onSubmit?: (value: string) => void;
+  onAutocompleteChange?: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
 
 export function InputArea(props: InputAreaProps) {
@@ -83,6 +86,18 @@ export function InputArea(props: InputAreaProps) {
     
     const commands = filteredCommands();
     return commands.length > 0;
+  });
+  
+  // Notify parent of autocomplete state changes for overlay rendering
+  createEffect(() => {
+    if (showAutocomplete()) {
+      props.onAutocompleteChange?.({
+        commands: filteredCommands(),
+        selectedIndex: selectedIndex(),
+      });
+    } else {
+      props.onAutocompleteChange?.(null);
+    }
   });
 
   useKeyboard((key) => {
@@ -196,85 +211,28 @@ export function InputArea(props: InputAreaProps) {
     return `${props.mode}${thinkingSuffix}`;
   };
 
-  // Calculate autocomplete height for positioning
-  const autocompleteHeight = () => Math.min(10, filteredCommands().length + 1) + 2; // +2 for border
-
   return (
-    <box flexDirection="column">
-      {/* Input box */}
-      <box
-        border
-        title={title()}
-        titleAlignment="left"
-        flexDirection="column"
-        padding={1}
-      >
-        <box flexDirection="row" alignItems="flex-start">
-          <text fg={Colors.ui.dim}>{">"} </text>
-          <textarea
-            ref={(r: TextareaRenderable) => { textareaRef = r; }}
-            keyBindings={TEXTAREA_KEY_BINDINGS}
-            onContentChange={handleContentChange}
-            onSubmit={handleSubmit}
-            onPaste={handlePaste}
-            placeholder={showGhostText() ? ghostText : ""}
-            width={-1}
-            height={Layout.input.minHeight}
-            focused={!props.loading}
-          />
-        </box>
+    <box
+      border
+      title={title()}
+      titleAlignment="left"
+      flexDirection="column"
+      padding={1}
+    >
+      <box flexDirection="row" alignItems="flex-start">
+        <text fg={Colors.ui.dim}>{">"} </text>
+        <textarea
+          ref={(r: TextareaRenderable) => { textareaRef = r; }}
+          keyBindings={TEXTAREA_KEY_BINDINGS}
+          onContentChange={handleContentChange}
+          onSubmit={handleSubmit}
+          onPaste={handlePaste}
+          placeholder={showGhostText() ? ghostText : ""}
+          width={-1}
+          height={Layout.input.minHeight}
+          focused={!props.loading}
+        />
       </box>
-      
-      {/* Floating autocomplete dropdown - absolutely positioned above input box */}
-      <Show when={showAutocomplete()}>
-        <box
-          position="absolute"
-          left={3}
-          top={-autocompleteHeight()}
-          border
-          borderColor={Colors.ui.dim}
-          flexDirection="column"
-          backgroundColor="#1a1a1a"
-          zIndex={100}
-        >
-          <scrollbox height={Math.min(10, filteredCommands().length + 1)}>
-            <box flexDirection="column">
-              <For each={filteredCommands()}>
-                {(cmd, index) => {
-                  const isSelected = () => index() === selectedIndex();
-                  return (
-                    <Show
-                      when={isSelected()}
-                      fallback={
-                        <box flexDirection="row" height={1}>
-                          <text fg={Colors.ui.text}>
-                            {` /${cmd.name.padEnd(COMMAND_COL_WIDTH)}`}
-                          </text>
-                          <text fg={Colors.ui.dim} wrapMode="none">
-                            {cmd.description}
-                          </text>
-                        </box>
-                      }
-                    >
-                      <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
-                        <text fg="#000000">
-                          {` /${cmd.name.padEnd(COMMAND_COL_WIDTH)}`}
-                        </text>
-                        <text fg="#000000" wrapMode="none">
-                          {cmd.description}
-                        </text>
-                      </box>
-                    </Show>
-                  );
-                }}
-              </For>
-            </box>
-          </scrollbox>
-          <box height={1} paddingLeft={1}>
-            <text fg={Colors.ui.dim}>Tab: complete | Enter: select | Esc: close</text>
-          </box>
-        </box>
-      </Show>
     </box>
   );
 }

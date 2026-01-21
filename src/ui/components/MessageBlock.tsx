@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { Colors, type Mode, getModeColor, Indicators } from "../design";
 
 /**
@@ -155,6 +155,38 @@ function getToolStatusDisplay(status: ToolCallInfo["status"]): { indicator: stri
 }
 
 /**
+ * Collapsible thinking/reasoning section
+ * - Italics text
+ * - 5-row max height with scrolling when expanded
+ * - Click to toggle collapse state
+ */
+function ThinkingSection(props: { content: string }) {
+  const [expanded, setExpanded] = createSignal(false);
+  
+  const toggle = () => setExpanded(prev => !prev);
+  const indicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
+  
+  return (
+    <box flexDirection="column" marginBottom={1}>
+      <box 
+        flexDirection="row" 
+        onMouseDown={toggle}
+      >
+        <text fg={Colors.ui.dim}>{indicator()} </text>
+        <text fg={Colors.ui.dim}><em>Thinking</em></text>
+      </box>
+      <Show when={expanded()}>
+        <box paddingLeft={2}>
+          <scrollbox height={5}>
+            <text fg={Colors.ui.dim}><em>{props.content}</em></text>
+          </scrollbox>
+        </box>
+      </Show>
+    </box>
+  );
+}
+
+/**
  * Render a single tool call
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo }) {
@@ -216,18 +248,9 @@ export function MessageBlock(props: MessageBlockProps) {
           </Show>
         </Show>
       </box>
-      {/* Thinking/Reasoning content - collapsible */}
+      {/* Thinking/Reasoning content - collapsible with italics and scroll */}
       <Show when={reasoning()}>
-        <box flexDirection="column" marginBottom={1}>
-          <box flexDirection="row">
-            <text fg={Colors.ui.dim}>{Indicators.expanded} </text>
-            <text fg={Colors.ui.dim}>Thinking</text>
-          </box>
-          <box flexDirection="row">
-            <text fg={Colors.ui.dim}>  | </text>
-            <text fg={Colors.ui.dim}>{reasoning()}</text>
-          </box>
-        </box>
+        <ThinkingSection content={reasoning()!} />
       </Show>
       {/* Message content */}
       <Show when={props.message.content}>
