@@ -294,13 +294,16 @@ function ModelSelectOverlay(props: {
 }
 
 // Fixed width for logo box and prompt box alignment
-const WELCOME_BOX_WIDTH = 76;
+const WELCOME_BOX_WIDTH = 78;
+const LOGO_WIDTH = 54; // Widest logo line
+const INNER_WIDTH = WELCOME_BOX_WIDTH - 4; // Inside [[ and ]]
+const LOGO_PADDING = Math.floor((INNER_WIDTH - LOGO_WIDTH) / 2);
 
 // Welcome screen (shown when no messages)
 function WelcomeScreen(props: { onSubmit: (value: string) => void }) {
   const { mode, thinking } = useMode();
 
-  // ASCII logo for GLM-CLI - no manual padding, flexbox centers it
+  // ASCII logo for GLM-CLI - centered inside [[ ]] frame
   const logo = [
     " ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗",
     "██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║",
@@ -311,7 +314,6 @@ function WelcomeScreen(props: { onSubmit: (value: string) => void }) {
   ];
 
   // Gradient colors from bright cyan to dim (per Design.md)
-  // #5cffff → #4ad4d4 → #38a9a9 → #267e7e → #1a6666 → #666666
   const gradientColors = [
     "#5cffff", // Line 0 - brightest cyan
     "#4ad4d4", // Line 1
@@ -328,40 +330,53 @@ function WelcomeScreen(props: { onSubmit: (value: string) => void }) {
   const buildDate = `built ${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-${now.getFullYear()}`;
   const dir = process.cwd().replace(process.env["HOME"] || "", "~");
 
-  // Info line width for consistent alignment (inside padding)
-  // Content area is 70 chars, info lines should span most of it
-  const infoWidth = 68;
+  // Top/bottom bracket lines: [[━━━━...━━━━]]
+  const lineWidth = WELCOME_BOX_WIDTH - 4; // minus [[ and ]]
+  const bracketLine = `[[${("━").repeat(lineWidth)}]]`;
 
   return (
     <box flexDirection="column" width="100%" height="100%">
       {/* Logo section - centered with no flex grow, positioned from top */}
       <box flexDirection="column" alignItems="center" paddingTop={4}>
-        {/* Heavy border box with extra padding */}
-        <box border borderStyle="heavy" flexDirection="column" width={WELCOME_BOX_WIDTH} paddingTop={2} paddingBottom={1} paddingLeft={2} paddingRight={2}>
-          {/* Extra top padding */}
+        {/* Custom frame with [[ ]] brackets */}
+        <box flexDirection="column" width={WELCOME_BOX_WIDTH}>
+          {/* Top bracket line */}
+          <text fg={Colors.ui.dim}>{bracketLine}</text>
+          
+          {/* Empty line for padding */}
           <box height={1} />
-          {/* Logo lines with gradient - centered */}
+          
+          {/* Logo lines with gradient - centered with calculated padding */}
           {logo.map((line, i) => (
-            <box justifyContent="center">
-              <text fg={gradientColors[i] || Colors.ui.dim}>{line}</text>
+            <box flexDirection="row" justifyContent="center">
+              <text fg={gradientColors[i] || Colors.ui.dim}>
+                {" ".repeat(LOGO_PADDING)}{line}{" ".repeat(LOGO_PADDING)}
+              </text>
             </box>
           ))}
-          {/* Extra padding between logo and version info */}
+          
+          {/* Padding between logo and version info */}
           <box height={2} />
-          {/* Version and build info - centered rows */}
-          <box justifyContent="center">
-            <box flexDirection="row" justifyContent="space-between" width={infoWidth}>
+          
+          {/* Version and build info - two columns centered under logo */}
+          <box flexDirection="row" justifyContent="center">
+            <box flexDirection="row" justifyContent="space-between" width={LOGO_WIDTH}>
               <text fg={Colors.ui.dim}>{version}</text>
               <text fg={Colors.ui.dim}>GLM-4.7</text>
             </box>
           </box>
-          <box justifyContent="center">
-            <box flexDirection="row" justifyContent="space-between" width={infoWidth}>
+          <box flexDirection="row" justifyContent="center">
+            <box flexDirection="row" justifyContent="space-between" width={LOGO_WIDTH}>
               <text fg={Colors.ui.dim}>{buildDate}</text>
               <text fg={Colors.ui.dim}>{dir}</text>
             </box>
           </box>
+          
+          {/* Empty line for padding */}
           <box height={1} />
+          
+          {/* Bottom bracket line */}
+          <text fg={Colors.ui.dim}>{bracketLine}</text>
         </box>
         
         {/* 5-line gap between logo box and prompt */}

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-01-21
+
+### Fixed
+
+- **Welcome Screen** - Centered GLM-CLI logo properly:
+  - Replaced heavy border with `[[━━━...━━━]]` bracket accents
+  - Calculated padding to center logo within frame
+  - Version and build info aligned with logo width
+
 ## [0.9.6] - 2026-01-21
 
 ### Fixed
