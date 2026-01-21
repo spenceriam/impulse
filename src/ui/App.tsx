@@ -14,6 +14,7 @@ import { CommandRegistry } from "../commands/registry";
 import { registerCoreCommands } from "../commands/core";
 import { registerUtilityCommands } from "../commands/utility";
 import { registerInfoCommands } from "../commands/info";
+import { registerInitCommand } from "../commands/init";
 import { GLM_MODELS, MODES } from "../constants";
 import { generateSystemPrompt } from "../agent/prompts";
 import packageJson from "../../package.json";
@@ -383,6 +384,7 @@ function initializeCommands() {
   registerCoreCommands();
   registerUtilityCommands();
   registerInfoCommands();
+  registerInitCommand();
   commandsRegistered = true;
 }
 
