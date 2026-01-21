@@ -98,3 +98,26 @@ export const McpEvents = {
     })
   ),
 };
+
+// Question option schema for the question tool
+const QuestionOptionSchema = z.object({
+  label: z.string().describe("Display text (1-5 words, concise)"),
+  description: z.string().describe("Explanation of choice"),
+});
+
+// Question schema for the question tool
+const QuestionSchema = z.object({
+  question: z.string().describe("Complete question text"),
+  header: z.string().max(12).describe("Very short label (max 12 chars)"),
+  options: z.array(QuestionOptionSchema).describe("Available choices"),
+  multiple: z.boolean().optional().describe("Allow selecting multiple choices"),
+});
+
+export const QuestionEvents = {
+  Asked: BusEvent.define(
+    "question.asked",
+    z.object({
+      questions: z.array(QuestionSchema),
+    })
+  ),
+};

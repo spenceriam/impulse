@@ -571,6 +571,60 @@ Section collapses when >2 items, hides when all completed.
 - Mark complete IMMEDIATELY after finishing
 - Don't use for trivial single-step tasks
 
+## Question Tool
+
+Interactive question tool for structured user input. Allows the AI to ask multiple-choice questions and receive user selections.
+
+### Schema
+
+```typescript
+interface Question {
+  question: string;           // Full question text
+  header: string;             // Short label (max 12 chars)
+  options: {
+    label: string;            // 1-5 words
+    description: string;      // Explanation
+  }[];
+  multiple?: boolean;         // Multi-select (default: false)
+}
+
+// Tool output
+interface QuestionToolOutput {
+  answers: string[][];  // Selected labels per question
+}
+```
+
+### UI Mockup
+
+```
+┌─ HEADER ─────────────────────────────────────────────────┐
+│                                                          │
+│ Question text here?                                      │
+│                                                          │
+│ (*) Option 1 label                                       │
+│     Description of option 1                              │
+│                                                          │
+│ ( ) Option 2 label                                       │
+│     Description of option 2                              │
+│                                                          │
+│ ( ) Other...                                             │
+│     Provide custom text input                            │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│ [1/3]  Tab: Next  Enter: Select  Esc: Cancel             │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Agent Usage
+
+- Use for gathering user preferences or requirements
+- Use for clarifying ambiguous instructions
+- Use for getting decisions on implementation choices
+- Users can always select "Other" to provide custom text
+- Keep headers to max 12 characters
+- Keep option labels concise (1-5 words)
+- First option is typically the recommended choice
+
 ## MCP Servers
 
 5 MCP servers are configured (4 Z.AI + Context7):

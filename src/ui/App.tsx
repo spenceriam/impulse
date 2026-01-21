@@ -1,7 +1,7 @@
-import { createSignal, createEffect, Show, onMount, For } from "solid-js";
+import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, InputArea, ChatView, Sidebar, CollapsedSidebar } from "./components";
+import { StatusLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -17,6 +17,8 @@ import { registerInfoCommands } from "../commands/info";
 import { registerInitCommand } from "../commands/init";
 import { GLM_MODELS, MODES } from "../constants";
 import { generateSystemPrompt } from "../agent/prompts";
+import { Bus } from "../bus";
+import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import packageJson from "../../package.json";
 
 /**
@@ -493,6 +495,35 @@ function AppWithSession() {
   
   // Model select overlay state
   const [showModelSelect, setShowModelSelect] = createSignal(false);
+  
+  // Question overlay state (from AI question tool)
+  const [pendingQuestions, setPendingQuestions] = createSignal<Question[] | null>(null);
+  
+  // Subscribe to question events from the bus
+  onMount(() => {
+    const unsubscribe = Bus.subscribe((event) => {
+      if (event.type === "question.asked") {
+        const payload = event.properties as { questions: Question[] };
+        setPendingQuestions(payload.questions);
+      }
+    });
+    
+    onCleanup(() => {
+      unsubscribe();
+    });
+  });
+  
+  // Handle question submission
+  const handleQuestionSubmit = (answers: string[][]) => {
+    setPendingQuestions(null);
+    resolveQuestion(answers);
+  };
+  
+  // Handle question cancel
+  const handleQuestionCancel = () => {
+    setPendingQuestions(null);
+    rejectQuestion();
+  };
 
   let ctrlCCount = 0;
   let escCount = 0;
@@ -729,6 +760,17 @@ function AppWithSession() {
           }}
           onCancel={() => setShowModelSelect(false)}
         />
+      </Show>
+      
+      {/* Question overlay - shown when AI calls the question tool */}
+      <Show when={pendingQuestions()}>
+        {(questions: () => Question[]) => (
+          <QuestionOverlay
+            questions={questions()}
+            onSubmit={handleQuestionSubmit}
+            onCancel={handleQuestionCancel}
+          />
+        )}
       </Show>
     </>
   );

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-01-21
+
+### Added
+
+- **Question Tool** - AI can now ask structured multiple-choice questions during execution:
+  - Single-select and multi-select support
+  - Keyboard navigation (up/down arrows, Enter to select, Tab for next question)
+  - "Other..." option for custom text input
+  - Question progress indicator for multi-question flows
+  - Promise-based blocking mechanism (tool waits for user response)
+  - Integrated with event bus for UI/tool communication
+
+### Technical
+
+- New `QuestionOverlay` component (`src/ui/components/QuestionOverlay.tsx`)
+- New `question` tool (`src/tools/question.ts`) with Zod schema validation
+- Added `QuestionEvents.Asked` to event bus
+- Schema matches OpenCode's question tool for compatibility
+
 ## [0.5.0] - 2026-01-21
 
 ### Added
