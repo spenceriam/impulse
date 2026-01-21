@@ -1,8 +1,7 @@
 import { createSignal, Show, For } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
-import { Colors } from "../design";
+import { Colors, Indicators } from "../design";
 import type { PermissionRequest, PermissionResponse } from "../../permission";
-import { getPermissionLabel } from "../../permission";
 
 /**
  * PermissionPrompt Props
@@ -15,25 +14,26 @@ interface PermissionPromptProps {
 /**
  * PermissionPrompt Component
  * 
- * Displays a permission request from a tool with options to allow/reject.
- * Renders inline (not as modal) with left border accent.
+ * Brutalist design matching glm-cli aesthetic.
+ * Displays permission request with options to allow/reject.
  * 
  * Layout:
- * ┃ Permission required
- * ┃
- * ┃ -> Edit src/api/client.ts
- * ┃
- * ┃ [diff preview if available]
- * ┃
- * ┃ [Allow once]  [Allow always]  [Reject]
- * ┃
- * ┃ left/right select  enter confirm  esc reject
+ * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
+ *   * Permission required
+ *   
+ *   $ Execute command
+ *     ls -la
+ *   
+ *   [Y] Allow once   [A] Allow always   [N] Reject
+ *   
+ *   Y/A/N or arrows + enter | esc to reject
+ * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
  */
 export function PermissionPrompt(props: PermissionPromptProps) {
-  const options: { key: PermissionResponse; label: string }[] = [
-    { key: "once", label: "Allow once" },
-    { key: "always", label: "Allow always" },
-    { key: "reject", label: "Reject" },
+  const options: { key: PermissionResponse; label: string; hotkey: string }[] = [
+    { key: "once", label: "Allow once", hotkey: "Y" },
+    { key: "always", label: "Allow always", hotkey: "A" },
+    { key: "reject", label: "Reject", hotkey: "N" },
   ];
   
   const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -42,6 +42,20 @@ export function PermissionPrompt(props: PermissionPromptProps) {
   
   // Handle keyboard navigation
   useKeyboard((key) => {
+    // Hotkeys
+    if (key.name === "y") {
+      props.onRespond("once");
+      return;
+    }
+    if (key.name === "a") {
+      props.onRespond("always");
+      return;
+    }
+    if (key.name === "n") {
+      props.onRespond("reject");
+      return;
+    }
+    
     // Left/right to navigate options
     if (key.name === "left" || key.name === "h") {
       setSelectedIndex((i) => (i - 1 + options.length) % options.length);
@@ -69,7 +83,7 @@ export function PermissionPrompt(props: PermissionPromptProps) {
   const getIcon = () => {
     switch (props.request.permission) {
       case "edit":
-        return "->";
+        return Indicators.collapsed; // ▶
       case "write":
         return "+";
       case "bash":
@@ -77,109 +91,113 @@ export function PermissionPrompt(props: PermissionPromptProps) {
       case "task":
         return "*";
       default:
-        return ">";
+        return Indicators.dot; // ●
+    }
+  };
+
+  // Get permission type label
+  const getLabel = () => {
+    switch (props.request.permission) {
+      case "edit":
+        return "Edit file";
+      case "write":
+        return "Create file";
+      case "bash":
+        return "Execute command";
+      case "task":
+        return "Launch subagent";
+      default:
+        return props.request.permission || "Action";
     }
   };
 
   // Format the permission description
   const getDescription = () => {
     const patterns = props.request.patterns ?? [];
-    const label = getPermissionLabel(props.request.permission ?? "unknown");
+    const label = getLabel();
     
     if (patterns.length === 0) {
       return label;
     }
     if (patterns.length === 1) {
-      return `${label} ${patterns[0]}`;
+      return `${label}: ${patterns[0]}`;
     }
-    return `${label} ${patterns.length} items`;
+    return `${label}: ${patterns.length} items`;
   };
 
+  // Bracket line width
+  const lineWidth = 70;
+  const bracketLine = `[[${("━").repeat(lineWidth - 4)}]]`;
+
   return (
-    <box
-      flexDirection="column"
-      border={["left"]}
-      borderColor={Colors.status.warning}
-      paddingLeft={1}
-      paddingRight={1}
-      paddingTop={1}
-      paddingBottom={1}
-      backgroundColor="#1a1a1a"
-    >
+    <box flexDirection="column" paddingLeft={4} paddingRight={4}>
+      {/* Top bracket */}
+      <text fg={Colors.status.warning}>{bracketLine}</text>
+      
+      <box height={1} />
+      
       {/* Header */}
-      <box flexDirection="row" gap={1}>
-        <text fg={Colors.status.warning}>{"*"}</text>
+      <box flexDirection="row">
+        <text fg={Colors.status.warning}>{Indicators.dot} </text>
         <text fg={Colors.ui.text}>Permission required</text>
       </box>
       
       <box height={1} />
       
       {/* Description */}
-      <box flexDirection="row" gap={1} paddingLeft={1}>
-        <text fg={Colors.ui.dim}>{getIcon()}</text>
-        <text fg={Colors.ui.dim}>{getDescription()}</text>
+      <box flexDirection="row" paddingLeft={2}>
+        <text fg={Colors.mode.AGENT}>{getIcon()} </text>
+        <text fg={Colors.ui.text}>{getDescription()}</text>
       </box>
       
-      {/* Show custom message if provided */}
+      {/* Show custom message if different from description */}
       <Show when={props.request.message && props.request.message !== getDescription()}>
-        <box paddingLeft={3}>
-          <text fg={Colors.ui.text}>{props.request.message}</text>
+        <box paddingLeft={4}>
+          <text fg={Colors.ui.dim}>{props.request.message}</text>
+        </box>
+      </Show>
+      
+      {/* Show command for bash operations */}
+      <Show when={props.request.permission === "bash" && props.request.metadata?.["command"]}>
+        <box paddingLeft={4}>
+          <text fg={Colors.ui.dim}>$ {String(props.request.metadata?.["command"])}</text>
         </box>
       </Show>
       
       {/* Show diff preview for edit operations */}
       <Show when={props.request.metadata?.["diff"]}>
         <box height={1} />
-        <box
-          border
-          borderColor={Colors.ui.dim}
-          paddingLeft={1}
-          paddingRight={1}
-          maxHeight={10}
-        >
-          <scrollbox height="100%">
+        <box paddingLeft={2} paddingRight={2}>
+          <scrollbox height={6} border borderColor={Colors.ui.dim}>
             <text fg={Colors.ui.dim}>{String(props.request.metadata?.["diff"])}</text>
           </scrollbox>
         </box>
       </Show>
       
-      {/* Show command for bash operations */}
-      <Show when={props.request.permission === "bash" && props.request.metadata?.["command"]}>
-        <box paddingLeft={3}>
-          <text fg={Colors.ui.text}>$ {String(props.request.metadata?.["command"])}</text>
-        </box>
-      </Show>
-      
       <box height={1} />
       
-      {/* Options */}
-      <box flexDirection="row" gap={1}>
+      {/* Options with hotkeys */}
+      <box flexDirection="row" paddingLeft={2}>
         <For each={options}>
           {(option, i) => {
             const isSelected = () => i() === selectedIndex();
-            const bgColor = (): string => {
-              if (!isSelected()) return "transparent";
-              if (option.key === "reject") return Colors.status.error;
-              return Colors.status.warning;
-            };
             
             return (
-              <Show
-                when={isSelected()}
-                fallback={
-                  <box paddingLeft={1} paddingRight={1}>
-                    <text fg={Colors.ui.dim}>{option.label}</text>
-                  </box>
-                }
-              >
-                <box
-                  paddingLeft={1}
-                  paddingRight={1}
-                  backgroundColor={bgColor()}
+              <box flexDirection="row" marginRight={2}>
+                <Show
+                  when={isSelected()}
+                  fallback={
+                    <>
+                      <text fg={Colors.ui.dim}>[{option.hotkey}] </text>
+                      <text fg={Colors.ui.dim}>{option.label}</text>
+                    </>
+                  }
                 >
-                  <text fg="#000000">{option.label}</text>
-                </box>
-              </Show>
+                  <box backgroundColor={option.key === "reject" ? Colors.status.error : Colors.mode.AGENT}>
+                    <text fg="#000000">[{option.hotkey}] {option.label}</text>
+                  </box>
+                </Show>
+              </box>
             );
           }}
         </For>
@@ -188,11 +206,14 @@ export function PermissionPrompt(props: PermissionPromptProps) {
       <box height={1} />
       
       {/* Hints */}
-      <box flexDirection="row" gap={2}>
-        <text fg={Colors.ui.dim}>left/right select</text>
-        <text fg={Colors.ui.dim}>enter confirm</text>
-        <text fg={Colors.ui.dim}>esc reject</text>
+      <box paddingLeft={2}>
+        <text fg={Colors.ui.dim}>Y/A/N or left/right + enter | esc to reject</text>
       </box>
+      
+      <box height={1} />
+      
+      {/* Bottom bracket */}
+      <text fg={Colors.status.warning}>{bracketLine}</text>
     </box>
   );
 }

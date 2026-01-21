@@ -156,7 +156,7 @@ function getToolStatusDisplay(status: ToolCallInfo["status"]): { indicator: stri
 
 /**
  * Collapsible thinking/reasoning section
- * - Italics text in dim color
+ * - Left border accent (like OpenCode)
  * - Default EXPANDED with 5-row max height, stickyScroll for auto-scroll to bottom
  * - Click header to collapse (still shows "Thinking" label when collapsed)
  */
@@ -166,25 +166,33 @@ function ThinkingSection(props: { content: string }) {
   const toggle = () => setExpanded(prev => !prev);
   const indicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
   
+  // Filter out any [REDACTED] content
+  const content = () => props.content.replace("[REDACTED]", "").trim();
+  
   return (
-    <box flexDirection="column" marginBottom={1}>
-      <box 
-        flexDirection="row" 
-        onMouseDown={toggle}
-      >
-        <text fg={Colors.ui.dim}>{indicator()} </text>
-        <text fg={Colors.ui.dim}>Thinking</text>
-      </box>
-      <Show when={expanded()}>
-        <box paddingLeft={2}>
-          <scrollbox height={5} stickyScroll>
-            <text fg={Colors.ui.dim}>
-              <em>{props.content}</em>
-            </text>
-          </scrollbox>
+    <Show when={content()}>
+      <box flexDirection="column" marginBottom={1}>
+        <box 
+          flexDirection="row" 
+          onMouseDown={toggle}
+        >
+          <text fg={Colors.ui.dim}>{indicator()} </text>
+          <text fg={Colors.ui.dim}>Thinking</text>
         </box>
-      </Show>
-    </box>
+        <Show when={expanded()}>
+          <box 
+            paddingLeft={2}
+            marginTop={1}
+            border={["left"]}
+            borderColor={Colors.ui.dim}
+          >
+            <scrollbox height={5} stickyScroll>
+              <text fg={Colors.ui.dim}>{content()}</text>
+            </scrollbox>
+          </box>
+        </Show>
+      </box>
+    </Show>
   );
 }
 

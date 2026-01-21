@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-01-21
+
+### Fixed
+
+- **Thinking Block** - Fixed text visibility and display:
+  - Added left border accent (like OpenCode)
+  - Text now visible with dim gray color
+  - Filters out [REDACTED] content
+
+- **Chat Scroll** - Fixed scrolling behavior:
+  - Added `stickyStart="bottom"` for proper auto-scroll to newest content
+  - Added `verticalScrollbarOptions` with styled scrollbar
+  - Uses `viewportOptions` for proper padding
+
+- **Exit Summary** - Fixed not printing to terminal:
+  - Uses `process.stdout.write()` instead of `console.log()`
+  - Calls `process.exit(0)` after printing for clean exit
+
+### Changed
+
+- **PermissionPrompt** - Restyled to match brutalist design:
+  - Uses `[[━━━]]` bracket frame like welcome screen
+  - Added Y/A/N hotkeys for quick responses
+  - Proper permission type labels (was showing "unknown")
+  - Cyan accent for action icons
+
 ## [0.9.7] - 2026-01-21
 
 ### Fixed

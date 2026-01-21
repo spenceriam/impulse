@@ -848,14 +848,17 @@ function AppWithSession() {
         const result = await CommandRegistry.execute(trimmedContent);
         const summary = result.output || "";
         
-        // Destroy renderer first, then print summary to terminal
+        // Destroy renderer first
         renderer.destroy();
         
         // Print summary to stdout after app closes (like Gemini CLI)
+        // Use process.stdout.write to ensure it prints after terminal reset
         if (summary) {
-          console.log("\n" + summary);
+          process.stdout.write("\n" + summary + "\n");
         }
-        return;
+        
+        // Exit cleanly
+        process.exit(0);
       }
       
       // Handle /new and /clear specially - reset session without popup
