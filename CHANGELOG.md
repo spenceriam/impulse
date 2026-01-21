@@ -11,13 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`/init` Command** - Create or update AGENTS.md for the project:
-  - Detects empty projects and suggests PLANNER/PLAN-PRD mode
-  - Analyzes project structure, tech stack (Node.js, TypeScript, React, etc.)
-  - Includes git status (branch, unpushed commits, staged files)
-  - Migrates content from existing instruction files (CLAUDE.md, GEMINI.md, etc.)
-  - Supports `--force` flag to regenerate existing AGENTS.md
-  - Detects when existing AGENTS.md needs updating based on git state
+- **`/init` Command** - Analyze project and help create/update AGENTS.md:
+  - Empty directories: Suggests PLANNER, PLAN-PRD, or AUTO mode to start
+  - Existing projects: Analyzes structure, tech stack, git status
+  - Returns analysis to AI for intelligent decision-making
+  - AI reviews existing AGENTS.md and suggests updates
+  - AI can migrate content from CLAUDE.md, GEMINI.md, etc.
+  - No `--force` flag needed - AI handles the conversation
 
 ### Changed
 
