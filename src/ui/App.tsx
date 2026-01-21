@@ -639,15 +639,18 @@ function AppWithSession() {
       
       // Handle /express specially - toggle Express mode using context
       if (parsed && parsed.name === "express") {
-        const { enabled } = toggleExpress();
-        // Warning will be shown automatically by ExpressProvider via showWarning signal
-        setCommandOverlay({
-          title: "/express",
-          content: enabled 
-            ? "Express mode ENABLED - all permissions auto-approved"
-            : "Express mode DISABLED - permissions will require approval",
-          isError: false,
-        });
+        const { enabled, needsWarning } = toggleExpress();
+        // If warning needs to be shown, don't show command result overlay
+        // (ExpressWarning will be displayed instead via showWarning signal)
+        if (!needsWarning) {
+          setCommandOverlay({
+            title: "/express",
+            content: enabled 
+              ? "Express mode ENABLED - all permissions auto-approved"
+              : "Express mode DISABLED - permissions will require approval",
+            isError: false,
+          });
+        }
         return;
       }
 

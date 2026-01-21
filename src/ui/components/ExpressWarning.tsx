@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createSignal } from "solid-js";
+import { useKeyboard } from "@opentui/solid";
 import { Colors } from "../design";
 
 /**
@@ -8,14 +8,11 @@ interface ExpressWarningProps {
   onAcknowledge: () => void;
 }
 
-// Auto-dismiss delay in milliseconds
-const AUTO_DISMISS_MS = 3000;
-
 /**
  * ExpressWarning Component
  * 
  * Full-screen warning overlay shown when Express mode is enabled for the first time.
- * Auto-dismisses after 3 seconds - no user interaction required.
+ * User must press Enter to acknowledge and continue.
  * 
  * Layout:
  * ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -39,27 +36,14 @@ const AUTO_DISMISS_MS = 3000;
  * ┃                                                             ┃
  * ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  * 
- *                     Dismissing in 3...
+ *                     Press Enter to continue
  */
 export function ExpressWarning(props: ExpressWarningProps) {
-  const [countdown, setCountdown] = createSignal(3);
-  
-  // Auto-dismiss after timeout
-  onMount(() => {
-    // Countdown interval (updates every second)
-    const countdownInterval = setInterval(() => {
-      setCountdown((c) => Math.max(0, c - 1));
-    }, 1000);
-    
-    // Auto-dismiss timer
-    const dismissTimer = setTimeout(() => {
+  // Handle keyboard - Enter to acknowledge
+  useKeyboard((key) => {
+    if (key.name === "return") {
       props.onAcknowledge();
-    }, AUTO_DISMISS_MS);
-    
-    onCleanup(() => {
-      clearInterval(countdownInterval);
-      clearTimeout(dismissTimer);
-    });
+    }
   });
 
   return (
@@ -114,9 +98,9 @@ export function ExpressWarning(props: ExpressWarningProps) {
           <box height={1} />
         </box>
         
-        {/* Auto-dismiss countdown */}
+        {/* Press Enter prompt */}
         <box height={1} />
-        <text fg={Colors.ui.dim}>Dismissing in {countdown()}...</text>
+        <text fg={Colors.ui.dim}>Press Enter to continue</text>
       </box>
     </box>
   );
