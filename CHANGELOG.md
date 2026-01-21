@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-01-21
+
+### Fixed
+
+- **`/model` Column Alignment** - Removed `>` selection indicator (redundant with highlight), aligned header and data columns properly
+- **`/model` Current Indicator** - "(current)" text now green colored for better visibility
+
 ## [0.3.2] - 2026-01-21
 
 ### Fixed
