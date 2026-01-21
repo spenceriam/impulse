@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-01-21
+
+### Fixed
+
+- **`/model` Overlay Width** - Widened overlay to prevent word wrapping in descriptions
+- **`/model` Selection** - Removed unnecessary confirmation dialog; model changes immediately on selection
+- **Vision MCP Server** - Fixed configuration to use `npx @z_ai/mcp-server` with proper environment variables (Z_AI_API_KEY, Z_AI_MODE)
+
+### Changed
+
+- **MCP Server Config** - Added `command`, `args`, and `env` fields for stdio servers (supports npx-based MCP servers)
+
 ## [0.3.1] - 2026-01-21
 
 ### Fixed
