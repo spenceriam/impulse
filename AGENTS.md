@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.1.0
+- **Version:** v0.9.0
 - **Tagline:** AI coding agent powered by GLM-4.7
 - **Design:** Brutally minimal
 - **License:** MIT

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import type { ToolDefinition } from "../api/types";
 
 export interface ToolResult {
   success: boolean;
@@ -42,6 +44,32 @@ export namespace Tool {
 
   export function getAll(): Tool[] {
     return Array.from(tools.values());
+  }
+
+  /**
+   * Get all tools as API-compatible definitions (JSON Schema format)
+   * for passing to GLMClient.stream()
+   */
+  export function getAPIDefinitions(): ToolDefinition[] {
+    return Array.from(tools.values()).map((tool) => {
+      // Convert Zod schema to JSON Schema
+      const jsonSchema = zodToJsonSchema(tool.schema, {
+        $refStrategy: "none",
+        target: "openApi3",
+      });
+
+      // Remove $schema key if present (API doesn't need it)
+      const { $schema, ...parameters } = jsonSchema as Record<string, unknown>;
+
+      return {
+        type: "function" as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: parameters as Record<string, unknown>,
+        },
+      };
+    });
   }
 
   export async function execute<TInput>(

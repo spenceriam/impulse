@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-01-21
+
+### Added
+
+- **Tool Calling Support** - AI can now execute tools during conversation:
+  - All 11 registered tools (file_read, file_write, file_edit, glob, grep, bash, todo_write, todo_read, task, question, set_header) are now passed to the GLM API
+  - Tool schemas converted from Zod to JSON Schema format using `zod-to-json-schema`
+  - Tools passed to both initial stream and continuation stream calls
+
+### Technical
+
+- Added `Tool.getAPIDefinitions()` method to `src/tools/registry.ts`
+- Converts Zod schemas to OpenAPI 3.0 JSON Schema format
+- Updated both `GLMClient.stream()` calls in `App.tsx` to include tools
+
 ## [0.8.4] - 2026-01-21
 
 ### Fixed

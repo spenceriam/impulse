@@ -754,6 +754,7 @@ function AppWithSession() {
       const stream = GLMClient.stream({
         messages: continuationMessages as any,
         model: model() as any,
+        tools: Tool.getAPIDefinitions(),
         signal: streamProcessor.getAbortSignal(),
       });
       
@@ -981,6 +982,7 @@ function AppWithSession() {
       const stream = GLMClient.stream({
         messages: apiMessages,
         model: model() as any,
+        tools: Tool.getAPIDefinitions(),
         signal: streamProcessor.getAbortSignal(),
       });
 
