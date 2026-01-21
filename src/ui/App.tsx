@@ -230,9 +230,8 @@ function ModelSelectOverlay(props: {
         width={90}
         backgroundColor="#1a1a1a"
       >
-        {/* Header row */}
+        {/* Header row - no leading space, aligned with data rows */}
         <text fg={Colors.ui.dim}>
-          {"   "}
           {"MODEL".padEnd(MODEL_COL_WIDTH)}
           {"INPUT".padEnd(INPUT_COL_WIDTH)}
           {"DESCRIPTION"}
@@ -246,32 +245,32 @@ function ModelSelectOverlay(props: {
             const info = MODEL_INFO[model] || { description: "", input: "text" };
             const displayName = model.toUpperCase();
             
-            // Build the row content with proper alignment
-            const prefix = isSelected() ? " > " : "   ";
+            // Build the row content with proper alignment (no > prefix)
             const nameCol = displayName.padEnd(MODEL_COL_WIDTH);
             const inputCol = info.input.padEnd(INPUT_COL_WIDTH);
             const desc = info.description;
-            const suffix = isCurrent ? " (current)" : "";
             
             return (
               <Show
                 when={isSelected()}
                 fallback={
                   <box flexDirection="row">
-                    <text fg={Colors.ui.text}>{prefix}</text>
                     <text fg={Colors.ui.text}>{nameCol}</text>
                     <text fg={Colors.ui.dim}>{inputCol}</text>
                     <text fg={Colors.ui.dim}>{desc}</text>
-                    <text fg={Colors.status.success}>{suffix}</text>
+                    <Show when={isCurrent}>
+                      <text fg={Colors.status.success}> (current)</text>
+                    </Show>
                   </box>
                 }
               >
                 <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
-                  <text fg="#000000">{prefix}</text>
                   <text fg="#000000">{nameCol}</text>
                   <text fg="#000000">{inputCol}</text>
                   <text fg="#000000">{desc}</text>
-                  <text fg="#000000">{suffix}</text>
+                  <Show when={isCurrent}>
+                    <text fg="#006600"> (current)</text>
+                  </Show>
                 </box>
               </Show>
             );
