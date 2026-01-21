@@ -83,6 +83,11 @@ async function handleInstruct() {
   };
 }
 
+// Column widths for /mcp command alignment
+const MCP_STATUS_COL = 8;
+const MCP_NAME_COL = 14;
+const MCP_TYPE_COL = 8;
+
 async function handleMcp() {
   const servers = mcpManager.getAllServers();
   const summary = mcpManager.getConnectionSummary();
@@ -95,31 +100,30 @@ async function handleMcp() {
     };
   }
 
-  // Build status output for each server
+  // Build status output for each server with aligned columns
   const lines: string[] = [
     `MCP Server Status (${summary.connected}/${summary.total} connected)`,
     "",
+    // Header row
+    `${"STATUS".padEnd(MCP_STATUS_COL)}${"SERVER".padEnd(MCP_NAME_COL)}${"TYPE".padEnd(MCP_TYPE_COL)}INFO`,
   ];
 
   for (const server of servers) {
     const statusIcon = server.status === "connected" ? "[OK]" : "[FAIL]";
-    const name = server.config.name.padEnd(12);
-    const type = server.config.type.padEnd(5);
+    const name = server.config.name.padEnd(MCP_NAME_COL);
+    const type = server.config.type.padEnd(MCP_TYPE_COL);
     
-    let statusLine = `  ${statusIcon} ${name} (${type})`;
-    
-    // Add brief error info if failed
+    let info = "";
     if (server.status === "failed" && server.error) {
-      // Truncate error to first 40 chars for brevity
-      const shortError = server.error.length > 40 
-        ? server.error.slice(0, 37) + "..." 
+      // Truncate error to first 35 chars for brevity
+      info = server.error.length > 35 
+        ? server.error.slice(0, 32) + "..." 
         : server.error;
-      statusLine += ` - ${shortError}`;
     } else if (server.status === "connected") {
-      statusLine += ` - ${server.tools.length} tools`;
+      info = `${server.tools.length} tools`;
     }
     
-    lines.push(statusLine);
+    lines.push(`${statusIcon.padEnd(MCP_STATUS_COL)}${name}${type}${info}`);
   }
 
   // Add summary
