@@ -13,7 +13,7 @@ const BashSchema = z.object({
   command: z.string(),
   description: z.string(),
   workdir: z.string().optional(),
-  timeout: z.number(),
+  timeout: z.number().optional(),
 });
 
 type BashInput = z.infer<typeof BashSchema>;

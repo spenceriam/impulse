@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-01-21
+
+### Fixed
+
+- **bash tool** - Made `timeout` parameter optional (was incorrectly required, causing "Invalid parameters" errors)
+- **MCP discovery** - System prompt now instructs AI to use `/mcp-tools` commands internally without mentioning them to users
+
 ## [0.9.0] - 2026-01-21
 
 ### Added
