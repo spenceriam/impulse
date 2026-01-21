@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-01-21
+
+### Fixed
+
+- **Chat Container Expanding** - Fixed chat overflowing into prompt box:
+  - Added `overflow="hidden"` to layout containers
+  - Chat now respects boundaries and scrolls internally
+
+- **Sidebar Default State** - Now collapsed by default (Ctrl+B to expand):
+  - Cleaner initial view focused on chat
+  - Sidebar expands when needed
+
+### Changed
+
+- **Thinking Section** - Now shows italic "Thinking" label:
+  - Dim left border (`┊`) with italic text
+  - Lighter background (`#1f1f1f`) to distinguish from content
+  - Max 2 lines, truncated with "..."
+
+- **AI Response Formatting** - Improved markdown rendering:
+  - Better code block handling with margins
+  - Inline `code` and **bold** formatting
+  - Numbered lists (1. 2. 3.) support
+  - Headings support (# ## ###)
+  - Proper blank line handling
+
+- **Message Backgrounds** - Visual distinction between message types:
+  - User messages: Dark cyan (`#1a2a2a`) with cyan left border
+  - AI responses: Dark gray (`#141414`) background
+  - Thinking: Lighter gray (`#1f1f1f`) background
+
+- **Spacing** - Tighter, cleaner layout:
+  - Reduced message margins (2 → 1)
+  - Compact tool call display (single line)
+  - Removed extra padding between elements
+
+- **Todos Section** - Now hidden unless there are active todos:
+  - Cleaner sidebar when no tasks
+  - Only appears when AI creates todos
+
 ## [0.9.10] - 2026-01-21
 
 ### Fixed

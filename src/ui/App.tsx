@@ -1190,9 +1190,9 @@ function AppWithSession() {
           {/* Header line at top */}
           <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
           
-          <box flexDirection="row" flexGrow={1}>
+          <box flexDirection="row" flexGrow={1} overflow="hidden">
             {/* Chat + Input + Status column */}
-            <box flexDirection="column" flexGrow={1}>
+            <box flexDirection="column" flexGrow={1} overflow="hidden">
               <ChatView messages={messages()} />
               {/* Input row: spinner (when loading) + input box */}
               <box flexDirection="row" alignItems="center">

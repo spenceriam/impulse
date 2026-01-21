@@ -117,28 +117,23 @@ export function Sidebar(props: SidebarProps = {}) {
         flexDirection="column"
         padding={1}
       >
-      {/* Todo Section - Always visible */}
-      <box flexDirection="column" marginBottom={2}>
-        <box
-          flexDirection="row"
-          onMouseDown={() => setTodoExpanded((e) => !e)}
-        >
-          <text fg={Colors.ui.dim}>
-            {todoExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
-          </text>
-          <text><strong>Todo</strong></text>
-          <Show when={incompleteTodos().length > 0}>
-            <text fg={Colors.ui.dim}> ({incompleteTodos().length})</text>
-          </Show>
-        </box>
-        <Show when={todoExpanded()}>
-          <box flexDirection="column" marginLeft={1} marginTop={1}>
-            <Show
-              when={todos().length > 0}
-              fallback={
-                <text fg={Colors.ui.dim}>No active tasks</text>
-              }
-            >
+      {/* Todo Section - Only visible when there are todos */}
+      <Show when={todos().length > 0}>
+        <box flexDirection="column" marginBottom={2}>
+          <box
+            flexDirection="row"
+            onMouseDown={() => setTodoExpanded((e) => !e)}
+          >
+            <text fg={Colors.ui.dim}>
+              {todoExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
+            </text>
+            <text><strong>Todo</strong></text>
+            <Show when={incompleteTodos().length > 0}>
+              <text fg={Colors.ui.dim}> ({incompleteTodos().length})</text>
+            </Show>
+          </box>
+          <Show when={todoExpanded()}>
+            <box flexDirection="column" marginLeft={1} marginTop={1}>
               <For each={todos()}>
                 {(todo: Todo) => {
                   const { indicator, color } = getTodoIndicator(todo.status);
@@ -149,10 +144,10 @@ export function Sidebar(props: SidebarProps = {}) {
                   );
                 }}
               </For>
-            </Show>
-          </box>
-        </Show>
-      </box>
+            </box>
+          </Show>
+        </box>
+      </Show>
 
       {/* Custom MCPs Section - Only if custom MCPs installed */}
       <Show when={hasCustomMcps()}>

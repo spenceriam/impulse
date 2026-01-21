@@ -2,7 +2,9 @@ import { For, Show } from "solid-js";
 import { Colors, type Mode, getModeColor, Indicators } from "../design";
 
 // Background colors for message types (per design spec)
-const USER_MESSAGE_BG = "#1a2a2a";  // Dark cyan tint for user messages
+const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
+const THINKING_BG = "#1f1f1f";        // Lighter dark gray for thinking
+const ASSISTANT_BG = "#141414";       // Darker gray for AI response
 
 /**
  * Tool call display info
@@ -32,32 +34,64 @@ export interface Message {
  * Markdown node types
  */
 type MarkdownNode =
-  | { type: "text"; content: string }
-  | { type: "bold"; content: string }
-  | { type: "code"; content: string; language: string }
-  | { type: "list"; items: string[] };
+  | { type: "paragraph"; content: string }
+  | { type: "heading"; level: number; content: string }
+  | { type: "code_block"; content: string; language: string }
+  | { type: "list"; items: string[] }
+  | { type: "numbered_list"; items: string[] }
+  | { type: "blank" };
 
 /**
- * Simple markdown parser
- * Supports: **bold**, `code`, - lists
+ * Improved markdown parser
+ * Supports: **bold**, `inline code`, ```code blocks```, - lists, 1. numbered lists, # headings
  */
 function parseMarkdown(text: string): MarkdownNode[] {
   const nodes: MarkdownNode[] = [];
   const lines = text.split("\n");
+  let inCodeBlock = false;
+  let codeBlockLang = "";
+  let codeBlockContent: string[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
 
-    // Code block
+    // Code block start/end
     if (trimmed.startsWith("```")) {
-      const parts = trimmed.split(" ");
-      const language = parts[1]?.trim() || "text";
-      nodes.push({ type: "code", content: "", language });
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeBlockLang = trimmed.slice(3).trim() || "text";
+        codeBlockContent = [];
+      } else {
+        // End code block
+        nodes.push({ type: "code_block", content: codeBlockContent.join("\n"), language: codeBlockLang });
+        inCodeBlock = false;
+        codeBlockLang = "";
+        codeBlockContent = [];
+      }
       continue;
     }
 
-    // List item
-    if (trimmed.startsWith("- ")) {
+    // Inside code block
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      continue;
+    }
+
+    // Blank line
+    if (!trimmed) {
+      nodes.push({ type: "blank" });
+      continue;
+    }
+
+    // Heading (# ## ###)
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch && headingMatch[1] && headingMatch[2]) {
+      nodes.push({ type: "heading", level: headingMatch[1].length, content: headingMatch[2] });
+      continue;
+    }
+
+    // List item (- or *)
+    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
       const lastNode = nodes[nodes.length - 1];
       if (lastNode && lastNode.type === "list") {
         lastNode.items.push(trimmed.slice(2));
@@ -67,25 +101,83 @@ function parseMarkdown(text: string): MarkdownNode[] {
       continue;
     }
 
-    // Bold text (**text**)
-    const boldMatch = trimmed.match(/\*\*(.*?)\*\*/);
-    if (boldMatch && boldMatch[1]) {
-      nodes.push({ type: "bold", content: boldMatch[1] });
+    // Numbered list (1. 2. etc)
+    const numberedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (numberedMatch && numberedMatch[1]) {
+      const lastNode = nodes[nodes.length - 1];
+      if (lastNode && lastNode.type === "numbered_list") {
+        lastNode.items.push(numberedMatch[1]);
+      } else {
+        nodes.push({ type: "numbered_list", items: [numberedMatch[1]] });
+      }
       continue;
     }
 
-    // Inline code (`code`)
-    const codeMatch = trimmed.match(/`(.*?)`/);
-    if (codeMatch && codeMatch[1]) {
-      nodes.push({ type: "code", content: codeMatch[1], language: "text" });
-      continue;
-    }
+    // Regular paragraph - preserve inline formatting
+    nodes.push({ type: "paragraph", content: trimmed });
+  }
 
-    // Plain text
-    nodes.push({ type: "text", content: line });
+  // Close unclosed code block
+  if (inCodeBlock && codeBlockContent.length > 0) {
+    nodes.push({ type: "code_block", content: codeBlockContent.join("\n"), language: codeBlockLang });
   }
 
   return nodes;
+}
+
+/**
+ * Render inline formatting (bold, inline code) within text
+ */
+function renderInlineText(content: string) {
+  // Parse inline formatting: **bold** and `code`
+  const parts: Array<{ type: "text" | "bold" | "code"; content: string }> = [];
+  let remaining = content;
+  
+  while (remaining.length > 0) {
+    // Check for bold
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    // Check for inline code
+    const codeMatch = remaining.match(/`([^`]+)`/);
+    
+    // Find which comes first
+    const boldIndex = boldMatch ? remaining.indexOf(boldMatch[0]) : -1;
+    const codeIndex = codeMatch ? remaining.indexOf(codeMatch[0]) : -1;
+    
+    if (boldIndex === -1 && codeIndex === -1) {
+      // No more formatting
+      if (remaining) parts.push({ type: "text", content: remaining });
+      break;
+    }
+    
+    // Handle whichever comes first
+    if (boldIndex !== -1 && (codeIndex === -1 || boldIndex < codeIndex)) {
+      if (boldIndex > 0) {
+        parts.push({ type: "text", content: remaining.slice(0, boldIndex) });
+      }
+      const boldContent = boldMatch?.[1] ?? "";
+      parts.push({ type: "bold", content: boldContent });
+      remaining = remaining.slice(boldIndex + (boldMatch?.[0]?.length ?? 0));
+    } else if (codeIndex !== -1) {
+      if (codeIndex > 0) {
+        parts.push({ type: "text", content: remaining.slice(0, codeIndex) });
+      }
+      const codeContent = codeMatch?.[1] ?? "";
+      parts.push({ type: "code", content: codeContent });
+      remaining = remaining.slice(codeIndex + (codeMatch?.[0]?.length ?? 0));
+    }
+  }
+  
+  return (
+    <text>
+      <For each={parts}>
+        {(part) => {
+          if (part.type === "bold") return <strong>{part.content}</strong>;
+          if (part.type === "code") return <>`{part.content}`</>;
+          return <>{part.content}</>;
+        }}
+      </For>
+    </text>
+  );
 }
 
 /**
@@ -93,21 +185,23 @@ function parseMarkdown(text: string): MarkdownNode[] {
  */
 function renderMarkdownNode(node: MarkdownNode) {
   switch (node.type) {
-    case "text":
-      return <text>{node.content}</text>;
-    case "bold":
+    case "paragraph":
+      return renderInlineText(node.content);
+    case "heading":
       return (
         <text>
           <strong>{node.content}</strong>
         </text>
       );
-    case "code":
+    case "code_block":
       return (
-        <code
-          // @ts-ignore: OpenTUI types incomplete for SolidJS
-          code={node.content}
-          language={node.language}
-        />
+        <box marginTop={1} marginBottom={1}>
+          <code
+            // @ts-ignore: OpenTUI types incomplete for SolidJS
+            code={node.content}
+            language={node.language}
+          />
+        </box>
       );
     case "list":
       return (
@@ -115,13 +209,28 @@ function renderMarkdownNode(node: MarkdownNode) {
           <For each={node.items}>
             {(item: string) => (
               <box flexDirection="row">
-                <text fg={Colors.ui.dim}>• </text>
-                <text>{item}</text>
+                <text fg={Colors.ui.dim}>  • </text>
+                {renderInlineText(item)}
               </box>
             )}
           </For>
         </box>
       );
+    case "numbered_list":
+      return (
+        <box flexDirection="column">
+          <For each={node.items}>
+            {(item: string, index) => (
+              <box flexDirection="row">
+                <text fg={Colors.ui.dim}>  {index() + 1}. </text>
+                {renderInlineText(item)}
+              </box>
+            )}
+          </For>
+        </box>
+      );
+    case "blank":
+      return <box height={1} />;
     default:
       return null;
   }
@@ -159,9 +268,9 @@ function getToolStatusDisplay(status: ToolCallInfo["status"]): { indicator: stri
 
 /**
  * Thinking/reasoning section
- * - Inline with dim left border (┊)
+ * - Dim left border (┊) with italic "Thinking" label
  * - Max 2 lines preview, truncated with "..."
- * - No expand/collapse - always compact
+ * - Lighter background to distinguish from content
  */
 function ThinkingSection(props: { content: string }) {
   // Filter out any [REDACTED] content and truncate to ~2 lines
@@ -178,39 +287,40 @@ function ThinkingSection(props: { content: string }) {
   
   return (
     <Show when={content()}>
-      <box flexDirection="row" marginBottom={1}>
-        <text fg={Colors.ui.dim}>┊ </text>
-        <text fg={Colors.ui.dim}>{content()}</text>
+      <box 
+        flexDirection="column" 
+        marginBottom={1}
+        backgroundColor={THINKING_BG}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        <box flexDirection="row">
+          <text fg={Colors.ui.dim}>┊ </text>
+          <text fg={Colors.ui.dim}><em>Thinking</em></text>
+        </box>
+        <box flexDirection="row" paddingLeft={2}>
+          <text fg={Colors.ui.dim}><em>{content()}</em></text>
+        </box>
       </box>
     </Show>
   );
 }
 
 /**
- * Render a single tool call
+ * Render a single tool call - compact display
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo }) {
   const statusDisplay = () => getToolStatusDisplay(props.toolCall.status);
   
   return (
-    <box flexDirection="column" marginBottom={1}>
-      <box flexDirection="row">
-        <text fg={statusDisplay().color}>{statusDisplay().indicator} </text>
-        <text fg={Colors.mode.AGENT}>{props.toolCall.name}</text>
-        <Show when={props.toolCall.status === "success" || props.toolCall.status === "error"}>
-          <text fg={Colors.ui.dim}> </text>
-          <text fg={statusDisplay().color}>
-            [{props.toolCall.status === "success" ? "OK" : "FAIL"}]
-          </text>
-        </Show>
-      </box>
-      {/* Show truncated result if available */}
-      <Show when={props.toolCall.result && props.toolCall.status !== "running"}>
-        <box paddingLeft={2}>
-          <text fg={Colors.ui.dim} wrapMode="none">
-            {props.toolCall.result!.slice(0, 100)}{props.toolCall.result!.length > 100 ? "..." : ""}
-          </text>
-        </box>
+    <box flexDirection="row">
+      <text fg={statusDisplay().color}>{statusDisplay().indicator} </text>
+      <text fg={Colors.mode.AGENT}>{props.toolCall.name}</text>
+      <Show when={props.toolCall.status === "success" || props.toolCall.status === "error"}>
+        <text fg={Colors.ui.dim}> </text>
+        <text fg={statusDisplay().color}>
+          [{props.toolCall.status === "success" ? "OK" : "FAIL"}]
+        </text>
       </Show>
     </box>
   );
@@ -230,9 +340,15 @@ export function MessageBlock(props: MessageBlockProps) {
     <Show
       when={isUser()}
       fallback={
-        // Assistant message - no background, just normal styling
-        <box flexDirection="column" marginBottom={2}>
-          <box flexDirection="row" marginBottom={1}>
+        // Assistant message - subtle dark background
+        <box 
+          flexDirection="column" 
+          marginBottom={1}
+          backgroundColor={ASSISTANT_BG}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <box flexDirection="row">
             <text>
               <strong>{model().toUpperCase()}</strong>
             </text>
@@ -242,7 +358,7 @@ export function MessageBlock(props: MessageBlockProps) {
               <text fg={Colors.ui.dim}>]</text>
             </Show>
           </box>
-          {/* Thinking/Reasoning content - compact 2-line preview */}
+          {/* Thinking/Reasoning content */}
           <Show when={reasoning()}>
             <ThinkingSection content={reasoning()!} />
           </Show>
@@ -254,9 +370,9 @@ export function MessageBlock(props: MessageBlockProps) {
               </For>
             </box>
           </Show>
-          {/* Tool calls */}
+          {/* Tool calls - tighter spacing */}
           <Show when={toolCalls().length > 0}>
-            <box flexDirection="column" marginTop={1}>
+            <box flexDirection="column">
               <For each={toolCalls()}>
                 {(toolCall) => <ToolCallDisplay toolCall={toolCall} />}
               </For>
@@ -265,8 +381,8 @@ export function MessageBlock(props: MessageBlockProps) {
         </box>
       }
     >
-      {/* User message - cyan left border + dark background */}
-      <box flexDirection="row" marginBottom={2}>
+      {/* User message - cyan left border + dark cyan background */}
+      <box flexDirection="row" marginBottom={1}>
         <text fg={Colors.mode.AGENT}>┃</text>
         <box 
           flexDirection="column" 
@@ -275,7 +391,7 @@ export function MessageBlock(props: MessageBlockProps) {
           paddingRight={1}
           flexGrow={1}
         >
-          <box flexDirection="row" marginBottom={1}>
+          <box flexDirection="row">
             <text>
               <strong>You</strong>
             </text>
