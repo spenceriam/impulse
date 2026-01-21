@@ -1,4 +1,14 @@
 import solidTransformPlugin from "@opentui/solid/bun-plugin";
+import { cpSync, readdirSync } from "fs";
+import { join } from "path";
+
+// Copy tool description files to dist
+const toolsDir = "./src/tools";
+const distDir = "./dist";
+const txtFiles = readdirSync(toolsDir).filter(f => f.endsWith(".txt"));
+for (const file of txtFiles) {
+  cpSync(join(toolsDir, file), join(distDir, file));
+}
 
 const result = await Bun.build({
   entrypoints: ["./src/index.tsx"],
