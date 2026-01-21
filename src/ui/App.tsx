@@ -158,6 +158,27 @@ function CommandResultOverlay(props: {
   );
 }
 
+// Model info with description and input type
+interface ModelInfo {
+  description: string;
+  input: "text" | "text + vision";
+}
+
+const MODEL_INFO: Record<string, ModelInfo> = {
+  "glm-4.7": { description: "Flagship model for complex coding and reasoning", input: "text" },
+  "glm-4.7-flash": { description: "Fast variant of flagship model", input: "text" },
+  "glm-4.6": { description: "Balanced performance and capability", input: "text" },
+  "glm-4.6v": { description: "Multimodal with image understanding", input: "text + vision" },
+  "glm-4.5": { description: "Efficient general-purpose model", input: "text" },
+  "glm-4.5-air": { description: "Lightweight and fast responses", input: "text" },
+  "glm-4.5-flash": { description: "Ultra-fast for simple tasks", input: "text" },
+  "glm-4.5v": { description: "Quick multimodal image tasks", input: "text + vision" },
+};
+
+// Column widths for alignment
+const MODEL_COL_WIDTH = 16;
+const INPUT_COL_WIDTH = 14;
+
 // Model select overlay - interactive model selection
 function ModelSelectOverlay(props: { 
   currentModel: string;
@@ -165,20 +186,8 @@ function ModelSelectOverlay(props: {
   onCancel: () => void;
 }) {
   const [selectedIndex, setSelectedIndex] = createSignal(
-    GLM_MODELS.indexOf(props.currentModel as typeof GLM_MODELS[number])
+    Math.max(0, GLM_MODELS.indexOf(props.currentModel as typeof GLM_MODELS[number]))
   );
-
-  // Model descriptions for display
-  const modelDescriptions: Record<string, string> = {
-    "glm-4.7": "Flagship - complex coding, reasoning",
-    "glm-4.7-flash": "Fast flagship variant",
-    "glm-4.6": "Previous gen flagship",
-    "glm-4.6v": "Vision - image understanding",
-    "glm-4.5": "Efficient general model",
-    "glm-4.5-air": "Lightweight, fast",
-    "glm-4.5-flash": "Ultra-fast",
-    "glm-4.5v": "Vision - quick image tasks",
-  };
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -218,32 +227,53 @@ function ModelSelectOverlay(props: {
         title="Select Model"
         flexDirection="column"
         padding={1}
-        width={60}
+        width={76}
         backgroundColor="#1a1a1a"
       >
+        {/* Header row */}
+        <text fg={Colors.ui.dim}>
+          {"   "}
+          {"MODEL".padEnd(MODEL_COL_WIDTH)}
+          {"INPUT".padEnd(INPUT_COL_WIDTH)}
+          {"DESCRIPTION"}
+        </text>
+        <box height={1} />
+        {/* Model rows */}
         <For each={[...GLM_MODELS]}>
           {(model, index) => {
             const isSelected = () => index() === selectedIndex();
             const isCurrent = model === props.currentModel;
-            const displayName = model.toUpperCase().replace("GLM-", "GLM-");
-            const desc = modelDescriptions[model] || "";
+            const info = MODEL_INFO[model] || { description: "", input: "text" };
+            const displayName = model.toUpperCase();
+            
+            // Build the row content with proper alignment
+            const prefix = isSelected() ? " > " : "   ";
+            const nameCol = displayName.padEnd(MODEL_COL_WIDTH);
+            const inputCol = info.input.padEnd(INPUT_COL_WIDTH);
+            const desc = info.description;
+            const suffix = isCurrent ? " (current)" : "";
             
             return (
-              <box
-                flexDirection="row"
-                {...(isSelected() ? { backgroundColor: Colors.mode.AGENT } : {})}
+              <Show
+                when={isSelected()}
+                fallback={
+                  <box flexDirection="row">
+                    <text fg={Colors.ui.text}>{prefix}</text>
+                    <text fg={Colors.ui.text}>{nameCol}</text>
+                    <text fg={Colors.ui.dim}>{inputCol}</text>
+                    <text fg={Colors.ui.dim}>{desc}</text>
+                    <text fg={Colors.status.success}>{suffix}</text>
+                  </box>
+                }
               >
-                <text fg={isSelected() ? "#000000" : Colors.ui.text}>
-                  {isSelected() ? " > " : "   "}
-                  {displayName.padEnd(16)}
-                </text>
-                <text fg={isSelected() ? "#000000" : Colors.ui.dim}>
-                  {desc}
-                </text>
-                <text fg={isSelected() ? "#000000" : Colors.status.success}>
-                  {isCurrent ? " (current)" : ""}
-                </text>
-              </box>
+                <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
+                  <text fg="#000000">{prefix}</text>
+                  <text fg="#000000">{nameCol}</text>
+                  <text fg="#000000">{inputCol}</text>
+                  <text fg="#000000">{desc}</text>
+                  <text fg="#000000">{suffix}</text>
+                </box>
+              </Show>
             );
           }}
         </For>

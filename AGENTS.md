@@ -672,6 +672,32 @@ This ensures:
 - Prevents wasted effort on unwanted designs
 - Documents UI decisions for future reference
 
+### UI Implementation References (CRITICAL)
+**ALWAYS consult these resources before implementing visual changes:**
+
+1. **OpenTUI Skill** (`.opencode/skill/opentui/`)
+   - Check `references/solid/` for SolidJS-specific patterns
+   - Check `references/keyboard/` for navigation/selection patterns
+   - Check `references/layout/` for layout and list patterns
+   - Check `references/components/` for component examples
+
+2. **Context7 MCP** - Query library documentation:
+   ```
+   /mcp-tools context7 resolve-library-id  # Find library ID
+   /mcp-tools context7 query-docs          # Query docs
+   ```
+
+3. **Existing Codebase Patterns** - Check similar components:
+   - `src/ui/components/Autocomplete.tsx` - List selection with highlighting
+   - `src/ui/components/Overlay.tsx` - Command palette selection
+   - `src/ui/components/InputArea.tsx` - Dropdown autocomplete
+
+**Key OpenTUI Patterns:**
+- Use `<box backgroundColor={...}>` for highlight backgrounds (not `style={}`)
+- Use `<text fg={...}>` for text colors
+- Use `<Show when={...}>` for conditional rendering, not ternaries in props
+- Selection: Change `fg` color AND optionally `backgroundColor` on container
+
 ## Generated Documentation
 
 | Document | Purpose | Generated |
