@@ -195,13 +195,14 @@ export function StatusLine(props: StatusLineProps) {
 
   // Render based on screen type
   if (props.isInitialScreen) {
-    // Simplified format for welcome screen (includes [EX] if Express mode active)
+    // Simplified format for welcome screen
+    // Format: Model | [EX] | Dir | Branch | MCP | Date
     return (
       <box height={1} justifyContent="center" flexDirection="row">
         <text fg={Colors.ui.dim}>{displayModel()}</text>
         <Show when={isExpress()}>
           <text fg={Colors.ui.dim}> | </text>
-          <text fg={Colors.status.warning}>[EX]</text>
+          <text fg={Colors.status.warning}>[EXPRESS]</text>
         </Show>
         <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | MCP: </text>
         <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
@@ -211,14 +212,17 @@ export function StatusLine(props: StatusLineProps) {
   }
 
   // Full format for session view
+  // Format: Model | [EX] | Mode | Progress | Dir | Branch | MCP | Date
+  // [EX] comes right after Model (same position as welcome screen)
   return (
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
-      <text fg={Colors.ui.dim}>{displayModel()} | </text>
-      <text fg={modeColor()}>{mode()}</text>
+      <text fg={Colors.ui.dim}>{displayModel()}</text>
       <Show when={isExpress()}>
         <text fg={Colors.ui.dim}> | </text>
-        <text fg={Colors.status.warning}>[EX]</text>
+        <text fg={Colors.status.warning}>[EXPRESS]</text>
       </Show>
+      <text fg={Colors.ui.dim}> | </text>
+      <text fg={modeColor()}>{mode()}</text>
       <text fg={Colors.ui.dim}> | {progressBar()} | {dir} |  {gitBranch()} | MCP: </text>
       <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
       <text fg={Colors.ui.dim}> | {date}</text>

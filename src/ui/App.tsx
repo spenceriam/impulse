@@ -21,6 +21,7 @@ import { GLM_MODELS, MODES } from "../constants";
 import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
+import { batch, flushBatch } from "../util/batch";
 import packageJson from "../../package.json";
 
 /**
@@ -484,7 +485,7 @@ export function App(props: { initialExpress?: boolean }) {
 // App that decides between welcome screen and session view
 function AppWithSession() {
   const { messages, addMessage, updateMessage, model, setModel } = useSession();
-  const { mode, thinking, cycleMode, cycleModeReverse } = useMode();
+  const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
@@ -638,19 +639,18 @@ function AppWithSession() {
       }
       
       // Handle /express specially - toggle Express mode using context
+      // Only show warning on first enable, no confirmation on disable or subsequent enables
       if (parsed && parsed.name === "express") {
-        const { enabled, needsWarning } = toggleExpress();
-        // If warning needs to be shown, don't show command result overlay
-        // (ExpressWarning will be displayed instead via showWarning signal)
-        if (!needsWarning) {
-          setCommandOverlay({
-            title: "/express",
-            content: enabled 
-              ? "Express mode ENABLED - all permissions auto-approved"
-              : "Express mode DISABLED - permissions will require approval",
-            isError: false,
-          });
-        }
+        toggleExpress();
+        // No confirmation overlay - warning shown on first enable via ExpressWarning component
+        // Status line [EX] indicator shows current state
+        return;
+      }
+      
+      // Handle /think specially - toggle thinking mode without confirmation
+      if (parsed && parsed.name === "think") {
+        setThinking((current) => !current);
+        // No confirmation overlay - just toggle silently
         return;
       }
 
@@ -713,15 +713,21 @@ function AppWithSession() {
       streamProcessor = new StreamProcessor();
 
       let accumulatedContent = "";
+      const batchKey = `stream-${assistantMsgId}`;
 
-      // Handle stream events
+      // Handle stream events with 16ms batching for smooth rendering
       streamProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
-          updateMessage(assistantMsgId, {
-            content: accumulatedContent,
-          });
+          // Batch UI updates at 16ms intervals (~60fps) to prevent flicker
+          batch(batchKey, () => {
+            updateMessage(assistantMsgId, {
+              content: accumulatedContent,
+            });
+          }, 16);
         } else if (event.type === "done") {
+          // Flush any pending batched updates before marking done
+          flushBatch(batchKey);
           setIsLoading(false);
           streamProcessor = null;
         }
