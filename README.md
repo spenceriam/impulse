@@ -8,57 +8,103 @@ A brutally minimal terminal interface for AI-assisted software development. Buil
 
 - **GLM-4.7** - Zhipu AI's flagship model with thinking mode
 - **5 Modes** - AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG
-- **MCP Integration** - Vision, Web Search, Web Reader, Zread
+- **MCP Integration** - Vision, Web Search, Web Reader, Zread, Context7
 - **Git Checkpoints** - Per-message undo/redo
 - **Auto-Compact** - AI summarization at 70% context
+- **Auto-Save** - Sessions persist automatically (30s interval)
+- **Express Mode** - Skip permission prompts in trusted environments
+- **Interactive Overlays** - Model picker, session loader, question prompts
 
 ## Visual Preview
 
 **Welcome Screen:**
 ```
-┌────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                    │
-│     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                           │
-│    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                           │
-│    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                           │
-│    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                           │
-│    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                           │
-│     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                           │
-│                                                                                    │
-│    v0.1.0                                              built 01-20-2026            │
-│    Model: GLM-4.7                                      Dir: ~/project              │
-│                                                                                    │
-└────────────────────────────────────────────────────────────────────────────────────┘
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                          ┃
+┃     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                  ┃
+┃    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                  ┃
+┃    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                  ┃
+┃    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                  ┃
+┃    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                  ┃
+┃     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                  ┃
+┃                                                                          ┃
+┃    v0.8.3                                                      GLM-4.7   ┃
+┃    built 01-21-2026                                          ~/project   ┃
+┃                                                                          ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-┌─ AUTO (Thinking) ──────────────────────────────────────────────────────────────────┐
-│  > _                                                                               │
-│    What are we building, breaking, or making better?                               │
-└────────────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/project │  main │ MCPs: 4/4 │ 01-20-2026
+┌─ AUTO ─────────────────────────────────────────────────────────────────────┐
+│  > _                                                                       │
+└────────────────────────────────────────────────────────────────────────────┘
+GLM-4.7 | ~/project | main | MCP: ● | 01-21-2026
 ```
 
 **Session View:**
 ```
-┌─────────────────────────────────────────────────────┬────────────────────────────────┐
-│                                                     │ Session                        │
-│  You                                    12:34 PM    │ Context: 42% (84k/200k)        │
-│  ───                                                │ Cost: $0.12                    │
-│  Can you help me implement the API client?          │                                │
-│                                                     │ ▼ Todo                         │
-│  GLM-4.7                                12:34 PM    │ [ ] Set up project structure   │
-│  ────────                                           │ [>] Implement API client       │
-│  I'll help you implement the API client.            │ [x] Write configuration        │
-│                                                     │                                │
-│  ▶ file_write src/api/types.ts              [OK]    │ ▶ MCPs 4/4                     │
-│  ▶ file_write src/api/client.ts             [OK]    │                                │
-│                                                     │                                │
-├─────────────────────────────────────────────────────┤                                │
-│ ┌─ AGENT (Thinking) ────────────────────────────┐   │                                │
-│ │  > _                                          │   │                                │
-│ └───────────────────────────────────────────────┘   │                                │
-├─────────────────────────────────────────────────────┴────────────────────────────────┤
-│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/project │  main │ MCPs: 4/4 │ 01-20-2026     │
-└──────────────────────────────────────────────────────────────────────────────────────┘
+[GLM-CLI] | Implementing API client
+────────────────────────────────────────────────────────────────────────────────
+
+  You                                                            12:34 PM
+  Can you help me implement the API client?
+
+  GLM-4.7 [AGENT]                                                12:34 PM
+  I'll help you implement the API client.
+
+  ▶ file_write src/api/types.ts                                      [OK]
+  ▶ file_write src/api/client.ts                                     [OK]
+
+┌─ AGENT ────────────────────────────────────────────────────────────────────┐
+│  > _                                                                       │
+└────────────────────────────────────────────────────────────────────────────┘
+GLM-4.7 | AGENT | [██████░░░░] 62% | ~/project | main | MCP: ● | 01-21-2026
+```
+
+**Loading Animation (DNA Helix Spinner):**
+```
+┌─ AGENT ────────────────────────────────────────────────────────────────────┐
+│  ⣾                                                                         │
+│  ⣽  > Thinking...                                                          │
+│  ⣻                                                                         │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Session Picker (`/load`):**
+```
+┌─ Load Session ─────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  NAME                        UPDATED           MSGS   DIRECTORY            │
+│                                                                            │
+│  Fix API Bug                 2h ago            12     ~/projects/api       │
+│  Refactor authentication     Jan 20, 3:45 PM   28     ~/projects/auth      │
+│  Session Jan 19              Jan 19            5      ~/glm-cli            │
+│                                                                            │
+│  ──────────────────────────────────────────────────────────────────────    │
+│                                                                            │
+│  Preview                                                                   │
+│  ────────                                                                  │
+│  You: Can you help me fix the API client timeout issue?                    │
+│  GLM-4.7: I'll help you debug the timeout...                               │
+│                                                                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│  Up/Down: navigate | Enter: load | Esc: cancel                             │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Model Picker (`/model`):**
+```
+┌─ Select Model ─────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  MODEL              INPUT          DESCRIPTION                             │
+│                                                                            │
+│  GLM-4.7            text           Flagship - complex coding (current)     │
+│  GLM-4.7-FLASH      text           Fast flagship variant                   │
+│  GLM-4.6            text           Previous gen flagship                   │
+│  GLM-4.6V           text + vision  Image understanding                     │
+│  GLM-4.5            text           Efficient general model                 │
+│                                                                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│  Up/Down: navigate | Enter: select | Esc: cancel                           │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Quick Start
@@ -72,6 +118,11 @@ export GLM_API_KEY=your_key_here
 
 # Run
 glm
+
+# Run with Express mode (skip permission prompts)
+glm --express
+# or
+glm -e
 ```
 
 ## Modes
@@ -88,17 +139,21 @@ glm
 
 | Command | Description |
 |---------|-------------|
-| `/new` | New session |
+| `/new` | New session (clears current) |
+| `/clear` | Clear session (alias for /new) |
 | `/save` | Save session |
-| `/load` | Load session |
+| `/load` | Interactive session picker |
 | `/undo` | Revert last change |
 | `/redo` | Restore undone |
-| `/model` | Switch model |
+| `/compact` | Manually compact context |
+| `/model` | Interactive model picker |
 | `/mode` | Switch mode |
-| `/think` | Toggle thinking |
-| `/stats` | Session stats |
+| `/think` | Toggle thinking mode |
+| `/express` | Toggle Express mode (skip permissions) |
+| `/init` | Analyze project, create AGENTS.md |
+| `/stats` | Session statistics |
 | `/help` | Show help |
-| `/quit` | Exit |
+| `/quit` | Exit with summary |
 
 ## Keyboard
 
@@ -108,9 +163,11 @@ glm
 | `Shift+Tab` | Cycle reverse |
 | `Enter` | Submit |
 | `Shift+Enter` | New line |
+| `Up/Down` | Message history |
 | `@` | File autocomplete |
-| `Esc` (2x) | Cancel |
-| `Ctrl+C` (2x) | Exit |
+| `Esc` (2x) | Cancel operation |
+| `Ctrl+C` (2x) | Exit with summary |
+| `Ctrl+B` | Toggle sidebar |
 | `Ctrl+P` | Command palette |
 | `Ctrl+M` | MCP status |
 
@@ -127,16 +184,31 @@ glm
 | `glm-4.5-flash` | Text | Ultra-fast |
 | `glm-4.5v` | Vision | Quick image tasks |
 
+## MCP Servers
+
+glm-cli integrates with 5 MCP servers out of the box:
+
+| Server | Type | Tools |
+|--------|------|-------|
+| **Vision** | Local (stdio) | Image analysis, UI screenshots, diagrams |
+| **Web Search** | Remote (HTTP) | Web search via Z.AI |
+| **Web Reader** | Remote (HTTP) | Fetch and parse web pages |
+| **Zread** | Remote (HTTP) | Search docs, read GitHub repos |
+| **Context7** | Remote (HTTP) | Library/framework documentation |
+
+The agent discovers MCP tools on-demand using `/mcp-tools` to keep context lean.
+
 ## Configuration
 
-Config file: `~/.config/glm-cli/config.json`
+Config file: `~/.glm-cli/config.json`
 
 ```json
 {
   "apiKey": "your_key_here",
   "defaultModel": "glm-4.7",
   "defaultMode": "AUTO",
-  "thinking": true
+  "thinking": true,
+  "express": false
 }
 ```
 
