@@ -1,5 +1,8 @@
-import { For, Show, createSignal } from "solid-js";
+import { For, Show } from "solid-js";
 import { Colors, type Mode, getModeColor, Indicators } from "../design";
+
+// Background colors for message types (per design spec)
+const USER_MESSAGE_BG = "#1a2a2a";  // Dark cyan tint for user messages
 
 /**
  * Tool call display info
@@ -155,42 +158,29 @@ function getToolStatusDisplay(status: ToolCallInfo["status"]): { indicator: stri
 }
 
 /**
- * Collapsible thinking/reasoning section
- * - Left border accent (like OpenCode)
- * - Default EXPANDED with 5-row max height, stickyScroll for auto-scroll to bottom
- * - Click header to collapse (still shows "Thinking" label when collapsed)
+ * Thinking/reasoning section
+ * - Inline with dim left border (┊)
+ * - Max 2 lines preview, truncated with "..."
+ * - No expand/collapse - always compact
  */
 function ThinkingSection(props: { content: string }) {
-  const [expanded, setExpanded] = createSignal(true); // Default expanded
-  
-  const toggle = () => setExpanded(prev => !prev);
-  const indicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
-  
-  // Filter out any [REDACTED] content
-  const content = () => props.content.replace("[REDACTED]", "").trim();
+  // Filter out any [REDACTED] content and truncate to ~2 lines
+  const content = () => {
+    const cleaned = props.content.replace("[REDACTED]", "").trim();
+    // Truncate to first 150 chars or 2 newlines
+    const lines = cleaned.split("\n").slice(0, 2);
+    let truncated = lines.join(" ").slice(0, 150);
+    if (cleaned.length > truncated.length) {
+      truncated += "...";
+    }
+    return truncated;
+  };
   
   return (
     <Show when={content()}>
-      <box flexDirection="column" marginBottom={1}>
-        <box 
-          flexDirection="row" 
-          onMouseDown={toggle}
-        >
-          <text fg={Colors.ui.dim}>{indicator()} </text>
-          <text fg={Colors.ui.dim}>Thinking</text>
-        </box>
-        <Show when={expanded()}>
-          <box 
-            paddingLeft={2}
-            marginTop={1}
-            border={["left"]}
-            borderColor={Colors.ui.dim}
-          >
-            <scrollbox height={5} stickyScroll>
-              <text fg={Colors.ui.dim}>{content()}</text>
-            </scrollbox>
-          </box>
-        </Show>
+      <box flexDirection="row" marginBottom={1}>
+        <text fg={Colors.ui.dim}>┊ </text>
+        <text fg={Colors.ui.dim}>{content()}</text>
       </box>
     </Show>
   );
@@ -237,47 +227,68 @@ export function MessageBlock(props: MessageBlockProps) {
   const reasoning = () => props.message.reasoning;
 
   return (
-    <box flexDirection="column" marginBottom={2}>
-      <box flexDirection="row" marginBottom={1}>
-        <Show
-          when={!isUser()}
-          fallback={
+    <Show
+      when={isUser()}
+      fallback={
+        // Assistant message - no background, just normal styling
+        <box flexDirection="column" marginBottom={2}>
+          <box flexDirection="row" marginBottom={1}>
+            <text>
+              <strong>{model().toUpperCase()}</strong>
+            </text>
+            <Show when={mode()}>
+              <text fg={Colors.ui.dim}> [</text>
+              <text fg={modeColor()}>{mode()}</text>
+              <text fg={Colors.ui.dim}>]</text>
+            </Show>
+          </box>
+          {/* Thinking/Reasoning content - compact 2-line preview */}
+          <Show when={reasoning()}>
+            <ThinkingSection content={reasoning()!} />
+          </Show>
+          {/* Message content */}
+          <Show when={props.message.content}>
+            <box flexDirection="column">
+              <For each={parsed()}>
+                {(node: MarkdownNode) => renderMarkdownNode(node)}
+              </For>
+            </box>
+          </Show>
+          {/* Tool calls */}
+          <Show when={toolCalls().length > 0}>
+            <box flexDirection="column" marginTop={1}>
+              <For each={toolCalls()}>
+                {(toolCall) => <ToolCallDisplay toolCall={toolCall} />}
+              </For>
+            </box>
+          </Show>
+        </box>
+      }
+    >
+      {/* User message - cyan left border + dark background */}
+      <box flexDirection="row" marginBottom={2}>
+        <text fg={Colors.mode.AGENT}>┃</text>
+        <box 
+          flexDirection="column" 
+          backgroundColor={USER_MESSAGE_BG}
+          paddingLeft={1}
+          paddingRight={1}
+          flexGrow={1}
+        >
+          <box flexDirection="row" marginBottom={1}>
             <text>
               <strong>You</strong>
             </text>
-          }
-        >
-          {/* Assistant message: Model [MODE] */}
-          <text>
-            <strong>{model().toUpperCase()}</strong>
-          </text>
-          <Show when={mode()}>
-            <text fg={Colors.ui.dim}> [</text>
-            <text fg={modeColor()}>{mode()}</text>
-            <text fg={Colors.ui.dim}>]</text>
+          </box>
+          <Show when={props.message.content}>
+            <box flexDirection="column">
+              <For each={parsed()}>
+                {(node: MarkdownNode) => renderMarkdownNode(node)}
+              </For>
+            </box>
           </Show>
-        </Show>
+        </box>
       </box>
-      {/* Thinking/Reasoning content - collapsible with italics and scroll */}
-      <Show when={reasoning()}>
-        <ThinkingSection content={reasoning()!} />
-      </Show>
-      {/* Message content */}
-      <Show when={props.message.content}>
-        <box flexDirection="column">
-          <For each={parsed()}>
-            {(node: MarkdownNode) => renderMarkdownNode(node)}
-          </For>
-        </box>
-      </Show>
-      {/* Tool calls */}
-      <Show when={toolCalls().length > 0}>
-        <box flexDirection="column" marginTop={1}>
-          <For each={toolCalls()}>
-            {(toolCall) => <ToolCallDisplay toolCall={toolCall} />}
-          </For>
-        </box>
-      </Show>
-    </box>
+    </Show>
   );
 }

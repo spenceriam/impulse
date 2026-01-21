@@ -4,6 +4,9 @@ import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { Colors, Mode, Layout } from "../design";
 import { CommandRegistry } from "../../commands/registry";
 
+// Background color for input area (dark purple tint per design spec)
+const INPUT_BACKGROUND = "#1a1a2a";
+
 
 /**
  * Input Area Component
@@ -218,6 +221,7 @@ export function InputArea(props: InputAreaProps) {
       titleAlignment="left"
       flexDirection="column"
       padding={1}
+      backgroundColor={INPUT_BACKGROUND}
     >
       <box flexDirection="row" alignItems="flex-start">
         <text fg={Colors.ui.dim}>{">"} </text>

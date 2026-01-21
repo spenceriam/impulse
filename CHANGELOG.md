@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-01-21
+
+### Fixed
+
+- **Chat Container Overflow** - Fixed scrollbox overflow and lines spilling into sidebar:
+  - Added `overflow="hidden"` to outer box
+  - Set explicit `width="100%"` on scrollbox
+  - Wrapped message list in flex column container
+
+- **Input Box Background** - Added dark purple background (`#1a1a2a`) per design spec:
+  - Fixed-height input with internal scrolling (3 rows min)
+  - Matches design mockup color scheme
+
+### Changed
+
+- **User Message Styling** - Added visual distinction for user messages:
+  - Dark cyan background (`#1a2a2a`) for user message container
+  - Cyan left border (`┃`) for visual emphasis
+  - Clear separation between user and assistant messages
+
+- **Thinking Section** - Simplified to compact 2-line preview:
+  - Replaced collapsible expand/collapse with inline display
+  - Max 150 chars or 2 lines, truncated with "..."
+  - Dim left border (`┊`) instead of heavy box
+  - Removes visual noise while preserving context
+
+- **Exit Summary** - Enhanced with full session statistics:
+  - Tool calls: total, success, failed, and breakdown by tool name
+  - Token usage: input, output, thinking, cache read/write, total
+  - Better formatting with aligned columns
+
+### Added
+
+- **Token Tracking** - Session context now tracks token usage per API call:
+  - New `TokenStats` type: input, output, thinking, cacheRead, cacheWrite
+  - New `ToolStats` type: total, success, failed, byName
+  - `addTokenUsage()` and `recordToolCall()` methods on session context
+
 ## [0.9.9] - 2026-01-21
 
 ### Added

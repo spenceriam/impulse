@@ -15,6 +15,27 @@ export interface Message extends MessageBlockMessage {
 export type { ToolCallInfo };
 
 /**
+ * Token usage stats
+ */
+export interface TokenStats {
+  input: number;
+  output: number;
+  thinking: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/**
+ * Tool call stats
+ */
+export interface ToolStats {
+  total: number;
+  success: number;
+  failed: number;
+  byName: Record<string, number>;  // Count per tool name
+}
+
+/**
  * Session stats type
  */
 export interface SessionStats {
@@ -23,6 +44,8 @@ export interface SessionStats {
   totalCost: number;
   sessionId: string | null;
   sessionName: string | null;
+  tokens: TokenStats;
+  tools: ToolStats;
 }
 
 /**
@@ -45,6 +68,9 @@ interface SessionContextType {
   setHeaderTitle: (title: string, clearPrefix?: boolean) => void;
   headerPrefix: Accessor<HeaderPrefix>;
   setHeaderPrefix: Setter<HeaderPrefix>;
+  // Stats tracking
+  addTokenUsage: (usage: Partial<TokenStats>) => void;
+  recordToolCall: (name: string, success: boolean) => void;
   // Session operations
   createNewSession: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
@@ -88,10 +114,25 @@ export const SessionProvider: ParentComponent = (props) => {
   const [messages, setMessages] = createSignal<Message[]>([]);
   const [model, setModel] = createSignal<string>("glm-4.7");
   const [thinking, setThinking] = createSignal<boolean>(true);
-  const [totalTokens, _setTotalTokens] = createSignal<number>(0);
+  const [totalTokens, setTotalTokens] = createSignal<number>(0);
   const [totalCost, setTotalCost] = createSignal<number>(0);
   const [sessionId, setSessionId] = createSignal<string | null>(null);
   const [sessionName, setSessionName] = createSignal<string | null>(null);
+  
+  // Token and tool stats tracking
+  const [tokenStats, setTokenStats] = createSignal<TokenStats>({
+    input: 0,
+    output: 0,
+    thinking: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+  });
+  const [toolStats, setToolStats] = createSignal<ToolStats>({
+    total: 0,
+    success: 0,
+    failed: 0,
+    byName: {},
+  });
   
   // Header state
   const [headerTitle, setHeaderTitleSignal] = createSignal<string>("New session");
@@ -285,6 +326,33 @@ export const SessionProvider: ParentComponent = (props) => {
     return await SessionManager.listSessions();
   };
 
+  // Add token usage
+  const addTokenUsage = (usage: Partial<TokenStats>) => {
+    setTokenStats((prev) => ({
+      input: prev.input + (usage.input ?? 0),
+      output: prev.output + (usage.output ?? 0),
+      thinking: prev.thinking + (usage.thinking ?? 0),
+      cacheRead: prev.cacheRead + (usage.cacheRead ?? 0),
+      cacheWrite: prev.cacheWrite + (usage.cacheWrite ?? 0),
+    }));
+    // Update total tokens
+    const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.thinking ?? 0);
+    setTotalTokens((prev) => prev + total);
+  };
+
+  // Record tool call
+  const recordToolCall = (name: string, success: boolean) => {
+    setToolStats((prev) => ({
+      total: prev.total + 1,
+      success: prev.success + (success ? 1 : 0),
+      failed: prev.failed + (success ? 0 : 1),
+      byName: {
+        ...prev.byName,
+        [name]: (prev.byName[name] ?? 0) + 1,
+      },
+    }));
+  };
+
   // Compute stats
   const stats = () => ({
     totalMessages: messages().length,
@@ -292,6 +360,8 @@ export const SessionProvider: ParentComponent = (props) => {
     totalCost: totalCost(),
     sessionId: sessionId(),
     sessionName: sessionName(),
+    tokens: tokenStats(),
+    tools: toolStats(),
   });
 
   const contextValue: SessionContextType = {
@@ -311,6 +381,9 @@ export const SessionProvider: ParentComponent = (props) => {
     setHeaderTitle,
     headerPrefix,
     setHeaderPrefix,
+    // Stats tracking
+    addTokenUsage,
+    recordToolCall,
     // Session operations
     createNewSession,
     loadSession,

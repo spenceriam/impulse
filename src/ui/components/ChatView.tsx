@@ -25,15 +25,17 @@ export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
 
   return (
-    <box flexGrow={1} border borderColor={Colors.ui.dim}>
+    <box flexGrow={1} border borderColor={Colors.ui.dim} overflow="hidden">
       <scrollbox 
         flexGrow={1}
+        width="100%"
         stickyScroll={true}
         stickyStart="bottom"
         viewportOptions={{
-          paddingRight: 1,
+          paddingRight: 2,
           paddingLeft: 1,
           paddingTop: 1,
+          paddingBottom: 1,
         }}
         verticalScrollbarOptions={{
           visible: true,
@@ -44,9 +46,11 @@ export function ChatView(props: ChatViewProps) {
           },
         }}
       >
-        <For each={messages()}>
-          {(message) => <MessageBlock message={message} />}
-        </For>
+        <box flexDirection="column" width="100%">
+          <For each={messages()}>
+            {(message) => <MessageBlock message={message} />}
+          </For>
+        </box>
       </scrollbox>
     </box>
   );

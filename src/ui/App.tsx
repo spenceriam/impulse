@@ -512,7 +512,7 @@ function formatDuration(ms: number): string {
 
 // App that decides between welcome screen and session view
 function AppWithSession() {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession, stats, recordToolCall, addTokenUsage } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
@@ -721,12 +721,18 @@ function AppWithSession() {
         updateMessage(assistantMsgId, {
           toolCalls: [...toolCalls],
         });
+        
+        // Record tool call for stats
+        recordToolCall(toolCall.name, result.success);
       } catch (error) {
         toolCall.status = "error";
         toolCall.result = error instanceof Error ? error.message : "Unknown error";
         updateMessage(assistantMsgId, {
           toolCalls: [...toolCalls],
         });
+        
+        // Record failed tool call
+        recordToolCall(toolCall.name, false);
       }
     }
     
@@ -811,6 +817,15 @@ function AppWithSession() {
             });
           }
         } else if (event.type === "done") {
+          // Record token usage if available
+          if (event.state.usage) {
+            addTokenUsage({
+              input: event.state.usage.promptTokens,
+              output: event.state.usage.completionTokens,
+              thinking: accumulatedReasoning.length > 0 ? Math.floor(accumulatedReasoning.length / 4) : 0,
+            });
+          }
+          
           if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
             // Recursive tool execution
             executeToolsAndContinue(
@@ -856,12 +871,10 @@ function AppWithSession() {
       
       // Handle /exit and /quit specially - print summary to terminal after exit
       if (parsed && (parsed.name === "exit" || parsed.name === "quit")) {
-        // Generate summary from UI context (source of truth, not stale SessionManager data)
-        const msgCount = messages().length;
+        // Generate summary from UI context (source of truth)
+        const currentStats = stats();
         const currentModel = model();
         const currentHeaderTitle = headerTitle();
-        const currentTodos = [] as { status: string }[]; // TODO: wire up todo context
-        const completedTodos = currentTodos.filter(t => t.status === "completed").length;
         
         // Calculate approximate duration from first message
         const firstMsg = messages()[0];
@@ -869,23 +882,56 @@ function AppWithSession() {
           ? formatDuration(Date.now() - firstMsg.timestamp)
           : "0m";
         
-        const summary = [
-          "━".repeat(60),
+        // Format tool breakdown (top 4 tools by usage)
+        const toolBreakdown = Object.entries(currentStats.tools.byName)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 4)
+          .map(([name, count]) => `${name}: ${count}`)
+          .join("  ");
+        
+        // Format token stats
+        const tokens = currentStats.tokens;
+        const totalTokens = tokens.input + tokens.output + tokens.thinking;
+        
+        const summaryLines = [
+          "━".repeat(66),
           "  GLM-CLI SESSION COMPLETE",
-          "━".repeat(60),
+          "━".repeat(66),
           "",
-          `  Session:    ${currentHeaderTitle}`,
-          `  Model:      ${currentModel}`,
-          `  Duration:   ${duration}`,
-          `  Messages:   ${msgCount}`,
-          currentTodos.length > 0 ? `  Todos:      ${completedTodos}/${currentTodos.length} completed` : "",
+          `  Session       ${currentHeaderTitle}`,
+          `  Model         ${currentModel}`,
+          `  Duration      ${duration}`,
           "",
-          "━".repeat(60),
+          "━".repeat(66),
+          "  TOOLS",
+          "━".repeat(66),
+          "",
+          `  Calls         ${currentStats.tools.total} total     ${currentStats.tools.success} success     ${currentStats.tools.failed} failed`,
+        ];
+        
+        // Add tool breakdown if there are any tool calls
+        if (toolBreakdown) {
+          summaryLines.push(`  ${toolBreakdown}`);
+        }
+        
+        summaryLines.push(
+          "",
+          "━".repeat(66),
+          "  TOKENS",
+          "━".repeat(66),
+          "",
+          `  Input         ${tokens.input.toLocaleString()}       Cache read     ${tokens.cacheRead.toLocaleString()}`,
+          `  Output        ${tokens.output.toLocaleString()}       Cache write    ${tokens.cacheWrite.toLocaleString()}`,
+          `  Thinking      ${tokens.thinking.toLocaleString()}       Total          ${totalTokens.toLocaleString()}`,
+          "",
+          "━".repeat(66),
           "",
           "  Until next time!",
           "",
-          "━".repeat(60),
-        ].filter(Boolean).join("\n");
+          "━".repeat(66),
+        );
+        
+        const summary = summaryLines.join("\n");
         
         // Destroy renderer first
         renderer.destroy();
@@ -1084,6 +1130,16 @@ function AppWithSession() {
             });
           }
         } else if (event.type === "done") {
+          // Record token usage if available
+          if (event.state.usage) {
+            addTokenUsage({
+              input: event.state.usage.promptTokens,
+              output: event.state.usage.completionTokens,
+              // Z.AI doesn't split out thinking tokens in usage, but reasoning is separate
+              thinking: accumulatedReasoning.length > 0 ? Math.floor(accumulatedReasoning.length / 4) : 0, // Rough estimate
+            });
+          }
+          
           // Stream finished - check if we need to execute tools
           if (event.state.finishReason === "tool_calls" && toolCallsMap.size > 0) {
             // Execute tools and continue conversation
