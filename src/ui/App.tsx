@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -485,7 +485,7 @@ export function App(props: { initialExpress?: boolean }) {
 
 // App that decides between welcome screen and session view
 function AppWithSession() {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
@@ -502,6 +502,9 @@ function AppWithSession() {
   
   // Model select overlay state
   const [showModelSelect, setShowModelSelect] = createSignal(false);
+  
+  // Session picker overlay state
+  const [showSessionPicker, setShowSessionPicker] = createSignal(false);
   
   // Question overlay state (from AI question tool)
   const [pendingQuestions, setPendingQuestions] = createSignal<Question[] | null>(null);
@@ -804,6 +807,16 @@ function AppWithSession() {
         }
       }
       
+      // Handle /load specially - show interactive session picker
+      // Only if no session ID provided (just "/load")
+      if (parsed && parsed.name === "load") {
+        const hasSessionArg = trimmedContent.trim().split(/\s+/).length > 1;
+        if (!hasSessionArg) {
+          setShowSessionPicker(true);
+          return;
+        }
+      }
+      
       // Handle /express specially - toggle Express mode using context
       // Only show warning on first enable, no confirmation on disable or subsequent enables
       if (parsed && parsed.name === "express") {
@@ -1049,6 +1062,18 @@ function AppWithSession() {
             // No confirmation dialog - just select and close
           }}
           onCancel={() => setShowModelSelect(false)}
+        />
+      </Show>
+      
+      {/* Session picker overlay */}
+      <Show when={showSessionPicker()}>
+        <SessionPickerOverlay
+          onSelect={async (session) => {
+            // Load the selected session
+            setShowSessionPicker(false);
+            await loadSession(session.id);
+          }}
+          onCancel={() => setShowSessionPicker(false)}
         />
       </Show>
       

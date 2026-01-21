@@ -15,3 +15,4 @@ export { QuestionOverlay } from "./QuestionOverlay";
 export { PermissionPrompt } from "./PermissionPrompt";
 export { ExpressWarning } from "./ExpressWarning";
 export { Spinner, StackedSpinner } from "./Spinner";
+export { SessionPickerOverlay } from "./SessionPicker";

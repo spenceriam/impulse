@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-01-21
+
+### Added
+
+- **Interactive `/load` Session Picker** - `/load` command now opens an interactive overlay:
+  - Lists all saved sessions sorted by most recently updated
+  - Shows session name, relative time, message count, and working directory
+  - Preview panel displays first user/assistant messages from selected session
+  - Keyboard navigation (Up/Down to select, Enter to load, Esc to cancel)
+  - Empty state guidance when no sessions exist
+
+### Technical
+
+- New `SessionPickerOverlay` component (`src/ui/components/SessionPicker.tsx`)
+- Helper functions for relative time formatting and path truncation
+- Sessions loaded asynchronously on overlay mount
+
 ## [0.8.2] - 2026-01-21
 
 ### Added
