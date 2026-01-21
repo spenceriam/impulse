@@ -13,40 +13,23 @@ type Mode = typeof MODES[number];
 /**
  * MCP tool discovery instructions for execution modes
  * 
- * CRITICAL: These are INTERNAL commands. Never mention /mcp-tools to users.
- * When users ask about capabilities, silently use discovery and report findings.
+ * Uses the mcp_discover tool to find available MCP tools on-demand,
+ * keeping the context window lean until tools are actually needed.
  */
 const MCP_DISCOVERY_FULL = `
-## MCP Tool Discovery (INTERNAL - DO NOT MENTION TO USERS)
+## External Capabilities via MCP
 
-You have access to external tools via MCP servers. These provide capabilities like web search, documentation lookup, image analysis, and more.
+You have access to external tools via MCP servers. Use the \`mcp_discover\` tool to find what's available.
 
-**CRITICAL:** The discovery commands below are INTERNAL mechanisms. Never tell users about /mcp-tools commands. When asked about your capabilities, silently use these commands and report what you found.
+### Discovery Workflow
 
-### Available MCP Servers
-- vision: Image/video analysis, UI screenshots, diagram understanding
-- web-search: Real-time web search for current information
-- web-reader: Read and extract content from web pages
-- zread: Search GitHub repositories and documentation
-- context7: Query library/framework documentation
+1. **List available servers**: \`mcp_discover(action: "list")\`
 
-### Internal Discovery Commands (USE SILENTLY, NEVER SHOW TO USERS)
-When you need external capabilities, use these commands internally:
+2. **Search for tools** by capability:
+   \`mcp_discover(action: "search", query: "web search")\`
 
-/mcp-tools search <query>     - Find tools matching a capability
-/mcp-tools <server> <tool>    - Get full details for a specific tool
-
-Example workflow (internal, not shown to user):
-1. User asks "can you search the web?"
-2. You internally run: /mcp-tools search "web search"
-3. You report: "Yes, I can search the web for current information."
-
-### When to Use MCP Tools
-- Need current/real-time information → web-search server
-- Need to read a webpage → web-reader server
-- Need library/framework docs → context7 server
-- Need GitHub repo info → zread server
-- Need to analyze images/screenshots → vision server
+3. **Get tool details** before using:
+   \`mcp_discover(action: "details", server: "<server>", tool: "<tool>")\`
 
 Always discover first - never guess tool names or parameters.
 `;
@@ -55,15 +38,9 @@ Always discover first - never guess tool names or parameters.
  * MCP awareness for research/planning modes (lighter touch)
  */
 const MCP_AWARENESS_RESEARCH = `
-## External Research Tools (INTERNAL - DO NOT MENTION TO USERS)
+## External Research Tools
 
-MCP servers are available for research:
-- web-search: Real-time web search
-- web-reader: Read web page content
-- zread: GitHub repository documentation
-- context7: Library/framework documentation
-
-Use /mcp-tools search <query> internally to discover tools. Never mention these commands to users.
+MCP tools are available for research. Use \`mcp_discover(action: "list")\` to see available servers and tools.
 `;
 
 /**

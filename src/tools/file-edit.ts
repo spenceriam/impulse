@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { readFileSync, writeFileSync } from "fs";
+import { resolve, relative, isAbsolute } from "path";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 
@@ -18,6 +19,20 @@ const EditSchema = z.object({
 
 type EditInput = z.infer<typeof EditSchema>;
 
+/**
+ * Check if a path is within the current working directory
+ */
+function isWithinCwd(targetPath: string): boolean {
+  const cwd = process.cwd();
+  const absoluteTarget = isAbsolute(targetPath) 
+    ? targetPath 
+    : resolve(cwd, targetPath);
+  const relativePath = relative(cwd, absoluteTarget);
+  
+  // If relative path starts with "..", it's outside cwd
+  return !relativePath.startsWith("..");
+}
+
 export const fileEdit: Tool<EditInput> = Tool.define(
   "file_edit",
   DESCRIPTION,
@@ -27,18 +42,20 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       const safePath = sanitizePath(input.filePath);
       const content = readFileSync(safePath, "utf-8");
       
-      // Request permission before editing
-      // TODO: Generate a diff preview for the permission prompt
-      await askPermission({
-        sessionID: "current", // Tools don't have session context yet
-        permission: "edit",
-        patterns: [safePath],
-        message: `Edit file: ${safePath}`,
-        metadata: {
-          oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
-          newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
-        },
-      });
+      // Only ask permission for files outside the working directory
+      if (!isWithinCwd(safePath)) {
+        await askPermission({
+          sessionID: "current",
+          permission: "edit",
+          patterns: [safePath],
+          message: `Edit file outside cwd: ${safePath}`,
+          metadata: {
+            oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
+            newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
+            reason: "Path outside working directory",
+          },
+        });
+      }
       
       const occurrences = (content.match(new RegExp(escapeRegex(input.oldString), "g")) ?? []).length;
 

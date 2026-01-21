@@ -498,6 +498,18 @@ export function App(props: { initialExpress?: boolean }) {
   );
 }
 
+// Helper to format duration in human-readable form
+function formatDuration(ms: number): string {
+  const totalMins = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  
+  if (hours > 0) {
+    return `${hours}h ${mins}m`;
+  }
+  return `${mins}m`;
+}
+
 // App that decides between welcome screen and session view
 function AppWithSession() {
   const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession } = useSession();
@@ -844,18 +856,42 @@ function AppWithSession() {
       
       // Handle /exit and /quit specially - print summary to terminal after exit
       if (parsed && (parsed.name === "exit" || parsed.name === "quit")) {
-        // Execute the command to get summary
-        const result = await CommandRegistry.execute(trimmedContent);
-        const summary = result.output || "";
+        // Generate summary from UI context (source of truth, not stale SessionManager data)
+        const msgCount = messages().length;
+        const currentModel = model();
+        const currentHeaderTitle = headerTitle();
+        const currentTodos = [] as { status: string }[]; // TODO: wire up todo context
+        const completedTodos = currentTodos.filter(t => t.status === "completed").length;
+        
+        // Calculate approximate duration from first message
+        const firstMsg = messages()[0];
+        const duration = firstMsg 
+          ? formatDuration(Date.now() - firstMsg.timestamp)
+          : "0m";
+        
+        const summary = [
+          "━".repeat(60),
+          "  GLM-CLI SESSION COMPLETE",
+          "━".repeat(60),
+          "",
+          `  Session:    ${currentHeaderTitle}`,
+          `  Model:      ${currentModel}`,
+          `  Duration:   ${duration}`,
+          `  Messages:   ${msgCount}`,
+          currentTodos.length > 0 ? `  Todos:      ${completedTodos}/${currentTodos.length} completed` : "",
+          "",
+          "━".repeat(60),
+          "",
+          "  Until next time!",
+          "",
+          "━".repeat(60),
+        ].filter(Boolean).join("\n");
         
         // Destroy renderer first
         renderer.destroy();
         
         // Print summary to stdout after app closes (like Gemini CLI)
-        // Use process.stdout.write to ensure it prints after terminal reset
-        if (summary) {
-          process.stdout.write("\n" + summary + "\n");
-        }
+        process.stdout.write("\n" + summary + "\n");
         
         // Exit cleanly
         process.exit(0);
@@ -1105,12 +1141,10 @@ function AppWithSession() {
               {/* Input row: spinner (when loading) + input box */}
               <box flexDirection="row" alignItems="center">
                 {/* Reserved space for spinner - always present to keep layout stable */}
-                <box width={3} flexShrink={0} paddingRight={1}>
-                  {/* 6 rows, centered vertically against 7-line input box */}
+                <box width={3} flexShrink={0} paddingRight={1} height="100%" justifyContent="center">
+                  {/* 5 rows, vertically centered against input box */}
                   <Show when={isLoading()}>
-                    <box paddingTop={1}>
-                      <StackedSpinner height={6} />
-                    </box>
+                    <StackedSpinner height={5} />
                   </Show>
                 </box>
                 <box flexGrow={1}>
@@ -1198,9 +1232,10 @@ function AppWithSession() {
           <box
             position="absolute"
             width="100%"
-            bottom={3}
-            left={0}
-            right={0}
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+            backgroundColor="rgba(0, 0, 0, 0.7)"
           >
             <PermissionPrompt
               request={request()}

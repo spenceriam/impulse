@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 import { Bus } from "../bus";
 import { BusEvent } from "../bus/bus";
 import {
@@ -14,9 +16,16 @@ export * from "./types";
  * Permission Module
  * 
  * Handles tool permission requests and responses.
- * When Express mode is OFF, tools call Permission.ask() before executing.
- * When Express mode is ON, Permission.ask() returns immediately.
+ * Three levels of approval:
+ * - once: Allow this specific action only
+ * - session: Auto-approve for current session (in-memory)
+ * - always: Save to project config (persisted to .glm-cli/permissions.json)
+ * 
+ * When Express mode is ON, all permissions are auto-approved.
  */
+
+// Project permissions file path
+const PERMISSIONS_FILE = ".glm-cli/permissions.json";
 
 // Generate unique IDs for permission requests
 let permissionIdCounter = 0;
@@ -56,16 +65,104 @@ interface PendingPermission {
 const pendingPermissions = new Map<string, PendingPermission>();
 
 /**
- * Approved patterns per session
+ * Session-scoped approved patterns (in-memory)
  * Map of sessionID -> Map of permission type -> Set of patterns
  */
-const approvedPatterns = new Map<string, Map<string, Set<string>>>();
+const sessionApprovals = new Map<string, Map<string, Set<string>>>();
+
+/**
+ * Project-scoped approved patterns (persisted)
+ * Map of permission type -> Set of patterns
+ */
+let projectApprovals: Map<string, Set<string>> | null = null;
 
 /**
  * Express mode state
  */
 let expressMode = false;
 let expressAcknowledged = false;
+
+/**
+ * Load project permissions from .glm-cli/permissions.json
+ */
+function loadProjectPermissions(): Map<string, Set<string>> {
+  if (projectApprovals !== null) {
+    return projectApprovals;
+  }
+  
+  projectApprovals = new Map();
+  
+  const filePath = join(process.cwd(), PERMISSIONS_FILE);
+  if (!existsSync(filePath)) {
+    return projectApprovals;
+  }
+  
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const data = JSON.parse(content) as Record<string, string[]>;
+    
+    for (const [permission, patterns] of Object.entries(data)) {
+      projectApprovals.set(permission, new Set(patterns));
+    }
+  } catch (error) {
+    console.error("Failed to load project permissions:", error);
+  }
+  
+  return projectApprovals;
+}
+
+/**
+ * Save project permissions to .glm-cli/permissions.json
+ */
+function saveProjectPermissions(): void {
+  if (!projectApprovals) return;
+  
+  const dirPath = join(process.cwd(), ".glm-cli");
+  const filePath = join(dirPath, "permissions.json");
+  
+  try {
+    // Ensure directory exists
+    if (!existsSync(dirPath)) {
+      mkdirSync(dirPath, { recursive: true });
+    }
+    
+    // Convert Map to JSON-serializable object
+    const data: Record<string, string[]> = {};
+    for (const [permission, patterns] of projectApprovals) {
+      data[permission] = Array.from(patterns);
+    }
+    
+    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Failed to save project permissions:", error);
+  }
+}
+
+/**
+ * Add project-level approval (persisted)
+ */
+function addProjectApproval(permission: string, pattern: string): void {
+  const approvals = loadProjectPermissions();
+  
+  if (!approvals.has(permission)) {
+    approvals.set(permission, new Set());
+  }
+  approvals.get(permission)!.add(pattern);
+  
+  saveProjectPermissions();
+}
+
+/**
+ * Check if a pattern is approved at project level
+ */
+function isProjectApproved(permission: string, pattern: string): boolean {
+  const approvals = loadProjectPermissions();
+  const permissionApprovals = approvals.get(permission);
+  if (!permissionApprovals) return false;
+  
+  // Check for exact match or wildcard
+  return permissionApprovals.has(pattern) || permissionApprovals.has("*");
+}
 
 /**
  * Check if Express mode is enabled
@@ -120,13 +217,19 @@ export function toggleExpress(): { enabled: boolean; needsWarning: boolean } {
 }
 
 /**
- * Check if a pattern is already approved for this session
+ * Check if a pattern is approved (session or project level)
  */
 function isApproved(sessionID: string, permission: string, pattern: string): boolean {
-  const sessionApprovals = approvedPatterns.get(sessionID);
-  if (!sessionApprovals) return false;
+  // Check project-level approvals first (persisted)
+  if (isProjectApproved(permission, pattern)) {
+    return true;
+  }
   
-  const permissionApprovals = sessionApprovals.get(permission);
+  // Check session-level approvals (in-memory)
+  const session = sessionApprovals.get(sessionID);
+  if (!session) return false;
+  
+  const permissionApprovals = session.get(permission);
   if (!permissionApprovals) return false;
   
   // Check for exact match or wildcard
@@ -134,18 +237,18 @@ function isApproved(sessionID: string, permission: string, pattern: string): boo
 }
 
 /**
- * Add approved pattern for session
+ * Add session-level approval (in-memory only)
  */
-function addApproval(sessionID: string, permission: string, pattern: string): void {
-  if (!approvedPatterns.has(sessionID)) {
-    approvedPatterns.set(sessionID, new Map());
+function addSessionApproval(sessionID: string, permission: string, pattern: string): void {
+  if (!sessionApprovals.has(sessionID)) {
+    sessionApprovals.set(sessionID, new Map());
   }
-  const sessionApprovals = approvedPatterns.get(sessionID)!;
+  const session = sessionApprovals.get(sessionID)!;
   
-  if (!sessionApprovals.has(permission)) {
-    sessionApprovals.set(permission, new Set());
+  if (!session.has(permission)) {
+    session.set(permission, new Set());
   }
-  sessionApprovals.get(permission)!.add(pattern);
+  session.get(permission)!.add(pattern);
 }
 
 /**
@@ -225,14 +328,22 @@ export function respond(input: {
   
   switch (input.response) {
     case "once":
-      // Allow this specific request
+      // Allow this specific request only
+      pending.resolve();
+      break;
+      
+    case "session":
+      // Add patterns to session-level approvals (in-memory)
+      for (const pattern of pending.request.patterns) {
+        addSessionApproval(pending.request.sessionID, pending.request.permission, pattern);
+      }
       pending.resolve();
       break;
       
     case "always":
-      // Add patterns to approved list and allow
+      // Add patterns to project-level approvals (persisted to .glm-cli/permissions.json)
       for (const pattern of pending.request.patterns) {
-        addApproval(pending.request.sessionID, pending.request.permission, pattern);
+        addProjectApproval(pending.request.permission, pattern);
       }
       pending.resolve();
       break;
@@ -265,7 +376,45 @@ export function getPermissionLabel(permission: string): string {
  * Clear all approvals for a session (e.g., when session ends)
  */
 export function clearSessionApprovals(sessionID: string): void {
-  approvedPatterns.delete(sessionID);
+  sessionApprovals.delete(sessionID);
+}
+
+/**
+ * Get project permissions (for display/management)
+ */
+export function getProjectPermissions(): Record<string, string[]> {
+  const approvals = loadProjectPermissions();
+  const result: Record<string, string[]> = {};
+  
+  for (const [permission, patterns] of approvals) {
+    result[permission] = Array.from(patterns);
+  }
+  
+  return result;
+}
+
+/**
+ * Remove a project-level approval
+ */
+export function removeProjectApproval(permission: string, pattern: string): void {
+  const approvals = loadProjectPermissions();
+  const permissionApprovals = approvals.get(permission);
+  
+  if (permissionApprovals) {
+    permissionApprovals.delete(pattern);
+    if (permissionApprovals.size === 0) {
+      approvals.delete(permission);
+    }
+    saveProjectPermissions();
+  }
+}
+
+/**
+ * Clear all project-level approvals
+ */
+export function clearProjectApprovals(): void {
+  projectApprovals = new Map();
+  saveProjectPermissions();
 }
 
 /**

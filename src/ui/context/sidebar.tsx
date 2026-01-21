@@ -20,7 +20,7 @@ const SidebarContext = createContext<SidebarContextType>();
  * Manages sidebar visibility state
  */
 export const SidebarProvider: ParentComponent = (props) => {
-  const [visible, setVisible] = createSignal<boolean>(true); // Default: visible
+  const [visible, setVisible] = createSignal<boolean>(true); // Default: visible, toggle with Ctrl+B
 
   const toggle = () => setVisible((v) => !v);
   const show = () => setVisible(true);

@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-01-21
+
+### Added
+
+- **mcp_discover Tool** - New tool for dynamic MCP tool discovery:
+  - `mcp_discover(action: "list")` - List all available MCP servers
+  - `mcp_discover(action: "search", query: "...")` - Search for tools by capability
+  - `mcp_discover(action: "details", server: "...", tool: "...")` - Get tool details
+  - Keeps context window lean by discovering tools on-demand
+  - Supports future custom MCP servers (not just hardcoded native ones)
+
+### Fixed
+
+- **Exit Summary** - Fixed showing empty summary even after conversation:
+  - Summary now generated from UI context signals (source of truth)
+  - No longer relies on stale SessionManager data
+  - Displays session name, model, duration, and message count
+
+- **PermissionPrompt Visibility** - Fixed prompt appearing behind chat:
+  - Added semi-transparent backdrop overlay
+  - Centered position with proper z-index stacking
+
+- **Sidebar Default** - Now visible by default (was hidden):
+  - Toggle with Ctrl+B keyboard shortcut
+
+- **Loading Spinner** - Reduced height and improved centering:
+  - Reduced from 6 rows to 5 rows
+  - Vertically centered against input box
+
+### Changed
+
+- **MCP Tool Discovery** - Replaced hardcoded tool lists with dynamic discovery:
+  - System prompt now instructs AI to use `mcp_discover` tool
+  - No more hardcoded server/tool lists in prompts
+  - Supports future custom MCP servers dynamically
+
+- **Permissions Loosened** - Smarter permission checks:
+  - **bash**: Only asks for destructive commands (rm, sudo, git push --force, etc.) or paths outside cwd
+  - **file_write**: Only asks for files outside working directory
+  - **file_edit**: Only asks for files outside working directory
+  - Safe commands (ls, grep, npm run, git status, etc.) auto-approved
+  - Build/test commands auto-approved within cwd
+
+- **Permission UI Redesigned** - Matches QuestionOverlay style:
+  - Vertical radio list with descriptions (not horizontal buttons)
+  - Four options: Allow once, Allow session, Allow always, Reject
+  - Shows reason why permission is needed (destructive command, outside cwd, etc.)
+  - Shows full target (file path or command)
+  - Shows working directory for bash commands
+  - Shows old/new strings for edit operations with diff-style coloring
+  - Keyboard navigation: ↑/↓, Enter, 1-4 hotkeys, Esc to reject
+
+- **Permission Persistence** - Three-tier approval system:
+  - **Allow once**: One-time approval for this specific action
+  - **Allow session**: Auto-approve pattern for current session (in-memory)
+  - **Allow always**: Persisted to `.glm-cli/permissions.json`, applies to all future sessions
+
 ## [0.9.8] - 2026-01-21
 
 ### Fixed

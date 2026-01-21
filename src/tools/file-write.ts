@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { readFileSync, mkdirSync, statSync, writeFileSync, existsSync } from "fs";
+import { resolve, relative, isAbsolute } from "path";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 
@@ -16,6 +17,20 @@ const WriteSchema = z.object({
 
 type WriteInput = z.infer<typeof WriteSchema>;
 
+/**
+ * Check if a path is within the current working directory
+ */
+function isWithinCwd(targetPath: string): boolean {
+  const cwd = process.cwd();
+  const absoluteTarget = isAbsolute(targetPath) 
+    ? targetPath 
+    : resolve(cwd, targetPath);
+  const relativePath = relative(cwd, absoluteTarget);
+  
+  // If relative path starts with "..", it's outside cwd
+  return !relativePath.startsWith("..");
+}
+
 export const fileWrite: Tool<WriteInput> = Tool.define(
   "file_write",
   DESCRIPTION,
@@ -29,17 +44,20 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       const isNewFile = !existsSync(safePath);
       const permissionType = isNewFile ? "write" : "edit";
       
-      // Request permission before writing
-      await askPermission({
-        sessionID: "current",
-        permission: permissionType,
-        patterns: [safePath],
-        message: isNewFile ? `Create file: ${safePath}` : `Overwrite file: ${safePath}`,
-        metadata: {
-          contentLength: input.content.length,
-          isNewFile,
-        },
-      });
+      // Only ask permission for files outside the working directory
+      if (!isWithinCwd(safePath)) {
+        await askPermission({
+          sessionID: "current",
+          permission: permissionType,
+          patterns: [safePath],
+          message: isNewFile ? `Create file outside cwd: ${safePath}` : `Overwrite file outside cwd: ${safePath}`,
+          metadata: {
+            contentLength: input.content.length,
+            isNewFile,
+            reason: "Path outside working directory",
+          },
+        });
+      }
 
       if (dir && dir.length > 0) {
         mkdirSync(dir, { recursive: true });

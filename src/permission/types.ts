@@ -12,8 +12,13 @@ export type PermissionAction = z.infer<typeof PermissionAction>;
 
 /**
  * Permission response - user's reply to a permission request
+ * 
+ * - once: Allow this specific action only
+ * - session: Auto-approve this pattern for current session (in-memory)
+ * - always: Save to project config, applies to all future sessions
+ * - reject: Deny this action
  */
-export const PermissionResponse = z.enum(["once", "always", "reject"]);
+export const PermissionResponse = z.enum(["once", "session", "always", "reject"]);
 export type PermissionResponse = z.infer<typeof PermissionResponse>;
 
 /**

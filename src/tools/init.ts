@@ -28,5 +28,8 @@ import "./question";
 // Session
 import "./set-header";
 
+// MCP discovery
+import "./mcp-discover";
+
 // Re-export registry for convenience
 export { Tool } from "./registry";

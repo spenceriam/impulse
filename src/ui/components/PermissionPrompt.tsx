@@ -4,6 +4,16 @@ import { Colors, Indicators } from "../design";
 import type { PermissionRequest, PermissionResponse } from "../../permission";
 
 /**
+ * Permission option definition
+ */
+interface PermissionOption {
+  key: PermissionResponse;
+  label: string;
+  description: string;
+  hotkey: string;
+}
+
+/**
  * PermissionPrompt Props
  */
 interface PermissionPromptProps {
@@ -14,26 +24,44 @@ interface PermissionPromptProps {
 /**
  * PermissionPrompt Component
  * 
- * Brutalist design matching glm-cli aesthetic.
- * Displays permission request with options to allow/reject.
+ * Styled to match QuestionOverlay - vertical radio list with descriptions.
  * 
  * Layout:
- * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
- *   * Permission required
- *   
+ * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
+ *
+ *   ● Permission required
+ *
  *   $ Execute command
- *     ls -la
- *   
- *   [Y] Allow once   [A] Allow always   [N] Reject
- *   
- *   Y/A/N or arrows + enter | esc to reject
- * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
+ *   Reason: Destructive command: rm
+ *
+ *   Target:
+ *     rm -rf node_modules
+ *
+ *   ─────────────────────────────────────────────────────────────────
+ *
+ *   (*) Allow once
+ *       Permit this specific action only
+ *
+ *   ( ) Allow session
+ *       Auto-approve this pattern for current session
+ *
+ *   ( ) Allow always
+ *       Save to project config, applies to all future sessions
+ *
+ *   ( ) Reject
+ *       Deny this action
+ *
+ *   ─────────────────────────────────────────────────────────────────
+ *   ↑/↓: Navigate  Enter: Confirm  1/2/3/4: Quick select  Esc: Reject
+ *
+ * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
  */
 export function PermissionPrompt(props: PermissionPromptProps) {
-  const options: { key: PermissionResponse; label: string; hotkey: string }[] = [
-    { key: "once", label: "Allow once", hotkey: "Y" },
-    { key: "always", label: "Allow always", hotkey: "A" },
-    { key: "reject", label: "Reject", hotkey: "N" },
+  const options: PermissionOption[] = [
+    { key: "once", label: "Allow once", description: "Permit this specific action only", hotkey: "1" },
+    { key: "session", label: "Allow session", description: "Auto-approve this pattern for current session", hotkey: "2" },
+    { key: "always", label: "Allow always", description: "Save to project config, applies to all future sessions", hotkey: "3" },
+    { key: "reject", label: "Reject", description: "Deny this action", hotkey: "4" },
   ];
   
   const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -42,27 +70,45 @@ export function PermissionPrompt(props: PermissionPromptProps) {
   
   // Handle keyboard navigation
   useKeyboard((key) => {
-    // Hotkeys
+    // Number hotkeys for quick selection
+    if (key.name === "1") {
+      props.onRespond("once");
+      return;
+    }
+    if (key.name === "2") {
+      props.onRespond("session");
+      return;
+    }
+    if (key.name === "3") {
+      props.onRespond("always");
+      return;
+    }
+    if (key.name === "4" || key.name === "n") {
+      props.onRespond("reject");
+      return;
+    }
+    
+    // Letter hotkeys (y for once, s for session, a for always)
     if (key.name === "y") {
       props.onRespond("once");
+      return;
+    }
+    if (key.name === "s") {
+      props.onRespond("session");
       return;
     }
     if (key.name === "a") {
       props.onRespond("always");
       return;
     }
-    if (key.name === "n") {
-      props.onRespond("reject");
-      return;
-    }
     
-    // Left/right to navigate options
-    if (key.name === "left" || key.name === "h") {
-      setSelectedIndex((i) => (i - 1 + options.length) % options.length);
+    // Up/down to navigate options
+    if (key.name === "up" || key.name === "k") {
+      setSelectedIndex((i) => Math.max(0, i - 1));
       return;
     }
-    if (key.name === "right" || key.name === "l") {
-      setSelectedIndex((i) => (i + 1) % options.length);
+    if (key.name === "down" || key.name === "j") {
+      setSelectedIndex((i) => Math.min(options.length - 1, i + 1));
       return;
     }
     
@@ -111,103 +157,137 @@ export function PermissionPrompt(props: PermissionPromptProps) {
     }
   };
 
-  // Format the permission description
-  const getDescription = () => {
-    const patterns = props.request.patterns ?? [];
-    const label = getLabel();
-    
-    if (patterns.length === 0) {
-      return label;
-    }
-    if (patterns.length === 1) {
-      return `${label}: ${patterns[0]}`;
-    }
-    return `${label}: ${patterns.length} items`;
+  // Get reason for permission request
+  const getReason = () => {
+    return props.request.metadata?.["reason"] as string | undefined;
+  };
+
+  // Truncate long strings for display
+  const truncate = (str: string, max: number) => {
+    if (str.length <= max) return str;
+    return str.slice(0, max - 3) + "...";
   };
 
   // Bracket line width
   const lineWidth = 70;
   const bracketLine = `[[${("━").repeat(lineWidth - 4)}]]`;
+  const dividerLine = "─".repeat(lineWidth - 8);
 
   return (
-    <box flexDirection="column" paddingLeft={4} paddingRight={4}>
+    <box flexDirection="column" paddingLeft={4} paddingRight={4} backgroundColor="#1a1a1a" width={lineWidth}>
       {/* Top bracket */}
       <text fg={Colors.status.warning}>{bracketLine}</text>
       
       <box height={1} />
       
       {/* Header */}
-      <box flexDirection="row">
+      <box flexDirection="row" paddingLeft={2}>
         <text fg={Colors.status.warning}>{Indicators.dot} </text>
         <text fg={Colors.ui.text}>Permission required</text>
       </box>
       
       <box height={1} />
       
-      {/* Description */}
+      {/* Permission type and action */}
       <box flexDirection="row" paddingLeft={2}>
         <text fg={Colors.mode.AGENT}>{getIcon()} </text>
-        <text fg={Colors.ui.text}>{getDescription()}</text>
+        <text fg={Colors.ui.text}>{getLabel()}</text>
       </box>
       
-      {/* Show custom message if different from description */}
-      <Show when={props.request.message && props.request.message !== getDescription()}>
+      {/* Reason why permission is needed */}
+      <Show when={getReason()}>
         <box paddingLeft={4}>
-          <text fg={Colors.ui.dim}>{props.request.message}</text>
-        </box>
-      </Show>
-      
-      {/* Show command for bash operations */}
-      <Show when={props.request.permission === "bash" && props.request.metadata?.["command"]}>
-        <box paddingLeft={4}>
-          <text fg={Colors.ui.dim}>$ {String(props.request.metadata?.["command"])}</text>
-        </box>
-      </Show>
-      
-      {/* Show diff preview for edit operations */}
-      <Show when={props.request.metadata?.["diff"]}>
-        <box height={1} />
-        <box paddingLeft={2} paddingRight={2}>
-          <scrollbox height={6} border borderColor={Colors.ui.dim}>
-            <text fg={Colors.ui.dim}>{String(props.request.metadata?.["diff"])}</text>
-          </scrollbox>
+          <text fg={Colors.status.warning}>Reason: {getReason()}</text>
         </box>
       </Show>
       
       <box height={1} />
       
-      {/* Options with hotkeys */}
-      <box flexDirection="row" paddingLeft={2}>
-        <For each={options}>
-          {(option, i) => {
-            const isSelected = () => i() === selectedIndex();
-            
-            return (
-              <box flexDirection="row" marginRight={2}>
-                <Show
-                  when={isSelected()}
-                  fallback={
-                    <>
-                      <text fg={Colors.ui.dim}>[{option.hotkey}] </text>
-                      <text fg={Colors.ui.dim}>{option.label}</text>
-                    </>
-                  }
-                >
-                  <box backgroundColor={option.key === "reject" ? Colors.status.error : Colors.mode.AGENT}>
-                    <text fg="#000000">[{option.hotkey}] {option.label}</text>
-                  </box>
-                </Show>
+      {/* Show patterns (file paths, commands) */}
+      <Show when={props.request.patterns && props.request.patterns.length > 0}>
+        <box flexDirection="column" paddingLeft={2}>
+          <text fg={Colors.ui.dim}>Target:</text>
+          <For each={props.request.patterns}>
+            {(pattern) => (
+              <box paddingLeft={2}>
+                <text fg={Colors.ui.text}>{truncate(pattern, lineWidth - 12)}</text>
               </box>
-            );
-          }}
-        </For>
+            )}
+          </For>
+        </box>
+      </Show>
+      
+      {/* Show working directory for bash */}
+      <Show when={props.request.permission === "bash" && props.request.metadata?.["workdir"]}>
+        <box paddingLeft={2}>
+          <text fg={Colors.ui.dim}>Directory: {String(props.request.metadata?.["workdir"])}</text>
+        </box>
+      </Show>
+      
+      {/* Show old/new strings for edit operations */}
+      <Show when={props.request.permission === "edit" && props.request.metadata?.["oldString"]}>
+        <box height={1} />
+        <box flexDirection="column" paddingLeft={2}>
+          <text fg={Colors.ui.dim}>Change:</text>
+          <box paddingLeft={2} flexDirection="column">
+            <text fg={Colors.status.error}>- {truncate(String(props.request.metadata?.["oldString"]), lineWidth - 14)}</text>
+            <text fg={Colors.status.success}>+ {truncate(String(props.request.metadata?.["newString"] || ""), lineWidth - 14)}</text>
+          </box>
+        </box>
+      </Show>
+      
+      {/* Show content length for write operations */}
+      <Show when={props.request.permission === "write" && props.request.metadata?.["contentLength"]}>
+        <box paddingLeft={2}>
+          <text fg={Colors.ui.dim}>Content: {String(props.request.metadata?.["contentLength"])} bytes</text>
+        </box>
+      </Show>
+      
+      <box height={1} />
+      
+      {/* Divider */}
+      <box paddingLeft={2}>
+        <text fg={Colors.ui.dim}>{dividerLine}</text>
       </box>
       
       <box height={1} />
+      
+      {/* Options list - radio style like QuestionOverlay */}
+      <For each={options}>
+        {(option, i) => {
+          const isFocused = () => i() === selectedIndex();
+          const indicator = () => isFocused() ? "(*)" : "( )";
+          
+          return (
+            <box flexDirection="column" marginBottom={1} paddingLeft={2}>
+              <Show
+                when={isFocused()}
+                fallback={
+                  <box flexDirection="row">
+                    <text fg={Colors.ui.dim}>{indicator()}</text>
+                    <text fg={Colors.ui.text}> {option.label}</text>
+                    <text fg={Colors.ui.dim}> [{option.hotkey}]</text>
+                  </box>
+                }
+              >
+                <box flexDirection="row" backgroundColor={option.key === "reject" ? Colors.status.error : Colors.mode.AGENT}>
+                  <text fg="#000000">{indicator()} {option.label} [{option.hotkey}]</text>
+                </box>
+              </Show>
+              <text fg={Colors.ui.dim}>    {option.description}</text>
+            </box>
+          );
+        }}
+      </For>
+      
+      {/* Divider */}
+      <box paddingLeft={2}>
+        <text fg={Colors.ui.dim}>{dividerLine}</text>
+      </box>
       
       {/* Hints */}
       <box paddingLeft={2}>
-        <text fg={Colors.ui.dim}>Y/A/N or left/right + enter | esc to reject</text>
+        <text fg={Colors.ui.dim}>↑/↓: Navigate  Enter: Confirm  1-4: Quick select  Esc: Reject</text>
       </box>
       
       <box height={1} />
