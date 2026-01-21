@@ -11,3 +11,5 @@ export { TodoItem } from "./TodoItem";
 export { Overlay, type OverlayMode, type CommandOption } from "./Overlay";
 export { Autocomplete } from "./Autocomplete";
 export { QuestionOverlay } from "./QuestionOverlay";
+export { PermissionPrompt } from "./PermissionPrompt";
+export { ExpressWarning } from "./ExpressWarning";

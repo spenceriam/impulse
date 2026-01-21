@@ -1,11 +1,13 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay } from "./components";
+import { StatusLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
 import { SidebarProvider, useSidebar } from "./context/sidebar";
+import { ExpressProvider, useExpress } from "./context/express";
+import { respond as respondPermission, type PermissionRequest, type PermissionResponse } from "../permission";
 import { load as loadConfig, save as saveConfig } from "../util/config";
 import { GLMClient } from "../api/client";
 import { StreamProcessor, StreamEvent } from "../api/stream";
@@ -391,7 +393,7 @@ function initializeCommands() {
 }
 
 // Main app wrapper
-export function App() {
+export function App(props: { initialExpress?: boolean }) {
   const renderer = useRenderer();
   
   // Register commands on mount
@@ -458,18 +460,20 @@ export function App() {
       <SessionProvider>
         <TodoProvider>
           <SidebarProvider>
-            <box width="100%" height="100%" padding={1}>
-              <Show when={hasApiKey()}>
-                <AppWithSession />
-              </Show>
-              <Show when={!hasApiKey() && !showApiKeyOverlay()}>
-                {/* Brief moment before overlay shows */}
-                <WelcomeScreen onSubmit={() => {}} />
-              </Show>
-              <Show when={showApiKeyOverlay()}>
-                <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
-              </Show>
-            </box>
+            <ExpressProvider initialExpress={props.initialExpress ?? false}>
+              <box width="100%" height="100%" padding={1}>
+                <Show when={hasApiKey()}>
+                  <AppWithSession />
+                </Show>
+                <Show when={!hasApiKey() && !showApiKeyOverlay()}>
+                  {/* Brief moment before overlay shows */}
+                  <WelcomeScreen onSubmit={() => {}} />
+                </Show>
+                <Show when={showApiKeyOverlay()}>
+                  <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
+                </Show>
+              </box>
+            </ExpressProvider>
           </SidebarProvider>
         </TodoProvider>
       </SessionProvider>
@@ -482,6 +486,7 @@ function AppWithSession() {
   const { messages, addMessage, updateMessage, model, setModel } = useSession();
   const { mode, thinking, cycleMode, cycleModeReverse } = useMode();
   const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
+  const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
 
   const [isLoading, setIsLoading] = createSignal(false);
@@ -499,12 +504,19 @@ function AppWithSession() {
   // Question overlay state (from AI question tool)
   const [pendingQuestions, setPendingQuestions] = createSignal<Question[] | null>(null);
   
-  // Subscribe to question events from the bus
+  // Permission prompt state (from tool permission requests)
+  const [pendingPermission, setPendingPermission] = createSignal<PermissionRequest | null>(null);
+  
+  // Subscribe to question and permission events from the bus
   onMount(() => {
     const unsubscribe = Bus.subscribe((event) => {
       if (event.type === "question.asked") {
         const payload = event.properties as { questions: Question[] };
         setPendingQuestions(payload.questions);
+      }
+      if (event.type === "permission.asked") {
+        const payload = event.properties as PermissionRequest;
+        setPendingPermission(payload);
       }
     });
     
@@ -523,6 +535,26 @@ function AppWithSession() {
   const handleQuestionCancel = () => {
     setPendingQuestions(null);
     rejectQuestion();
+  };
+  
+  // Handle permission response
+  const handlePermissionRespond = (response: PermissionResponse, message?: string) => {
+    const request = pendingPermission();
+    if (request) {
+      setPendingPermission(null);
+      if (message) {
+        respondPermission({
+          permissionID: request.id,
+          response,
+          message,
+        });
+      } else {
+        respondPermission({
+          permissionID: request.id,
+          response,
+        });
+      }
+    }
   };
 
   let ctrlCCount = 0;
@@ -603,6 +635,20 @@ function AppWithSession() {
           setShowModelSelect(true);
           return;
         }
+      }
+      
+      // Handle /express specially - toggle Express mode using context
+      if (parsed && parsed.name === "express") {
+        const { enabled } = toggleExpress();
+        // Warning will be shown automatically by ExpressProvider via showWarning signal
+        setCommandOverlay({
+          title: "/express",
+          content: enabled 
+            ? "Express mode ENABLED - all permissions auto-approved"
+            : "Express mode DISABLED - permissions will require approval",
+          isError: false,
+        });
+        return;
       }
 
       // Execute other commands - show result in overlay (not as a message)
@@ -771,6 +817,29 @@ function AppWithSession() {
             onCancel={handleQuestionCancel}
           />
         )}
+      </Show>
+      
+      {/* Permission prompt - shown when a tool needs user approval */}
+      <Show when={pendingPermission() && !express()}>
+        {(request: () => PermissionRequest) => (
+          <box
+            position="absolute"
+            width="100%"
+            bottom={3}
+            left={0}
+            right={0}
+          >
+            <PermissionPrompt
+              request={request()}
+              onRespond={handlePermissionRespond}
+            />
+          </box>
+        )}
+      </Show>
+      
+      {/* Express mode warning - shown first time Express is enabled */}
+      <Show when={showWarning()}>
+        <ExpressWarning onAcknowledge={acknowledgeExpress} />
       </Show>
     </>
   );

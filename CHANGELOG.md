@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-01-21
+
+### Added
+
+- **Permission System** - Tools now request user approval before executing destructive actions:
+  - Edit, write, and bash tools require permission in normal mode
+  - Shows inline permission prompt with "Allow once", "Allow always", "Reject" options
+  - "Allow always" remembers approval for the session
+  - Keyboard navigation: left/right to select, Enter to confirm, Esc to reject
+
+- **Express Mode** - Skip all permission prompts for trusted environments:
+  - Enable with `glm-cli --express` or `-e` flag
+  - Toggle during session with `/express` command
+  - First-time warning overlay explains risks and requires Enter to acknowledge
+  - `[EX]` indicator in status line when Express mode is active (orange color)
+  - Useful for CI/CD, sandboxed environments, or batch processing
+
+### Technical
+
+- New `Permission` module (`src/permission/`) with ask/respond pattern
+- `PermissionPrompt` component for inline permission requests
+- `ExpressWarning` overlay for first-time Express mode acknowledgment
+- `ExpressProvider` context for managing Express mode state
+- Tools call `Permission.ask()` before destructive operations
+
 ## [0.6.0] - 2026-01-21
 
 ### Added

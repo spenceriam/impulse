@@ -247,6 +247,15 @@ async function handleThink() {
   };
 }
 
+async function handleExpress() {
+  // This is handled specially in App.tsx to use the Express context
+  // This handler is just a placeholder for the command registry
+  return {
+    success: true,
+    output: "Express mode toggled (handled by UI)",
+  };
+}
+
 export function registerUtilityCommands(): void {
   const commands: CommandDefinition[] = [
     {
@@ -295,6 +304,13 @@ export function registerUtilityCommands(): void {
       description: "Toggle thinking mode",
       handler: handleThink,
       examples: ["/think"],
+    },
+    {
+      name: "express",
+      category: "utility",
+      description: "Toggle Express mode (auto-approve all permissions)",
+      handler: handleExpress,
+      examples: ["/express"],
     },
   ];
 

@@ -1,7 +1,8 @@
-import { createSignal, createMemo, onCleanup } from "solid-js";
+import { createSignal, createMemo, onCleanup, Show } from "solid-js";
 import { Colors, Indicators } from "../design";
 import { useMode } from "../context/mode";
 import { useSession } from "../context/session";
+import { useExpress } from "../context/express";
 import { mcpManager } from "../../mcp/manager";
 
 // Format model name for display (glm-4.7 -> GLM-4.7)
@@ -94,10 +95,12 @@ export function StatusLine(props: StatusLineProps) {
   // Get contexts - these provide reactive state
   let modeContext: ReturnType<typeof useMode> | null = null;
   let sessionContext: ReturnType<typeof useSession> | null = null;
+  let expressContext: ReturnType<typeof useExpress> | null = null;
 
   try {
     modeContext = useMode();
     sessionContext = useSession();
+    expressContext = useExpress();
   } catch {
     // Contexts not available, will use defaults
   }
@@ -107,6 +110,9 @@ export function StatusLine(props: StatusLineProps) {
   
   // Reactive memo for model
   const model = createMemo(() => sessionContext?.model() ?? "GLM-4.7");
+  
+  // Reactive memo for express mode
+  const isExpress = createMemo(() => expressContext?.express() ?? false);
   
   // Reactive memo for context usage - re-evaluates when messages change
   const progress = createMemo(() => {
@@ -204,6 +210,10 @@ export function StatusLine(props: StatusLineProps) {
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
       <text fg={Colors.ui.dim}>{displayModel()} | </text>
       <text fg={modeColor()}>{mode()}</text>
+      <Show when={isExpress()}>
+        <text fg={Colors.ui.dim}> | </text>
+        <text fg={Colors.status.warning}>[EX]</text>
+      </Show>
       <text fg={Colors.ui.dim}> | {progressBar()} | {dir} |  {gitBranch()} | MCP: </text>
       <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
       <text fg={Colors.ui.dim}> | {date}</text>

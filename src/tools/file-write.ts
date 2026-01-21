@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { readFileSync, mkdirSync, statSync, writeFileSync } from "fs";
+import { readFileSync, mkdirSync, statSync, writeFileSync, existsSync } from "fs";
 import { sanitizePath } from "../util/path";
+import { ask as askPermission } from "../permission";
 
 const DESCRIPTION = readFileSync(
   new URL("./file-write.txt", import.meta.url),
@@ -23,6 +24,22 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
     try {
       const safePath = sanitizePath(input.filePath);
       const dir = safePath.substring(0, safePath.lastIndexOf("/"));
+      
+      // Determine if this is a new file or overwrite
+      const isNewFile = !existsSync(safePath);
+      const permissionType = isNewFile ? "write" : "edit";
+      
+      // Request permission before writing
+      await askPermission({
+        sessionID: "current",
+        permission: permissionType,
+        patterns: [safePath],
+        message: isNewFile ? `Create file: ${safePath}` : `Overwrite file: ${safePath}`,
+        metadata: {
+          contentLength: input.content.length,
+          isNewFile,
+        },
+      });
 
       if (dir && dir.length > 0) {
         mkdirSync(dir, { recursive: true });

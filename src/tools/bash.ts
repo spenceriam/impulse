@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { readFileSync } from "fs";
 import { sanitizePath } from "../util/path";
+import { ask as askPermission } from "../permission";
 
 const DESCRIPTION = readFileSync(
   new URL("./bash.txt", import.meta.url),
@@ -29,6 +30,18 @@ export const bashTool: Tool<BashInput> = Tool.define(
   BashSchema,
   async (input: BashInput): Promise<ToolResult> => {
     try {
+      // Request permission before executing command
+      await askPermission({
+        sessionID: "current",
+        permission: "bash",
+        patterns: [input.command],
+        message: input.description || `Execute: ${input.command.slice(0, 50)}...`,
+        metadata: {
+          command: input.command,
+          workdir: input.workdir,
+        },
+      });
+      
       const startTime = Date.now();
       const maxLines = 2000;
 
