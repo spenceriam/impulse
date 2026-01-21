@@ -376,10 +376,12 @@ Progress Bar:
   █  Filled block
   ░  Empty block
 
-Loading Spinner (DNA Helix):
+Loading Animation (DNA Helix):
   ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷  (rotating braille pattern)
-  Stacked vertically with gradient colors (cyan to dim)
-  Appears left of input box when AI is processing
+  6 rows stacked vertically with gradient colors (cyan to dim)
+  Fixed position LEFT of input box (3-char reserved space)
+  Centered vertically against 7-line prompt box
+  Animates during AI processing (responding, tool calls, edits, etc.)
 ```
 
 ### Layout Mockups

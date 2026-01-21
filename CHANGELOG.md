@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-01-21
+
+### Fixed
+
+- **Loading Animation Position** - Moved stacked spinner from inside InputArea to App.tsx:
+  - Spinner now positioned to the LEFT of the prompt box (not inside it)
+  - Fixed 3-char reserved space keeps layout stable (no shifting)
+  - 6 spinner rows, centered vertically against 7-line prompt box
+  - Added 1-line padding between prompt box and status line to prevent overlap
+  - Animation shows during AI processing (responding, tool calls, edits, etc.)
+
+### Technical
+
+- Removed spinner logic from `InputArea.tsx` (component simplified)
+- Spinner rendered at `App.tsx` level with `alignItems="center"` for vertical centering
+- `paddingTop={1}` offsets spinner to center against taller prompt box
+
 ## [0.8.3] - 2026-01-21
 
 ### Added

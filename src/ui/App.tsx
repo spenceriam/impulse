@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StackedSpinner } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -1019,12 +1019,28 @@ function AppWithSession() {
             {/* Chat + Input + Status column */}
             <box flexDirection="column" flexGrow={1}>
               <ChatView messages={messages()} />
-              <InputArea
-                mode={mode()}
-                thinking={thinking()}
-                loading={isLoading()}
-                onSubmit={handleSubmit}
-              />
+              {/* Input row: spinner (when loading) + input box */}
+              <box flexDirection="row" alignItems="center">
+                {/* Reserved space for spinner - always present to keep layout stable */}
+                <box width={3} flexShrink={0} paddingRight={1}>
+                  {/* 6 rows, centered vertically against 7-line input box */}
+                  <Show when={isLoading()}>
+                    <box paddingTop={1}>
+                      <StackedSpinner height={6} />
+                    </box>
+                  </Show>
+                </box>
+                <box flexGrow={1}>
+                  <InputArea
+                    mode={mode()}
+                    thinking={thinking()}
+                    loading={isLoading()}
+                    onSubmit={handleSubmit}
+                  />
+                </box>
+              </box>
+              {/* Padding between input and status line */}
+              <box height={1} />
               {/* Status line directly under input box */}
               <StatusLine />
             </box>
