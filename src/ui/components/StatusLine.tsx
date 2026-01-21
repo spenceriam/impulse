@@ -195,10 +195,15 @@ export function StatusLine(props: StatusLineProps) {
 
   // Render based on screen type
   if (props.isInitialScreen) {
-    // Simplified format for welcome screen
+    // Simplified format for welcome screen (includes [EX] if Express mode active)
     return (
       <box height={1} justifyContent="center" flexDirection="row">
-        <text fg={Colors.ui.dim}>{displayModel()} | {dir} |  {gitBranch()} | MCP: </text>
+        <text fg={Colors.ui.dim}>{displayModel()}</text>
+        <Show when={isExpress()}>
+          <text fg={Colors.ui.dim}> | </text>
+          <text fg={Colors.status.warning}>[EX]</text>
+        </Show>
+        <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | MCP: </text>
         <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
         <text fg={Colors.ui.dim}> | {date}</text>
       </box>
