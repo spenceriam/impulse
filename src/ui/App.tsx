@@ -236,12 +236,12 @@ function ModelSelectOverlay(props: {
         width={90}
         backgroundColor="#1a1a1a"
       >
-        {/* Header row - no leading space, aligned with data rows */}
-        <text fg={Colors.ui.dim}>
-          {"MODEL".padEnd(MODEL_COL_WIDTH)}
-          {"INPUT".padEnd(INPUT_COL_WIDTH)}
-          {"DESCRIPTION"}
-        </text>
+        {/* Header row - same structure as data rows for alignment */}
+        <box flexDirection="row">
+          <text fg={Colors.ui.dim}>{"MODEL".padEnd(MODEL_COL_WIDTH)}</text>
+          <text fg={Colors.ui.dim}>{"INPUT".padEnd(INPUT_COL_WIDTH)}</text>
+          <text fg={Colors.ui.dim}>{"DESCRIPTION"}</text>
+        </box>
         <box height={1} />
         {/* Model rows */}
         <For each={[...GLM_MODELS]}>
