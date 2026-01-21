@@ -44,11 +44,18 @@ export class MCPManager {
     }
 
     // Define all 5 MCP server configurations
+    // Vision MCP uses npx to run @z_ai/mcp-server package
+    // HTTP MCPs connect to Z.AI remote endpoints
     const serverConfigs: MCPServerConfig[] = [
       {
         name: "vision",
         type: "stdio",
-        executable: "mcp-server-vision",
+        command: "npx",
+        args: ["-y", "@z_ai/mcp-server"],
+        env: {
+          Z_AI_API_KEY: apiKey,
+          Z_AI_MODE: "ZAI",
+        },
       },
       {
         name: "web-search",
@@ -191,16 +198,15 @@ export class MCPManager {
 
   /**
    * Initialize stdio-based MCP server
-   * Checks if the executable is available in PATH
+   * Supports two patterns:
+   * 1. command + args (e.g., npx -y @z_ai/mcp-server)
+   * 2. executable (legacy standalone executable)
    */
   private async initializeStdioServer(
     server: MCPServer,
     _apiKey: string
   ): Promise<void> {
-    const { executable } = server.config;
-    if (!executable) {
-      throw new Error("stdio server requires executable");
-    }
+    const { command, executable } = server.config;
 
     // Define expected tools for vision server
     if (server.config.name === "vision") {
@@ -216,26 +222,72 @@ export class MCPManager {
       ];
     }
 
-    // Check if executable exists using `which`
-    try {
-      const proc = Bun.spawn(["which", executable], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      
-      const exitCode = await proc.exited;
-      
-      if (exitCode !== 0) {
-        throw new Error(`Executable '${executable}' not found in PATH`);
-      }
+    // Pattern 1: command + args (e.g., npx -y @z_ai/mcp-server)
+    if (command) {
+      try {
+        // Check if the command exists (e.g., npx)
+        const proc = Bun.spawn(["which", command], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        
+        const exitCode = await proc.exited;
+        
+        if (exitCode !== 0) {
+          throw new Error(`Command '${command}' not found in PATH`);
+        }
 
-      server.status = "connected";
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error;
+        // For npx, also verify node version >= 22
+        if (command === "npx") {
+          const nodeProc = Bun.spawn(["node", "--version"], {
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+          
+          const nodeOutput = await new Response(nodeProc.stdout).text();
+          const nodeVersion = nodeOutput.trim();
+          const majorVersion = parseInt(nodeVersion.replace("v", "").split(".")[0] || "0", 10);
+          
+          if (majorVersion < 22) {
+            throw new Error(`Node.js >= 22 required for Vision MCP (found ${nodeVersion})`);
+          }
+        }
+
+        server.status = "connected";
+      } catch (error) {
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error(`Failed to check command: ${String(error)}`);
       }
-      throw new Error(`Failed to check executable: ${String(error)}`);
+      return;
     }
+
+    // Pattern 2: Legacy standalone executable
+    if (executable) {
+      try {
+        const proc = Bun.spawn(["which", executable], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        
+        const exitCode = await proc.exited;
+        
+        if (exitCode !== 0) {
+          throw new Error(`Executable '${executable}' not found in PATH`);
+        }
+
+        server.status = "connected";
+      } catch (error) {
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error(`Failed to check executable: ${String(error)}`);
+      }
+      return;
+    }
+
+    throw new Error("stdio server requires either 'command' or 'executable'");
   }
 
   /**

@@ -227,7 +227,7 @@ function ModelSelectOverlay(props: {
         title="Select Model"
         flexDirection="column"
         padding={1}
-        width={76}
+        width={90}
         backgroundColor="#1a1a1a"
       >
         {/* Header row */}
@@ -694,16 +694,10 @@ function AppWithSession() {
         <ModelSelectOverlay
           currentModel={model()}
           onSelect={(newModel) => {
-            // Update the session model (setModel from destructured useSession at top)
+            // Update the session model and close overlay immediately
             setModel(newModel);
             setShowModelSelect(false);
-            
-            // Show confirmation
-            setCommandOverlay({
-              title: "/model",
-              content: `Model changed to ${newModel.toUpperCase()}`,
-              isError: false,
-            });
+            // No confirmation dialog - just select and close
           }}
           onCancel={() => setShowModelSelect(false)}
         />

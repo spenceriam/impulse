@@ -10,7 +10,11 @@ export interface MCPServerConfig {
   name: MCPServerName;
   type: "stdio" | "http";
   url?: string;
-  executable?: string;
+  // For stdio servers
+  executable?: string;      // Legacy: standalone executable name
+  command?: string;         // Command to run (e.g., "npx")
+  args?: string[];          // Arguments to pass (e.g., ["-y", "@z_ai/mcp-server"])
+  env?: Record<string, string>;  // Environment variables
 }
 
 /**
