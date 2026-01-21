@@ -1,20 +1,18 @@
 import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onMount, onCleanup } from "solid-js";
 import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
-import { type Mode } from "../design";
 import { type HeaderPrefix } from "../components/HeaderLine";
+import { type Message as MessageBlockMessage, type ToolCallInfo } from "../components/MessageBlock";
 
 /**
- * Message type (UI-friendly version)
+ * Message type (UI-friendly version, extends MessageBlock's Message)
  */
-export interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
+export interface Message extends MessageBlockMessage {
   timestamp: number;
-  mode?: Mode;    // Mode used when generating this message (for assistant messages)
-  model?: string; // Model used (e.g., "glm-4.7")
 }
+
+// Re-export ToolCallInfo for convenience
+export type { ToolCallInfo };
 
 /**
  * Session stats type

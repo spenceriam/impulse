@@ -85,6 +85,8 @@ export const Indicators = {
    * Tool result indicators
    */
   tool: {
+    pending: "▶",         // Tool waiting to run
+    running: "⣾",         // Tool currently executing (spinner frame)
     success: "[OK]",      // Tool succeeded
     error: "[FAIL]",      // Tool failed
   },

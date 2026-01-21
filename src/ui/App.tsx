@@ -21,6 +21,8 @@ import { GLM_MODELS, MODES } from "../constants";
 import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
+import { Tool } from "../tools/registry";
+import { type ToolCallInfo } from "./components/MessageBlock";
 import packageJson from "../../package.json";
 
 /**
@@ -483,7 +485,7 @@ export function App(props: { initialExpress?: boolean }) {
 
 // App that decides between welcome screen and session view
 function AppWithSession() {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
@@ -612,6 +614,156 @@ function AppWithSession() {
     }
   });
 
+  // Execute tools and continue conversation with tool results
+  const executeToolsAndContinue = async (
+    assistantMsgId: string,
+    toolCallsMap: Map<number, ToolCallInfo>,
+    previousApiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    assistantContent: string
+  ) => {
+    const toolCalls = Array.from(toolCallsMap.values());
+    
+    // Execute each tool and update UI
+    for (const toolCall of toolCalls) {
+      // Update status to running
+      toolCall.status = "running";
+      updateMessage(assistantMsgId, {
+        toolCalls: [...toolCalls],
+      });
+      
+      try {
+        // Parse arguments
+        let args: unknown;
+        try {
+          args = JSON.parse(toolCall.arguments);
+        } catch {
+          args = {};
+        }
+        
+        // Execute the tool
+        const result = await Tool.execute(toolCall.name, args);
+        
+        // Update with result
+        toolCall.status = result.success ? "success" : "error";
+        toolCall.result = result.output;
+        updateMessage(assistantMsgId, {
+          toolCalls: [...toolCalls],
+        });
+      } catch (error) {
+        toolCall.status = "error";
+        toolCall.result = error instanceof Error ? error.message : "Unknown error";
+        updateMessage(assistantMsgId, {
+          toolCalls: [...toolCalls],
+        });
+      }
+    }
+    
+    // Build tool results message for continuation
+    const toolResultsContent = toolCalls.map(tc => 
+      `Tool: ${tc.name}\nResult: ${tc.result}`
+    ).join("\n\n");
+    
+    // Build messages for next API call
+    const assistantToolCallMessage = {
+      role: "assistant" as const,
+      content: assistantContent || "",
+      tool_calls: toolCalls.map(tc => ({
+        id: tc.id,
+        type: "function" as const,
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      })),
+    };
+    
+    // Add tool results as user message (simulating tool response)
+    const toolResultMessage = {
+      role: "user" as const,
+      content: `Tool results:\n${toolResultsContent}`,
+    };
+    
+    // Continue conversation with tool results
+    const continuationMessages = [
+      ...previousApiMessages,
+      assistantToolCallMessage,
+      toolResultMessage,
+    ];
+    
+    // Add new assistant message for continuation
+    addMessage({ role: "assistant", content: "" });
+    const newMessages = messages();
+    const newAssistantMsg = newMessages[newMessages.length - 1];
+    if (!newAssistantMsg) {
+      setIsLoading(false);
+      return;
+    }
+    
+    const newAssistantMsgId = newAssistantMsg.id;
+    
+    try {
+      // Create new stream processor
+      streamProcessor = new StreamProcessor();
+      let accumulatedContent = "";
+      const newToolCallsMap = new Map<number, ToolCallInfo>();
+      
+      streamProcessor.onEvent((event: StreamEvent) => {
+        if (event.type === "content") {
+          accumulatedContent += event.delta;
+          updateMessage(newAssistantMsgId, {
+            content: accumulatedContent,
+          });
+        } else if (event.type === "tool_call_start") {
+          const toolCallInfo: ToolCallInfo = {
+            id: event.id,
+            name: event.name,
+            arguments: "",
+            status: "pending",
+          };
+          newToolCallsMap.set(event.index, toolCallInfo);
+          updateMessage(newAssistantMsgId, {
+            toolCalls: Array.from(newToolCallsMap.values()),
+          });
+        } else if (event.type === "tool_call_delta") {
+          const existing = newToolCallsMap.get(event.index);
+          if (existing) {
+            existing.arguments += event.arguments;
+            updateMessage(newAssistantMsgId, {
+              toolCalls: Array.from(newToolCallsMap.values()),
+            });
+          }
+        } else if (event.type === "done") {
+          if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
+            // Recursive tool execution
+            executeToolsAndContinue(
+              newAssistantMsgId,
+              newToolCallsMap,
+              continuationMessages as any,
+              accumulatedContent
+            );
+          } else {
+            setIsLoading(false);
+            streamProcessor = null;
+          }
+        }
+      });
+      
+      const stream = GLMClient.stream({
+        messages: continuationMessages as any,
+        model: model() as any,
+        signal: streamProcessor.getAbortSignal(),
+      });
+      
+      await streamProcessor.process(stream);
+    } catch (error) {
+      updateMessage(newAssistantMsgId, {
+        content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      });
+      setIsLoading(false);
+      streamProcessor = null;
+    }
+  };
+
   // Handle message submission
   const handleSubmit = async (content: string) => {
     if (isLoading()) return;
@@ -628,6 +780,17 @@ function AppWithSession() {
         // Execute the command to get summary, then exit
         await CommandRegistry.execute(trimmedContent);
         renderer.destroy();
+        return;
+      }
+      
+      // Handle /new and /clear specially - reset session without popup
+      if (parsed && (parsed.name === "new" || parsed.name === "clear")) {
+        // Create new session (clears messages in SessionContext)
+        await createNewSession();
+        // Reset header
+        setHeaderTitle("New session");
+        setHeaderPrefix(null);
+        // No popup - just silently reset
         return;
       }
       
@@ -758,6 +921,7 @@ function AppWithSession() {
       streamProcessor = new StreamProcessor();
 
       let accumulatedContent = "";
+      const toolCallsMap = new Map<number, ToolCallInfo>();
 
       // Handle stream events - update UI directly for each content delta
       streamProcessor.onEvent((event: StreamEvent) => {
@@ -767,9 +931,36 @@ function AppWithSession() {
           updateMessage(assistantMsgId, {
             content: accumulatedContent,
           });
+        } else if (event.type === "tool_call_start") {
+          // New tool call starting
+          const toolCall: ToolCallInfo = {
+            id: event.id,
+            name: event.name,
+            arguments: "",
+            status: "pending",
+          };
+          toolCallsMap.set(event.index, toolCall);
+          updateMessage(assistantMsgId, {
+            toolCalls: Array.from(toolCallsMap.values()),
+          });
+        } else if (event.type === "tool_call_delta") {
+          // Tool call arguments streaming in
+          const existing = toolCallsMap.get(event.index);
+          if (existing) {
+            existing.arguments += event.arguments;
+            updateMessage(assistantMsgId, {
+              toolCalls: Array.from(toolCallsMap.values()),
+            });
+          }
         } else if (event.type === "done") {
-          setIsLoading(false);
-          streamProcessor = null;
+          // Stream finished - check if we need to execute tools
+          if (event.state.finishReason === "tool_calls" && toolCallsMap.size > 0) {
+            // Execute tools and continue conversation
+            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent);
+          } else {
+            setIsLoading(false);
+            streamProcessor = null;
+          }
         }
       });
 

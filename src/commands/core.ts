@@ -87,6 +87,15 @@ async function handleExit() {
   return await handleQuit();
 }
 
+async function handleClear() {
+  // This is handled specially in App.tsx to reset the session
+  // This handler is just a placeholder for the command registry
+  return {
+    success: true,
+    output: "Session cleared (handled by UI)",
+  };
+}
+
 export function registerCoreCommands(): void {
   const commands: CommandDefinition[] = [
     {
@@ -126,6 +135,13 @@ export function registerCoreCommands(): void {
       description: "Exit the application with session summary",
       handler: handleExit,
       examples: ["/exit"],
+    },
+    {
+      name: "clear",
+      category: "core",
+      description: "Clear the current session (same as /new)",
+      handler: handleClear,
+      examples: ["/clear"],
     },
   ];
 

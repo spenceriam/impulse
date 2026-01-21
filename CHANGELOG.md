@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-01-21
+
+### Added
+
+- **Tool Call Display in Chat** - Tool executions now show inline in assistant messages:
+  - Collapsible tool blocks with name, status indicator, and result preview
+  - Status indicators: `▶` pending, `⣾` running (animated), `[OK]` success, `[FAIL]` error
+  - Recursive tool execution support (AI can chain tool calls)
+
+- **`/clear` Command** - New command to reset the current session (alias for `/new` behavior)
+
+### Fixed
+
+- **`/new` Command** - Now silently resets session without confirmation popup:
+  - Clears all messages
+  - Resets header to "New session"
+  - Resets session context
+
+### Technical
+
+- New `ToolCallInfo` interface in MessageBlock for tool call state tracking
+- `executeToolsAndContinue()` function in App.tsx for recursive tool execution
+- Tool indicators added to design.ts (`tool.pending`, `tool.running`)
+- Message type extended to support `toolCalls?: ToolCallInfo[]`
+
 ## [0.8.1] - 2026-01-21
 
 ### Fixed
