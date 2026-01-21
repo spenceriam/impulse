@@ -9,9 +9,10 @@ export interface CommandDefinition {
   args?: z.ZodSchema
   handler: CommandHandler
   examples?: string[]
+  hidden?: boolean  // Hidden from /help and autocomplete, but still executable
 }
 
-export type CommandHandler = (args: Record<string, unknown>) => Promise<CommandResult>;
+export type CommandHandler = (args: Record<string, unknown>, rawInput?: string) => Promise<CommandResult>;
 
 export interface CommandResult {
   success: boolean
@@ -55,14 +56,19 @@ class CommandRegistryImpl {
     return this.commands.get(name);
   }
 
-  list(category?: CommandCategory): CommandDefinition[] {
-    const allCommands = Array.from(this.commands.values());
-
-    if (category) {
-      return allCommands.filter((cmd) => cmd.category === category);
+  list(category?: CommandCategory, includeHidden = false): CommandDefinition[] {
+    let commands = Array.from(this.commands.values());
+    
+    // Filter out hidden commands unless explicitly requested
+    if (!includeHidden) {
+      commands = commands.filter((cmd) => !cmd.hidden);
     }
 
-    return allCommands;
+    if (category) {
+      return commands.filter((cmd) => cmd.category === category);
+    }
+
+    return commands;
   }
 
   parse(input: string): ParsedCommand | null {
@@ -128,7 +134,7 @@ class CommandRegistryImpl {
         }
       }
 
-      const result = await command.handler(args);
+      const result = await command.handler(args, input);
 
       return result;
     } catch (e) {

@@ -573,7 +573,7 @@ Section collapses when >2 items, hides when all completed.
 
 ## MCP Servers
 
-All 4 Z.AI MCP servers use a single API key:
+5 MCP servers are configured (4 Z.AI + Context7):
 
 | Server | Type | Tools |
 |--------|------|-------|
@@ -581,6 +581,9 @@ All 4 Z.AI MCP servers use a single API key:
 | **Web Search** | Remote (HTTP) | `webSearchPrime` |
 | **Web Reader** | Remote (HTTP) | `webReader` |
 | **Zread** | Remote (HTTP) | `search_doc`, `get_repo_structure`, `read_file` |
+| **Context7** | Remote (HTTP) | `resolve-library-id`, `query-docs` |
+
+**Note:** The agent discovers MCP tools on-demand using `/mcp-tools search <query>` rather than preloading all tool descriptions into context. This keeps the context window lean.
 
 ## Commands
 
@@ -641,6 +644,33 @@ All 4 Z.AI MCP servers use a single API key:
 - Brutalist aesthetic
 - 16ms event batching for streaming
 - 60fps target
+
+### UI Change Protocol (CRITICAL)
+**ALWAYS create an ASCII mockup before implementing any UI changes.**
+
+When proposing or implementing UI modifications:
+1. **Create a mockup first** - Show the intended layout using ASCII art
+2. **Get approval** - Wait for user confirmation before implementing
+3. **Reference the mockup** - Keep the mockup visible during implementation
+
+Example mockup format:
+```
+┌─ COMPONENT NAME ────────────────────────────────────────────┐
+│                                                             │
+│  [Element description]                                      │
+│  [Another element]                                          │
+│                                                             │
+│  ┌─ Nested Component ─────────────────────────────────────┐ │
+│  │  Content here                                          │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+This ensures:
+- User can visualize changes before code is written
+- Prevents wasted effort on unwanted designs
+- Documents UI decisions for future reference
 
 ## Generated Documentation
 
@@ -710,6 +740,32 @@ All 4 Z.AI MCP servers use a single API key:
 | 01-20-2026 | @ reference parser | Fuzzy filename matching, @~ expansion, line range support |
 | 01-20-2026 | Input history navigation | Up/down arrow for browsing previous submissions |
 | 01-20-2026 | Autocomplete dropdown | Positioned @ reference completion with keyboard navigation |
+| 01-21-2026 | MCP auto-discovery | Agent automatically searches MCP tools when task requires external capabilities |
+| 01-21-2026 | Hardcoded initial MCPs | Z.AI servers + Context7 as MVP, registry integration later |
+
+## Future Work
+
+### MCP Registry Integration (Planned)
+
+**Goal:** Allow users to search and install MCP servers from the official registry.
+
+**Registry URL:** https://registry.modelcontextprotocol.io/
+
+**Planned UX:**
+1. User types `/mcp` and searches for a capability (e.g., "github", "slack", "database")
+2. System queries the MCP registry for matching servers
+3. User selects a server to install
+4. Server is added to local config and initialized
+
+**Why Later:**
+- MVP focuses on hardcoded Z.AI + Context7 servers
+- Registry integration requires OAuth flows for many servers
+- Need to design secure credential storage first
+
+**Technical Notes:**
+- Registry API provides server metadata, auth requirements, tool lists
+- Some servers require OAuth, others just API keys
+- Consider mcp-launchpad patterns for auth handling
 
 ## How to Run
 

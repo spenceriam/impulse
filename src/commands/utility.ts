@@ -18,11 +18,13 @@ const CompactArgsSchema = z.object({
 });
 
 const ModelArgsSchema = z.object({
-  model: z.string(),
+  model: z.string().optional(),
+  _: z.array(z.string()).optional(), // Positional args
 });
 
 const ModeArgsSchema = z.object({
-  mode: z.string(),
+  mode: z.string().optional(),
+  _: z.array(z.string()).optional(), // Positional args
 });
 
 async function handleUndo(args: Record<string, unknown>) {
@@ -152,39 +154,89 @@ async function handleCompact(args: Record<string, unknown>) {
 
 async function handleModel(args: Record<string, unknown>) {
   const parsed = ModelArgsSchema.parse(args);
+  
+  // Get model from named arg or first positional arg
+  const modelArg = parsed.model || (parsed._ && parsed._[0]);
 
-  if (!GLM_MODELS.includes(parsed.model as (typeof GLM_MODELS)[number])) {
+  // If no model specified, show available models
+  if (!modelArg) {
+    const currentSession = SessionManager.getCurrentSession();
+    const currentModel = currentSession?.model || "glm-4.7";
+    
+    const modelList = GLM_MODELS.map(m => {
+      const isCurrent = m === currentModel;
+      const displayName = m.toUpperCase().replace("GLM-", "GLM-");
+      return isCurrent ? `  * ${displayName} (current)` : `    ${displayName}`;
+    }).join("\n");
+    
     return {
-      success: false,
-      error: `Invalid model. Valid models: ${GLM_MODELS.join(", ")}`,
+      success: true,
+      output: `Available models:\n${modelList}\n\nUsage: /model <model-name>`,
     };
   }
 
-  await SessionManager.update({ model: parsed.model });
+  // Normalize model name (accept GLM-4.7 or glm-4.7)
+  const normalizedModel = modelArg.toLowerCase();
+  
+  if (!GLM_MODELS.includes(normalizedModel as (typeof GLM_MODELS)[number])) {
+    return {
+      success: false,
+      error: `Invalid model: ${modelArg}\nValid models: ${GLM_MODELS.map(m => m.toUpperCase().replace("GLM-", "GLM-")).join(", ")}`,
+    };
+  }
+
+  await SessionManager.update({ model: normalizedModel });
 
   return {
     success: true,
-    output: `Model changed to ${parsed.model}`,
+    output: `Model changed to ${normalizedModel.toUpperCase().replace("GLM-", "GLM-")}`,
   };
 }
 
 async function handleMode(args: Record<string, unknown>) {
   const parsed = ModeArgsSchema.parse(args);
+  
+  // Get mode from named arg or first positional arg
+  const modeArg = parsed.mode || (parsed._ && parsed._[0]);
 
-  const modeUpper = parsed.mode.toUpperCase();
-  if (!MODES.includes(modeUpper as (typeof MODES)[number])) {
+  // If no mode specified, show available modes
+  if (!modeArg) {
+    const currentSession = SessionManager.getCurrentSession();
+    const currentMode = currentSession?.mode || "AUTO";
+    
+    const modeDescriptions: Record<string, string> = {
+      AUTO: "AI decides based on prompt",
+      AGENT: "Full execution + looper skill",
+      PLANNER: "Research + documentation",
+      "PLAN-PRD": "Quick PRD via Q&A",
+      DEBUG: "7-step systematic debugging",
+    };
+    
+    const modeList = MODES.map(m => {
+      const isCurrent = m === currentMode;
+      const desc = modeDescriptions[m] || "";
+      return isCurrent ? `  * ${m} - ${desc} (current)` : `    ${m} - ${desc}`;
+    }).join("\n");
+    
     return {
-      success: false,
-      error: `Invalid mode. Valid modes: ${MODES.join(", ")}`,
+      success: true,
+      output: `Available modes:\n${modeList}\n\nUsage: /mode <mode-name>`,
     };
   }
 
-  const mode = parsed.mode.toUpperCase();
-  await SessionManager.update({ mode });
+  const modeUpper = modeArg.toUpperCase();
+  if (!MODES.includes(modeUpper as (typeof MODES)[number])) {
+    return {
+      success: false,
+      error: `Invalid mode: ${modeArg}\nValid modes: ${MODES.join(", ")}`,
+    };
+  }
+
+  await SessionManager.update({ mode: modeUpper });
 
   return {
     success: true,
-    output: `Mode changed to ${mode}`,
+    output: `Mode changed to ${modeUpper}`,
   };
 }
 

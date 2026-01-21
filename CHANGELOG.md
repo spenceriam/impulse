@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-21
+
+### Added
+
+- **MCP Tool Discovery System** - Agent can now search and inspect MCP tools on-demand via `/mcp-tools` command, keeping tool descriptions out of context until needed
+- **Context7 MCP Server** - Added Context7 for library/framework documentation lookup (`resolve-library-id`, `query-docs`)
+- **Mode-Aware System Prompts** - System prompts now adapt based on mode (AGENT/DEBUG/AUTO get full MCP discovery workflow, PLANNER/PLAN-PRD get lightweight awareness)
+- **Hidden Commands** - Command registry now supports `hidden` flag for internal commands not shown in `/help` or autocomplete
+- **`/mcp-tools` Command** - Internal command for agent to search tools across all MCP servers
+- **`/model` Interactive Popup** - Model selection now shows interactive overlay instead of text output
+
+### Changed
+
+- **StatusLine** - Now fully reactive with polling for MCP status (2s→30s adaptive) and git branch (5s)
+- **InputArea** - Autocomplete stays open when complete command typed, ghost text shows only on first render
+- **MCP Manager** - Added actual health checks for HTTP servers (JSON-RPC tools/list) and stdio servers (which executable)
+
+### Fixed
+
+- **Logo Centering** - GLM-CLI ASCII logo now properly centered in welcome screen border frame using flexbox
+
 ## [0.2.1] - 2026-01-20
 
 ### Fixed
