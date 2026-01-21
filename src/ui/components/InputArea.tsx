@@ -198,33 +198,46 @@ export function InputArea(props: InputAreaProps) {
       <Show when={showAutocomplete()}>
         <box
           border
+          borderColor={Colors.ui.dim}
           flexDirection="column"
-          maxHeight={12}
           backgroundColor="#1a1a1a"
         >
-          <For each={filteredCommands()}>
-            {(cmd, index) => {
-              const isSelected = () => index() === selectedIndex();
-              return (
-                <box
-                  flexDirection="row"
-                  {...(isSelected() ? { backgroundColor: Colors.mode.AGENT } : {})}
-                >
-                  <text 
-                    fg={isSelected() ? "#000000" : Colors.ui.text}
-                  >
-                    {` /${cmd.name.padEnd(COMMAND_COL_WIDTH)}`}
-                  </text>
-                  <text fg={isSelected() ? "#000000" : Colors.ui.dim}>
-                    {cmd.description}
-                  </text>
-                </box>
-              );
-            }}
-          </For>
-          <text fg={Colors.ui.dim}>
-            {" Tab: complete | Enter: select | Esc: close"}
-          </text>
+          <scrollbox height={Math.min(10, filteredCommands().length + 1)}>
+            <box flexDirection="column">
+              <For each={filteredCommands()}>
+                {(cmd, index) => {
+                  const isSelected = () => index() === selectedIndex();
+                  return (
+                    <Show
+                      when={isSelected()}
+                      fallback={
+                        <box flexDirection="row" height={1}>
+                          <text fg={Colors.ui.text}>
+                            {` /${cmd.name.padEnd(COMMAND_COL_WIDTH)}`}
+                          </text>
+                          <text fg={Colors.ui.dim} wrapMode="none">
+                            {cmd.description}
+                          </text>
+                        </box>
+                      }
+                    >
+                      <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
+                        <text fg="#000000">
+                          {` /${cmd.name.padEnd(COMMAND_COL_WIDTH)}`}
+                        </text>
+                        <text fg="#000000" wrapMode="none">
+                          {cmd.description}
+                        </text>
+                      </box>
+                    </Show>
+                  );
+                }}
+              </For>
+            </box>
+          </scrollbox>
+          <box height={1} paddingLeft={1}>
+            <text fg={Colors.ui.dim}>Tab: complete | Enter: select | Esc: close</text>
+          </box>
         </box>
       </Show>
       

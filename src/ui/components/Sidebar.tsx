@@ -105,11 +105,17 @@ export function Sidebar(props: SidebarProps = {}) {
   };
 
   return (
-    <box
-      width={Layout.sidebar.width}
-      flexDirection="column"
-      padding={1}
-    >
+    <box flexDirection="row">
+      {/* Left border separator */}
+      <box width={1} height="100%">
+        <text fg={Colors.ui.dim}>{Indicators.separator.vertical.repeat(100)}</text>
+      </box>
+      {/* Sidebar content */}
+      <box
+        width={Layout.sidebar.width - 1}
+        flexDirection="column"
+        padding={1}
+      >
       {/* Todo Section - Always visible */}
       <box flexDirection="column" marginBottom={2}>
         <box
@@ -203,6 +209,7 @@ export function Sidebar(props: SidebarProps = {}) {
           </Show>
         </box>
       </Show>
+      </box>
     </box>
   );
 }

@@ -21,7 +21,6 @@ import { GLM_MODELS, MODES } from "../constants";
 import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
-import { batch, flushBatch } from "../util/batch";
 import packageJson from "../../package.json";
 
 /**
@@ -713,21 +712,16 @@ function AppWithSession() {
       streamProcessor = new StreamProcessor();
 
       let accumulatedContent = "";
-      const batchKey = `stream-${assistantMsgId}`;
 
-      // Handle stream events with 16ms batching for smooth rendering
+      // Handle stream events - update UI directly for each content delta
       streamProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
-          // Batch UI updates at 16ms intervals (~60fps) to prevent flicker
-          batch(batchKey, () => {
-            updateMessage(assistantMsgId, {
-              content: accumulatedContent,
-            });
-          }, 16);
+          // Update message immediately for responsive streaming
+          updateMessage(assistantMsgId, {
+            content: accumulatedContent,
+          });
         } else if (event.type === "done") {
-          // Flush any pending batched updates before marking done
-          flushBatch(batchKey);
           setIsLoading(false);
           streamProcessor = null;
         }

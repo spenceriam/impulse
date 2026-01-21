@@ -17,7 +17,7 @@ export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
 
   return (
-    <scrollbox height="100%" focused>
+    <scrollbox height="100%" focused stickyScroll>
       <For each={messages()}>
         {(message) => <MessageBlock message={message} />}
       </For>
