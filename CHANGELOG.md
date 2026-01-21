@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-01-21
+
+### Added
+
+- **`/init` Command** - Create or update AGENTS.md for the project:
+  - Detects empty projects and suggests PLANNER/PLAN-PRD mode
+  - Analyzes project structure, tech stack (Node.js, TypeScript, React, etc.)
+  - Includes git status (branch, unpushed commits, staged files)
+  - Migrates content from existing instruction files (CLAUDE.md, GEMINI.md, etc.)
+  - Supports `--force` flag to regenerate existing AGENTS.md
+  - Detects when existing AGENTS.md needs updating based on git state
+
+### Changed
+
+- **Session View Padding** - Added proper padding to session screen (2 lines top/bottom, 4 chars left/right)
+- **StatusLine Position** - Now directly under InputArea (not spanning full width with sidebar)
+
 ## [0.4.0] - 2026-01-21
 
 ### Added
