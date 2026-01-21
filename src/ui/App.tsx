@@ -670,8 +670,18 @@ function AppWithSession() {
         when={messages().length > 0}
         fallback={<WelcomeScreen onSubmit={handleSubmit} />}
       >
-        <box flexDirection="column" width="100%" height="100%">
+        {/* Session view with padding: 2 top/bottom, 4 left/right */}
+        <box 
+          flexDirection="column" 
+          width="100%" 
+          height="100%"
+          paddingTop={2}
+          paddingBottom={2}
+          paddingLeft={4}
+          paddingRight={4}
+        >
           <box flexDirection="row" flexGrow={1}>
+            {/* Chat + Input + Status column */}
             <box flexDirection="column" flexGrow={1}>
               <ChatView messages={messages()} />
               <InputArea
@@ -679,6 +689,8 @@ function AppWithSession() {
                 thinking={thinking()}
                 onSubmit={handleSubmit}
               />
+              {/* Status line directly under input box */}
+              <StatusLine />
             </box>
             {/* Sidebar or collapsed strip based on visibility */}
             <Show
@@ -688,7 +700,6 @@ function AppWithSession() {
               <Sidebar />
             </Show>
           </box>
-          <StatusLine />
         </box>
       </Show>
       
