@@ -19,6 +19,7 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;    // Thinking/reasoning content (GLM-specific)
   mode?: Mode;           // Mode used when generating (for assistant messages)
   model?: string;        // Model used (e.g., "glm-4.7")
   toolCalls?: ToolCallInfo[];  // Tool calls made in this message
@@ -191,6 +192,7 @@ export function MessageBlock(props: MessageBlockProps) {
   const mode = () => props.message.mode;
   const modeColor = () => mode() ? getModeColor(mode()!) : Colors.ui.dim;
   const toolCalls = () => props.message.toolCalls ?? [];
+  const reasoning = () => props.message.reasoning;
 
   return (
     <box flexDirection="column" marginBottom={2}>
@@ -214,6 +216,19 @@ export function MessageBlock(props: MessageBlockProps) {
           </Show>
         </Show>
       </box>
+      {/* Thinking/Reasoning content - collapsible */}
+      <Show when={reasoning()}>
+        <box flexDirection="column" marginBottom={1}>
+          <box flexDirection="row">
+            <text fg={Colors.ui.dim}>{Indicators.expanded} </text>
+            <text fg={Colors.ui.dim}>Thinking</text>
+          </box>
+          <box flexDirection="row">
+            <text fg={Colors.ui.dim}>  | </text>
+            <text fg={Colors.ui.dim}>{reasoning()}</text>
+          </box>
+        </box>
+      </Show>
       {/* Message content */}
       <Show when={props.message.content}>
         <box flexDirection="column">

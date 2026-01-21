@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.9.3
+- **Version:** v0.9.4
 - **Tagline:** OpenTUI coding harness powered by Z.ai GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -835,6 +835,9 @@ This ensures:
 - Use 16ms event batching to prevent flicker
 - `batch()` from solid-js for coalesced updates
 - `reconcile()` for efficient deep state updates
+- **Tool call arguments arrive in first chunk** - `tool_call_start` event must include initial arguments
+  - First chunk has `{id, function.name, function.arguments}` all together
+  - Don't initialize `arguments: ""` and only accumulate from deltas - you'll lose the opening `{"`
 
 ### Configuration
 - tsconfig.json needs `jsx: "preserve"` and `jsxImportSource: "@opentui/solid"`

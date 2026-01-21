@@ -196,15 +196,46 @@ export function InputArea(props: InputAreaProps) {
     return `${props.mode}${thinkingSuffix}`;
   };
 
+  // Calculate autocomplete height for positioning
+  const autocompleteHeight = () => Math.min(10, filteredCommands().length + 1) + 2; // +2 for border
+
   return (
     <box flexDirection="column">
-      {/* Floating autocomplete dropdown - above input box */}
+      {/* Input box */}
+      <box
+        border
+        title={title()}
+        titleAlignment="left"
+        flexDirection="column"
+        padding={1}
+      >
+        <box flexDirection="row" alignItems="flex-start">
+          <text fg={Colors.ui.dim}>{">"} </text>
+          <textarea
+            ref={(r: TextareaRenderable) => { textareaRef = r; }}
+            keyBindings={TEXTAREA_KEY_BINDINGS}
+            onContentChange={handleContentChange}
+            onSubmit={handleSubmit}
+            onPaste={handlePaste}
+            placeholder={showGhostText() ? ghostText : ""}
+            width={-1}
+            height={Layout.input.minHeight}
+            focused={!props.loading}
+          />
+        </box>
+      </box>
+      
+      {/* Floating autocomplete dropdown - absolutely positioned above input box */}
       <Show when={showAutocomplete()}>
         <box
+          position="absolute"
+          left={3}
+          top={-autocompleteHeight()}
           border
           borderColor={Colors.ui.dim}
           flexDirection="column"
           backgroundColor="#1a1a1a"
+          zIndex={100}
         >
           <scrollbox height={Math.min(10, filteredCommands().length + 1)}>
             <box flexDirection="column">
@@ -244,30 +275,6 @@ export function InputArea(props: InputAreaProps) {
           </box>
         </box>
       </Show>
-      
-      {/* Input box */}
-      <box
-        border
-        title={title()}
-        titleAlignment="left"
-        flexDirection="column"
-        padding={1}
-      >
-        <box flexDirection="row" alignItems="flex-start">
-          <text fg={Colors.ui.dim}>{">"} </text>
-          <textarea
-            ref={(r: TextareaRenderable) => { textareaRef = r; }}
-            keyBindings={TEXTAREA_KEY_BINDINGS}
-            onContentChange={handleContentChange}
-            onSubmit={handleSubmit}
-            onPaste={handlePaste}
-            placeholder={showGhostText() ? ghostText : ""}
-            width={-1}
-            height={Layout.input.minHeight}
-            focused={!props.loading}
-          />
-        </box>
-      </box>
     </box>
   );
 }

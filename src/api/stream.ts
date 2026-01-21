@@ -36,7 +36,7 @@ interface PartialToolCall {
 export type StreamEvent =
   | { type: "content"; delta: string }
   | { type: "reasoning"; delta: string }
-  | { type: "tool_call_start"; index: number; id: string; name: string }
+  | { type: "tool_call_start"; index: number; id: string; name: string; arguments: string }
   | { type: "tool_call_delta"; index: number; arguments: string }
   | { type: "done"; state: StreamState };
 
@@ -107,6 +107,7 @@ export function processChunk(
               index: tc.index,
               id: tc.id,
               name: tc.function.name,
+              arguments: tc.function.arguments ?? "",
             });
           }
         } else {

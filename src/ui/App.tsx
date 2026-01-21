@@ -741,6 +741,7 @@ function AppWithSession() {
       setStreamProc(newProcessor);
       
       let accumulatedContent = "";
+      let accumulatedReasoning = "";
       const newToolCallsMap = new Map<number, ToolCallInfo>();
       
       newProcessor.onEvent((event: StreamEvent) => {
@@ -749,11 +750,16 @@ function AppWithSession() {
           updateMessage(newAssistantMsgId, {
             content: accumulatedContent,
           });
+        } else if (event.type === "reasoning") {
+          accumulatedReasoning += event.delta;
+          updateMessage(newAssistantMsgId, {
+            reasoning: accumulatedReasoning,
+          });
         } else if (event.type === "tool_call_start") {
           const toolCallInfo: ToolCallInfo = {
             id: event.id,
             name: event.name,
-            arguments: "",
+            arguments: event.arguments,  // Include initial arguments from first chunk
             status: "pending",
           };
           newToolCallsMap.set(event.index, toolCallInfo);
@@ -969,6 +975,7 @@ function AppWithSession() {
       setStreamProc(processor);
 
       let accumulatedContent = "";
+      let accumulatedReasoning = "";
       const toolCallsMap = new Map<number, ToolCallInfo>();
 
       // Handle stream events - update UI directly for each content delta
@@ -979,12 +986,17 @@ function AppWithSession() {
           updateMessage(assistantMsgId, {
             content: accumulatedContent,
           });
+        } else if (event.type === "reasoning") {
+          accumulatedReasoning += event.delta;
+          updateMessage(assistantMsgId, {
+            reasoning: accumulatedReasoning,
+          });
         } else if (event.type === "tool_call_start") {
           // New tool call starting
           const toolCall: ToolCallInfo = {
             id: event.id,
             name: event.name,
-            arguments: "",
+            arguments: event.arguments,  // Include initial arguments from first chunk
             status: "pending",
           };
           toolCallsMap.set(event.index, toolCall);

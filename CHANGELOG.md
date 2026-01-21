@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-01-21
+
+### Fixed
+
+- **Tool Call Arguments Streaming** - Fixed critical bug where tool calls always failed with invalid JSON:
+  - First chunk of tool call arguments was stored in stream state but NOT included in `tool_call_start` event
+  - App.tsx initialized `arguments: ""` and only accumulated from deltas, losing the opening `{"`
+  - Now `tool_call_start` event includes initial `arguments` field
+
+- **Prompt Box Moving on `/` Command** - Fixed autocomplete dropdown pushing input box down:
+  - Changed from normal document flow to `position="absolute"` with `zIndex={100}`
+  - Dropdown now floats above input without affecting layout
+
+### Added
+
+- **Thinking/Reasoning Display** - AI thinking content now visible in chat:
+  - Added `reasoning` field to Message interface
+  - Handle `reasoning` stream events and display above message content
+  - Styled with dim text and expand indicator
+
 ## [0.9.3] - 2026-01-21
 
 ### Fixed
