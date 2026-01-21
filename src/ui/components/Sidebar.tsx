@@ -31,6 +31,7 @@ interface ProjectNode {
 interface SidebarProps {
   customMcps?: CustomMCP[];
   projectTree?: ProjectNode[];
+  onCollapse?: () => void;
 }
 
 export function Sidebar(props: SidebarProps = {}) {
@@ -207,6 +208,18 @@ export function Sidebar(props: SidebarProps = {}) {
               </For>
             </box>
           </Show>
+        </box>
+      </Show>
+      
+      {/* Spacer to push collapse button to bottom */}
+      <box flexGrow={1} />
+      
+      {/* Collapse button at bottom right */}
+      <Show when={props.onCollapse}>
+        <box flexDirection="row" justifyContent="flex-end">
+          <box onMouseDown={() => props.onCollapse?.()}>
+            <text fg={Colors.ui.dim}>[{Indicators.collapsed}]</text>
+          </box>
         </box>
       </Show>
       </box>

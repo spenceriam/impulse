@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-01-21
+
+### Fixed
+
+- **Thinking Block** - Fixed display issues:
+  - Default expanded (was collapsed)
+  - Added stickyScroll for auto-scroll to bottom during streaming
+  - Fixed text color (was black, now dim gray with italics)
+  - "Thinking" label visible in both expanded and collapsed states
+
+- **Exit Summary** - Now prints to terminal after app closes (like Gemini CLI):
+  - Removed overlay-based exit flow
+  - Summary appears in terminal after `/quit` or `/exit`
+
+- **Chat View Border** - Added bordered frame around chat area:
+  - Border doesn't break when content is inside
+  - Styled scrollbar with cyan thumb and dim track
+  - Tight padding to preserve screen real estate
+
+### Added
+
+- **Sidebar Collapse Button** - Clickable `[▶]` icon at bottom right to collapse sidebar
+
 ## [0.9.5] - 2026-01-21
 
 ### Fixed

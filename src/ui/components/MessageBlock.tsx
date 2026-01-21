@@ -156,12 +156,12 @@ function getToolStatusDisplay(status: ToolCallInfo["status"]): { indicator: stri
 
 /**
  * Collapsible thinking/reasoning section
- * - Italics text
- * - 5-row max height with scrolling when expanded
- * - Click to toggle collapse state
+ * - Italics text in dim color
+ * - Default EXPANDED with 5-row max height, stickyScroll for auto-scroll to bottom
+ * - Click header to collapse (still shows "Thinking" label when collapsed)
  */
 function ThinkingSection(props: { content: string }) {
-  const [expanded, setExpanded] = createSignal(false);
+  const [expanded, setExpanded] = createSignal(true); // Default expanded
   
   const toggle = () => setExpanded(prev => !prev);
   const indicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
@@ -173,12 +173,14 @@ function ThinkingSection(props: { content: string }) {
         onMouseDown={toggle}
       >
         <text fg={Colors.ui.dim}>{indicator()} </text>
-        <text fg={Colors.ui.dim}><em>Thinking</em></text>
+        <text fg={Colors.ui.dim}>Thinking</text>
       </box>
       <Show when={expanded()}>
         <box paddingLeft={2}>
-          <scrollbox height={5}>
-            <text fg={Colors.ui.dim}><em>{props.content}</em></text>
+          <scrollbox height={5} stickyScroll>
+            <text fg={Colors.ui.dim}>
+              <em>{props.content}</em>
+            </text>
           </scrollbox>
         </box>
       </Show>

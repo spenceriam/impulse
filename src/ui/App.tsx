@@ -518,9 +518,6 @@ function AppWithSession() {
   // Permission prompt state (from tool permission requests)
   const [pendingPermission, setPendingPermission] = createSignal<PermissionRequest | null>(null);
   
-  // Exit pending state - when true, closing the command overlay will exit the app
-  const [exitPending, setExitPending] = createSignal(false);
-  
   // Command autocomplete state - lifted to App for proper z-index overlay
   const [autocompleteData, setAutocompleteData] = createSignal<{
     commands: { name: string; description: string }[];
@@ -830,21 +827,18 @@ function AppWithSession() {
     if (trimmedContent.startsWith("/")) {
       const parsed = CommandRegistry.parse(trimmedContent);
       
-      // Handle /exit and /quit specially - show summary then exit
+      // Handle /exit and /quit specially - print summary to terminal after exit
       if (parsed && (parsed.name === "exit" || parsed.name === "quit")) {
         // Execute the command to get summary
         const result = await CommandRegistry.execute(trimmedContent);
+        const summary = result.output || "";
         
-        // Show the session summary in an overlay before exiting
-        if (result.output) {
-          setExitPending(true); // Flag to exit when overlay closes
-          setCommandOverlay({
-            title: "Session Complete",
-            content: result.output,
-            isError: false,
-          });
-        } else {
-          renderer.destroy();
+        // Destroy renderer first, then print summary to terminal
+        renderer.destroy();
+        
+        // Print summary to stdout after app closes (like Gemini CLI)
+        if (summary) {
+          console.log("\n" + summary);
         }
         return;
       }
@@ -1125,7 +1119,7 @@ function AppWithSession() {
               when={sidebarVisible()}
               fallback={<CollapsedSidebar />}
             >
-              <Sidebar />
+              <Sidebar onCollapse={toggleSidebar} />
             </Show>
           </box>
         </box>
@@ -1138,13 +1132,7 @@ function AppWithSession() {
             title={overlay().title}
             content={overlay().content}
             isError={overlay().isError}
-            onClose={() => {
-              setCommandOverlay(null);
-              // If exit is pending (from /quit or /exit), destroy renderer after overlay closes
-              if (exitPending()) {
-                setTimeout(() => renderer.destroy(), 100);
-              }
-            }}
+            onClose={() => setCommandOverlay(null)}
           />
         )}
       </Show>
