@@ -1,4 +1,4 @@
-import { Colors, Indicators } from "../design";
+import { Colors } from "../design";
 
 /**
  * HeaderLine Component
@@ -38,11 +38,12 @@ export function HeaderLine(props: HeaderLineProps) {
   };
 
   return (
-    <box flexDirection="column" flexShrink={0}>
+    <box flexDirection="column" flexShrink={0} width="100%">
       <box height={1} paddingLeft={1} paddingRight={1}>
         <text fg={Colors.ui.text}>{displayTitle()}</text>
       </box>
-      <text fg={Colors.ui.dim}>{Indicators.separator.horizontal.repeat(200)}</text>
+      {/* Separator line - uses bottom border on a 1-height box for thin line */}
+      <box border={["bottom"]} borderColor={Colors.ui.dim} height={1} />
     </box>
   );
 }

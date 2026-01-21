@@ -14,3 +14,4 @@ export { Autocomplete } from "./Autocomplete";
 export { QuestionOverlay } from "./QuestionOverlay";
 export { PermissionPrompt } from "./PermissionPrompt";
 export { ExpressWarning } from "./ExpressWarning";
+export { Spinner, StackedSpinner } from "./Spinner";

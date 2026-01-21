@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/solid";
 import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { Colors, Mode, Layout } from "../design";
 import { CommandRegistry } from "../../commands/registry";
+import { StackedSpinner } from "./Spinner";
 
 /**
  * Input Area Component
@@ -14,10 +15,12 @@ import { CommandRegistry } from "../../commands/registry";
  * - Undo/redo via Shift+Ctrl+Z / Shift+Ctrl+Y
  * - Enter to submit, Shift+Enter for newline
  * - Floating autocomplete for slash commands
+ * - Loading spinner when AI is processing
  * 
  * Props:
  * - mode: Current mode (AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG)
  * - thinking: Whether thinking mode is enabled
+ * - loading: Whether AI is currently processing
  * - onSubmit: Callback when user presses Enter to submit
  */
 
@@ -34,6 +37,7 @@ const COMMAND_COL_WIDTH = 12;
 interface InputAreaProps {
   mode: Mode;
   thinking: boolean;
+  loading?: boolean;
   onSubmit?: (value: string) => void;
 }
 
@@ -192,6 +196,10 @@ export function InputArea(props: InputAreaProps) {
     return `${props.mode}${thinkingSuffix}`;
   };
 
+  // Input box height: border(1) + padding(1) + minHeight(3) + padding(1) + border(1) = 7
+  // But the content area is minHeight(3), so spinner should be 3-5 rows
+  const spinnerHeight = Layout.input.minHeight + 2; // Match visible content area
+
   return (
     <box flexDirection="column">
       {/* Floating autocomplete dropdown - above input box */}
@@ -241,27 +249,38 @@ export function InputArea(props: InputAreaProps) {
         </box>
       </Show>
       
-      {/* Input box */}
-      <box
-        border
-        title={title()}
-        titleAlignment="left"
-        flexDirection="column"
-        padding={1}
-      >
-        <box flexDirection="row" alignItems="flex-start">
-          <text fg={Colors.ui.dim}>{">"} </text>
-          <textarea
-            ref={(r: TextareaRenderable) => { textareaRef = r; }}
-            keyBindings={TEXTAREA_KEY_BINDINGS}
-            onContentChange={handleContentChange}
-            onSubmit={handleSubmit}
-            onPaste={handlePaste}
-            placeholder={showGhostText() ? ghostText : ""}
-            width={-1}
-            height={Layout.input.minHeight}
-            focused
-          />
+      {/* Input area with optional stacked spinner to the left */}
+      <box flexDirection="row" alignItems="center">
+        {/* Stacked spinner - shown when loading, positioned left of input box */}
+        <Show when={props.loading}>
+          <box paddingRight={1}>
+            <StackedSpinner height={spinnerHeight} />
+          </box>
+        </Show>
+        
+        {/* Input box */}
+        <box
+          border
+          title={title()}
+          titleAlignment="left"
+          flexDirection="column"
+          padding={1}
+          flexGrow={1}
+        >
+          <box flexDirection="row" alignItems="flex-start">
+            <text fg={Colors.ui.dim}>{">"} </text>
+            <textarea
+              ref={(r: TextareaRenderable) => { textareaRef = r; }}
+              keyBindings={TEXTAREA_KEY_BINDINGS}
+              onContentChange={handleContentChange}
+              onSubmit={handleSubmit}
+              onPaste={handlePaste}
+              placeholder={showGhostText() ? ghostText : ""}
+              width={-1}
+              height={Layout.input.minHeight}
+              focused={!props.loading}
+            />
+          </box>
         </box>
       </box>
     </box>

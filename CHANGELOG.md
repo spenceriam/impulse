@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-01-21
+
+### Fixed
+
+- **Header Separator Line** - Now uses dynamic width instead of hardcoded `.repeat(200)` which caused overflow on smaller screens
+- **Header Border Style** - Uses thin border matching input box frame style
+
+### Added
+
+- **Stacked Spinner Animation** - Loading indicator when AI is processing:
+  - DNA helix style braille animation (`⣾⣽⣻⢿⡿⣟⣯⣷`)
+  - Gradient colors matching GLM-CLI logo (cyan to dim)
+  - Staggered/randomized timing for organic feel
+  - Positioned to the left of input box, matching its height
+  - Input disabled while loading
+
+## [0.8.0] - 2026-01-21
+
+### Added
+
+- **Session Header** - Dynamic header line at top of session screen:
+  - Format: `[GLM-CLI] | <context>`
+  - AI updates via `set_header` tool at meaningful milestones
+  - Prefixes for system actions: `Compacted:`, `Reverted:`, `Reapplied:`
+  - Persists with session on save/load
+
 ## [0.7.0] - 2026-01-21
 
 ### Added

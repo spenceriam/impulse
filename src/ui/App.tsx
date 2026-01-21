@@ -818,6 +818,7 @@ function AppWithSession() {
               <InputArea
                 mode={mode()}
                 thinking={thinking()}
+                loading={isLoading()}
                 onSubmit={handleSubmit}
               />
               {/* Status line directly under input box */}

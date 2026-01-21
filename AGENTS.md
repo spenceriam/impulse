@@ -375,6 +375,11 @@ Progress Bar:
   [████████░░] 80%
   █  Filled block
   ░  Empty block
+
+Loading Spinner (DNA Helix):
+  ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷  (rotating braille pattern)
+  Stacked vertically with gradient colors (cyan to dim)
+  Appears left of input box when AI is processing
 ```
 
 ### Layout Mockups
