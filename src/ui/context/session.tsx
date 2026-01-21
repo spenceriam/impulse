@@ -1,6 +1,7 @@
 import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onMount, onCleanup } from "solid-js";
 import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
+import { type Mode } from "../design";
 
 /**
  * Message type (UI-friendly version)
@@ -10,6 +11,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  mode?: Mode;    // Mode used when generating this message (for assistant messages)
+  model?: string; // Model used (e.g., "glm-4.7")
 }
 
 /**

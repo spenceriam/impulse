@@ -1,10 +1,11 @@
 import { createSignal, createEffect, Show, onMount, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, InputArea, ChatView, Sidebar } from "./components";
+import { StatusLine, InputArea, ChatView, Sidebar, CollapsedSidebar } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
+import { SidebarProvider, useSidebar } from "./context/sidebar";
 import { load as loadConfig, save as saveConfig } from "../util/config";
 import { GLMClient } from "../api/client";
 import { StreamProcessor, StreamEvent } from "../api/stream";
@@ -452,18 +453,20 @@ export function App() {
     <ModeProvider>
       <SessionProvider>
         <TodoProvider>
-          <box width="100%" height="100%" padding={1}>
-            <Show when={hasApiKey()}>
-              <AppWithSession />
-            </Show>
-            <Show when={!hasApiKey() && !showApiKeyOverlay()}>
-              {/* Brief moment before overlay shows */}
-              <WelcomeScreen onSubmit={() => {}} />
-            </Show>
-            <Show when={showApiKeyOverlay()}>
-              <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
-            </Show>
-          </box>
+          <SidebarProvider>
+            <box width="100%" height="100%" padding={1}>
+              <Show when={hasApiKey()}>
+                <AppWithSession />
+              </Show>
+              <Show when={!hasApiKey() && !showApiKeyOverlay()}>
+                {/* Brief moment before overlay shows */}
+                <WelcomeScreen onSubmit={() => {}} />
+              </Show>
+              <Show when={showApiKeyOverlay()}>
+                <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
+              </Show>
+            </box>
+          </SidebarProvider>
         </TodoProvider>
       </SessionProvider>
     </ModeProvider>
@@ -474,6 +477,7 @@ export function App() {
 function AppWithSession() {
   const { messages, addMessage, updateMessage, model, setModel } = useSession();
   const { mode, thinking, cycleMode, cycleModeReverse } = useMode();
+  const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const renderer = useRenderer();
 
   const [isLoading, setIsLoading] = createSignal(false);
@@ -529,6 +533,12 @@ function AppWithSession() {
     // Shift+Tab to cycle modes reverse
     if (key.name === "tab" && key.shift) {
       cycleModeReverse();
+      return;
+    }
+
+    // Ctrl+B to toggle sidebar
+    if (key.ctrl && key.name === "b") {
+      toggleSidebar();
       return;
     }
   });
@@ -670,7 +680,13 @@ function AppWithSession() {
                 onSubmit={handleSubmit}
               />
             </box>
-            <Sidebar />
+            {/* Sidebar or collapsed strip based on visibility */}
+            <Show
+              when={sidebarVisible()}
+              fallback={<CollapsedSidebar />}
+            >
+              <Sidebar />
+            </Show>
           </box>
           <StatusLine />
         </box>

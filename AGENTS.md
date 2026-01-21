@@ -617,6 +617,7 @@ Section collapses when >2 items, hides when all completed.
 | `@` | File/directory autocomplete |
 | `Esc` (2x) | Cancel / Stop operation |
 | `Ctrl+C` (2x) | Exit with summary |
+| `Ctrl+B` | Toggle sidebar |
 | `Ctrl+M` | MCP status overlay |
 | `Ctrl+P` | Command palette |
 

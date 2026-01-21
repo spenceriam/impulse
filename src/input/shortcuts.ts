@@ -1,6 +1,6 @@
 import { onMount, onCleanup } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
-import { useMode, useSession } from "../ui/context";
+import { useMode, useSession, useSidebar } from "../ui/context";
 
 /**
  * Keyboard Shortcut Definitions
@@ -10,6 +10,7 @@ const SHORTCUTS = {
   SHIFT_TAB: "shift+tab",
   CTRL_P: "ctrl+p",
   CTRL_M: "ctrl+m",
+  CTRL_B: "ctrl+b",
   ESCAPE: "escape",
   CTRL_C: "ctrl+c",
 } as const;
@@ -21,6 +22,7 @@ const SHORTCUTS = {
 export function useKeyboardHandler() {
   const { cycleMode, cycleModeReverse } = useMode();
   const { setThinking } = useSession();
+  const { toggle: toggleSidebar } = useSidebar();
 
   let ctrlCCount = 0;
   let ctrlCTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -41,6 +43,11 @@ export function useKeyboardHandler() {
       // Toggle thinking mode
       if (key.ctrl && key.name === "t") {
         setThinking((t) => !t);
+      }
+
+      // Toggle sidebar (Ctrl+B)
+      if (key.ctrl && key.name === "b") {
+        toggleSidebar();
       }
 
       // Command palette (Ctrl+P)

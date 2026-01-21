@@ -1,5 +1,5 @@
-import { For } from "solid-js";
-import { Colors } from "../design";
+import { For, Show } from "solid-js";
+import { Colors, type Mode, getModeColor } from "../design";
 
 /**
  * Message type
@@ -8,6 +8,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  mode?: Mode;      // Mode used when generating (for assistant messages)
+  model?: string;   // Model used (e.g., "glm-4.7")
 }
 
 /**
@@ -125,16 +127,31 @@ export function MessageBlock(props: MessageBlockProps) {
   const parsed = () => parseMarkdown(props.message.content);
 
   const isUser = () => props.message.role === "user";
+  const model = () => props.message.model || "GLM-4.7";
+  const mode = () => props.message.mode;
+  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.ui.dim;
 
   return (
     <box flexDirection="column" marginBottom={2}>
       <box flexDirection="row" marginBottom={1}>
-        <text>
-          <strong>
-            {isUser() ? "You" : "GLM-4.7"}
-          </strong>
-        </text>
-        <text fg={Colors.ui.dim}> ─── </text>
+        <Show
+          when={!isUser()}
+          fallback={
+            <text>
+              <strong>You</strong>
+            </text>
+          }
+        >
+          {/* Assistant message: Model [MODE] */}
+          <text>
+            <strong>{model().toUpperCase()}</strong>
+          </text>
+          <Show when={mode()}>
+            <text fg={Colors.ui.dim}> [</text>
+            <text fg={modeColor()}>{mode()}</text>
+            <text fg={Colors.ui.dim}>]</text>
+          </Show>
+        </Show>
       </box>
       <box flexDirection="column">
         <For each={parsed()}>

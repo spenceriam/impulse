@@ -1,128 +1,208 @@
 import { createSignal, Show, For } from "solid-js";
 import { Colors, Indicators, Layout } from "../design";
+import { useTodo, type Todo } from "../context";
+
+/**
+ * Custom MCP type (non-default MCPs installed by user)
+ */
+interface CustomMCP {
+  name: string;
+  status: "connected" | "disconnected" | "error";
+}
+
+/**
+ * Project tree node type
+ */
+interface ProjectNode {
+  name: string;
+  type: "file" | "directory";
+  children?: ProjectNode[];
+}
 
 /**
  * Sidebar Panel Component
- * Right sidebar with session info, todos, MCP status
+ * Right sidebar with todos, custom MCPs, project tree
  * 
- * Props: None (uses props for extensibility)
+ * Props:
+ * - customMcps: Array of custom (non-default) MCP servers
+ * - projectTree: Project directory structure
  */
 
 interface SidebarProps {
-  messages?: { id: string; content: string }[];
-  todos?: { id: string; content: string; status: string }[];
-  contextUsage?: number;
-  cost?: number;
+  customMcps?: CustomMCP[];
+  projectTree?: ProjectNode[];
 }
 
 export function Sidebar(props: SidebarProps = {}) {
-  const [mcpExpanded, setMcpExpanded] = createSignal(false);
-  const [todoExpanded, setTodoExpanded] = createSignal(false);
-  const [filesExpanded, setFilesExpanded] = createSignal(false);
+  const { todos, incompleteTodos } = useTodo();
+  
+  const [todoExpanded, setTodoExpanded] = createSignal(true);  // Default expanded
+  const [mcpExpanded, setMcpExpanded] = createSignal(true);
+  const [projectExpanded, setProjectExpanded] = createSignal(false);
+  const [expandedDirs, setExpandedDirs] = createSignal<Set<string>>(new Set());
 
-  const hasTodos = () => (props.todos?.length ?? 0) > 0;
-  const incompleteTodos = () => props.todos?.filter(t => t.status !== "completed") ?? [];
-  const shouldShowTodo = () => !!(hasTodos() && incompleteTodos().length > 0);
+  const hasCustomMcps = () => (props.customMcps?.length ?? 0) > 0;
+  const hasProjectTree = () => (props.projectTree?.length ?? 0) > 0;
 
-  const contextUsage = () => props.contextUsage ?? 0;
-  const cost = () => props.cost ?? 0;
+  // Toggle directory expansion in project tree
+  const toggleDir = (path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  // Get todo indicator with proper coloring
+  const getTodoIndicator = (status: string) => {
+    switch (status) {
+      case "in_progress":
+        return { indicator: Indicators.todo.in_progress, color: Colors.mode.AGENT };
+      case "completed":
+        return { indicator: Indicators.todo.completed, color: Colors.ui.dim };
+      case "cancelled":
+        return { indicator: Indicators.todo.cancelled, color: Colors.ui.dim };
+      default:
+        return { indicator: Indicators.todo.pending, color: Colors.ui.dim };
+    }
+  };
+
+  // Render project tree node recursively
+  const renderProjectNode = (node: ProjectNode, path: string = "", depth: number = 0) => {
+    const fullPath = path ? `${path}/${node.name}` : node.name;
+    const isExpanded = expandedDirs().has(fullPath);
+    const indent = "  ".repeat(depth);
+
+    if (node.type === "directory") {
+      return (
+        <box flexDirection="column">
+          <box
+            flexDirection="row"
+            onMouseDown={() => toggleDir(fullPath)}
+          >
+            <text fg={Colors.ui.dim}>
+              {indent}{isExpanded ? Indicators.expanded : Indicators.collapsed} {node.name}/
+            </text>
+          </box>
+          <Show when={isExpanded && node.children}>
+            <For each={node.children}>
+              {(child) => renderProjectNode(child, fullPath, depth + 1)}
+            </For>
+          </Show>
+        </box>
+      );
+    }
+
+    return (
+      <text fg={Colors.ui.dim}>
+        {indent}  {node.name}
+      </text>
+    );
+  };
 
   return (
     <box
-      border
       width={Layout.sidebar.width}
       flexDirection="column"
       padding={1}
     >
-      {/* Session Info */}
+      {/* Todo Section - Always visible */}
       <box flexDirection="column" marginBottom={2}>
-        <text><strong>Session</strong></text>
-        <text>──────────</text>
-      </box>
-
-      {/* Context Usage */}
-      <Show when={props.contextUsage !== undefined}>
-        <box flexDirection="column" marginBottom={2}>
-          <text fg={Colors.ui.dim}>Context:</text>
-          <text>
-            {contextUsage()}% ({(contextUsage() / 100 * 200).toFixed(0)}k/200k)
+        <box
+          flexDirection="row"
+          onMouseDown={() => setTodoExpanded((e) => !e)}
+        >
+          <text fg={Colors.ui.dim}>
+            {todoExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
           </text>
-          <Show when={props.cost !== undefined}>
-            <text fg={Colors.ui.dim}>Cost: ${cost().toFixed(2)}</text>
+          <text><strong>Todo</strong></text>
+          <Show when={incompleteTodos().length > 0}>
+            <text fg={Colors.ui.dim}> ({incompleteTodos().length})</text>
           </Show>
         </box>
-      </Show>
+        <Show when={todoExpanded()}>
+          <box flexDirection="column" marginLeft={1} marginTop={1}>
+            <Show
+              when={todos().length > 0}
+              fallback={
+                <text fg={Colors.ui.dim}>No active tasks</text>
+              }
+            >
+              <For each={todos()}>
+                {(todo: Todo) => {
+                  const { indicator, color } = getTodoIndicator(todo.status);
+                  return (
+                    <text fg={color}>
+                      {indicator} {todo.content}
+                    </text>
+                  );
+                }}
+              </For>
+            </Show>
+          </box>
+        </Show>
+      </box>
 
-      {/* Todo Section */}
-      <Show when={shouldShowTodo()}>
+      {/* Custom MCPs Section - Only if custom MCPs installed */}
+      <Show when={hasCustomMcps()}>
         <box flexDirection="column" marginBottom={2}>
           <box
             flexDirection="row"
-            // @ts-ignore: OpenTUI types incomplete
-            onMouseDown={() => setTodoExpanded((e) => !e)}
+            onMouseDown={() => setMcpExpanded((e) => !e)}
           >
             <text fg={Colors.ui.dim}>
-              {todoExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
+              {mcpExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
             </text>
-            <text><strong>Todo</strong></text>
-            <text fg={Colors.ui.dim}> ({incompleteTodos().length})</text>
+            <text><strong>Custom MCPs</strong></text>
+            <text fg={Colors.ui.dim}> ({props.customMcps!.length})</text>
           </box>
-          <Show when={todoExpanded()}>
+          <Show when={mcpExpanded()}>
             <box flexDirection="column" marginLeft={1} marginTop={1}>
-              <For each={incompleteTodos()}>
-                {(todo: any) => (
-                  <text fg={Colors.ui.dim}>
-                    [ ] {todo.content}
-                  </text>
-                )}
+              <For each={props.customMcps}>
+                {(mcp) => {
+                  const statusColor = mcp.status === "connected" 
+                    ? Colors.status.success 
+                    : mcp.status === "error" 
+                      ? Colors.status.error 
+                      : Colors.ui.dim;
+                  return (
+                    <box flexDirection="row">
+                      <text fg={statusColor}>{Indicators.dot} </text>
+                      <text fg={Colors.ui.text}>{mcp.name}</text>
+                    </box>
+                  );
+                }}
               </For>
             </box>
           </Show>
         </box>
       </Show>
 
-      {/* MCP Section */}
-      <box flexDirection="column" marginBottom={2}>
-        <box
-          flexDirection="row"
-          // @ts-ignore: OpenTUI types incomplete
-          onMouseDown={() => setMcpExpanded((e) => !e)}
-        >
-          <text fg={Colors.ui.dim}>
-            {mcpExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
-          </text>
-          <text><strong>MCPs</strong></text>
-          <text fg={Colors.status.success}> 4/4</text>
-        </box>
-        <Show when={mcpExpanded()}>
-          <box flexDirection="column" marginLeft={1} marginTop={1}>
-            <text fg={Colors.ui.dim}>  Vision - Connected</text>
-            <text fg={Colors.ui.dim}>  Web Search - Connected</text>
-            <text fg={Colors.ui.dim}>  Web Reader - Connected</text>
-            <text fg={Colors.ui.dim}>  Zread - Connected</text>
+      {/* Project Tree Section */}
+      <Show when={hasProjectTree()}>
+        <box flexDirection="column">
+          <box
+            flexDirection="row"
+            onMouseDown={() => setProjectExpanded((e) => !e)}
+          >
+            <text fg={Colors.ui.dim}>
+              {projectExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
+            </text>
+            <text><strong>Project</strong></text>
           </box>
-        </Show>
-      </box>
-
-      {/* Modified Files Section */}
-      <box flexDirection="column">
-        <box
-          flexDirection="row"
-          // @ts-ignore: OpenTUI types incomplete
-          onMouseDown={() => setFilesExpanded((e) => !e)}
-        >
-          <text fg={Colors.ui.dim}>
-            {filesExpanded() ? Indicators.expanded : Indicators.collapsed}{" "}
-          </text>
-          <text><strong>Modified Files</strong></text>
+          <Show when={projectExpanded()}>
+            <box flexDirection="column" marginLeft={1} marginTop={1}>
+              <For each={props.projectTree}>
+                {(node) => renderProjectNode(node)}
+              </For>
+            </box>
+          </Show>
         </box>
-        <Show when={filesExpanded()}>
-          <box flexDirection="column" marginLeft={1} marginTop={1}>
-            <text fg={Colors.ui.dim}>  src/ui/App.tsx</text>
-            <text fg={Colors.ui.dim}>  src/ui/components/InputArea.tsx</text>
-          </box>
-        </Show>
-      </box>
+      </Show>
     </box>
   );
 }
