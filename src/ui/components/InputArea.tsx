@@ -235,6 +235,7 @@ export function InputArea(props: InputAreaProps) {
           width={-1}
           height={Layout.input.minHeight}
           focused={!props.loading}
+          cursorColor={Colors.ui.primary}
         />
       </box>
     </box>

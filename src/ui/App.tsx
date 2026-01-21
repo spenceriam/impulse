@@ -11,7 +11,8 @@ import { respond as respondPermission, type PermissionRequest, type PermissionRe
 import { load as loadConfig, save as saveConfig } from "../util/config";
 import { GLMClient } from "../api/client";
 import { StreamProcessor, StreamEvent } from "../api/stream";
-import { Colors } from "./design";
+import { Colors, Timing } from "./design";
+import { batch as batchUpdate, flushBatch } from "../util/batch";
 import { CommandRegistry } from "../commands/registry";
 import { registerCoreCommands } from "../commands/core";
 import { registerUtilityCommands } from "../commands/utility";
@@ -1095,21 +1096,26 @@ function AppWithSession() {
       let accumulatedReasoning = "";
       const toolCallsMap = new Map<number, ToolCallInfo>();
 
-      // Handle stream events - update UI directly for each content delta
+      // Handle stream events - batch updates at 16ms (~60fps) for smooth rendering
       processor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
-          // Update message immediately for responsive streaming
-          updateMessage(assistantMsgId, {
-            content: accumulatedContent,
-          });
+          // Batch content updates for 60fps rendering
+          batchUpdate("stream-content", () => {
+            updateMessage(assistantMsgId, {
+              content: accumulatedContent,
+            });
+          }, Timing.batchInterval);
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
-          updateMessage(assistantMsgId, {
-            reasoning: accumulatedReasoning,
-          });
+          // Batch reasoning updates
+          batchUpdate("stream-reasoning", () => {
+            updateMessage(assistantMsgId, {
+              reasoning: accumulatedReasoning,
+            });
+          }, Timing.batchInterval);
         } else if (event.type === "tool_call_start") {
-          // New tool call starting
+          // New tool call starting - update immediately for responsiveness
           const toolCall: ToolCallInfo = {
             id: event.id,
             name: event.name,
@@ -1121,15 +1127,22 @@ function AppWithSession() {
             toolCalls: Array.from(toolCallsMap.values()),
           });
         } else if (event.type === "tool_call_delta") {
-          // Tool call arguments streaming in
+          // Tool call arguments streaming in - batch these updates
           const existing = toolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
-            updateMessage(assistantMsgId, {
-              toolCalls: Array.from(toolCallsMap.values()),
-            });
+            batchUpdate("stream-tools", () => {
+              updateMessage(assistantMsgId, {
+                toolCalls: Array.from(toolCallsMap.values()),
+              });
+            }, Timing.batchInterval);
           }
         } else if (event.type === "done") {
+          // Flush any pending batched updates before finishing
+          flushBatch("stream-content");
+          flushBatch("stream-reasoning");
+          flushBatch("stream-tools");
+          
           // Record token usage if available
           if (event.state.usage) {
             addTokenUsage({

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-01-21
+
+### Performance
+
+- **60fps Streaming** - Batch stream updates at 16ms intervals for smooth rendering:
+  - Content, reasoning, and tool call updates are now batched
+  - Eliminates UI jank during AI response streaming
+  - Flushes pending updates when stream completes
+
+### Fixed
+
+- **Cursor Color** - Input cursor now matches the cyan accent color (`#5cffff`):
+  - Added `cursorColor` prop to textarea component
+  - Consistent with overall color scheme
+
 ## [0.9.11] - 2026-01-21
 
 ### Fixed
