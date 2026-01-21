@@ -9,8 +9,8 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.9.0
-- **Tagline:** AI coding agent powered by GLM-4.7
+- **Version:** v0.9.3
+- **Tagline:** OpenTUI coding harness powered by Z.ai GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
 
@@ -825,6 +825,11 @@ This ensures:
 - Must preserve `reasoning_content` in conversation history
 - Coding Plan endpoint: `https://api.z.ai/api/coding/paas/v4/`
 - No silent fallbacks - explicit error handling required
+- **`tool_stream=true` required** for streaming tool call output (Z.AI-specific parameter)
+- **Tool arguments may contain `null`** for optional fields - must strip before Zod validation
+  - Z.AI models send `{"timeout": null}` for omitted optional params
+  - Zod `.optional()` means "can be omitted" but rejects `null` values
+  - Use `stripNullValues()` helper before `schema.parse()`
 
 ### Streaming
 - Use 16ms event batching to prevent flicker
@@ -864,6 +869,8 @@ This ensures:
 | 01-20-2026 | Autocomplete dropdown | Positioned @ reference completion with keyboard navigation |
 | 01-21-2026 | MCP auto-discovery | Agent automatically searches MCP tools when task requires external capabilities |
 | 01-21-2026 | Hardcoded initial MCPs | Z.AI servers + Context7 as MVP, registry integration later |
+| 01-21-2026 | Strip null from tool args | Z.AI sends null for optional fields, Zod rejects null - strip before validation |
+| 01-21-2026 | Use signals for abort refs | `let` variables in keyboard handlers capture stale closures - use SolidJS signals |
 
 ## Future Work
 

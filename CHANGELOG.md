@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-01-21
+
+### Fixed
+
+- **ESC Key to Stop Generation** - Fixed critical bug where ESC key never actually stopped AI generation:
+  - Converted `streamProcessor` from `let` variable to SolidJS signal (closure was capturing stale value)
+  - Added visual warning "Hit ESC again to stop generation" after first ESC press (1.5s timeout)
+
+- **Tool Argument Null Handling** - Fixed critical bug causing `[FAIL] bash - Invalid parameters: timeout: Required`:
+  - Z.AI models send `null` for optional fields (e.g., `{"timeout": null}`)
+  - Zod's `.optional()` only means "can be omitted" - it rejects `null` values
+  - Added `stripNullValues()` to remove nulls before Zod validation in both registry and App.tsx
+
+### Added
+
+- **`tool_stream` Parameter** - Added Z.AI-specific `tool_stream=true` parameter for proper streaming of tool call output
+
 ## [0.9.2] - 2026-01-21
 
 ### Fixed

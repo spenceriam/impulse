@@ -269,6 +269,9 @@ class GLMClientImpl {
         if (options.stop !== undefined) request.stop = options.stop;
         if (options.tools !== undefined) {
           request.tools = options.tools as OpenAI.ChatCompletionTool[];
+          // Z.AI specific: enable tool call streaming output
+          // Cast to unknown first then to Record to add non-standard Z.AI parameter
+          (request as unknown as Record<string, unknown>)["tool_stream"] = true;
         }
         if (options.tool_choice !== undefined) {
           request.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;

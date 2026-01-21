@@ -493,6 +493,12 @@ function AppWithSession() {
 
   const [isLoading, setIsLoading] = createSignal(false);
   
+  // Stream processor signal - needs to be a signal so keyboard handler can access current value
+  const [streamProc, setStreamProc] = createSignal<StreamProcessor | null>(null);
+  
+  // ESC warning state - shows "Hit ESC again to stop" after first ESC
+  const [escWarning, setEscWarning] = createSignal(false);
+  
   // Command result overlay state
   const [commandOverlay, setCommandOverlay] = createSignal<{
     title: string;
@@ -568,7 +574,6 @@ function AppWithSession() {
 
   let ctrlCCount = 0;
   let escCount = 0;
-  let streamProcessor: StreamProcessor | null = null;
 
   // Handle keyboard shortcuts
   useKeyboard((key) => {
@@ -586,15 +591,35 @@ function AppWithSession() {
 
     // Double Esc to cancel current operation
     if (key.name === "escape") {
+      const processor = streamProc();
+      
+      // If not loading or no processor, ignore ESC
+      if (!isLoading() || !processor) {
+        setEscWarning(false);
+        escCount = 0;
+        return;
+      }
+      
       escCount++;
-      if (escCount >= 2 && streamProcessor) {
-        streamProcessor.abort();
+      
+      if (escCount === 1) {
+        // First ESC - show warning
+        setEscWarning(true);
+        setTimeout(() => {
+          escCount = 0;
+          setEscWarning(false);
+        }, 1500); // 1.5s timeout to press ESC again
+        return;
+      }
+      
+      if (escCount >= 2) {
+        // Second ESC - abort the stream
+        processor.abort();
         setIsLoading(false);
+        setStreamProc(null);
+        setEscWarning(false);
         escCount = 0;
       }
-      setTimeout(() => {
-        escCount = 0;
-      }, 500);
       return;
     }
 
@@ -638,7 +663,15 @@ function AppWithSession() {
         // Parse arguments
         let args: unknown;
         try {
-          args = JSON.parse(toolCall.arguments);
+          const parsed = JSON.parse(toolCall.arguments);
+          // Strip null/undefined values - Zod .optional() doesn't accept null
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            args = Object.fromEntries(
+              Object.entries(parsed).filter(([_, v]) => v !== null && v !== undefined)
+            );
+          } else {
+            args = parsed;
+          }
         } catch {
           args = {};
         }
@@ -703,12 +736,14 @@ function AppWithSession() {
     const newAssistantMsgId = newAssistantMsg.id;
     
     try {
-      // Create new stream processor
-      streamProcessor = new StreamProcessor();
+      // Create new stream processor and store in signal
+      const newProcessor = new StreamProcessor();
+      setStreamProc(newProcessor);
+      
       let accumulatedContent = "";
       const newToolCallsMap = new Map<number, ToolCallInfo>();
       
-      streamProcessor.onEvent((event: StreamEvent) => {
+      newProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
           updateMessage(newAssistantMsgId, {
@@ -744,7 +779,7 @@ function AppWithSession() {
             );
           } else {
             setIsLoading(false);
-            streamProcessor = null;
+            setStreamProc(null);
           }
         }
       });
@@ -753,16 +788,16 @@ function AppWithSession() {
         messages: continuationMessages as any,
         model: model() as any,
         tools: Tool.getAPIDefinitions(),
-        signal: streamProcessor.getAbortSignal(),
+        signal: newProcessor.getAbortSignal(),
       });
       
-      await streamProcessor.process(stream);
+      await newProcessor.process(stream);
     } catch (error) {
       updateMessage(newAssistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
       });
       setIsLoading(false);
-      streamProcessor = null;
+      setStreamProc(null);
     }
   };
 
@@ -929,14 +964,15 @@ function AppWithSession() {
       
       const apiMessages = [systemMessage, ...userMessages];
 
-      // Create stream processor
-      streamProcessor = new StreamProcessor();
+      // Create stream processor and store in signal
+      const processor = new StreamProcessor();
+      setStreamProc(processor);
 
       let accumulatedContent = "";
       const toolCallsMap = new Map<number, ToolCallInfo>();
 
       // Handle stream events - update UI directly for each content delta
-      streamProcessor.onEvent((event: StreamEvent) => {
+      processor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
           // Update message immediately for responsive streaming
@@ -971,7 +1007,7 @@ function AppWithSession() {
             executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent);
           } else {
             setIsLoading(false);
-            streamProcessor = null;
+            setStreamProc(null);
           }
         }
       });
@@ -981,17 +1017,17 @@ function AppWithSession() {
         messages: apiMessages,
         model: model() as any,
         tools: Tool.getAPIDefinitions(),
-        signal: streamProcessor.getAbortSignal(),
+        signal: processor.getAbortSignal(),
       });
 
-      await streamProcessor.process(stream);
+      await processor.process(stream);
     } catch (error) {
       // Update assistant message with error
       updateMessage(assistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
       });
       setIsLoading(false);
-      streamProcessor = null;
+      setStreamProc(null);
     }
   };
 
@@ -1039,8 +1075,12 @@ function AppWithSession() {
                   />
                 </box>
               </box>
-              {/* Padding between input and status line */}
-              <box height={1} />
+              {/* ESC warning or padding between input and status line */}
+              <box height={1} justifyContent="center">
+                <Show when={escWarning()}>
+                  <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
+                </Show>
+              </box>
               {/* Status line directly under input box */}
               <StatusLine />
             </box>
