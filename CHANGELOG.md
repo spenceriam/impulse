@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-21
+
+### Added
+
+- **Collapsible Sidebar** - Sidebar can now be toggled with `Ctrl+B`; when collapsed, shows a 1-char strip with vertical "GLM-CLI" branding
+- **Mode Display in Messages** - Assistant messages now show mode used (e.g., "GLM-4.7 [AGENT]") with mode-colored brackets
+- **Sidebar Context** - New SidebarProvider for managing sidebar visibility state
+- **CollapsedSidebar Component** - Clickable 1-char strip to expand sidebar with mouse
+
+### Changed
+
+- **Sidebar Content** - Removed default MCP display (always connected); now shows only:
+  - Todo list (always visible, shows "No active tasks" when empty)
+  - Custom MCPs (only if user has installed non-default MCP servers)
+  - Project file tree (expandable directory structure)
+- **Message Type** - Messages now include optional `mode` and `model` fields
+
 ## [0.3.3] - 2026-01-21
 
 ### Fixed
