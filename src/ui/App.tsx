@@ -661,15 +661,12 @@ function AppWithSession() {
       }
     }
     
-    // Build tool results message for continuation
-    const toolResultsContent = toolCalls.map(tc => 
-      `Tool: ${tc.name}\nResult: ${tc.result}`
-    ).join("\n\n");
-    
-    // Build messages for next API call
+    // Build messages for next API call per Z.AI format:
+    // 1. Assistant message with tool_calls
+    // 2. One "tool" message per tool call with tool_call_id
     const assistantToolCallMessage = {
       role: "assistant" as const,
-      content: assistantContent || "",
+      content: assistantContent || null,
       tool_calls: toolCalls.map(tc => ({
         id: tc.id,
         type: "function" as const,
@@ -680,17 +677,18 @@ function AppWithSession() {
       })),
     };
     
-    // Add tool results as user message (simulating tool response)
-    const toolResultMessage = {
-      role: "user" as const,
-      content: `Tool results:\n${toolResultsContent}`,
-    };
+    // Build individual tool result messages (Z.AI format: role="tool" with tool_call_id)
+    const toolResultMessages = toolCalls.map(tc => ({
+      role: "tool" as const,
+      content: tc.result || "",
+      tool_call_id: tc.id,
+    }));
     
     // Continue conversation with tool results
     const continuationMessages = [
       ...previousApiMessages,
       assistantToolCallMessage,
-      toolResultMessage,
+      ...toolResultMessages,
     ];
     
     // Add new assistant message for continuation

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-01-21
+
+### Fixed
+
+- **Tool result message format** - Fixed critical bug where tool results were sent as `user` messages instead of proper Z.AI format:
+  - Now uses `role: "tool"` with `tool_call_id` per Z.AI API documentation
+  - Each tool result is sent as a separate message (not concatenated)
+  - Assistant message content set to `null` (not empty string) when only tool calls exist
+
 ## [0.9.1] - 2026-01-21
 
 ### Fixed
