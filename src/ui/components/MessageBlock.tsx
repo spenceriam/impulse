@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import { Colors, type Mode, getModeColor } from "../design";
+import type { ToolMetadata } from "../../types/tool-metadata";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
@@ -15,6 +16,7 @@ export interface ToolCallInfo {
   arguments: string;
   status: "pending" | "running" | "success" | "error";
   result?: string;
+  metadata?: ToolMetadata;  // Structured metadata for enhanced display
 }
 
 /**
