@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-01-22
+
+### Added
+
+- **Exit Code Display** - Bash tool expanded view shows exit code for failed commands:
+  - Shows "Exit code: N" in red for non-zero exits
+  - Only displayed when command fails (exit code != 0)
+
+- **File Creation Indicator** - File write tool now shows when files are created:
+  - Shows "(created)" suffix for newly created files
+  - Distinguishes new files from overwrites
+
 ## [0.11.1] - 2026-01-22
 
 ### Fixed

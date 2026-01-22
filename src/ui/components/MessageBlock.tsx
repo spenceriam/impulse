@@ -279,7 +279,8 @@ function getToolTitle(name: string, args: string, metadata?: ToolMetadata): stri
     }
 
     if (isFileWriteMetadata(metadata)) {
-      return `file_write ${metadata.filePath} (${metadata.linesWritten} lines)`;
+      const createdStr = metadata.created ? " (created)" : "";
+      return `file_write ${metadata.filePath} (${metadata.linesWritten} lines)${createdStr}`;
     }
 
     if (isFileEditMetadata(metadata)) {
@@ -381,6 +382,9 @@ function getExpandedContent(
           <text fg={Colors.ui.dim}>
             ... ({charTruncated ? "output truncated" : `${moreCount} more lines`})
           </text>
+        </Show>
+        <Show when={metadata.exitCode !== 0}>
+          <text fg={Colors.status.error}>Exit code: {metadata.exitCode}</text>
         </Show>
       </box>
     );
