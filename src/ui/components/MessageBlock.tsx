@@ -323,28 +323,31 @@ function ThinkingSection(props: { content: string }) {
  * - Highlighted with ✗ for errors
  * - Special handling for task (subagent) calls
  */
-function ToolCallDisplay(props: { toolCall: ToolCallInfo }) {
+function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number }) {
   const display = () => getToolStatusDisplay(props.toolCall.status);
   const isTask = () => props.toolCall.name === "task";
-  
+
   const title = () => getToolTitle(
-    props.toolCall.name, 
-    props.toolCall.arguments, 
+    props.toolCall.name,
+    props.toolCall.arguments,
     props.toolCall.metadata
   );
-  
+
   const expandedContent = () => getExpandedContent(
     props.toolCall.name,
     props.toolCall.metadata,
     props.toolCall.result
   );
-  
+
   return (
     <CollapsibleToolBlock
       status={props.toolCall.status}
       expandedContent={expandedContent()}
     >
       <text fg={Colors.ui.dim}>{title()}</text>
+      <Show when={props.attemptNumber}>
+        <text fg={Colors.status.warning}> (attempt {props.attemptNumber})</text>
+      </Show>
     </CollapsibleToolBlock>
   );
 }
@@ -397,7 +400,31 @@ export function MessageBlock(props: MessageBlockProps) {
           <Show when={toolCalls().length > 0}>
             <box flexDirection="column">
               <For each={toolCalls()}>
-                {(toolCall) => <ToolCallDisplay toolCall={toolCall} />}
+                {(toolCall, index) => {
+                  const attempt = (() => {
+                    const current = toolCalls()[index()];
+                    if (!current || current.status !== "error") return undefined;
+
+                    let attempts = 1;
+                    for (let i = index() - 1; i >= 0; i--) {
+                      const prev = toolCalls()[i];
+                      if (prev?.name === current.name && prev?.status === "error") {
+                        attempts++;
+                      } else {
+                        break;
+                      }
+                    }
+
+                    return attempts > 1 ? attempts : undefined;
+                  })();
+
+                  const props = { toolCall };
+                  if (attempt !== undefined) {
+                    (props as any).attemptNumber = attempt;
+                  }
+
+                  return <ToolCallDisplay {...props} />;
+                }}
               </For>
             </box>
           </Show>
