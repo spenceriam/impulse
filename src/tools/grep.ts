@@ -77,7 +77,13 @@ export const grepTool: Tool<GrepInput> = Tool.define(
         success: true,
         output: grepOutputLines.join("\n"),
         metadata: {
+          // Legacy field
           count: sortedMatches.length,
+          // NEW: GrepMetadata fields
+          type: "grep",
+          pattern: input.pattern,
+          path: input.path,
+          matchCount: sortedMatches.length,
         },
       };
     } catch (error) {
