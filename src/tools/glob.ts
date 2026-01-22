@@ -39,7 +39,13 @@ export const globTool: Tool<GlobInput> = Tool.define(
         success: true,
         output: sortedFiles.join("\n"),
         metadata: {
+          // Legacy field
           count: sortedFiles.length,
+          // NEW: GlobMetadata fields
+          type: "glob",
+          pattern: input.pattern,
+          path: input.path,
+          matchCount: sortedFiles.length,
         },
       };
     } catch (error) {
