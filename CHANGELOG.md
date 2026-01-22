@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-01-22
+
+### Fixed
+
+- **Welcome Screen Command Autocomplete** - `/` now shows command list on welcome screen:
+  - Added `onAutocompleteChange` prop to WelcomeScreen component
+  - Passes autocomplete callback to InputArea for command suggestions
+  - Command dropdown now appears identically on both welcome and session screens
+
 ## [0.11.3] - 2026-01-22
 
 ### Fixed

@@ -301,7 +301,10 @@ const INNER_WIDTH = WELCOME_BOX_WIDTH - 4; // Inside [[ and ]]
 const LOGO_PADDING = Math.floor((INNER_WIDTH - LOGO_WIDTH) / 2);
 
 // Welcome screen (shown when no messages)
-function WelcomeScreen(props: { onSubmit: (value: string) => void }) {
+function WelcomeScreen(props: { 
+  onSubmit: (value: string) => void;
+  onAutocompleteChange?: (data: { commands: { name: string; description: string }[]; selectedIndex: number } | null) => void;
+}) {
   const { mode, thinking } = useMode();
 
   // ASCII logo for GLM-CLI - centered inside [[ ]] frame
@@ -385,7 +388,17 @@ function WelcomeScreen(props: { onSubmit: (value: string) => void }) {
         
         {/* Input area positioned after the gap - fixed width to match logo box */}
         <box width={WELCOME_BOX_WIDTH}>
-          <InputArea mode={mode()} thinking={thinking()} onSubmit={props.onSubmit} />
+          <Show 
+            when={props.onAutocompleteChange}
+            fallback={<InputArea mode={mode()} thinking={thinking()} onSubmit={props.onSubmit} />}
+          >
+            <InputArea 
+              mode={mode()} 
+              thinking={thinking()} 
+              onSubmit={props.onSubmit}
+              onAutocompleteChange={props.onAutocompleteChange!}
+            />
+          </Show>
         </box>
       </box>
       
@@ -1183,7 +1196,7 @@ function AppWithSession() {
     <>
       <Show
         when={messages().length > 0}
-        fallback={<WelcomeScreen onSubmit={handleSubmit} />}
+        fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} />}
       >
         {/* Session view with padding: 1 top, 0 bottom, 4 left/right */}
         <box 
