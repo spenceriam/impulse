@@ -39,6 +39,7 @@ export interface CommandCandidate {
 
 interface InputAreaProps {
   mode: Mode;
+  model: string;  // Current model name (e.g., "glm-4.7", "glm-4.6v")
   thinking: boolean;
   loading?: boolean;
   fixedHeight?: number;  // Fixed height for textarea content (overrides Layout.input.minHeight)
@@ -334,7 +335,8 @@ export function InputArea(props: InputAreaProps) {
   // Mode label text: MODE > MODEL (thinking indicator)
   const modeLabel = () => {
     const thinkingSuffix = props.thinking ? " (Thinking)" : "";
-    return ` ${props.mode} > GLM-4.7${thinkingSuffix} `;
+    const modelName = props.model.toUpperCase();
+    return ` ${props.mode} > ${modelName}${thinkingSuffix} `;
   };
 
   return (

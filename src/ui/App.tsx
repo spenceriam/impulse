@@ -308,6 +308,7 @@ function WelcomeScreen(props: {
   onAutocompleteChange?: (data: { commands: { name: string; description: string }[]; selectedIndex: number } | null) => void;
 }) {
   const { mode, thinking } = useMode();
+  const { model } = useSession();
   const dimensions = useTerminalDimensions();
   const terminalWidth = () => dimensions().width;
 
@@ -400,10 +401,11 @@ function WelcomeScreen(props: {
         <box width={boxWidth()}>
           <Show 
             when={props.onAutocompleteChange}
-            fallback={<InputArea mode={mode()} thinking={thinking()} onSubmit={props.onSubmit} />}
+            fallback={<InputArea mode={mode()} model={model()} thinking={thinking()} onSubmit={props.onSubmit} />}
           >
             <InputArea 
               mode={mode()} 
+              model={model()}
               thinking={thinking()} 
               onSubmit={props.onSubmit}
               onAutocompleteChange={props.onAutocompleteChange!}
@@ -1321,6 +1323,7 @@ function AppWithSession() {
                 {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
                 <BottomPanel
                   mode={mode()}
+                  model={model()}
                   thinking={thinking()}
                   loading={isLoading()}
                   onSubmit={handleSubmit}

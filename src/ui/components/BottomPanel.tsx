@@ -47,6 +47,7 @@ export const BOTTOM_PANEL_HEIGHT = PANEL_HEIGHT;
 
 interface BottomPanelProps {
   mode: Mode;
+  model: string;  // Current model name
   thinking: boolean;
   loading: boolean;
   onSubmit: (value: string) => void;
@@ -78,6 +79,7 @@ export function BottomPanel(props: BottomPanelProps) {
         >
           <InputArea
             mode={props.mode}
+            model={props.model}
             thinking={props.thinking}
             loading={props.loading}
             onSubmit={props.onSubmit}
