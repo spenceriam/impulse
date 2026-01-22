@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.11.4
+- **Version:** v0.11.5
 - **Tagline:** OpenTUI coding harness powered by Z.ai GLM models
 - **Design:** Brutally minimal
 - **License:** MIT

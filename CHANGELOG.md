@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-01-22
+
+### Fixed
+
+- **ChatView Scrollbar Alignment** - Scrollbar no longer misaligns during chat:
+  - Separated border from scrollbox (border on outer box, scrollbox inside)
+  - Uses `style={{scrollbarOptions: ...}}` pattern per OpenTUI best practices
+  - Follows same pattern as TodoPanel for consistency
+  - Cleaner layout prevents border/scrollbar conflicts
+
 ## [0.11.4] - 2026-01-22
 
 ### Fixed
