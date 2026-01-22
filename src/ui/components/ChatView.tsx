@@ -8,18 +8,22 @@ import { Colors } from "../design";
  * 
  * Layout (per OpenCode patterns):
  * - Outer box with border, overflow="hidden" to clip content at bounds
- * - Inner scrollbox with flexGrow={1} and minWidth={0} to allow shrinking
+ * - Inner scrollbox with flexGrow={1} for remaining space
+ * - 2-char inner padding as buffer between content and border (prevents push)
  * - stickyScroll with stickyStart="bottom" for auto-scroll to newest content
  * - Content box has minWidth={0} to prevent text from pushing layout
  * 
  * Key patterns from OpenCode:
  * - overflow="hidden" on bordered containers prevents content breaking out
  * - minWidth={0} on flex children allows shrinking below content size
- * - width="100%" with container constraints for text wrapping
+ * - Inner padding creates visual buffer so content doesn't touch borders
  * 
  * Props:
  * - messages: Array of messages to display
  */
+
+// Inner padding for visual buffer between content and border
+const INNER_PADDING = 2;
 
 interface ChatViewProps {
   messages?: Message[];
@@ -45,8 +49,10 @@ export function ChatView(props: ChatViewProps) {
         stickyStart="bottom"
         style={{
           viewportOptions: {
-            paddingRight: 1,
-            paddingLeft: 1,
+            // 2-char padding as buffer between content and border
+            // This prevents content from pushing against border edges
+            paddingRight: INNER_PADDING,
+            paddingLeft: INNER_PADDING,
             paddingTop: 1,
             paddingBottom: 1,
           },

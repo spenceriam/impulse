@@ -12,19 +12,31 @@ import { type Mode } from "../design";
  * Layout:
  * - When todos exist: 70% prompt box, 30% todo panel
  * - When no todos: 100% prompt box
- * - Fixed height of 7 rows (5 content + 2 border)
+ * - Fixed height of 9 rows (see height calculation below)
+ * 
+ * Height Calculation for InputArea:
+ * - border: 2 rows (top + bottom)
+ * - padding: 2 rows (top + bottom, padding={1})
+ * - textarea content: 5 rows
+ * - Total: 2 + 2 + 5 = 9 rows
  * 
  * Structure:
  * ┌─────────────────────────────────────────────┬───────────┐
  * │ [Spinner] ┌─ MODE ─────────────────────┐    │┌─ Todo ──┐│
  * │           │ > _                        │    ││ [>] Task││
  * │           │                            │    ││ [ ] Next││
- * │           │                            │    │└─────────┘│
- * │           └────────────────────────────┘    │           │
+ * │           │                            │    ││         ││
+ * │           │                            │    ││         ││
+ * │           └────────────────────────────┘    │└─────────┘│
  * └─────────────────────────────────────────────┴───────────┘
  */
 
-const PANEL_HEIGHT = 7;  // Fixed height: 5 content + 2 border
+// Height calculation: border(2) + padding(2) + textarea(5) = 9
+const TEXTAREA_HEIGHT = 5;
+const BORDER_HEIGHT = 2;
+const PADDING_HEIGHT = 2;
+const PANEL_HEIGHT = TEXTAREA_HEIGHT + BORDER_HEIGHT + PADDING_HEIGHT;  // 9 rows
+
 const PROMPT_WIDTH_PERCENT = 70;
 const TODO_WIDTH_PERCENT = 30;
 
@@ -89,7 +101,7 @@ export function BottomPanel(props: BottomPanelProps) {
             loading={props.loading}
             onSubmit={props.onSubmit}
             onAutocompleteChange={props.onAutocompleteChange}
-            fixedHeight={5}  // 5 rows of content (new prop)
+            fixedHeight={TEXTAREA_HEIGHT}  // 5 rows of textarea content
           />
         </box>
         

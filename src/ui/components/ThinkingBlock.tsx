@@ -1,15 +1,40 @@
 import { createSignal, Show } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
 import { Colors, Indicators } from "../design";
 
 /**
  * Thinking Block Component
- * Collapsible thinking display with "Thinking..." label
+ * Collapsible thinking display with 2-row preview
+ * 
+ * States:
+ * - Collapsed (default): 2-row scrollable preview, auto-scrolls to show latest
+ * - Expanded: 8-row scrollable view, click to collapse
+ * 
+ * Layout (Collapsed):
+ * ┌─ Thinking (click to expand) ▶ ────────────────────────────────┐
+ * │ I need to analyze the user's request carefully. First, I     │
+ * │ should understand what they're asking for and then...        │
+ * └──────────────────────────────────────────────────────────────┘
+ * 
+ * Layout (Expanded):
+ * ┌─ Thinking (click to collapse) ▼ ──────────────────────────────┐
+ * │ I need to analyze the user's request carefully. First, I     │
+ * │ should understand what they're asking for and then plan      │
+ * │ my approach. Let me break this down:                         │
+ * │                                                              │
+ * │ 1. The user wants to fix the UI layout                       │
+ * │ 2. There are issues with border alignment                    │
+ * │ 3. The thinking section should be collapsible                │
+ * │                                                              │
+ * └──────────────────────────────────────────────────────────────┘
  * 
  * Props:
  * - content: Thinking content to display
- * - streaming: Whether content is currently being streamed
+ * - streaming: Whether content is currently being streamed (auto-scroll when true)
  */
+
+// Height constants
+const COLLAPSED_HEIGHT = 2;  // 2-row preview when collapsed
+const EXPANDED_HEIGHT = 8;   // 8-row view when expanded
 
 interface ThinkingBlockProps {
   content?: string;
@@ -17,39 +42,59 @@ interface ThinkingBlockProps {
 }
 
 export function ThinkingBlock(props: ThinkingBlockProps) {
-  const [expanded, setExpanded] = createSignal(props.streaming ?? true);
+  // Default to collapsed state
+  const [expanded, setExpanded] = createSignal(false);
 
-  const showContent = () => !!props.content;
-
-  useKeyboard((key) => {
-    if (showContent() && (key.name === "enter" || key.name === "return")) {
-      setExpanded((e) => !e);
-    }
-  });
+  const showContent = () => !!props.content && props.content.trim().length > 0;
 
   const handleToggle = () => {
     setExpanded((e) => !e);
   };
 
+  const indicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
+  const label = () => expanded() ? "Thinking (click to collapse)" : "Thinking (click to expand)";
+  const height = () => expanded() ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT;
+
   return (
     <Show when={showContent()}>
-      <box flexDirection="column">
+      <box 
+        flexDirection="column" 
+        marginTop={1}
+        marginBottom={1}
+        border
+        borderColor={Colors.ui.dim}
+        overflow="hidden"
+        flexShrink={0}
+      >
+        {/* Header - clickable to toggle */}
         <box
           flexDirection="row"
-          padding={1}
-          // @ts-ignore: OpenTUI types incomplete
+          paddingLeft={1}
+          paddingRight={1}
+          backgroundColor={Colors.ui.background}
+          // @ts-ignore: OpenTUI onMouseDown handler
           onMouseDown={handleToggle}
+          flexShrink={0}
         >
           <text fg={Colors.ui.dim}>
-            {expanded() ? Indicators.expanded : Indicators.collapsed}{" "}
+            {indicator()} {label()}
           </text>
-          <text fg={Colors.ui.dim}>Thinking...</text>
         </box>
-        <Show when={expanded()}>
-          <box border marginLeft={1} padding={1}>
-            <text fg={Colors.ui.dim}>{props.content}</text>
-          </box>
-        </Show>
+        
+        {/* Content area - scrollable */}
+        <scrollbox
+          height={height()}
+          stickyScroll={(props.streaming ?? false) && !expanded()}  // Auto-scroll in collapsed+streaming mode
+          stickyStart="bottom"
+          style={{
+            viewportOptions: {
+              paddingLeft: 1,
+              paddingRight: 1,
+            },
+          }}
+        >
+          <text fg={Colors.ui.dim}>{props.content}</text>
+        </scrollbox>
       </box>
     </Show>
   );

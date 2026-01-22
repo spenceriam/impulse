@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.13.2
+- **Version:** v0.13.3
 - **Tagline:** OpenTUI coding harness powered by Z.ai GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -884,6 +884,9 @@ This ensures:
 | 01-21-2026 | Lift autocomplete to App.tsx | Overlays need root-level rendering for proper z-index stacking |
 | 01-21-2026 | Collapsible thinking section | Click-to-expand with 5-row scroll height, reduces visual noise |
 | 01-21-2026 | exitPending signal pattern | Avoid `window` object in Node/Bun - use signals for cross-component state |
+| 01-22-2026 | Inner padding as buffer | 2-char padding in ChatView prevents content from pushing borders |
+| 01-22-2026 | Height calculation constants | BottomPanel uses named constants (TEXTAREA_HEIGHT, BORDER_HEIGHT, PADDING_HEIGHT) |
+| 01-22-2026 | ThinkingBlock 2-row preview | Collapsed=2 rows auto-scroll, Expanded=8 rows manual scroll, click to toggle |
 
 ## Future Work
 

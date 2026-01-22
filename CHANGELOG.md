@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-01-22
+
+### Changed
+
+- **ThinkingBlock Redesign** - Collapsible thinking section with 2-row preview:
+  - Collapsed state (default): 2-row scrollable preview, auto-scrolls to show latest
+  - Expanded state: 8-row scrollable view for full content
+  - Click header to toggle between states
+  - Auto-scroll enabled in collapsed mode during streaming
+
+### Fixed
+
+- **ChatView Inner Padding** - Added 2-char padding buffer between content and border:
+  - Content no longer pushes directly against border edges
+  - Prevents layout instability from content changes affecting borders
+  - True containerization: internal changes don't affect external layout
+
+- **BottomPanel Height Calculation** - Fixed InputArea border misalignment:
+  - Previous: PANEL_HEIGHT=7 but InputArea needed 9 rows (5 content + 2 padding + 2 border)
+  - Now: PANEL_HEIGHT calculated from constants (TEXTAREA_HEIGHT + BORDER_HEIGHT + PADDING_HEIGHT)
+  - Border now aligns correctly with content area
+
 ## [0.13.2] - 2026-01-22
 
 ### Changed
