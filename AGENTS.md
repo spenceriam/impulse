@@ -909,6 +909,32 @@ This ensures:
 - Some servers require OAuth, others just API keys
 - Consider mcp-launchpad patterns for auth handling
 
+### Tool Display Refactor (Planned)
+
+**Goal:** Enhanced tool call display with collapsible output, unified diffs, and retry visibility.
+
+**Documentation:** [docs/Future-ToolDisplayRefactor.md](docs/Future-ToolDisplayRefactor.md)
+
+**Key Features:**
+- Collapsible tool blocks (click to expand/collapse)
+- Status indicators: ✓ (success), ✗ (error), ~ (running)
+- Bash: Show first 3 lines of output, expandable
+- File edits: Unified diff view with +/- markers
+- File writes: Filename + line count
+- Attempt tracking for retries (Ralph/looper pattern integration)
+- Auto-expand failed tools for visibility
+
+**Design Philosophy:**
+- Inspired by Geoffrey Huntley's "Ralph" pattern (https://ghuntley.com/ralph/)
+- "Watch the loop" - visibility into failures enables tuning
+- Integrates with existing looper skill for retry patterns
+
+**Why Later:**
+- Current display is functional for MVP
+- Requires metadata infrastructure in all tools
+- ~7 hours of implementation work
+- Better to stabilize core functionality first
+
 ## How to Run
 
 ```bash
