@@ -90,6 +90,71 @@ const MCP_TYPE_COL = 8;
 // Wider error column to show full messages (was truncating at 35 chars)
 const MCP_ERROR_MAX = 60;
 
+// Column widths for /modes command alignment
+const MODE_NAME_COL = 12;
+const MODE_COLOR_COL = 10;
+
+async function handleModes() {
+  // Mode definitions with descriptions
+  const modes = [
+    {
+      name: "AUTO",
+      color: "White",
+      hex: "#cccccc",
+      description: "AI analyzes your prompt and automatically selects the best mode",
+      tools: "Switches dynamically based on task",
+    },
+    {
+      name: "AGENT",
+      color: "Cyan",
+      hex: "#5cffff",
+      description: "Full execution mode with file editing, code generation, and looper skill for persistence",
+      tools: "All tools available",
+    },
+    {
+      name: "PLANNER",
+      color: "Purple",
+      hex: "#b48eff",
+      description: "Research and documentation mode - explores codebase and creates plans without modifying files",
+      tools: "Read-only tools + docs/",
+    },
+    {
+      name: "PLAN-PRD",
+      color: "Blue",
+      hex: "#5c8fff",
+      description: "Quick PRD generation via interactive Q&A - helps define requirements before building",
+      tools: "Read-only tools + docs/",
+    },
+    {
+      name: "DEBUG",
+      color: "Orange",
+      hex: "#ffaa5c",
+      description: "Systematic 7-step debugging methodology - identifies root causes and documents reasoning",
+      tools: "All tools available",
+    },
+  ];
+
+  const lines: string[] = [
+    "Available Modes (Tab to cycle, /mode to select)",
+    "",
+    `${"MODE".padEnd(MODE_NAME_COL)}${"COLOR".padEnd(MODE_COLOR_COL)}DESCRIPTION`,
+    `${"─".repeat(MODE_NAME_COL)}${"─".repeat(MODE_COLOR_COL)}${"─".repeat(50)}`,
+  ];
+
+  for (const mode of modes) {
+    lines.push(`${mode.name.padEnd(MODE_NAME_COL)}${mode.color.padEnd(MODE_COLOR_COL)}${mode.description}`);
+    lines.push(`${"".padEnd(MODE_NAME_COL)}${"".padEnd(MODE_COLOR_COL)}Tools: ${mode.tools}`);
+    lines.push("");
+  }
+
+  lines.push("Keyboard: Tab cycles forward, Shift+Tab cycles backward");
+
+  return {
+    success: true,
+    output: lines.join("\n"),
+  };
+}
+
 async function handleMcp() {
   const servers = mcpManager.getAllServers();
   const summary = mcpManager.getConnectionSummary();
@@ -277,6 +342,13 @@ export function registerInfoCommands(): void {
       description: "Show MCP server status",
       handler: handleMcp,
       examples: ["/mcp"],
+    },
+    {
+      name: "modes",
+      category: "info",
+      description: "Show available modes and descriptions",
+      handler: handleModes,
+      examples: ["/modes"],
     },
     {
       name: "mcp-tools",
