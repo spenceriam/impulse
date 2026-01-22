@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Root Layout Using Explicit Dimensions** - Fixed layout instability at root level:
+  - Changed from `width="100%"` to `width={dimensions().width}` (explicit number)
+  - Changed from `height="100%"` to `height={dimensions().height}` (explicit number)
+  - Follows OpenCode pattern: Yoga layout engine handles explicit values more reliably
+  - **This is the root cause fix** - percentage strings caused layout calculation issues
+
 - **ChatView Inner Padding** - Added 2-char padding buffer between content and border:
   - Content no longer pushes directly against border edges
   - Prevents layout instability from content changes affecting borders

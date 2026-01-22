@@ -509,13 +509,22 @@ export function App(props: { initialExpress?: boolean }) {
     renderer.destroy();
   };
 
+  // Get terminal dimensions for explicit sizing (OpenCode pattern)
+  // Using explicit numeric dimensions prevents layout calculation issues
+  const dimensions = useTerminalDimensions();
+
   // Show API key overlay if needed, otherwise show main app
   return (
     <ModeProvider>
       <SessionProvider>
         <TodoProvider>
           <ExpressProvider initialExpress={props.initialExpress ?? false}>
-            <box width="100%" height="100%" padding={1}>
+            {/* Use explicit dimensions from terminal, not "100%" strings */}
+            <box 
+              width={dimensions().width} 
+              height={dimensions().height} 
+              padding={1}
+            >
               <Show when={hasApiKey()}>
                 <AppWithSession />
               </Show>

@@ -887,6 +887,7 @@ This ensures:
 | 01-22-2026 | Inner padding as buffer | 2-char padding in ChatView prevents content from pushing borders |
 | 01-22-2026 | Height calculation constants | BottomPanel uses named constants (TEXTAREA_HEIGHT, BORDER_HEIGHT, PADDING_HEIGHT) |
 | 01-22-2026 | ThinkingBlock 2-row preview | Collapsed=2 rows auto-scroll, Expanded=8 rows manual scroll, click to toggle |
+| 01-22-2026 | Explicit dimensions at root | Use `dimensions().width/height` not "100%" strings - Yoga handles numbers more reliably |
 
 ## Future Work
 
