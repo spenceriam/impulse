@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **MCP Server URLs** - Fixed Z.AI MCP endpoint URLs to use correct format:
   - Changed from `https://api.z.ai/mcp/<name>` to `https://api.z.ai/api/mcp/<name>/mcp`
-  - web-search: `https://api.z.ai/api/mcp/web_search/mcp`
+  - web-search: `https://api.z.ai/api/mcp/web_search_prime/mcp` (note: `web_search_prime`)
   - web-reader: `https://api.z.ai/api/mcp/web_reader/mcp`
   - zread: `https://api.z.ai/api/mcp/zread/mcp`
   - This was preventing MCP tool calls from succeeding
@@ -57,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Now properly fails on 404 (wrong URL) instead of marking as "connected"
   - Validates response is valid JSON-RPC format
   - Previously only caught 401/403 auth errors, letting 404s pass silently
+
+- **MCP Accept Header** - Added `Accept: application/json, text/event-stream` header:
+  - Required by MCP servers that use streamable HTTP transport
+  - Fixes HTTP 406 (Not Acceptable) errors
+  - Applied to both health checks and tool calls
 
 ## [0.13.0] - 2026-01-22
 

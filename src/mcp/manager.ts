@@ -73,6 +73,7 @@ export class MCPManager {
     // Vision MCP uses npx to run @z_ai/mcp-server package
     // HTTP MCPs connect to Z.AI remote endpoints
     // Z.AI URL format: https://api.z.ai/api/mcp/<server_name>/mcp
+    // Note: Tool name is web_search_prime (per Z.AI docs)
     const serverConfigs: MCPServerConfig[] = [
       {
         name: "vision",
@@ -87,7 +88,7 @@ export class MCPManager {
       {
         name: "web-search",
         type: "http",
-        url: "https://api.z.ai/api/mcp/web_search/mcp",
+        url: "https://api.z.ai/api/mcp/web_search_prime/mcp",
       },
       {
         name: "web-reader",
@@ -174,8 +175,10 @@ export class MCPManager {
       const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
 
       // Build headers - Z.AI servers need API key, Context7 doesn't
+      // Accept header includes text/event-stream for SSE support (required by some MCP servers)
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
       };
       
       if (server.config.name !== "context7") {
@@ -458,8 +461,10 @@ export class MCPManager {
     const apiKey = config.apiKey;
 
     // Build headers - Z.AI servers need API key, Context7 doesn't
+    // Accept header includes text/event-stream for SSE support (required by some MCP servers)
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
     };
 
     if (server.config.name !== "context7" && apiKey) {
