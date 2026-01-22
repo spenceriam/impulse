@@ -327,73 +327,25 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo }) {
   const display = () => getToolStatusDisplay(props.toolCall.status);
   const isTask = () => props.toolCall.name === "task";
   
-  // Extract first argument value for context (e.g., filename)
-  const argSummary = () => {
-    try {
-      const args = JSON.parse(props.toolCall.arguments || "{}");
-      
-      // For task tool, show subagent type and description
-      if (isTask()) {
-        const type = args.subagent_type || "general";
-        const desc = args.description || "";
-        return `[${type}] ${desc.length > 30 ? desc.slice(0, 27) + "..." : desc}`;
-      }
-      
-      // Common argument names to show
-      const keys = ["path", "filePath", "file", "command", "pattern", "query"];
-      for (const key of keys) {
-        if (args[key]) {
-          const val = String(args[key]);
-          return val.length > 40 ? val.slice(0, 37) + "..." : val;
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-    return "";
-  };
+  const title = () => getToolTitle(
+    props.toolCall.name, 
+    props.toolCall.arguments, 
+    props.toolCall.metadata
+  );
   
-  // Extract action summaries from task result (subagent)
-  const taskActions = (): string[] => {
-    if (!isTask() || !props.toolCall.result) return [];
-    
-    // Parse "Actions taken:" section from result
-    const match = props.toolCall.result.match(/Actions taken:\n([\s\S]*?)\n\nResult:/);
-    if (match?.[1]) {
-      return match[1]
-        .split("\n")
-        .map((l) => l.replace(/^\s*-\s*/, "").trim())
-        .filter(Boolean)
-        .slice(0, 5); // Max 5 actions shown
-    }
-    return [];
-  };
+  const expandedContent = () => getExpandedContent(
+    props.toolCall.name,
+    props.toolCall.metadata,
+    props.toolCall.result
+  );
   
   return (
-    <box flexDirection="column" paddingLeft={2}>
-      {/* Main tool call line */}
-      <box flexDirection="row">
-        <text fg={display().color}>{display().prefix} </text>
-        <text fg={display().color}>{props.toolCall.name}</text>
-        <Show when={argSummary()}>
-          <text fg={Colors.ui.dim}> {argSummary()}</text>
-        </Show>
-        <Show when={display().showStatus && display().statusText}>
-          <text fg={display().color}> ({display().statusText})</text>
-        </Show>
-      </box>
-      
-      {/* Subagent action summaries (indented further) */}
-      <Show when={taskActions().length > 0}>
-        <For each={taskActions()}>
-          {(action) => (
-            <box flexDirection="row" paddingLeft={2}>
-              <text fg={Colors.ui.dim}>└─ {action}</text>
-            </box>
-          )}
-        </For>
-      </Show>
-    </box>
+    <CollapsibleToolBlock
+      status={props.toolCall.status}
+      expandedContent={expandedContent()}
+    >
+      <text fg={Colors.ui.dim}>{title()}</text>
+    </CollapsibleToolBlock>
   );
 }
 
