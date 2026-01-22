@@ -331,44 +331,30 @@ export function InputArea(props: InputAreaProps) {
     }, 0);
   };
 
-  const modeColor = () => Colors.mode[props.mode] || Colors.mode.AUTO;
-  const thinkingLabel = () => props.thinking ? " (Thinking)" : "";
-
-  // Custom border chars - only show left bar, hide top/bottom/right
-  const leftOnlyBorder = {
-    topLeft: "",
-    bottomLeft: "╹",
-    vertical: "┃",
-    topRight: "",
-    bottomRight: "",
-    horizontal: " ",
-    bottomT: "",
-    topT: "",
-    cross: "",
-    leftT: "",
-    rightT: "",
+  const title = () => {
+    const thinkingSuffix = props.thinking ? " (Thinking)" : "";
+    return `${props.mode}${thinkingSuffix}`;
   };
 
   return (
-    <box flexDirection="column" flexGrow={1} minWidth={0}>
-      {/* Main input area with left border indicator (OpenCode pattern) */}
-      <box
-        border={["left"]}
-        borderColor={modeColor()}
-        customBorderChars={leftOnlyBorder}
-        flexDirection="column"
-        minWidth={0}
-      >
-        <box
-          flexDirection="column"
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-          backgroundColor={INPUT_BACKGROUND}
-          flexGrow={1}
-          minWidth={0}
-        >
-          {/* Textarea - fixed height, no width constraint issues */}
+    <box
+      border
+      title={title()}
+      titleAlignment="left"
+      flexDirection="column"
+      padding={1}
+      backgroundColor={INPUT_BACKGROUND}
+      minWidth={0}           // Allow shrinking in flex layout
+      overflow="hidden"      // Clip content at border bounds
+    >
+      {/* Row container with minWidth={0} for proper flex shrinking */}
+      <box flexDirection="row" alignItems="flex-start" minWidth={0}>
+        {/* Fixed-width prompt indicator */}
+        <box width={2} flexShrink={0}>
+          <text fg={Colors.ui.dim}>{">"} </text>
+        </box>
+        {/* Textarea fills remaining space, minWidth={0} allows shrinking */}
+        <box flexGrow={1} minWidth={0}>
           <textarea
             ref={(r: TextareaRenderable) => { textareaRef = r; }}
             keyBindings={TEXTAREA_KEY_BINDINGS}
@@ -376,16 +362,11 @@ export function InputArea(props: InputAreaProps) {
             onSubmit={handleSubmit}
             onPaste={handlePaste}
             placeholder={showGhostText() ? ghostText : null}
-            minHeight={1}
-            maxHeight={props.fixedHeight ?? Layout.input.minHeight}
+            width={-1}
+            height={props.fixedHeight ?? Layout.input.minHeight}
             focused={!props.loading}
             cursorColor={Colors.ui.primary}
           />
-          {/* Mode label below textarea */}
-          <box flexDirection="row" paddingTop={1} flexShrink={0}>
-            <text fg={modeColor()}>{props.mode}{thinkingLabel()} </text>
-            <text fg={Colors.ui.dim}>{">"}</text>
-          </box>
         </box>
       </box>
     </box>
