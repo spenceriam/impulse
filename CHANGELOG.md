@@ -34,6 +34,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Follows OpenCode patterns: `min-w-0`, `overflow-hidden`, `word-break`
   - Prevents long text from pushing borders and breaking layout
 
+- **ChatView Scrollbar Alignment** - Fixed scrollbar pushing content right:
+  - Added explicit `width="100%"` to scrollbox container
+  - Removed redundant `width="100%"` from inner content box
+
+- **BottomPanel Layout Stability** - Fixed layout shift when spinner toggles:
+  - Spinner container now always reserves space (fixed width=3)
+  - Empty placeholder box rendered when no processing has occurred
+  - Added `minWidth={0}` and `overflow="hidden"` to all flex containers
+
+- **Streaming Performance** - Fixed delayed text rendering during AI response:
+  - Batch scheduler now fires after window from FIRST call, not resetting on each call
+  - Previously each stream chunk reset the 16ms timer, causing artificial delay
+  - Now properly batches all updates within 16ms window for smooth ~60fps rendering
+
 ## [0.13.1] - 2026-01-22
 
 ### Changed

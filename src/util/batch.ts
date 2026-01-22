@@ -31,16 +31,16 @@ class BatchSchedulerImpl {
       updates.push(fn);
     }
 
+    // Only create timer if one doesn't exist (don't reset on each call)
+    // This ensures we fire after batchWindow from FIRST call, not last
     const existingTimer = this.timers.get(key);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
+    if (!existingTimer) {
+      const timer = setTimeout(() => {
+        this.flush(key);
+      }, batchWindow);
+
+      this.timers.set(key, timer);
     }
-
-    const timer = setTimeout(() => {
-      this.flush(key);
-    }, batchWindow);
-
-    this.timers.set(key, timer);
   }
 
   scheduleGlobal(fn: BatchFn, window?: number): void {

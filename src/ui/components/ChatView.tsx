@@ -32,6 +32,7 @@ export function ChatView(props: ChatViewProps) {
     <box 
       flexGrow={1}
       minWidth={0}           // Allow shrinking below content width
+      width="100%"           // Take full width of parent
       border
       borderColor={Colors.ui.dim}
       flexDirection="column"
@@ -39,7 +40,7 @@ export function ChatView(props: ChatViewProps) {
     >
       <scrollbox 
         flexGrow={1}
-        minWidth={0}         // Allow scrollbox to shrink
+        width="100%"         // Explicit width for scrollbox
         stickyScroll={true}
         stickyStart="bottom"
         style={{
@@ -57,7 +58,7 @@ export function ChatView(props: ChatViewProps) {
           },
         }}
       >
-        <box flexDirection="column" width="100%" minWidth={0}>
+        <box flexDirection="column" minWidth={0}>
           <For each={messages()}>
             {(message) => <MessageBlock message={message} />}
           </For>

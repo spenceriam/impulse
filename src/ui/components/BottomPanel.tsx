@@ -48,31 +48,40 @@ export function BottomPanel(props: BottomPanelProps) {
       flexDirection="row" 
       height={PANEL_HEIGHT}
       width="100%"
+      minWidth={0}
+      overflow="hidden"
     >
-      {/* Spinner column - reserved space to keep layout stable */}
+      {/* Spinner column - fixed width container to prevent layout shift */}
       <box 
         width={3} 
         flexShrink={0} 
         paddingRight={1} 
-        height="100%" 
+        height={PANEL_HEIGHT} 
         justifyContent="center"
         alignItems="center"
       >
+        {/* Show animated spinner while loading */}
         <Show when={props.loading}>
           <StackedSpinner height={5} />
         </Show>
-        {/* Show static last frame when idle after processing */}
+        {/* Show static spinner when idle after processing */}
         <Show when={!props.loading && props.hasProcessed}>
           <StackedSpinner height={5} static />
+        </Show>
+        {/* Empty placeholder when never processed (maintains layout) */}
+        <Show when={!props.loading && !props.hasProcessed}>
+          <box width={2} height={5} />
         </Show>
       </box>
       
       {/* Prompt + Todo split */}
-      <box flexDirection="row" flexGrow={1}>
+      <box flexDirection="row" flexGrow={1} minWidth={0} overflow="hidden">
         {/* Prompt box - 70% or 100% depending on todos */}
         <box 
           width={hasTodos() ? `${PROMPT_WIDTH_PERCENT}%` : "100%"}
           height={PANEL_HEIGHT}
+          minWidth={0}
+          overflow="hidden"
         >
           <InputArea
             mode={props.mode}
@@ -90,6 +99,8 @@ export function BottomPanel(props: BottomPanelProps) {
             width={`${TODO_WIDTH_PERCENT}%`}
             height={PANEL_HEIGHT}
             paddingLeft={1}
+            minWidth={0}
+            overflow="hidden"
           >
             <TodoPanel height={PANEL_HEIGHT} />
           </box>
