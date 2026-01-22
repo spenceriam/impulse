@@ -216,14 +216,22 @@ export const bashTool: Tool<BashInput> = Tool.define(
 
       const elapsed = Date.now() - startTime;
       const exitCode = result.exitCode ?? 0;
+      const wasTruncated = outputLines.length >= maxLines;
 
       return {
-        success: true,
+        success: exitCode === 0,
         output: output || "Command completed successfully.",
         metadata: {
+          // Legacy fields (keep for backwards compatibility)
           duration: elapsed,
-          truncated: outputLines.length >= maxLines,
+          truncated: wasTruncated,
           exitCode,
+          // NEW: BashMetadata fields for enhanced display
+          type: "bash",
+          command: input.command,
+          description: input.description,
+          output: output || "Command completed successfully.",
+          workdir: input.workdir,
         },
       };
     } catch (error) {
@@ -242,12 +250,30 @@ export const bashTool: Tool<BashInput> = Tool.define(
         return {
           success: false,
           output,
+          metadata: {
+            type: "bash",
+            command: input.command,
+            description: input.description,
+            output,
+            exitCode: -1,
+            truncated: false,
+            workdir: input.workdir,
+          },
         };
       }
 
       return {
         success: false,
         output: String(error),
+        metadata: {
+          type: "bash",
+          command: input.command,
+          description: input.description,
+          output: String(error),
+          exitCode: -1,
+          truncated: false,
+          workdir: input.workdir,
+        },
       };
     }
   }
