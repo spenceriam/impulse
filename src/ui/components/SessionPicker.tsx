@@ -9,6 +9,9 @@ const NAME_COL_WIDTH = 30;
 const UPDATED_COL_WIDTH = 20;
 const MSGS_COL_WIDTH = 6;
 
+// Fixed height for scrollable session list (max visible rows)
+const MAX_VISIBLE_ROWS = 10;
+
 /**
  * Format a relative time string
  */
@@ -180,7 +183,7 @@ export function SessionPickerOverlay(props: SessionPickerOverlayProps) {
             fallback={
               <box flexDirection="column" padding={2} alignItems="center">
                 <box height={2} />
-                <text fg={Colors.ui.dim}>No saved sessions found.</text>
+                <text fg={Colors.ui.dim}>No saved sessions for this project.</text>
                 <box height={1} />
                 <text fg={Colors.ui.dim}>Start a conversation and use /save to</text>
                 <text fg={Colors.ui.dim}>create your first saved session.</text>
@@ -197,45 +200,71 @@ export function SessionPickerOverlay(props: SessionPickerOverlayProps) {
             </box>
             <box height={1} />
 
-            {/* Session rows */}
-            <For each={sessions()}>
-              {(session, index) => {
-                const isSelected = () => index() === selectedIndex();
-                const name = truncate(session.name || session.headerTitle || "Untitled", NAME_COL_WIDTH - 1);
-                const updated = formatRelativeTime(session.updated_at);
-                const msgCount = session.messages.length.toString();
-                const dir = truncatePath(session.metadata?.["directory"] as string, dirColWidth);
+            {/* Session rows - fixed height scrollbox */}
+            <box 
+              border 
+              borderColor={Colors.ui.dim}
+              height={Math.min(sessions().length + 2, MAX_VISIBLE_ROWS + 2)}
+            >
+              <scrollbox
+                height={Math.min(sessions().length, MAX_VISIBLE_ROWS)}
+                style={{
+                  scrollbarOptions: {
+                    trackOptions: {
+                      foregroundColor: Colors.mode.AGENT,
+                      backgroundColor: Colors.ui.dim,
+                    },
+                  },
+                }}
+              >
+                <box flexDirection="column">
+                  <For each={sessions()}>
+                    {(session, index) => {
+                      const isSelected = () => index() === selectedIndex();
+                      const name = truncate(session.name || session.headerTitle || "Untitled", NAME_COL_WIDTH - 1);
+                      const updated = formatRelativeTime(session.updated_at);
+                      const msgCount = session.messages.length.toString();
+                      const dir = truncatePath(session.directory, dirColWidth);
 
-                // Build row content with padding
-                const nameCol = (" " + name).padEnd(NAME_COL_WIDTH);
-                const updatedCol = updated.padEnd(UPDATED_COL_WIDTH);
-                const msgsCol = msgCount.padEnd(MSGS_COL_WIDTH);
+                      // Build row content with padding
+                      const nameCol = (" " + name).padEnd(NAME_COL_WIDTH);
+                      const updatedCol = updated.padEnd(UPDATED_COL_WIDTH);
+                      const msgsCol = msgCount.padEnd(MSGS_COL_WIDTH);
 
-                return (
-                  <Show
-                    when={isSelected()}
-                    fallback={
-                      <box flexDirection="row">
-                        <text fg={Colors.ui.text}>{nameCol}</text>
-                        <text fg={Colors.ui.dim}>{updatedCol}</text>
-                        <text fg={Colors.ui.dim}>{msgsCol}</text>
-                        <text fg={Colors.ui.dim}>{dir}</text>
-                      </box>
-                    }
-                  >
-                    <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
-                      <text fg="#000000">{nameCol}</text>
-                      <text fg="#000000">{updatedCol}</text>
-                      <text fg="#000000">{msgsCol}</text>
-                      <text fg="#000000">{dir}</text>
-                    </box>
-                  </Show>
-                );
-              }}
-            </For>
+                      return (
+                        <Show
+                          when={isSelected()}
+                          fallback={
+                            <box flexDirection="row">
+                              <text fg={Colors.ui.text}>{nameCol}</text>
+                              <text fg={Colors.ui.dim}>{updatedCol}</text>
+                              <text fg={Colors.ui.dim}>{msgsCol}</text>
+                              <text fg={Colors.ui.dim}>{dir}</text>
+                            </box>
+                          }
+                        >
+                          <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
+                            <text fg="#000000">{nameCol}</text>
+                            <text fg="#000000">{updatedCol}</text>
+                            <text fg="#000000">{msgsCol}</text>
+                            <text fg="#000000">{dir}</text>
+                          </box>
+                        </Show>
+                      );
+                    }}
+                  </For>
+                </box>
+              </scrollbox>
+            </box>
+
+            {/* Session count indicator */}
+            <box height={1}>
+              <text fg={Colors.ui.dim}>
+                {` ${sessions().length} session${sessions().length === 1 ? "" : "s"} for this project`}
+              </text>
+            </box>
 
             {/* Preview section */}
-            <box height={1} />
             <text fg={Colors.ui.dim}>{"─".repeat(91)}</text>
             <box height={1} />
             

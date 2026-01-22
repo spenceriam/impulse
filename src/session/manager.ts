@@ -1,5 +1,5 @@
 import { Bus, SessionEvents } from "../bus";
-import { SessionStoreInstance, Session, Message } from "./store";
+import { SessionStoreInstance, Session, Message, getCurrentProjectID } from "./store";
 import { CheckpointManager } from "./checkpoint";
 import { CompactManager } from "./compact";
 
@@ -53,19 +53,21 @@ class SessionManagerImpl {
 
     const sessionID = this.generateSessionID();
     const sessionName = name ?? this.generateSessionName();
+    const directory = process.cwd();
+    const projectID = getCurrentProjectID();
 
     const session: Omit<Session, "created_at" | "updated_at"> = {
       id: sessionID,
       name: sessionName,
+      projectID,
+      directory,
       messages: [],
       mode: this.options.defaultMode,
       model: this.options.defaultModel,
       todos: [],
       context_window: this.options.initialContextWindow,
       cost: 0,
-      metadata: {
-        directory: process.cwd(),
-      },
+      metadata: {},
     };
 
     const newSession = await SessionStoreInstance.create(session);

@@ -1,9 +1,27 @@
 import { Storage } from "../storage";
 import { Bus, SessionEvents } from "../bus";
+import crypto from "crypto";
+
+/**
+ * Generate a project ID from a directory path.
+ * Uses SHA-1 hash of the absolute path (same approach as OpenCode).
+ */
+export function getProjectID(directory: string): string {
+  return crypto.createHash("sha1").update(directory).digest("hex");
+}
+
+/**
+ * Get the current project ID based on process.cwd()
+ */
+export function getCurrentProjectID(): string {
+  return getProjectID(process.cwd());
+}
 
 export interface Session {
   id: string
   name: string
+  projectID: string  // Hash of the working directory
+  directory: string  // Human-readable directory path
   created_at: string
   updated_at: string
   messages: Message[]
@@ -49,6 +67,9 @@ class SessionStoreImpl {
   private static instance: SessionStoreImpl;
   private saveTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private saveDelay: number = 1000;
+  
+  // Cache projectID -> sessionID mapping for quick lookups
+  private sessionProjectMap: Map<string, string> = new Map();
 
   private constructor() {}
 
@@ -59,8 +80,15 @@ class SessionStoreImpl {
     return SessionStoreImpl.instance;
   }
 
-  private getKey(sessionID: string): string[] {
-    return ["session", sessionID];
+  /**
+   * Get storage key for a session.
+   * Structure: ["session", projectID, sessionID]
+   * This organizes sessions by project folder.
+   */
+  private getKey(sessionID: string, projectID?: string): string[] {
+    // If projectID provided, use it; otherwise look up from cache
+    const pid = projectID ?? this.sessionProjectMap.get(sessionID) ?? getCurrentProjectID();
+    return ["session", pid, sessionID];
   }
 
   async create(session: Omit<Session, "created_at" | "updated_at">): Promise<Session> {
@@ -71,18 +99,25 @@ class SessionStoreImpl {
       updated_at: now,
     };
 
-    await Storage.write(this.getKey(session.id), newSession);
+    // Cache the mapping
+    this.sessionProjectMap.set(session.id, session.projectID);
+
+    await Storage.write(this.getKey(session.id, session.projectID), newSession);
     Bus.publish(SessionEvents.Created, { sessionID: session.id, session: newSession });
 
     return newSession;
   }
 
-  async read(sessionID: string): Promise<Session> {
-    return await Storage.read<Session>(this.getKey(sessionID));
+  async read(sessionID: string, projectID?: string): Promise<Session> {
+    const session = await Storage.read<Session>(this.getKey(sessionID, projectID));
+    // Cache the mapping for future use
+    this.sessionProjectMap.set(sessionID, session.projectID);
+    return session;
   }
 
   async update(sessionID: string, updates: Partial<Session>): Promise<Session> {
-    const updated = await Storage.update<Session>(this.getKey(sessionID), (draft) => {
+    const projectID = this.sessionProjectMap.get(sessionID);
+    const updated = await Storage.update<Session>(this.getKey(sessionID, projectID), (draft) => {
       Object.assign(draft, updates);
       draft.updated_at = new Date().toISOString();
     });
@@ -110,16 +145,51 @@ class SessionStoreImpl {
     this.saveTimeouts.set(sessionID, timeout);
   }
 
+  /**
+   * List sessions for the current project only.
+   * Sessions are scoped to the working directory.
+   */
   async list(): Promise<Session[]> {
+    const projectID = getCurrentProjectID();
+    return this.listByProject(projectID);
+  }
+
+  /**
+   * List sessions for a specific project.
+   */
+  async listByProject(projectID: string): Promise<Session[]> {
+    const keys = await Storage.list(["session", projectID]);
+    const sessions: Session[] = [];
+
+    for (const key of keys) {
+      // key is ["session", projectID, sessionID] - we need the third element
+      const sessionID = key[2];
+      if (!sessionID) continue;
+      try {
+        const session = await this.read(sessionID, projectID);
+        sessions.push(session);
+      } catch (e) {
+        console.warn(`Failed to read session ${sessionID}:`, e);
+      }
+    }
+
+    return sessions.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  /**
+   * List ALL sessions across all projects (for admin/debugging).
+   */
+  async listAll(): Promise<Session[]> {
     const keys = await Storage.list(["session"]);
     const sessions: Session[] = [];
 
     for (const key of keys) {
-      // key is ["session", "sess_xxx"] - we need the second element
-      const sessionID = key[1];
-      if (!sessionID) continue;
+      // key is ["session", projectID, sessionID]
+      const projectID = key[1];
+      const sessionID = key[2];
+      if (!projectID || !sessionID) continue;
       try {
-        const session = await this.read(sessionID);
+        const session = await this.read(sessionID, projectID);
         sessions.push(session);
       } catch (e) {
         console.warn(`Failed to read session ${sessionID}:`, e);
@@ -130,7 +200,9 @@ class SessionStoreImpl {
   }
 
   async delete(sessionID: string): Promise<void> {
-    await Storage.remove(this.getKey(sessionID));
+    const projectID = this.sessionProjectMap.get(sessionID);
+    await Storage.remove(this.getKey(sessionID, projectID));
+    this.sessionProjectMap.delete(sessionID);
     Bus.publish(SessionEvents.Deleted, { sessionID });
   }
 

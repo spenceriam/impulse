@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-01-22
+
+### Added
+
+- **Project-Based Session Storage** - Sessions are now organized by working directory:
+  - Sessions stored in `~/.config/glm-cli/storage/session/<projectID>/`
+  - Project ID is SHA-1 hash of the working directory path
+  - `/load` only shows sessions for the current project
+  - Matches OpenCode's session organization pattern
+
+- **Fixed-Height Session Picker** - `/load` overlay now has a scrollable list:
+  - Maximum 10 visible rows with scrollbar for longer lists
+  - Prevents UI overflow with many sessions
+  - Shows session count for current project
+  - Border around list matches scrollbar alignment fix pattern
+
+### Changed
+
+- **Session Schema** - Added `projectID` and `directory` fields to Session interface:
+  - `projectID`: SHA-1 hash for storage organization
+  - `directory`: Human-readable path for display
+  - Removed redundant `metadata.directory` field
+
 ## [0.11.5] - 2026-01-22
 
 ### Fixed
