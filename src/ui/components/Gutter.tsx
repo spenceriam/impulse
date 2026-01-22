@@ -1,19 +1,17 @@
-import { createSignal, onMount, onCleanup, For } from "solid-js";
+import { createSignal, createEffect, onCleanup, For } from "solid-js";
 import { Colors } from "../design";
 
 /**
  * Gutter Component
  * Unified left gutter that serves dual purpose:
- * 1. Scroll position indicator for ChatView region
+ * 1. Visual anchor line for ChatView region
  * 2. Spinner animation for InputArea region during processing
  * 
  * Layout:
  * ┌───┬─────────────────────────────────────────────┐
- * │ ▲ │ (more content above)                        │
- * │ █ │ Visible content area                        │
- * │ █ │                                             │
- * │ ░ │                                             │
- * │ ▼ │ (more content below)                        │
+ * │ │ │ Chat content area                           │
+ * │ │ │                                             │
+ * │ │ │                                             │
  * ├───┼─────────────────────────────────────────────┤
  * │ ⣾ │ ┌─ Input Area ─────────────────────────────┐│
  * │ ⣽ │ │                                          ││
@@ -21,11 +19,12 @@ import { Colors } from "../design";
  * │ ⢿ │ └──────────────────────────────────────────┘│
  * └───┴─────────────────────────────────────────────┘
  * 
+ * Note: OpenTUI scrollbox doesn't expose scroll events, so the chat region
+ * just shows a dim vertical line. The scrollbox handles scrolling internally.
+ * 
  * Props:
  * - chatHeight: Height of chat region in rows
  * - inputHeight: Height of input region in rows
- * - scrollPosition: 0-1 value of scroll position
- * - scrollVisible: 0-1 value of visible content ratio
  * - loading: Whether spinner should animate
  * - hasProcessed: Whether to show static spinner (idle after processing)
  */
@@ -55,12 +54,10 @@ const SCROLL_CHARS = {
 interface GutterProps {
   chatHeight: number;
   inputHeight: number;
-  scrollPosition: number;  // 0-1, where in the content we are
-  scrollVisible: number;   // 0-1, what fraction of content is visible
-  hasMoreAbove: boolean;
-  hasMoreBelow: boolean;
   loading: boolean;
   hasProcessed: boolean;
+  // Note: scroll position props removed - OpenTUI scrollbox doesn't expose scroll events
+  // Future: could add scroll tracking if OpenTUI adds support
 }
 
 export function Gutter(props: GutterProps) {
@@ -68,24 +65,18 @@ export function Gutter(props: GutterProps) {
   const [frameIndices, setFrameIndices] = createSignal<number[]>([]);
   let intervalIds: ReturnType<typeof setInterval>[] = [];
   
-  // Initialize spinner animation
-  onMount(() => {
+  // Helper to clear all intervals
+  const clearAllIntervals = () => {
+    intervalIds.forEach((id) => clearInterval(id));
+    intervalIds = [];
+  };
+  
+  // Helper to start animation
+  const startAnimation = () => {
+    clearAllIntervals();
     const spinnerHeight = props.inputHeight;
     
-    if (!props.loading && !props.hasProcessed) {
-      // No spinner needed yet
-      setFrameIndices(Array.from({ length: spinnerHeight }, () => 0));
-      return;
-    }
-    
-    if (!props.loading && props.hasProcessed) {
-      // Static mode - show last frame
-      const lastFrameIndex = DNA_HELIX_FRAMES.length - 1;
-      setFrameIndices(Array.from({ length: spinnerHeight }, () => lastFrameIndex));
-      return;
-    }
-    
-    // Animated mode
+    // Animated mode - set random initial positions and start intervals
     const initial = Array.from({ length: spinnerHeight }, () => 
       Math.floor(Math.random() * DNA_HELIX_FRAMES.length)
     );
@@ -102,40 +93,49 @@ export function Gutter(props: GutterProps) {
       }, rowInterval);
       intervalIds.push(id);
     }
+  };
+  
+  // Helper to stop animation and show static state
+  const stopAnimation = (showStatic: boolean) => {
+    clearAllIntervals();
+    const spinnerHeight = props.inputHeight;
+    
+    if (showStatic) {
+      // Static mode - show last frame
+      const lastFrameIndex = DNA_HELIX_FRAMES.length - 1;
+      setFrameIndices(Array.from({ length: spinnerHeight }, () => lastFrameIndex));
+    } else {
+      // Not processed yet - blank
+      setFrameIndices(Array.from({ length: spinnerHeight }, () => 0));
+    }
+  };
+  
+  // React to loading changes
+  createEffect(() => {
+    const loading = props.loading;
+    const hasProcessed = props.hasProcessed;
+    
+    if (loading) {
+      startAnimation();
+    } else {
+      stopAnimation(hasProcessed);
+    }
   });
   
   onCleanup(() => {
-    intervalIds.forEach((id) => clearInterval(id));
-    intervalIds = [];
+    clearAllIntervals();
   });
   
   // Calculate scroll indicator rows
+  // Note: OpenTUI scrollbox doesn't expose scroll position events,
+  // so we show a simple vertical line. The scrollbox handles scrolling internally.
   const getScrollRows = () => {
     const height = props.chatHeight;
     const rows: { char: string; color: string }[] = [];
     
-    // If no scrolling needed (all content visible), show simple line
-    if (props.scrollVisible >= 1) {
-      for (let i = 0; i < height; i++) {
-        rows.push({ char: SCROLL_CHARS.line, color: Colors.ui.dim });
-      }
-      return rows;
-    }
-    
-    // Calculate thumb position and size
-    const thumbSize = Math.max(1, Math.floor(height * props.scrollVisible));
-    const thumbStart = Math.floor((height - thumbSize) * props.scrollPosition);
-    
+    // Show a dim vertical line - visual anchor for the gutter
     for (let i = 0; i < height; i++) {
-      if (i === 0 && props.hasMoreAbove) {
-        rows.push({ char: SCROLL_CHARS.arrowUp, color: Colors.ui.dim });
-      } else if (i === height - 1 && props.hasMoreBelow) {
-        rows.push({ char: SCROLL_CHARS.arrowDown, color: Colors.ui.dim });
-      } else if (i >= thumbStart && i < thumbStart + thumbSize) {
-        rows.push({ char: SCROLL_CHARS.filled, color: Colors.mode.AGENT });
-      } else {
-        rows.push({ char: SCROLL_CHARS.empty, color: Colors.ui.dim });
-      }
+      rows.push({ char: SCROLL_CHARS.line, color: Colors.ui.dim });
     }
     
     return rows;

@@ -1291,15 +1291,11 @@ function AppWithSession() {
           
           {/* Main content row: Gutter + Content column */}
           <box flexDirection="row" flexGrow={1} minWidth={0}>
-            {/* Left gutter - scroll indicator for chat, spinner for input */}
+            {/* Left gutter - visual anchor for chat, spinner for input */}
             <box paddingLeft={1}>
               <Gutter
                 chatHeight={chatHeight()}
                 inputHeight={BOTTOM_PANEL_HEIGHT}
-                scrollPosition={0}
-                scrollVisible={1}
-                hasMoreAbove={false}
-                hasMoreBelow={false}
                 loading={isLoading()}
                 hasProcessed={hasProcessed()}
               />

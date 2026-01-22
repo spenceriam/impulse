@@ -12,10 +12,10 @@ import {
 } from "../../types/tool-metadata";
 import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 import { DiffView } from "./DiffView";
+import { ThinkingBlock } from "./ThinkingBlock";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
-const THINKING_BG = "#1f1f1f";        // Lighter dark gray for thinking
 const ASSISTANT_BG = "#141414";       // Darker gray for AI response
 
 /**
@@ -413,45 +413,7 @@ function getExpandedContent(
   return null;
 }
 
-/**
- * Thinking/reasoning section
- * - Dim left border (┊) with italic "Thinking" label
- * - Max 2 lines preview, truncated with "..."
- * - Lighter background to distinguish from content
- */
-function ThinkingSection(props: { content: string }) {
-  // Filter out any [REDACTED] content and truncate to ~2 lines
-  const content = () => {
-    const cleaned = props.content.replace("[REDACTED]", "").trim();
-    // Truncate to first 150 chars or 2 newlines
-    const lines = cleaned.split("\n").slice(0, 2);
-    let truncated = lines.join(" ").slice(0, 150);
-    if (cleaned.length > truncated.length) {
-      truncated += "...";
-    }
-    return truncated;
-  };
-  
-  return (
-    <Show when={content()}>
-      <box 
-        flexDirection="column" 
-        marginBottom={1}
-        backgroundColor={THINKING_BG}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <box flexDirection="row">
-          <text fg={Colors.ui.dim}>┊ </text>
-          <text fg={Colors.ui.dim}><em>Thinking</em></text>
-        </box>
-        <box flexDirection="row" paddingLeft={2}>
-          <text fg={Colors.ui.dim}><em>{content()}</em></text>
-        </box>
-      </box>
-    </Show>
-  );
-}
+// ThinkingSection removed - now using ThinkingBlock component
 
 /**
  * Render a single tool call with collapsible display
@@ -500,6 +462,7 @@ export function MessageBlock(props: MessageBlockProps) {
       when={isUser()}
       fallback={
         // Assistant message - subtle dark background
+        // width="100%" ensures background spans full width
         // minWidth={0} allows shrinking, overflow="hidden" clips content
         <box 
           flexDirection="column" 
@@ -507,6 +470,7 @@ export function MessageBlock(props: MessageBlockProps) {
           backgroundColor={ASSISTANT_BG}
           paddingLeft={1}
           paddingRight={1}
+          width="100%"
           minWidth={0}
           overflow="hidden"
         >
@@ -520,9 +484,9 @@ export function MessageBlock(props: MessageBlockProps) {
               <text fg={Colors.ui.dim}>]</text>
             </Show>
           </box>
-          {/* Thinking/Reasoning content */}
+          {/* Thinking/Reasoning content - collapsible block */}
           <Show when={reasoning()}>
-            <ThinkingSection content={reasoning()!} />
+            <ThinkingBlock content={reasoning()!} />
           </Show>
           {/* Message content */}
           <Show when={props.message.content}>
@@ -568,8 +532,9 @@ export function MessageBlock(props: MessageBlockProps) {
       }
     >
       {/* User message - cyan left border + dark cyan background */}
+      {/* width="100%" ensures background spans full width */}
       {/* minWidth={0} and overflow="hidden" prevent text from breaking layout */}
-      <box flexDirection="row" marginBottom={1} minWidth={0} overflow="hidden">
+      <box flexDirection="row" marginBottom={1} width="100%" minWidth={0} overflow="hidden">
         <text fg={Colors.mode.AGENT}>┃</text>
         <box 
           flexDirection="column" 
@@ -577,6 +542,7 @@ export function MessageBlock(props: MessageBlockProps) {
           paddingLeft={1}
           paddingRight={1}
           flexGrow={1}
+          width="100%"
           minWidth={0}
           overflow="hidden"
         >

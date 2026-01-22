@@ -19,7 +19,7 @@ export const Colors = {
    * Mode-specific colors (used in mode indicators, input borders)
    */
   mode: {
-    AUTO: "#ffffff",      // White - AI decides
+    AUTO: "#cccccc",      // Soft white/gray - AI decides (less harsh than pure white)
     AGENT: "#5cffff",     // Cyan - Full execution
     PLANNER: "#b48eff",   // Purple - Research + docs
     "PLAN-PRD": "#5c8fff", // Blue - Quick PRD

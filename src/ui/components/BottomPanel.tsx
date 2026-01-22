@@ -11,33 +11,33 @@ import { type Mode } from "../design";
  * Layout:
  * - When todos exist: 70% prompt box, 30% todo panel
  * - When no todos: 100% prompt box
- * - Fixed height of 9 rows (see height calculation below)
+ * - Fixed height of 8 rows (see height calculation below)
  * 
  * Height Calculation for InputArea (new borderless design):
  * - top accent line: 1 row
+ * - spacer: 1 row (breathing room)
  * - textarea content: 5 rows
- * - footer line: 1 row
  * - bottom accent line: 1 row
- * - Total: 1 + 5 + 1 + 1 = 8 rows
+ * - Total: 1 + 1 + 5 + 1 = 8 rows
  * 
  * Note: Spinner column removed - spinner now in Gutter component
  * 
  * Structure:
  * ┌─────────────────────────────────────────────┬───────────┐
- * │ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │┌─ Todo ──┐│
- * │ > _                                         ││ [>] Task││
- * │                                             ││ [ ] Next││
+ * │ ▄▄▄ AUTO > GLM-4.7 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │┌─ Todo ──┐│
+ * │                                             ││ [>] Task││
+ * │ > _                                         ││ [ ] Next││
  * │                                             ││         ││
- * │ AUTO > GLM-4.7                              ││         ││
+ * │                                             ││         ││
  * │ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ │└─────────┘│
  * └─────────────────────────────────────────────┴───────────┘
  */
 
-// Height calculation: accent(1) + textarea(5) + footer(1) + accent(1) = 8
+// Height calculation: accent(1) + spacer(1) + textarea(5) + accent(1) = 8
 const TEXTAREA_HEIGHT = 5;
 const ACCENT_HEIGHT = 2;  // Top + bottom accent lines
-const FOOTER_HEIGHT = 1;
-const PANEL_HEIGHT = TEXTAREA_HEIGHT + ACCENT_HEIGHT + FOOTER_HEIGHT;  // 8 rows
+const SPACER_HEIGHT = 1;  // Breathing room below top accent
+const PANEL_HEIGHT = TEXTAREA_HEIGHT + ACCENT_HEIGHT + SPACER_HEIGHT;  // 8 rows
 
 const PROMPT_WIDTH_PERCENT = 70;
 const TODO_WIDTH_PERCENT = 30;

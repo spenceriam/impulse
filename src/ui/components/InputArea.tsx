@@ -331,16 +331,11 @@ export function InputArea(props: InputAreaProps) {
   // Get the mode color for accent lines
   const modeColor = () => getModeColor(props.mode);
   
-  // Footer text: MODE > MODEL (thinking indicator)
-  const footerText = () => {
+  // Mode label text: MODE > MODEL (thinking indicator)
+  const modeLabel = () => {
     const thinkingSuffix = props.thinking ? " (Thinking)" : "";
-    return `${props.mode} > GLM-4.7${thinkingSuffix}`;
+    return ` ${props.mode} > GLM-4.7${thinkingSuffix} `;
   };
-
-  // Generate accent line (repeated character to fill width)
-  // Using ▄ for top (lower half block) and ▀ for bottom (upper half block)
-  const accentLineTop = "▄".repeat(80);
-  const accentLineBottom = "▀".repeat(80);
 
   return (
     <box
@@ -348,11 +343,21 @@ export function InputArea(props: InputAreaProps) {
       backgroundColor={Colors.input.background}
       minWidth={0}           // Allow shrinking in flex layout
       overflow="hidden"      // Clip content at bounds
+      width="100%"
     >
-      {/* Top accent line - mode colored */}
-      <box height={1} overflow="hidden">
-        <text fg={modeColor()}>{accentLineTop}</text>
+      {/* Top accent line with mode label embedded */}
+      <box height={1} width="100%" overflow="hidden" flexDirection="row">
+        <text fg={modeColor()}>{"▄▄▄"}</text>
+        <box backgroundColor={Colors.input.background}>
+          <text fg={modeColor()}>{modeLabel()}</text>
+        </box>
+        <box flexGrow={1} overflow="hidden">
+          <text fg={modeColor()}>{"▄".repeat(200)}</text>
+        </box>
       </box>
+      
+      {/* Spacer line for breathing room */}
+      <box height={1} />
       
       {/* Main content area with padding */}
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
@@ -378,16 +383,11 @@ export function InputArea(props: InputAreaProps) {
             />
           </box>
         </box>
-        
-        {/* Footer with mode indicator */}
-        <box height={1}>
-          <text fg={Colors.ui.dim}>{footerText()}</text>
-        </box>
       </box>
       
-      {/* Bottom accent line - mode colored */}
-      <box height={1} overflow="hidden">
-        <text fg={modeColor()}>{accentLineBottom}</text>
+      {/* Bottom accent line - full width */}
+      <box height={1} width="100%" overflow="hidden">
+        <text fg={modeColor()}>{"▀".repeat(200)}</text>
       </box>
     </box>
   );
