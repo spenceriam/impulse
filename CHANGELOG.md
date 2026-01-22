@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `saveOnExit()`: Save on clean exit
   - `isDirty`: Signal indicating unsaved changes
 
+### Fixed
+
+- **Double Overlay Bug** - Fixed `/load` and `/model` commands showing both command autocomplete and picker overlay:
+  - Autocomplete now cleared before showing session/model picker
+  - Also clears autocomplete before showing command result overlays
+
 ## [0.13.0] - 2026-01-22
 
 ### Added

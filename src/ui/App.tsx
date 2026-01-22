@@ -1004,6 +1004,7 @@ function AppWithSession() {
       if (parsed && parsed.name === "model") {
         const hasModelArg = trimmedContent.trim().split(/\s+/).length > 1;
         if (!hasModelArg) {
+          setAutocompleteData(null);  // Clear command autocomplete before showing picker
           setShowModelSelect(true);
           return;
         }
@@ -1014,6 +1015,7 @@ function AppWithSession() {
       if (parsed && parsed.name === "load") {
         const hasSessionArg = trimmedContent.trim().split(/\s+/).length > 1;
         if (!hasSessionArg) {
+          setAutocompleteData(null);  // Clear command autocomplete before showing picker
           setShowSessionPicker(true);
           return;
         }
@@ -1082,6 +1084,9 @@ function AppWithSession() {
       
       // Get command name for overlay title
       const cmdName = parsed?.name || trimmedContent.slice(1).split(/\s/)[0] || "Command";
+      
+      // Clear autocomplete before showing result overlay
+      setAutocompleteData(null);
       
       // Show result in overlay - doesn't add to messages, doesn't transition screens
       setCommandOverlay({
