@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-01-22
+
+### Fixed
+
+- **Spinner Animation Reactivity** - Spinner now properly starts/stops when loading state changes:
+  - Changed from `onMount` to `createEffect` for reactive prop handling
+  - Animation starts when `loading=true`, stops when `loading=false`
+
+- **Accent Lines Full Width** - Top and bottom accent lines now span full container width:
+  - Used `flexGrow={1}` with `overflow="hidden"` pattern
+  - Consistent appearance across different terminal widths
+
+- **Message Background Alignment** - Message blocks now have proper full-width backgrounds:
+  - Added `width="100%"` to user and assistant message containers
+  - Backgrounds align correctly to the right edge
+
+### Changed
+
+- **Mode Label Position** - Moved from footer to top accent bar:
+  - Format: `▄▄▄ AUTO > GLM-4.7 (Thinking) ▄▄▄▄▄▄▄▄▄`
+  - Added 1-row spacer below for breathing room
+  - Input area no longer feels cramped
+
+- **AUTO Mode Color** - Softened from pure white to soft gray:
+  - Changed from `#ffffff` to `#cccccc`
+  - Less harsh on the eyes, maintains visibility
+
+- **ThinkingBlock Integration** - MessageBlock now uses ThinkingBlock component:
+  - Replaced inline ThinkingSection with proper collapsible component
+  - Click to expand/collapse thinking content
+
+- **Gutter Scroll Indicator** - Simplified to visual anchor:
+  - Shows dim vertical line (`│`) instead of scroll position
+  - OpenTUI scrollbox doesn't expose scroll events
+  - Scrollbox handles scrolling internally
+
 ## [0.13.4] - 2026-01-22
 
 ### Changed
