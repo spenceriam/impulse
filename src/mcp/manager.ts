@@ -31,6 +31,30 @@ interface MCPToolCallResult {
 }
 
 /**
+ * Parse response that may be SSE or plain JSON
+ * Z.AI MCP servers return SSE format: id:N\nevent:message\ndata:{json}
+ * Context7 returns plain JSON
+ */
+function parseSSEOrJSON<T>(text: string): T {
+  // Check if it's SSE format (starts with "id:" or "event:")
+  if (text.startsWith("id:") || text.startsWith("event:")) {
+    // Parse SSE - extract JSON from "data:" line
+    const lines = text.split("\n");
+    for (const line of lines) {
+      if (line.startsWith("data:")) {
+        const jsonStr = line.slice(5).trim();
+        if (jsonStr) {
+          return JSON.parse(jsonStr) as T;
+        }
+      }
+    }
+    throw new Error("SSE response missing data line");
+  }
+  // Plain JSON
+  return JSON.parse(text) as T;
+}
+
+/**
  * MCP Manager
  * Manages all 5 MCP servers with single API key configuration
  */
@@ -217,14 +241,16 @@ export class MCPManager {
       }
 
       // Verify the response is valid JSON-RPC
+      // Z.AI servers return SSE format, Context7 returns plain JSON
       try {
-        const data = await response.json() as { error?: { message?: string } };
+        const text = await response.text();
+        const data = parseSSEOrJSON<{ error?: { message?: string } }>(text);
         if (data.error) {
           // JSON-RPC error response - still consider connected but log warning
           console.warn(`MCP ${server.config.name}: JSON-RPC error in health check: ${data.error.message || "unknown"}`);
         }
       } catch {
-        // Response wasn't JSON - might not be an MCP endpoint
+        // Response wasn't valid SSE or JSON - might not be an MCP endpoint
         throw new Error(`Invalid response from ${url} - not a valid MCP endpoint`);
       }
 
@@ -501,7 +527,9 @@ export class MCPManager {
         };
       }
 
-      const data = (await response.json()) as JSONRPCResponse<MCPToolCallResult>;
+      // Parse response - Z.AI servers return SSE format, Context7 returns plain JSON
+      const text = await response.text();
+      const data = parseSSEOrJSON<JSONRPCResponse<MCPToolCallResult>>(text);
 
       if (data.error) {
         return {

@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP SSE Response Parsing** - Fixed Z.AI MCP servers failing to connect:
+  - Z.AI servers return Server-Sent Events (SSE) format, not plain JSON
+  - Added `parseSSEOrJSON()` helper to handle both SSE and JSON responses
+  - Health check and tool calls now correctly parse SSE `data:` lines
+  - All 5 MCP servers now connect successfully (was 0/5 before fix)
+
 - **UI Layout Stability** - Fixed text overflow breaking UI frame/borders:
   - Added `overflow="hidden"` to ChatView, MessageBlock, and InputArea containers
   - Added `minWidth={0}` to all flex children (critical for shrinking below content size)
