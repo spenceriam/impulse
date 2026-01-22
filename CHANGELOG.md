@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-01-22
+
+### Added
+
+- **MCP Tool Execution** - MCP tools now actually execute when called by the AI:
+  - Added `callTool()` method to MCPManager for JSON-RPC 2.0 tool calls
+  - Supports both HTTP servers (web-search, web-reader, zread, context7) and stdio servers (vision)
+  - Created `src/mcp/tools.ts` to bridge MCP tools to the Tool registry
+  - MCP tools automatically registered on app startup
+  - Tool definitions (15 tools across 5 servers) now included in API calls
+
+### Fixed
+
+- **MCP Integration Gap** - Previously, MCP tools were discovered but never executed:
+  - AI could see MCP tools in its tool list
+  - Tool calls would fail silently with "Tool not found"
+  - Now properly routes to MCP servers via JSON-RPC protocol
+
 ## [0.12.0] - 2026-01-22
 
 ### Added

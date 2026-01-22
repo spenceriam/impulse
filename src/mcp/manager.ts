@@ -4,6 +4,32 @@ import { MCPServer, MCPServerConfig, MCPServerName } from "./types";
 // Timeout for health checks (ms)
 const HEALTH_CHECK_TIMEOUT = 5000;
 
+// Timeout for tool calls (ms)
+const TOOL_CALL_TIMEOUT = 60000;
+
+// JSON-RPC response type
+interface JSONRPCResponse<T = unknown> {
+  jsonrpc: "2.0";
+  id: number | string;
+  result?: T;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+// MCP tool call result
+interface MCPToolCallResult {
+  content: Array<{
+    type: "text" | "image" | "resource";
+    text?: string;
+    data?: string;
+    mimeType?: string;
+  }>;
+  isError?: boolean;
+}
+
 /**
  * MCP Manager
  * Manages all 5 MCP servers with single API key configuration
@@ -351,6 +377,257 @@ export class MCPManager {
    */
   public isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Call an MCP tool
+   * Handles both HTTP and stdio servers
+   */
+  public async callTool(
+    serverName: MCPServerName,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<{ success: boolean; output: string }> {
+    await this.ensureInitialized();
+
+    const server = this.servers.get(serverName);
+    if (!server) {
+      return {
+        success: false,
+        output: `MCP server not found: ${serverName}`,
+      };
+    }
+
+    if (server.status !== "connected") {
+      return {
+        success: false,
+        output: `MCP server not connected: ${serverName} (${server.error || "unknown error"})`,
+      };
+    }
+
+    try {
+      if (server.config.type === "http") {
+        return await this.callHTTPTool(server, toolName, args);
+      } else if (server.config.type === "stdio") {
+        return await this.callStdioTool(server, toolName, args);
+      } else {
+        return {
+          success: false,
+          output: `Unsupported server type: ${server.config.type}`,
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        output: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Call tool on HTTP MCP server using JSON-RPC 2.0
+   */
+  private async callHTTPTool(
+    server: MCPServer,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<{ success: boolean; output: string }> {
+    const { url } = server.config;
+    if (!url) {
+      return { success: false, output: "HTTP server requires URL" };
+    }
+
+    const config = await load();
+    const apiKey = config.apiKey;
+
+    // Build headers - Z.AI servers need API key, Context7 doesn't
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (server.config.name !== "context7" && apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TOOL_CALL_TIMEOUT);
+
+    try {
+      // MCP JSON-RPC 2.0 format for tool calls
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: Date.now(),
+          method: "tools/call",
+          params: {
+            name: toolName,
+            arguments: args,
+          },
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const text = await response.text();
+        return {
+          success: false,
+          output: `HTTP ${response.status}: ${text}`,
+        };
+      }
+
+      const data = (await response.json()) as JSONRPCResponse<MCPToolCallResult>;
+
+      if (data.error) {
+        return {
+          success: false,
+          output: `MCP error: ${data.error.message}`,
+        };
+      }
+
+      if (!data.result) {
+        return {
+          success: false,
+          output: "MCP returned empty result",
+        };
+      }
+
+      // Extract text content from MCP response
+      const textContent = data.result.content
+        ?.filter((c) => c.type === "text" && c.text)
+        .map((c) => c.text)
+        .join("\n");
+
+      return {
+        success: !data.result.isError,
+        output: textContent || "Tool executed successfully (no output)",
+      };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        return { success: false, output: "Tool call timed out" };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Call tool on stdio MCP server
+   * Spawns the process and communicates via stdin/stdout JSON-RPC
+   */
+  private async callStdioTool(
+    server: MCPServer,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<{ success: boolean; output: string }> {
+    const { command, args: cmdArgs, env } = server.config;
+
+    if (!command) {
+      return { success: false, output: "Stdio server requires command" };
+    }
+
+    const config = await load();
+    const apiKey = config.apiKey;
+
+    // Build environment with API key
+    const processEnv = {
+      ...process.env,
+      ...env,
+    };
+
+    if (apiKey && server.config.name === "vision") {
+      processEnv["Z_AI_API_KEY"] = apiKey;
+    }
+
+    try {
+      // Spawn the MCP server process
+      const proc = Bun.spawn([command, ...(cmdArgs || [])], {
+        env: processEnv,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      // Send JSON-RPC request via stdin
+      const request = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: toolName,
+          arguments: args,
+        },
+      }) + "\n";
+
+      proc.stdin.write(request);
+      proc.stdin.end();
+
+      // Read response from stdout
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+
+      // Wait for process to exit
+      const exitCode = await proc.exited;
+
+      if (exitCode !== 0) {
+        return {
+          success: false,
+          output: stderr || `Process exited with code ${exitCode}`,
+        };
+      }
+
+      // Parse JSON-RPC response
+      const lines = stdout.trim().split("\n");
+      const lastLine = lines[lines.length - 1];
+
+      if (!lastLine) {
+        return { success: false, output: "No response from MCP server" };
+      }
+
+      const data = JSON.parse(lastLine) as JSONRPCResponse<MCPToolCallResult>;
+
+      if (data.error) {
+        return {
+          success: false,
+          output: `MCP error: ${data.error.message}`,
+        };
+      }
+
+      if (!data.result) {
+        return { success: false, output: "MCP returned empty result" };
+      }
+
+      // Extract text content
+      const textContent = data.result.content
+        ?.filter((c) => c.type === "text" && c.text)
+        .map((c) => c.text)
+        .join("\n");
+
+      return {
+        success: !data.result.isError,
+        output: textContent || "Tool executed successfully (no output)",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        output: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Find which server hosts a given tool
+   */
+  public findToolServer(toolName: string): MCPServerName | undefined {
+    for (const [name, server] of this.servers) {
+      if (server.tools.includes(toolName)) {
+        return name;
+      }
+    }
+    return undefined;
   }
 }
 

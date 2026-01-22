@@ -24,6 +24,7 @@ import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import { Tool } from "../tools/registry";
 import { type ToolCallInfo } from "./components/MessageBlock";
+import { registerMCPTools } from "../mcp";
 import packageJson from "../../package.json";
 
 /**
@@ -423,13 +424,27 @@ function initializeCommands() {
   commandsRegistered = true;
 }
 
+// Initialize MCP tools (async, runs in background)
+let mcpToolsRegistered = false;
+async function initializeMCPTools() {
+  if (mcpToolsRegistered) return;
+  mcpToolsRegistered = true; // Set early to prevent duplicate calls
+  try {
+    await registerMCPTools();
+  } catch (error) {
+    console.error("Failed to register MCP tools:", error);
+  }
+}
+
 // Main app wrapper
 export function App(props: { initialExpress?: boolean }) {
   const renderer = useRenderer();
   
-  // Register commands on mount
+  // Register commands and MCP tools on mount
   onMount(() => {
     initializeCommands();
+    // MCP tools registered async in background (don't block UI)
+    initializeMCPTools();
   });
   
   // Check for API key - env var first, then we'll check config
