@@ -347,8 +347,10 @@ export function InputArea(props: InputAreaProps) {
     >
       {/* Top accent line with mode label embedded */}
       <box height={1} width="100%" overflow="hidden" flexDirection="row">
-        <text fg={modeColor()}>{"▄▄▄"}</text>
-        <box backgroundColor={Colors.input.background}>
+        <box flexShrink={0}>
+          <text fg={modeColor()}>{"▄▄▄"}</text>
+        </box>
+        <box backgroundColor={Colors.input.background} flexShrink={0}>
           <text fg={modeColor()}>{modeLabel()}</text>
         </box>
         <box flexGrow={1} overflow="hidden">
