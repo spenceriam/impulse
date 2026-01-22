@@ -82,13 +82,23 @@ export const Indicators = {
   },
 
   /**
-   * Tool result indicators
-   */
+    * Tool result indicators (legacy)
+    */
   tool: {
     pending: "▶",         // Tool waiting to run
     running: "⣾",         // Tool currently executing (spinner frame)
     success: "[OK]",      // Tool succeeded
     error: "[FAIL]",      // Tool failed
+  },
+
+  /**
+    * Tool status indicators (new - for collapsible display)
+    */
+  toolStatus: {
+    pending: "·",         // Dot - waiting
+    running: "~",         // Tilde - in progress
+    success: "✓",         // Checkmark - completed
+    error: "✗",           // X - failed
   },
 
   /**
