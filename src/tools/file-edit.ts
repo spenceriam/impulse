@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { readFileSync, writeFileSync } from "fs";
 import { resolve, relative, isAbsolute } from "path";
+import { createPatch } from "diff";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 
@@ -88,12 +89,31 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         newContent = content.substring(0, index) + input.newString + content.substring(index + input.oldString.length);
       }
 
+      // Generate unified diff before writing
+      const diff = createPatch(
+        input.filePath,
+        content,      // old content
+        newContent,   // new content
+        "original",
+        "modified"
+      );
+
+      // Count added/removed lines from diff
+      const diffLines = diff.split("\n");
+      const linesAdded = diffLines.filter(l => l.startsWith("+") && !l.startsWith("+++")).length;
+      const linesRemoved = diffLines.filter(l => l.startsWith("-") && !l.startsWith("---")).length;
+
       writeFileSync(safePath, newContent, "utf-8");
 
       return {
         success: true,
         output: `File edited successfully: ${input.filePath}`,
         metadata: {
+          type: "file_edit",
+          filePath: input.filePath,
+          diff,
+          linesAdded,
+          linesRemoved,
           replacements: input.replaceAll ? occurrences : 1,
         },
       };
