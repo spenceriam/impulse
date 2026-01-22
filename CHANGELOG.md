@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-01-22
+
+### Added
+
+- **Collapsible Tool Blocks** - Tool calls now expand/collapse on click:
+  - Collapsed: Shows tool name and summary info
+  - Expanded: Shows full tool output/results
+  - Click to toggle, improves readability for long outputs
+  - Status indicators: ✓ (success), ✗ (error), ~ (running), · (pending)
+
+- **Unified Diff View** - File edit tool now shows proper diffs:
+  - Added lines colored green (+), removed lines colored red (-)
+  - Diff summary in collapsed view: `(+N/-M)`
+  - Truncates very long diffs with indicator
+  - Easy visual scan of changes
+
+- **Tool-Specific Metadata** - All tools now return structured metadata:
+  - Bash: Command, exit code, output preview, truncation indicators
+  - File Write: Line count, file size
+  - File Edit: Unified diff, +/- counts
+  - File Read: Line count, truncation status
+  - Glob: Match count, pattern
+  - Grep: Match count, pattern, path
+
+- **Error Auto-Expansion** - Failed tool calls auto-expand on error:
+  - Shows red ✗ indicator for errors
+  - Error messages immediately visible
+  - Reduced clicking to see what went wrong
+
+- **Looper Visibility** - Consecutive tool failures show attempt counter:
+  - Displays "(attempt N)" when same tool fails repeatedly
+  - Helps visualize retry loops and debugging
+  - Yellow warning color for visibility
+
+- **Output Truncation Safety** - Prevents UI crashes from massive output:
+  - Bash output limited to 50 lines or 5000 characters
+  - Shows "... (N more lines)" or "... (output truncated)" indicators
+  - Protects against runaway command output
+
+### Changed
+
+- **Tool Display** - Completely refactored from subtext to collapsible blocks:
+  - More information available without expanding
+  - Better visual hierarchy
+  - Cleaner, more organized appearance
+
 ## [0.10.2] - 2026-01-22
 
 ### Fixed
