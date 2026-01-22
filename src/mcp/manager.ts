@@ -72,6 +72,7 @@ export class MCPManager {
     // Define all 5 MCP server configurations
     // Vision MCP uses npx to run @z_ai/mcp-server package
     // HTTP MCPs connect to Z.AI remote endpoints
+    // Z.AI URL format: https://api.z.ai/api/mcp/<server_name>/mcp
     const serverConfigs: MCPServerConfig[] = [
       {
         name: "vision",
@@ -86,17 +87,17 @@ export class MCPManager {
       {
         name: "web-search",
         type: "http",
-        url: "https://api.z.ai/mcp/web-search",
+        url: "https://api.z.ai/api/mcp/web_search/mcp",
       },
       {
         name: "web-reader",
         type: "http",
-        url: "https://api.z.ai/mcp/web-reader",
+        url: "https://api.z.ai/api/mcp/web_reader/mcp",
       },
       {
         name: "zread",
         type: "http",
-        url: "https://api.z.ai/mcp/zread",
+        url: "https://api.z.ai/api/mcp/zread/mcp",
       },
       {
         name: "context7",
@@ -198,17 +199,33 @@ export class MCPManager {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        // Non-2xx response - server reachable but rejected
-        // This could be auth issue, but server is "up"
-        // For Z.AI servers, a 401 means we need valid API key
+        // Non-2xx response - check specific error codes
         if (response.status === 401 || response.status === 403) {
           throw new Error(`Authentication failed (${response.status})`);
         }
-        // For other errors, consider it a partial success (server is reachable)
-        // MCP servers may not support tools/list on all endpoints
+        if (response.status === 404) {
+          throw new Error(`Endpoint not found (404) - check URL: ${url}`);
+        }
+        if (response.status >= 500) {
+          throw new Error(`Server error (${response.status})`);
+        }
+        // For other 4xx errors, throw with status
+        throw new Error(`HTTP error ${response.status}`);
       }
 
-      // Server responded - mark as connected
+      // Verify the response is valid JSON-RPC
+      try {
+        const data = await response.json() as { error?: { message?: string } };
+        if (data.error) {
+          // JSON-RPC error response - still consider connected but log warning
+          console.warn(`MCP ${server.config.name}: JSON-RPC error in health check: ${data.error.message || "unknown"}`);
+        }
+      } catch {
+        // Response wasn't JSON - might not be an MCP endpoint
+        throw new Error(`Invalid response from ${url} - not a valid MCP endpoint`);
+      }
+
+      // Server responded with valid JSON - mark as connected
       server.status = "connected";
     } catch (error) {
       // Network error, timeout, or auth failure

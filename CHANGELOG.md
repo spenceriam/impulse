@@ -46,6 +46,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Leaves 4-char margin on each side for padding
   - Prevents `[[━━━━]]` overflow on narrow terminals
 
+- **MCP Server URLs** - Fixed Z.AI MCP endpoint URLs to use correct format:
+  - Changed from `https://api.z.ai/mcp/<name>` to `https://api.z.ai/api/mcp/<name>/mcp`
+  - web-search: `https://api.z.ai/api/mcp/web_search/mcp`
+  - web-reader: `https://api.z.ai/api/mcp/web_reader/mcp`
+  - zread: `https://api.z.ai/api/mcp/zread/mcp`
+  - This was preventing MCP tool calls from succeeding
+
+- **MCP Health Check** - Made health check stricter to catch invalid endpoints:
+  - Now properly fails on 404 (wrong URL) instead of marking as "connected"
+  - Validates response is valid JSON-RPC format
+  - Previously only caught 401/403 auth errors, letting 404s pass silently
+
 ## [0.13.0] - 2026-01-22
 
 ### Added
