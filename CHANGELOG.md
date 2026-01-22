@@ -48,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Previously each stream chunk reset the 16ms timer, causing artificial delay
   - Now properly batches all updates within 16ms window for smooth ~60fps rendering
 
+- **InputArea Border Stability** - Refactored to use OpenCode's border pattern:
+  - Replaced full `border` box with `border={["left"]}` using custom border chars
+  - Mode indicator now shown as colored left bar (like OpenCode prompt)
+  - Eliminates border recalculation that caused layout shifts
+  - Mode label moved below textarea for cleaner layout
+
 ## [0.13.1] - 2026-01-22
 
 ### Changed
