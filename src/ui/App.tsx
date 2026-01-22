@@ -1,5 +1,5 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
-import { useRenderer, useKeyboard } from "@opentui/solid";
+import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
 import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, type CommandCandidate } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
@@ -295,11 +295,12 @@ function ModelSelectOverlay(props: {
   );
 }
 
-// Fixed width for logo box and prompt box alignment
-const WELCOME_BOX_WIDTH = 78;
+// Logo width is fixed (ASCII art)
 const LOGO_WIDTH = 54; // Widest logo line
-const INNER_WIDTH = WELCOME_BOX_WIDTH - 4; // Inside [[ and ]]
-const LOGO_PADDING = Math.floor((INNER_WIDTH - LOGO_WIDTH) / 2);
+// Ideal box width - used when terminal is wide enough
+const IDEAL_BOX_WIDTH = 78;
+// Minimum width to show logo properly (logo + some padding + brackets)
+const MIN_BOX_WIDTH = LOGO_WIDTH + 8;
 
 // Welcome screen (shown when no messages)
 function WelcomeScreen(props: { 
@@ -307,6 +308,8 @@ function WelcomeScreen(props: {
   onAutocompleteChange?: (data: { commands: { name: string; description: string }[]; selectedIndex: number } | null) => void;
 }) {
   const { mode, thinking } = useMode();
+  const dimensions = useTerminalDimensions();
+  const terminalWidth = () => dimensions().width;
 
   // ASCII logo for GLM-CLI - centered inside [[ ]] frame
   const logo = [
@@ -328,6 +331,13 @@ function WelcomeScreen(props: {
     "#666666", // Line 5 - dim
   ];
 
+  // Responsive box width - clamp between min and ideal, leave 4 char margin on each side
+  const boxWidth = () => Math.max(MIN_BOX_WIDTH, Math.min(IDEAL_BOX_WIDTH, terminalWidth() - 8));
+  
+  // Calculate inner width and padding dynamically
+  const innerWidth = () => boxWidth() - 4; // Inside [[ and ]]
+  const logoPadding = () => Math.max(0, Math.floor((innerWidth() - LOGO_WIDTH) / 2));
+
   // Get version from package.json
   const version = `v${packageJson.version}`;
   // Build date: use current date formatted as MM-DD-YYYY
@@ -335,18 +345,17 @@ function WelcomeScreen(props: {
   const buildDate = `built ${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-${now.getFullYear()}`;
   const dir = process.cwd().replace(process.env["HOME"] || "", "~");
 
-  // Top/bottom bracket lines: [[━━━━...━━━━]]
-  const lineWidth = WELCOME_BOX_WIDTH - 4; // minus [[ and ]]
-  const bracketLine = `[[${("━").repeat(lineWidth)}]]`;
+  // Top/bottom bracket lines: [[━━━━...━━━━]] - reactive to width changes
+  const bracketLine = () => `[[${("━").repeat(innerWidth())}]]`;
 
   return (
     <box flexDirection="column" width="100%" height="100%">
       {/* Logo section - centered with no flex grow, positioned from top */}
       <box flexDirection="column" alignItems="center" paddingTop={4}>
         {/* Custom frame with [[ ]] brackets */}
-        <box flexDirection="column" width={WELCOME_BOX_WIDTH}>
+        <box flexDirection="column" width={boxWidth()}>
           {/* Top bracket line */}
-          <text fg={Colors.ui.dim}>{bracketLine}</text>
+          <text fg={Colors.ui.dim}>{bracketLine()}</text>
           
           {/* Empty line for padding */}
           <box height={1} />
@@ -355,7 +364,7 @@ function WelcomeScreen(props: {
           {logo.map((line, i) => (
             <box flexDirection="row" justifyContent="center">
               <text fg={gradientColors[i] || Colors.ui.dim}>
-                {" ".repeat(LOGO_PADDING)}{line}{" ".repeat(LOGO_PADDING)}
+                {" ".repeat(logoPadding())}{line}{" ".repeat(logoPadding())}
               </text>
             </box>
           ))}
@@ -381,14 +390,14 @@ function WelcomeScreen(props: {
           <box height={1} />
           
           {/* Bottom bracket line */}
-          <text fg={Colors.ui.dim}>{bracketLine}</text>
+          <text fg={Colors.ui.dim}>{bracketLine()}</text>
         </box>
         
         {/* 5-line gap between logo box and prompt */}
         <box height={5} />
         
-        {/* Input area positioned after the gap - fixed width to match logo box */}
-        <box width={WELCOME_BOX_WIDTH}>
+        {/* Input area positioned after the gap - responsive width to match logo box */}
+        <box width={boxWidth()}>
           <Show 
             when={props.onAutocompleteChange}
             fallback={<InputArea mode={mode()} thinking={thinking()} onSubmit={props.onSubmit} />}
@@ -405,7 +414,7 @@ function WelcomeScreen(props: {
       
       {/* Status line anchored below input - centered with same width */}
       <box flexDirection="column" alignItems="center">
-        <box width={WELCOME_BOX_WIDTH}>
+        <box width={boxWidth()}>
           <StatusLine isInitialScreen />
         </box>
       </box>

@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Autocomplete now cleared before showing session/model picker
   - Also clears autocomplete before showing command result overlays
 
+- **Welcome Screen Responsive Width** - Logo frame now adapts to terminal width:
+  - Uses `useTerminalDimensions()` for reactive width calculation
+  - Clamps between minimum (logo + padding) and ideal (78 chars)
+  - Leaves 4-char margin on each side for padding
+  - Prevents `[[━━━━]]` overflow on narrow terminals
+
 ## [0.13.0] - 2026-01-22
 
 ### Added
