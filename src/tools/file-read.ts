@@ -69,9 +69,15 @@ export const fileRead: Tool<ReadInput> = Tool.define(
         success: true,
         output: `${header}\n${outputLines.join("\n")}`,
         metadata: {
+          // Legacy fields
           totalLines: lines.length,
           returnedLines: selectedLines.length,
           offset,
+          // NEW: FileReadMetadata fields
+          type: "file_read",
+          filePath: input.filePath,
+          linesRead: selectedLines.length,
+          truncated: selectedLines.length < lines.length,
         },
       };
     } catch (error) {
