@@ -539,7 +539,7 @@ function formatDuration(ms: number): string {
 
 // App that decides between welcome screen and session view
 function AppWithSession() {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession, stats, recordToolCall, addTokenUsage } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
@@ -554,6 +554,9 @@ function AppWithSession() {
   
   // ESC warning state - shows "Hit ESC again to stop" after first ESC
   const [escWarning, setEscWarning] = createSignal(false);
+  
+  // Ctrl+C warning state - shows "unsaved changes" warning
+  const [ctrlCWarning, setCtrlCWarning] = createSignal(false);
   
   // Command result overlay state
   const [commandOverlay, setCommandOverlay] = createSignal<{
@@ -642,14 +645,28 @@ function AppWithSession() {
 
   // Handle keyboard shortcuts
   useKeyboard((key) => {
-    // Double Ctrl+C to exit
+    // Double Ctrl+C to exit (with warning for unsaved changes)
     if (key.ctrl && key.name === "c") {
       ctrlCCount++;
+      
+      if (ctrlCCount === 1 && isDirty()) {
+        // First Ctrl+C with unsaved changes - show warning
+        setCtrlCWarning(true);
+        setTimeout(() => {
+          ctrlCCount = 0;
+          setCtrlCWarning(false);
+        }, 2000); // 2s timeout
+        return;
+      }
+      
       if (ctrlCCount >= 2) {
+        // Second Ctrl+C - exit without saving
         renderer.destroy();
       }
+      
       setTimeout(() => {
         ctrlCCount = 0;
+        setCtrlCWarning(false);
       }, 500);
       return;
     }
@@ -860,6 +877,8 @@ function AppWithSession() {
           } else {
             setIsLoading(false);
             setStreamProc(null);
+            // Save after AI response completes (event-driven, not interval-based)
+            saveAfterResponse();
           }
         }
       });
@@ -894,6 +913,9 @@ function AppWithSession() {
       
       // Handle /exit and /quit specially - print summary to terminal after exit
       if (parsed && (parsed.name === "exit" || parsed.name === "quit")) {
+        // Save session before exit
+        await saveOnExit();
+        
         // Generate summary from UI context (source of truth)
         const currentStats = stats();
         const currentModel = model();
@@ -1073,6 +1095,9 @@ function AppWithSession() {
     }
 
     // Regular message - send to API
+    // Ensure session is created on first message (lazy creation)
+    await ensureSessionCreated();
+    
     // Add user message
     addMessage({ role: "user", content: trimmedContent });
 
@@ -1183,6 +1208,8 @@ function AppWithSession() {
             setIsLoading(false);
             setStreamProc(null);
             setHasProcessed(true);  // Mark that AI has processed at least once
+            // Save after AI response completes (event-driven, not interval-based)
+            saveAfterResponse();
           }
         }
       });
@@ -1232,10 +1259,13 @@ function AppWithSession() {
           
           {/* Bottom section - flexShrink={0} prevents compression by chat content */}
           <box flexDirection="column" flexShrink={0}>
-            {/* ESC warning line */}
+            {/* Warning lines (ESC and Ctrl+C) */}
             <box height={1} justifyContent="center">
               <Show when={escWarning()}>
                 <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
+              </Show>
+              <Show when={ctrlCWarning() && !escWarning()}>
+                <text fg={Colors.status.warning}>Exit without saving? Ctrl+C again to confirm</text>
               </Show>
             </box>
             

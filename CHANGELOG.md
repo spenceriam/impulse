@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-01-22
+
+### Changed
+
+- **Lazy Session Creation** - Sessions are no longer created until first user message:
+  - Prevents empty sessions from cluttering storage
+  - Session created via `ensureSessionCreated()` when user sends first message
+  - Empty sessions deleted on exit instead of being saved
+
+- **Event-Driven Auto-Save** - Removed 30-second interval-based auto-save:
+  - Sessions now save after each complete AI response via `saveAfterResponse()`
+  - Saves on clean exit (`/quit`, `/exit`) via `saveOnExit()`
+  - More efficient and predictable save behavior
+
+### Added
+
+- **Ctrl+C Unsaved Changes Warning** - Shows warning when exiting with unsaved changes:
+  - First Ctrl+C shows "Exit without saving? Ctrl+C again to confirm"
+  - Second Ctrl+C exits without saving
+  - Warning only shown when `isDirty()` is true
+
+- **Session Context API** - New methods for session management:
+  - `ensureSessionCreated()`: Lazy session creation, returns session ID
+  - `saveAfterResponse()`: Save after AI response completes
+  - `saveOnExit()`: Save on clean exit
+  - `isDirty`: Signal indicating unsaved changes
+
 ## [0.13.0] - 2026-01-22
 
 ### Added

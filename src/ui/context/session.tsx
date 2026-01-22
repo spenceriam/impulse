@@ -1,4 +1,4 @@
-import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onMount, onCleanup } from "solid-js";
+import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onCleanup } from "solid-js";
 import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
 import { type HeaderPrefix } from "../components/HeaderLine";
@@ -76,6 +76,11 @@ interface SessionContextType {
   loadSession: (sessionId: string) => Promise<void>;
   saveSession: (name?: string) => Promise<void>;
   listSessions: () => Promise<Session[]>;
+  // Lazy session creation and save triggers
+  ensureSessionCreated: () => Promise<string>;  // Returns session ID
+  saveAfterResponse: () => Promise<void>;       // Call after AI response completes
+  saveOnExit: () => Promise<void>;              // Call on clean exit
+  isDirty: Accessor<boolean>;                   // True if unsaved changes exist
 }
 
 /**
@@ -119,6 +124,11 @@ export const SessionProvider: ParentComponent = (props) => {
   const [sessionId, setSessionId] = createSignal<string | null>(null);
   const [sessionName, setSessionName] = createSignal<string | null>(null);
   
+  // Track if session has been persisted to disk (lazy creation)
+  const [sessionPersisted, setSessionPersisted] = createSignal<boolean>(false);
+  // Track if there are unsaved changes
+  const [isDirty, setIsDirty] = createSignal<boolean>(false);
+  
   // Token and tool stats tracking
   const [tokenStats, setTokenStats] = createSignal<TokenStats>({
     input: 0,
@@ -146,37 +156,19 @@ export const SessionProvider: ParentComponent = (props) => {
     }
   };
 
-  // Auto-save interval
-  let autoSaveInterval: ReturnType<typeof setInterval> | null = null;
-  const AUTO_SAVE_INTERVAL_MS = 30000; // 30 seconds
+  // No auto-save interval - we use event-driven saves instead
+  // Session is created lazily on first user message
 
-  // Initialize session on mount
-  onMount(async () => {
-    try {
-      // Try to get current session or create new one
-      let session = SessionManager.getCurrentSession();
-      
-      if (!session) {
-        // Create a new session
-        session = await SessionManager.createNew();
-      }
+  // Initialize: Don't create session yet, just prepare empty state
+  // Session will be created on first message via ensureSessionCreated()
 
-      // Load session data into context
-      loadSessionIntoContext(session);
-
-      // Start auto-save
-      startAutoSave();
-    } catch (error) {
-      console.error("Failed to initialize session:", error);
-      // Create empty session state
-      setSessionId(null);
-      setSessionName(null);
-    }
-  });
-
-  // Cleanup on unmount
+  // Cleanup on unmount - no interval to stop
   onCleanup(() => {
-    stopAutoSave();
+    // Cancel any pending debounced saves
+    const currentId = sessionId();
+    if (currentId) {
+      SessionStoreInstance.cancelAutoSave(currentId);
+    }
   });
 
   // Load session data into context signals
@@ -201,36 +193,95 @@ export const SessionProvider: ParentComponent = (props) => {
     }
   };
 
-  // Start auto-save interval
-  const startAutoSave = () => {
-    if (autoSaveInterval) return;
-    
-    autoSaveInterval = setInterval(async () => {
-      const currentSessionId = sessionId();
-      if (currentSessionId && messages().length > 0) {
-        try {
-          const storeMessages = messages().map(uiToStoreMessage);
-          SessionStoreInstance.autoSave(currentSessionId, {
-            messages: storeMessages,
-            model: model(),
-            cost: totalCost(),
-          });
-        } catch (error) {
-          console.error("Auto-save failed:", error);
-        }
-      }
-    }, AUTO_SAVE_INTERVAL_MS);
-  };
+  /**
+   * Ensure session is created (lazy creation on first message).
+   * Returns the session ID.
+   */
+  const ensureSessionCreated = async (): Promise<string> => {
+    // If already have a persisted session, return its ID
+    if (sessionPersisted() && sessionId()) {
+      return sessionId()!;
+    }
 
-  // Stop auto-save interval
-  const stopAutoSave = () => {
-    if (autoSaveInterval) {
-      clearInterval(autoSaveInterval);
-      autoSaveInterval = null;
+    try {
+      const session = await SessionManager.createNew();
+      loadSessionIntoContext(session);
+      setSessionPersisted(true);
+      setIsDirty(false);
+      return session.id;
+    } catch (error) {
+      console.error("Failed to create session:", error);
+      throw error;
     }
   };
 
-  // Add a new message
+  /**
+   * Save after AI response completes.
+   * This is the primary save trigger - called after each complete exchange.
+   */
+  const saveAfterResponse = async (): Promise<void> => {
+    const currentSessionId = sessionId();
+    if (!currentSessionId || !sessionPersisted()) {
+      return; // No session to save
+    }
+
+    if (messages().length === 0) {
+      return; // Don't save empty sessions
+    }
+
+    try {
+      const storeMessages = messages().map(uiToStoreMessage);
+      await SessionStoreInstance.update(currentSessionId, {
+        messages: storeMessages,
+        model: model(),
+        cost: totalCost(),
+        headerTitle: headerTitle(),
+      });
+      setIsDirty(false);
+    } catch (error) {
+      console.error("Failed to save after response:", error);
+    }
+  };
+
+  /**
+   * Save on clean exit (/quit, /exit).
+   * Forces an immediate save of all current state.
+   */
+  const saveOnExit = async (): Promise<void> => {
+    const currentSessionId = sessionId();
+    if (!currentSessionId || !sessionPersisted()) {
+      return;
+    }
+
+    if (messages().length === 0) {
+      // Delete empty session on exit
+      try {
+        await SessionManager.deleteSession(currentSessionId);
+      } catch (e) {
+        // Ignore deletion errors
+      }
+      return;
+    }
+
+    try {
+      // Cancel any pending debounced saves
+      SessionStoreInstance.cancelAutoSave(currentSessionId);
+      
+      // Immediate save
+      const storeMessages = messages().map(uiToStoreMessage);
+      await SessionStoreInstance.update(currentSessionId, {
+        messages: storeMessages,
+        model: model(),
+        cost: totalCost(),
+        headerTitle: headerTitle(),
+      });
+      setIsDirty(false);
+    } catch (error) {
+      console.error("Failed to save on exit:", error);
+    }
+  };
+
+  // Add a new message (does NOT auto-save - caller should use saveAfterResponse)
   const addMessage = (message: Omit<Message, "id" | "timestamp">) => {
     const newMessage: Message = {
       ...message,
@@ -238,56 +289,51 @@ export const SessionProvider: ParentComponent = (props) => {
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, newMessage]);
-
-    // Persist to SessionManager if we have an active session
-    const currentSessionId = sessionId();
-    if (currentSessionId) {
-      // Use autoSave for debounced persistence
-      SessionStoreInstance.autoSave(currentSessionId, {
-        messages: messages().map(uiToStoreMessage),
-      });
-    }
+    setIsDirty(true);
   };
 
-  // Update an existing message
+  // Update an existing message (does NOT auto-save - caller should use saveAfterResponse)
   const updateMessage = (id: string, updates: Partial<Message>) => {
     setMessages((prev) =>
       prev.map((msg) => (msg.id === id ? { ...msg, ...updates } : msg))
     );
-
-    // Persist changes
-    const currentSessionId = sessionId();
-    if (currentSessionId) {
-      SessionStoreInstance.autoSave(currentSessionId, {
-        messages: messages().map(uiToStoreMessage),
-      });
-    }
+    setIsDirty(true);
   };
 
-  // Create a new session
+  // Create a new session (resets state for fresh start)
   const createNewSession = async () => {
-    stopAutoSave();
-    
-    try {
-      const session = await SessionManager.createNew();
-      loadSessionIntoContext(session);
-      setMessages([]); // Clear messages for new session
-      setHeaderTitle("New session", true); // Reset header for new session
-      startAutoSave();
-    } catch (error) {
-      console.error("Failed to create new session:", error);
-      throw error;
+    // Save current session if dirty
+    if (isDirty() && sessionPersisted()) {
+      await saveOnExit();
     }
+    
+    // Reset to unpersisted state
+    setSessionId(null);
+    setSessionName(null);
+    setSessionPersisted(false);
+    setMessages([]);
+    setHeaderTitle("New session", true);
+    setIsDirty(false);
+    
+    // Reset stats
+    setTotalTokens(0);
+    setTotalCost(0);
+    setTokenStats({ input: 0, output: 0, thinking: 0, cacheRead: 0, cacheWrite: 0 });
+    setToolStats({ total: 0, success: 0, failed: 0, byName: {} });
   };
 
   // Load an existing session
   const loadSession = async (targetSessionId: string) => {
-    stopAutoSave();
+    // Save current session if dirty
+    if (isDirty() && sessionPersisted()) {
+      await saveOnExit();
+    }
     
     try {
       const session = await SessionManager.load(targetSessionId);
       loadSessionIntoContext(session);
-      startAutoSave();
+      setSessionPersisted(true);
+      setIsDirty(false);
     } catch (error) {
       console.error("Failed to load session:", error);
       throw error;
@@ -389,6 +435,11 @@ export const SessionProvider: ParentComponent = (props) => {
     loadSession,
     saveSession,
     listSessions,
+    // Lazy session creation and save triggers
+    ensureSessionCreated,
+    saveAfterResponse,
+    saveOnExit,
+    isDirty,
   };
 
   return (
