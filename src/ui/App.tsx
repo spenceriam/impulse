@@ -1194,33 +1194,36 @@ function AppWithSession() {
           paddingLeft={4}
           paddingRight={4}
         >
-          {/* Header line at top */}
-          <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
-          
-          {/* Chat area - takes remaining space with flexGrow */}
-          <box flexDirection="column" flexGrow={1} overflow="hidden">
-            <ChatView messages={messages()} />
+          {/* Header line at top - flexShrink={0} to prevent compression */}
+          <box flexShrink={0}>
+            <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
           </box>
           
-          {/* ESC warning line */}
-          <box height={1} justifyContent="center">
-            <Show when={escWarning()}>
-              <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
-            </Show>
+          {/* Chat area - flexGrow={1} takes remaining space, scrollbox handles overflow */}
+          <ChatView messages={messages()} />
+          
+          {/* Bottom section - flexShrink={0} prevents compression by chat content */}
+          <box flexDirection="column" flexShrink={0}>
+            {/* ESC warning line */}
+            <box height={1} justifyContent="center">
+              <Show when={escWarning()}>
+                <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
+              </Show>
+            </box>
+            
+            {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
+            <BottomPanel
+              mode={mode()}
+              thinking={thinking()}
+              loading={isLoading()}
+              hasProcessed={hasProcessed()}
+              onSubmit={handleSubmit}
+              onAutocompleteChange={setAutocompleteData}
+            />
+            
+            {/* Status line at very bottom */}
+            <StatusLine />
           </box>
-          
-          {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
-          <BottomPanel
-            mode={mode()}
-            thinking={thinking()}
-            loading={isLoading()}
-            hasProcessed={hasProcessed()}
-            onSubmit={handleSubmit}
-            onAutocompleteChange={setAutocompleteData}
-          />
-          
-          {/* Status line at very bottom */}
-          <StatusLine />
         </box>
       </Show>
       

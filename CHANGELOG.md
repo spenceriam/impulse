@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-01-22
+
+### Fixed
+
+- **Layout Stability** - Bottom panel now locked and cannot be pushed down by chat content:
+  - Added `flexShrink={0}` to header and bottom section (OpenCode pattern)
+  - Simplified ChatView: scrollbox is now direct child with `flexGrow={1}`
+  - Chat content scrolls within fixed boundaries, never overflows into prompt area
+
 ## [0.10.1] - 2026-01-22
 
 ### Added

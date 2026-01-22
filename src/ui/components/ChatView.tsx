@@ -25,33 +25,32 @@ export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
 
   return (
-    <box flexGrow={1} border borderColor={Colors.ui.dim} overflow="hidden">
-      <scrollbox 
-        flexGrow={1}
-        width="100%"
-        stickyScroll={true}
-        stickyStart="bottom"
-        viewportOptions={{
-          paddingRight: 2,
-          paddingLeft: 1,
-          paddingTop: 1,
-          paddingBottom: 1,
-        }}
-        verticalScrollbarOptions={{
-          visible: true,
-          paddingLeft: 1,
-          trackOptions: {
-            foregroundColor: Colors.mode.AGENT,  // Cyan thumb
-            backgroundColor: Colors.ui.dim,       // Dim track
-          },
-        }}
-      >
-        <box flexDirection="column" width="100%">
-          <For each={messages()}>
-            {(message) => <MessageBlock message={message} />}
-          </For>
-        </box>
-      </scrollbox>
-    </box>
+    <scrollbox 
+      flexGrow={1}
+      border
+      borderColor={Colors.ui.dim}
+      stickyScroll={true}
+      stickyStart="bottom"
+      viewportOptions={{
+        paddingRight: 2,
+        paddingLeft: 1,
+        paddingTop: 1,
+        paddingBottom: 1,
+      }}
+      verticalScrollbarOptions={{
+        visible: true,
+        paddingLeft: 1,
+        trackOptions: {
+          foregroundColor: Colors.mode.AGENT,  // Cyan thumb
+          backgroundColor: Colors.ui.dim,       // Dim track
+        },
+      }}
+    >
+      <box flexDirection="column" width="100%">
+        <For each={messages()}>
+          {(message) => <MessageBlock message={message} />}
+        </For>
+      </box>
+    </scrollbox>
   );
 }
