@@ -75,6 +75,7 @@ export function Spinner(props: SpinnerProps) {
 interface StackedSpinnerProps {
   height?: number;
   interval?: number;
+  static?: boolean;  // Show static last frame (idle after processing)
 }
 
 // GLM-CLI logo gradient colors (cyan to dim)
@@ -90,6 +91,7 @@ const GRADIENT_COLORS = [
 export function StackedSpinner(props: StackedSpinnerProps) {
   const height = () => props.height || 3;
   const baseInterval = () => props.interval || 100;
+  const isStatic = () => props.static || false;
   
   // Each row has its own frame index for staggered effect
   const [frameIndices, setFrameIndices] = createSignal<number[]>([]);
@@ -97,6 +99,13 @@ export function StackedSpinner(props: StackedSpinnerProps) {
   let intervalIds: ReturnType<typeof setInterval>[] = [];
   
   onMount(() => {
+    // For static mode, use the last frame (⣷) for all rows
+    if (isStatic()) {
+      const lastFrameIndex = DNA_HELIX_FRAMES.length - 1;
+      setFrameIndices(Array.from({ length: height() }, () => lastFrameIndex));
+      return;
+    }
+    
     // Initialize with random starting positions for variation
     const initial = Array.from({ length: height() }, () => 
       Math.floor(Math.random() * DNA_HELIX_FRAMES.length)
@@ -126,8 +135,11 @@ export function StackedSpinner(props: StackedSpinnerProps) {
     intervalIds = [];
   });
   
-  // Get color for each row based on position
+  // Get color for each row based on position (dimmer when static)
   const getColor = (index: number): string => {
+    if (isStatic()) {
+      return Colors.ui.dim;  // Dimmed when idle
+    }
     const colorIndex = Math.floor((index / height()) * GRADIENT_COLORS.length);
     return GRADIENT_COLORS[Math.min(colorIndex, GRADIENT_COLORS.length - 1)] || "#5cffff";
   };

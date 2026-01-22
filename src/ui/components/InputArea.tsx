@@ -43,6 +43,7 @@ interface InputAreaProps {
   mode: Mode;
   thinking: boolean;
   loading?: boolean;
+  fixedHeight?: number;  // Fixed height for textarea content (overrides Layout.input.minHeight)
   onSubmit?: (value: string) => void;
   onAutocompleteChange?: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
@@ -233,7 +234,7 @@ export function InputArea(props: InputAreaProps) {
           onPaste={handlePaste}
           placeholder={showGhostText() ? ghostText : ""}
           width={-1}
-          height={Layout.input.minHeight}
+          height={props.fixedHeight ?? Layout.input.minHeight}
           focused={!props.loading}
           cursorColor={Colors.ui.primary}
         />

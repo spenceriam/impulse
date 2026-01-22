@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { Colors, type Mode, getModeColor, Indicators } from "../design";
+import { Colors, type Mode, getModeColor } from "../design";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
@@ -249,20 +249,28 @@ interface MessageBlockProps {
 }
 
 /**
- * Get status indicator and color for tool call
+ * Get display info for tool call based on status
+ * New subtext style: success is dim, errors are highlighted
  */
-function getToolStatusDisplay(status: ToolCallInfo["status"]): { indicator: string; color: string } {
+function getToolStatusDisplay(status: ToolCallInfo["status"]): { 
+  prefix: string; 
+  color: string; 
+  showStatus: boolean;
+  statusText?: string;
+} {
   switch (status) {
     case "pending":
-      return { indicator: Indicators.tool.pending, color: Colors.ui.dim };
+      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
     case "running":
-      return { indicator: Indicators.tool.running, color: Colors.mode.AGENT };
+      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
     case "success":
-      return { indicator: Indicators.tool.success, color: Colors.status.success };
+      // Success: very dim, no status shown (silence is golden)
+      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
     case "error":
-      return { indicator: Indicators.tool.error, color: Colors.status.error };
+      // Error: red with X prefix, show error status
+      return { prefix: "✗", color: Colors.status.error, showStatus: true, statusText: "error" };
     default:
-      return { indicator: Indicators.tool.pending, color: Colors.ui.dim };
+      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
   }
 }
 
@@ -307,20 +315,81 @@ function ThinkingSection(props: { content: string }) {
 }
 
 /**
- * Render a single tool call - compact display
+ * Render a single tool call - subtext style
+ * - Indented with ↳ prefix
+ * - Dimmed for success (no status shown)
+ * - Highlighted with ✗ for errors
+ * - Special handling for task (subagent) calls
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo }) {
-  const statusDisplay = () => getToolStatusDisplay(props.toolCall.status);
+  const display = () => getToolStatusDisplay(props.toolCall.status);
+  const isTask = () => props.toolCall.name === "task";
+  
+  // Extract first argument value for context (e.g., filename)
+  const argSummary = () => {
+    try {
+      const args = JSON.parse(props.toolCall.arguments || "{}");
+      
+      // For task tool, show subagent type and description
+      if (isTask()) {
+        const type = args.subagent_type || "general";
+        const desc = args.description || "";
+        return `[${type}] ${desc.length > 30 ? desc.slice(0, 27) + "..." : desc}`;
+      }
+      
+      // Common argument names to show
+      const keys = ["path", "filePath", "file", "command", "pattern", "query"];
+      for (const key of keys) {
+        if (args[key]) {
+          const val = String(args[key]);
+          return val.length > 40 ? val.slice(0, 37) + "..." : val;
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return "";
+  };
+  
+  // Extract action summaries from task result (subagent)
+  const taskActions = (): string[] => {
+    if (!isTask() || !props.toolCall.result) return [];
+    
+    // Parse "Actions taken:" section from result
+    const match = props.toolCall.result.match(/Actions taken:\n([\s\S]*?)\n\nResult:/);
+    if (match?.[1]) {
+      return match[1]
+        .split("\n")
+        .map((l) => l.replace(/^\s*-\s*/, "").trim())
+        .filter(Boolean)
+        .slice(0, 5); // Max 5 actions shown
+    }
+    return [];
+  };
   
   return (
-    <box flexDirection="row">
-      <text fg={statusDisplay().color}>{statusDisplay().indicator} </text>
-      <text fg={Colors.mode.AGENT}>{props.toolCall.name}</text>
-      <Show when={props.toolCall.status === "success" || props.toolCall.status === "error"}>
-        <text fg={Colors.ui.dim}> </text>
-        <text fg={statusDisplay().color}>
-          [{props.toolCall.status === "success" ? "OK" : "FAIL"}]
-        </text>
+    <box flexDirection="column" paddingLeft={2}>
+      {/* Main tool call line */}
+      <box flexDirection="row">
+        <text fg={display().color}>{display().prefix} </text>
+        <text fg={display().color}>{props.toolCall.name}</text>
+        <Show when={argSummary()}>
+          <text fg={Colors.ui.dim}> {argSummary()}</text>
+        </Show>
+        <Show when={display().showStatus && display().statusText}>
+          <text fg={display().color}> ({display().statusText})</text>
+        </Show>
+      </box>
+      
+      {/* Subagent action summaries (indented further) */}
+      <Show when={taskActions().length > 0}>
+        <For each={taskActions()}>
+          {(action) => (
+            <box flexDirection="row" paddingLeft={2}>
+              <text fg={Colors.ui.dim}>└─ {action}</text>
+            </box>
+          )}
+        </For>
       </Show>
     </box>
   );

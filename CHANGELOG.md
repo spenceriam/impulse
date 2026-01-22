@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-01-22
+
+### Added
+
+- **Real Subagent Execution** - Task tool now spawns actual subagent conversations:
+  - `explore` subagent: Read-only codebase search (file_read, glob, grep)
+  - `general` subagent: Multi-purpose agent (can modify files, run bash)
+  - Subagents run in batch mode using glm-4.5-flash for speed
+  - Action summaries shown in tool call display
+
+- **Bottom Panel Layout** - New 70/30 split design:
+  - Fixed-height prompt area (5 rows) - chat cannot push into it
+  - Todo panel integrated into bottom 30% when todos exist
+  - Prompt expands to 100% when no todos
+  - Bordered todo panel with scrollbox support
+
+- **TodoPanel Component** - Dedicated todo display:
+  - In-progress tasks sorted to top
+  - Completed tasks show strikethrough
+  - Scrollable when items exceed visible area
+
+### Changed
+
+- **Tool Call Display** - New subtext style for less visual noise:
+  - Success: Dim `↳` prefix, no status shown (silence is golden)
+  - Error: Red `✗` prefix with error message
+  - Task tools show `[explore]` or `[general]` type with nested action summaries
+
+- **Spinner Behavior** - Static idle state after processing:
+  - Shows dimmed `⣷` (last frame) when AI has completed
+  - Blank before first interaction
+
+### Removed
+
+- **Sidebar** - Replaced with integrated bottom panel todo display
+- **CollapsedSidebar** - No longer needed with new layout
+
 ## [0.9.12] - 2026-01-21
 
 ### Performance

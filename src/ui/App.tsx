@@ -1,11 +1,11 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, Sidebar, CollapsedSidebar, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StackedSpinner, type CommandCandidate } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, type CommandCandidate } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
-import { SidebarProvider, useSidebar } from "./context/sidebar";
+// Sidebar removed - todos now in BottomPanel
 import { ExpressProvider, useExpress } from "./context/express";
 import { respond as respondPermission, type PermissionRequest, type PermissionResponse } from "../permission";
 import { load as loadConfig, save as saveConfig } from "../util/config";
@@ -477,22 +477,20 @@ export function App(props: { initialExpress?: boolean }) {
     <ModeProvider>
       <SessionProvider>
         <TodoProvider>
-          <SidebarProvider>
-            <ExpressProvider initialExpress={props.initialExpress ?? false}>
-              <box width="100%" height="100%" padding={1}>
-                <Show when={hasApiKey()}>
-                  <AppWithSession />
-                </Show>
-                <Show when={!hasApiKey() && !showApiKeyOverlay()}>
-                  {/* Brief moment before overlay shows */}
-                  <WelcomeScreen onSubmit={() => {}} />
-                </Show>
-                <Show when={showApiKeyOverlay()}>
-                  <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
-                </Show>
-              </box>
-            </ExpressProvider>
-          </SidebarProvider>
+          <ExpressProvider initialExpress={props.initialExpress ?? false}>
+            <box width="100%" height="100%" padding={1}>
+              <Show when={hasApiKey()}>
+                <AppWithSession />
+              </Show>
+              <Show when={!hasApiKey() && !showApiKeyOverlay()}>
+                {/* Brief moment before overlay shows */}
+                <WelcomeScreen onSubmit={() => {}} />
+              </Show>
+              <Show when={showApiKeyOverlay()}>
+                <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
+              </Show>
+            </box>
+          </ExpressProvider>
         </TodoProvider>
       </SessionProvider>
     </ModeProvider>
@@ -515,11 +513,13 @@ function formatDuration(ms: number): string {
 function AppWithSession() {
   const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession, stats, recordToolCall, addTokenUsage } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
-  const { visible: sidebarVisible, toggle: toggleSidebar } = useSidebar();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
 
   const [isLoading, setIsLoading] = createSignal(false);
+  
+  // Track if AI has ever processed (for spinner idle state)
+  const [hasProcessed, setHasProcessed] = createSignal(false);
   
   // Stream processor signal - needs to be a signal so keyboard handler can access current value
   const [streamProc, setStreamProc] = createSignal<StreamProcessor | null>(null);
@@ -669,12 +669,6 @@ function AppWithSession() {
     // Shift+Tab to cycle modes reverse
     if (key.name === "tab" && key.shift) {
       cycleModeReverse();
-      return;
-    }
-
-    // Ctrl+B to toggle sidebar
-    if (key.ctrl && key.name === "b") {
-      toggleSidebar();
       return;
     }
   });
@@ -1160,6 +1154,7 @@ function AppWithSession() {
           } else {
             setIsLoading(false);
             setStreamProc(null);
+            setHasProcessed(true);  // Mark that AI has processed at least once
           }
         }
       });
@@ -1190,59 +1185,42 @@ function AppWithSession() {
         when={messages().length > 0}
         fallback={<WelcomeScreen onSubmit={handleSubmit} />}
       >
-        {/* Session view with padding: 2 top/bottom, 4 left/right */}
+        {/* Session view with padding: 1 top, 0 bottom, 4 left/right */}
         <box 
           flexDirection="column" 
           width="100%" 
           height="100%"
           paddingTop={1}
-          paddingBottom={2}
           paddingLeft={4}
           paddingRight={4}
         >
           {/* Header line at top */}
           <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
           
-          <box flexDirection="row" flexGrow={1} overflow="hidden">
-            {/* Chat + Input + Status column */}
-            <box flexDirection="column" flexGrow={1} overflow="hidden">
-              <ChatView messages={messages()} />
-              {/* Input row: spinner (when loading) + input box */}
-              <box flexDirection="row" alignItems="center">
-                {/* Reserved space for spinner - always present to keep layout stable */}
-                <box width={3} flexShrink={0} paddingRight={1} height="100%" justifyContent="center">
-                  {/* 5 rows, vertically centered against input box */}
-                  <Show when={isLoading()}>
-                    <StackedSpinner height={5} />
-                  </Show>
-                </box>
-                <box flexGrow={1}>
-                  <InputArea
-                    mode={mode()}
-                    thinking={thinking()}
-                    loading={isLoading()}
-                    onSubmit={handleSubmit}
-                    onAutocompleteChange={setAutocompleteData}
-                  />
-                </box>
-              </box>
-              {/* ESC warning or padding between input and status line */}
-              <box height={1} justifyContent="center">
-                <Show when={escWarning()}>
-                  <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
-                </Show>
-              </box>
-              {/* Status line directly under input box */}
-              <StatusLine />
-            </box>
-            {/* Sidebar or collapsed strip based on visibility */}
-            <Show
-              when={sidebarVisible()}
-              fallback={<CollapsedSidebar />}
-            >
-              <Sidebar onCollapse={toggleSidebar} />
+          {/* Chat area - takes remaining space with flexGrow */}
+          <box flexDirection="column" flexGrow={1} overflow="hidden">
+            <ChatView messages={messages()} />
+          </box>
+          
+          {/* ESC warning line */}
+          <box height={1} justifyContent="center">
+            <Show when={escWarning()}>
+              <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
             </Show>
           </box>
+          
+          {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
+          <BottomPanel
+            mode={mode()}
+            thinking={thinking()}
+            loading={isLoading()}
+            hasProcessed={hasProcessed()}
+            onSubmit={handleSubmit}
+            onAutocompleteChange={setAutocompleteData}
+          />
+          
+          {/* Status line at very bottom */}
+          <StatusLine />
         </box>
       </Show>
       

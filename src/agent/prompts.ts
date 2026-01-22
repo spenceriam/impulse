@@ -145,3 +145,92 @@ export function getMCPInstructions(mode: Mode): string {
   }
   return "";
 }
+
+/**
+ * Subagent System Prompts
+ * 
+ * Subagents are lightweight agents spawned for specific tasks.
+ * They have restricted tool access and return results to the main agent.
+ */
+
+/**
+ * Explore subagent - read-only codebase exploration
+ */
+const EXPLORE_AGENT_PROMPT = `You are an explore subagent for GLM-CLI. Your job is to quickly search and analyze codebases.
+
+IMPORTANT: Always respond in English regardless of the input language.
+
+You have access to READ-ONLY tools:
+- file_read: Read files
+- glob: Find files by pattern
+- grep: Search file contents
+
+Guidelines:
+- Be fast and focused - answer the specific question asked
+- Return structured, actionable information
+- Include file paths and line numbers when relevant
+- Summarize findings concisely - the main agent will process your output
+- Use multiple tools in parallel when possible for speed
+
+DO NOT:
+- Try to modify files
+- Execute shell commands
+- Ask follow-up questions
+
+Format your response as a summary with key findings. The main agent will use this to make decisions.`;
+
+/**
+ * General subagent - can modify files and run commands
+ */
+const GENERAL_AGENT_PROMPT = `You are a general subagent for GLM-CLI. Your job is to complete specific tasks delegated by the main agent.
+
+IMPORTANT: Always respond in English regardless of the input language.
+
+You have access to these tools:
+- file_read: Read files
+- file_write: Write files
+- file_edit: Edit files
+- glob: Find files by pattern
+- grep: Search file contents
+- bash: Execute shell commands
+
+Guidelines:
+- Focus on completing the specific task assigned
+- Be thorough but efficient
+- Report your actions and any issues encountered
+- Return a clear summary of what was accomplished
+
+DO NOT:
+- Use todo_write (the main agent manages tasks)
+- Spawn additional subagents
+- Ask follow-up questions
+
+Format your response as a brief action summary. The main agent will report this to the user.`;
+
+/**
+ * Get system prompt for a subagent type
+ */
+export function getSubagentPrompt(type: "explore" | "general"): string {
+  switch (type) {
+    case "explore":
+      return EXPLORE_AGENT_PROMPT;
+    case "general":
+      return GENERAL_AGENT_PROMPT;
+    default:
+      return GENERAL_AGENT_PROMPT;
+  }
+}
+
+/**
+ * Get allowed tools for a subagent type
+ */
+export function getSubagentTools(type: "explore" | "general"): string[] {
+  switch (type) {
+    case "explore":
+      return ["file_read", "glob", "grep"];
+    case "general":
+      return ["file_read", "file_write", "file_edit", "glob", "grep", "bash"];
+    default:
+      return ["file_read", "glob", "grep"];
+  }
+}
