@@ -500,12 +500,15 @@ export function MessageBlock(props: MessageBlockProps) {
       when={isUser()}
       fallback={
         // Assistant message - subtle dark background
+        // minWidth={0} allows shrinking, overflow="hidden" clips content
         <box 
           flexDirection="column" 
           marginBottom={1}
           backgroundColor={ASSISTANT_BG}
           paddingLeft={1}
           paddingRight={1}
+          minWidth={0}
+          overflow="hidden"
         >
           <box flexDirection="row">
             <text>
@@ -565,7 +568,8 @@ export function MessageBlock(props: MessageBlockProps) {
       }
     >
       {/* User message - cyan left border + dark cyan background */}
-      <box flexDirection="row" marginBottom={1}>
+      {/* minWidth={0} and overflow="hidden" prevent text from breaking layout */}
+      <box flexDirection="row" marginBottom={1} minWidth={0} overflow="hidden">
         <text fg={Colors.mode.AGENT}>┃</text>
         <box 
           flexDirection="column" 
@@ -573,6 +577,8 @@ export function MessageBlock(props: MessageBlockProps) {
           paddingLeft={1}
           paddingRight={1}
           flexGrow={1}
+          minWidth={0}
+          overflow="hidden"
         >
           <box flexDirection="row">
             <text>

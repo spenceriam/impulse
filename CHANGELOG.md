@@ -63,6 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixes HTTP 406 (Not Acceptable) errors
   - Applied to both health checks and tool calls
 
+- **UI Layout Stability** - Fixed text overflow breaking UI frame/borders:
+  - Added `overflow="hidden"` to ChatView, MessageBlock, and InputArea containers
+  - Added `minWidth={0}` to all flex children (critical for shrinking below content size)
+  - InputArea prompt indicator now in fixed-width box, textarea in flex container
+  - Follows OpenCode patterns: `min-w-0`, `overflow-hidden`, `word-break`
+  - Prevents long text from pushing borders and breaking layout
+
 ## [0.13.0] - 2026-01-22
 
 ### Added

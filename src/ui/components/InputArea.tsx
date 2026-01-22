@@ -344,21 +344,30 @@ export function InputArea(props: InputAreaProps) {
       flexDirection="column"
       padding={1}
       backgroundColor={INPUT_BACKGROUND}
+      minWidth={0}           // Allow shrinking in flex layout
+      overflow="hidden"      // Clip content at border bounds
     >
-      <box flexDirection="row" alignItems="flex-start">
-        <text fg={Colors.ui.dim}>{">"} </text>
-        <textarea
-          ref={(r: TextareaRenderable) => { textareaRef = r; }}
-          keyBindings={TEXTAREA_KEY_BINDINGS}
-          onContentChange={handleContentChange}
-          onSubmit={handleSubmit}
-          onPaste={handlePaste}
-          placeholder={showGhostText() ? ghostText : null}
-          width={-1}
-          height={props.fixedHeight ?? Layout.input.minHeight}
-          focused={!props.loading}
-          cursorColor={Colors.ui.primary}
-        />
+      {/* Row container with minWidth={0} for proper flex shrinking */}
+      <box flexDirection="row" alignItems="flex-start" minWidth={0}>
+        {/* Fixed-width prompt indicator */}
+        <box width={2} flexShrink={0}>
+          <text fg={Colors.ui.dim}>{">"} </text>
+        </box>
+        {/* Textarea fills remaining space, minWidth={0} allows shrinking */}
+        <box flexGrow={1} minWidth={0}>
+          <textarea
+            ref={(r: TextareaRenderable) => { textareaRef = r; }}
+            keyBindings={TEXTAREA_KEY_BINDINGS}
+            onContentChange={handleContentChange}
+            onSubmit={handleSubmit}
+            onPaste={handlePaste}
+            placeholder={showGhostText() ? ghostText : null}
+            width={-1}
+            height={props.fixedHeight ?? Layout.input.minHeight}
+            focused={!props.loading}
+            cursorColor={Colors.ui.primary}
+          />
+        </box>
       </box>
     </box>
   );
