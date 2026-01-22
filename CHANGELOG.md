@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-01-22
+
+### Added
+
+- **Prompt History Navigation** - Use Up/Down arrows to browse previous prompts:
+  - Up arrow recalls previous prompt (when cursor at start or empty)
+  - Down arrow navigates forward or returns to current input
+  - Saves current input when navigating, restores when returning
+  - Maximum 50 history entries
+
+- **Double-ESC Clear** - Press Escape twice (within 500ms) to clear prompt box
+
+### Changed
+
+- **Subagent Model Upgrade** - Switched from `glm-4.5-flash` to `glm-4.7-flash`:
+  - Better reasoning and tool use for subagent tasks
+  - Maintains fast response times
+
+- **Ghost Text Styling** - Placeholder text is now darker and italic:
+  - Color changed from dim gray to `#444444`
+  - Italic style for subtle, non-intrusive appearance
+
 ## [0.10.0] - 2026-01-22
 
 ### Added
@@ -14,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Real Subagent Execution** - Task tool now spawns actual subagent conversations:
   - `explore` subagent: Read-only codebase search (file_read, glob, grep)
   - `general` subagent: Multi-purpose agent (can modify files, run bash)
-  - Subagents run in batch mode using glm-4.5-flash for speed
+  - Subagents run in batch mode using glm-4.7-flash for speed
   - Action summaries shown in tool call display
 
 - **Bottom Panel Layout** - New 70/30 split design:

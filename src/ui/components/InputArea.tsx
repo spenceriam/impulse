@@ -1,6 +1,7 @@
 import { createSignal, createMemo, createEffect } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { TextareaRenderable, PasteEvent } from "@opentui/core";
+import { t, italic, fg } from "@opentui/core";
 import { Colors, Mode, Layout } from "../design";
 import { CommandRegistry } from "../../commands/registry";
 
@@ -48,13 +49,28 @@ interface InputAreaProps {
   onAutocompleteChange?: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
 
+// Maximum history entries to keep
+const MAX_HISTORY = 50;
+
 export function InputArea(props: InputAreaProps) {
   const [value, setValue] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   const [hasEverTyped, setHasEverTyped] = createSignal(false);
+  
+  // Prompt history for up/down navigation
+  const [history, setHistory] = createSignal<string[]>([]);
+  const [historyIndex, setHistoryIndex] = createSignal(-1); // -1 = current input, 0+ = history
+  const [savedInput, setSavedInput] = createSignal(""); // Save current input when navigating history
+  
+  // Double-ESC tracking for clear functionality
+  const [lastEscTime, setLastEscTime] = createSignal(0);
+  const DOUBLE_ESC_THRESHOLD = 500; // ms
+  
   let textareaRef: TextareaRenderable | undefined;
 
-  const ghostText = "What are we building, breaking, or making better?";
+  // Ghost text: darker (#444444) and italic for subtle appearance
+  const GHOST_COLOR = "#444444";
+  const ghostText = t`${fg(GHOST_COLOR)(italic("What are we building, breaking, or making better?"))}`;
   
   // Ghost text only shows on first render, before user has ever typed
   const showGhostText = () => !hasEverTyped() && value().length === 0;
@@ -105,7 +121,7 @@ export function InputArea(props: InputAreaProps) {
   });
 
   useKeyboard((key) => {
-    // Handle autocomplete navigation
+    // Handle autocomplete navigation (takes priority)
     if (showAutocomplete()) {
       const commands = filteredCommands();
       
@@ -132,9 +148,93 @@ export function InputArea(props: InputAreaProps) {
       }
       
       if (key.name === "escape") {
-        // Close autocomplete by clearing
+        // Close autocomplete by clearing selection
         setSelectedIndex(0);
         return;
+      }
+    }
+    
+    // Double-ESC to clear prompt (when not processing and not in autocomplete)
+    if (key.name === "escape" && !props.loading) {
+      const now = Date.now();
+      const lastTime = lastEscTime();
+      setLastEscTime(now);
+      
+      if (now - lastTime < DOUBLE_ESC_THRESHOLD && value().length > 0) {
+        // Double-ESC detected - clear the prompt
+        if (textareaRef) {
+          textareaRef.clear();
+        }
+        setValue("");
+        setHistoryIndex(-1);
+        setSavedInput("");
+        return;
+      }
+    }
+    
+    // History navigation with up/down arrows (when cursor is at appropriate position)
+    // Only activate when not in autocomplete mode
+    if (!showAutocomplete() && textareaRef) {
+      const cursorAtStart = textareaRef.cursorOffset === 0;
+      const cursorAtEnd = textareaRef.cursorOffset === textareaRef.plainText.length;
+      const historyList = history();
+      
+      // Up arrow: go back in history (when cursor at start or input is empty)
+      if (key.name === "up" && (cursorAtStart || value().length === 0)) {
+        if (historyList.length > 0) {
+          const currentIdx = historyIndex();
+          
+          // Save current input if we're starting to navigate
+          if (currentIdx === -1) {
+            setSavedInput(value());
+          }
+          
+          // Move back in history
+          const newIdx = Math.min(currentIdx + 1, historyList.length - 1);
+          if (newIdx !== currentIdx || currentIdx === -1) {
+            setHistoryIndex(newIdx);
+            const historyItem = historyList[newIdx];
+            if (historyItem !== undefined) {
+              textareaRef.clear();
+              textareaRef.insertText(historyItem);
+              setValue(historyItem);
+              textareaRef.gotoBufferEnd();
+            }
+          }
+          return;
+        }
+      }
+      
+      // Down arrow: go forward in history or back to current input
+      if (key.name === "down" && (cursorAtEnd || value().length === 0)) {
+        const currentIdx = historyIndex();
+        
+        if (currentIdx > 0) {
+          // Move forward in history
+          const newIdx = currentIdx - 1;
+          setHistoryIndex(newIdx);
+          const historyItem = historyList[newIdx];
+          if (historyItem !== undefined) {
+            textareaRef.clear();
+            textareaRef.insertText(historyItem);
+            setValue(historyItem);
+            textareaRef.gotoBufferEnd();
+          }
+          return;
+        } else if (currentIdx === 0) {
+          // Return to saved input
+          setHistoryIndex(-1);
+          const saved = savedInput();
+          textareaRef.clear();
+          if (saved) {
+            textareaRef.insertText(saved);
+            setValue(saved);
+          } else {
+            setValue("");
+          }
+          textareaRef.gotoBufferEnd();
+          return;
+        }
       }
     }
 
@@ -170,6 +270,25 @@ export function InputArea(props: InputAreaProps) {
     }
   };
 
+  // Add submitted prompt to history
+  const addToHistory = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    
+    setHistory(prev => {
+      // Don't add duplicates at the top
+      if (prev[0] === trimmed) return prev;
+      
+      // Add to front, limit size
+      const newHistory = [trimmed, ...prev].slice(0, MAX_HISTORY);
+      return newHistory;
+    });
+    
+    // Reset history navigation state
+    setHistoryIndex(-1);
+    setSavedInput("");
+  };
+
   // Handle submit via textarea's onSubmit (triggered by Enter)
   const handleSubmit = () => {
     // If autocomplete is showing and user presses Enter, complete and submit the command
@@ -179,6 +298,7 @@ export function InputArea(props: InputAreaProps) {
       if (selected) {
         const commandText = `/${selected.name}`;
         // Submit the completed command directly
+        addToHistory(commandText);
         props.onSubmit?.(commandText);
         setValue("");
         if (textareaRef) {
@@ -190,6 +310,7 @@ export function InputArea(props: InputAreaProps) {
     }
     
     if (value().trim()) {
+      addToHistory(value());
       props.onSubmit?.(value());
       setValue("");
       if (textareaRef) {
@@ -232,7 +353,7 @@ export function InputArea(props: InputAreaProps) {
           onContentChange={handleContentChange}
           onSubmit={handleSubmit}
           onPaste={handlePaste}
-          placeholder={showGhostText() ? ghostText : ""}
+          placeholder={showGhostText() ? ghostText : null}
           width={-1}
           height={props.fixedHeight ?? Layout.input.minHeight}
           focused={!props.loading}

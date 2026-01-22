@@ -53,7 +53,7 @@ async function executeSubagent(
     // Make non-streaming completion (subagents work in batch mode)
     // Only include tools if we have any (undefined vs empty array matters)
     const completionOptions: Parameters<typeof GLMClient.complete>[0] = {
-      model: "glm-4.5-flash", // Use faster model for subagents
+      model: "glm-4.7-flash", // Use fast flagship model for subagents
       messages,
     };
     
