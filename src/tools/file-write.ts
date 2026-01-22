@@ -77,9 +77,18 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
         stats.mode = existingPermissions;
       }
 
+      // Count lines written
+      const linesWritten = input.content.split("\n").length;
+
       return {
         success: true,
         output: `File written successfully: ${input.filePath}`,
+        metadata: {
+          type: "file_write",
+          filePath: input.filePath,
+          linesWritten,
+          created: isNewFile,
+        },
       };
     } catch (error) {
       if (error instanceof Error) {
