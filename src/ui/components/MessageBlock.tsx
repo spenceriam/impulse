@@ -1,6 +1,17 @@
-import { For, Show } from "solid-js";
+import { For, Show, type JSX } from "solid-js";
 import { Colors, type Mode, getModeColor } from "../design";
 import type { ToolMetadata } from "../../types/tool-metadata";
+import {
+  isBashMetadata,
+  isFileEditMetadata,
+  isFileWriteMetadata,
+  isFileReadMetadata,
+  isGlobMetadata,
+  isGrepMetadata,
+  isTaskMetadata,
+} from "../../types/tool-metadata";
+import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
+import { DiffView } from "./DiffView";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
@@ -250,30 +261,152 @@ interface MessageBlockProps {
   message: Message;
 }
 
+
+
+// ============================================
+// Tool-Specific Display Helpers
+// ============================================
+
 /**
- * Get display info for tool call based on status
- * New subtext style: success is dim, errors are highlighted
+ * Generate title text for a tool call based on its metadata
  */
-function getToolStatusDisplay(status: ToolCallInfo["status"]): { 
-  prefix: string; 
-  color: string; 
-  showStatus: boolean;
-  statusText?: string;
-} {
-  switch (status) {
-    case "pending":
-      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
-    case "running":
-      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
-    case "success":
-      // Success: very dim, no status shown (silence is golden)
-      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
-    case "error":
-      // Error: red with X prefix, show error status
-      return { prefix: "✗", color: Colors.status.error, showStatus: true, statusText: "error" };
-    default:
-      return { prefix: "↳", color: Colors.ui.dim, showStatus: false };
+function getToolTitle(name: string, args: string, metadata?: ToolMetadata): string {
+  // Use metadata if available
+  if (metadata) {
+    if (isBashMetadata(metadata)) {
+      const desc = metadata.description || metadata.command.slice(0, 40);
+      return `bash "${desc.length > 40 ? desc.slice(0, 37) + "..." : desc}"`;
+    }
+
+    if (isFileWriteMetadata(metadata)) {
+      return `file_write ${metadata.filePath} (${metadata.linesWritten} lines)`;
+    }
+
+    if (isFileEditMetadata(metadata)) {
+      return `file_edit ${metadata.filePath} (+${metadata.linesAdded}/-${metadata.linesRemoved})`;
+    }
+
+    if (isFileReadMetadata(metadata)) {
+      const truncStr = metadata.truncated ? ", truncated" : "";
+      return `file_read ${metadata.filePath} (${metadata.linesRead} lines${truncStr})`;
+    }
+
+    if (isGlobMetadata(metadata)) {
+      const pathStr = metadata.path ? ` in ${metadata.path}` : "";
+      return `glob "${metadata.pattern}"${pathStr} (${metadata.matchCount} matches)`;
+    }
+
+    if (isGrepMetadata(metadata)) {
+      const pathStr = metadata.path ? ` in ${metadata.path}` : "";
+      return `grep "${metadata.pattern}"${pathStr} (${metadata.matchCount} matches)`;
+    }
+
+    if (isTaskMetadata(metadata)) {
+      return `task [${metadata.subagentType}] "${metadata.description}"`;
+    }
   }
+
+  // Fallback: parse from arguments
+  try {
+    const parsed = JSON.parse(args || "{}");
+
+    if (name === "bash") {
+      const desc = parsed.description || parsed.command?.slice(0, 40) || "";
+      return `bash "${desc}"`;
+    }
+
+    // Common path-based tools
+    const pathKeys = ["path", "filePath", "file"];
+    for (const key of pathKeys) {
+      if (parsed[key]) {
+        const val = String(parsed[key]);
+        return `${name} ${val.length > 40 ? val.slice(0, 37) + "..." : val}`;
+      }
+    }
+
+    // Pattern-based tools
+    if (parsed.pattern) {
+      return `${name} "${parsed.pattern}"`;
+    }
+
+    // Task tool
+    if (name === "task" && parsed.subagent_type) {
+      return `task [${parsed.subagent_type}] "${parsed.description || ""}"`;
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
+  return name;
+}
+
+/**
+ * Generate expanded content for a tool call based on its metadata
+ * Returns null if no expanded content available
+ */
+function getExpandedContent(
+  _name: string,
+  metadata?: ToolMetadata,
+  _result?: string
+): JSX.Element | null {
+  if (!metadata) return null;
+
+  // Bash: show command and output with truncation safety
+  if (isBashMetadata(metadata)) {
+    // Hard limits to prevent UI crash
+    const MAX_LINES = 50;
+    const MAX_CHARS = 5000;
+
+    let output = metadata.output;
+    let charTruncated = false;
+
+    // Truncate by characters first
+    if (output.length > MAX_CHARS) {
+      output = output.slice(0, MAX_CHARS);
+      charTruncated = true;
+    }
+
+    const outputLines = output.split("\n");
+    const previewLines = outputLines.slice(0, 3);
+    const hasMore = outputLines.length > 3 || charTruncated;
+    const moreCount = Math.min(outputLines.length - 3, MAX_LINES - 3);
+
+    return (
+      <box flexDirection="column">
+        <text fg={Colors.ui.text}>$ {metadata.command}</text>
+        <For each={previewLines}>
+          {(line) => <text fg={Colors.ui.dim}>{line}</text>}
+        </For>
+        <Show when={hasMore}>
+          <text fg={Colors.ui.dim}>
+            ... ({charTruncated ? "output truncated" : `${moreCount} more lines`})
+          </text>
+        </Show>
+      </box>
+    );
+  }
+
+  // File Edit: show diff
+  if (isFileEditMetadata(metadata) && metadata.diff) {
+    return <DiffView diff={metadata.diff} maxLines={30} />;
+  }
+
+  // Task: show action summaries
+  if (isTaskMetadata(metadata) && metadata.actions.length > 0) {
+    return (
+      <box flexDirection="column">
+        <text fg={Colors.ui.dim}>({metadata.toolCallCount} tool calls)</text>
+        <For each={metadata.actions}>
+          {(action) => (
+            <text fg={Colors.ui.dim}>└─ {action}</text>
+          )}
+        </For>
+      </box>
+    );
+  }
+
+  // No expanded content for other tools
+  return null;
 }
 
 /**
@@ -317,16 +450,12 @@ function ThinkingSection(props: { content: string }) {
 }
 
 /**
- * Render a single tool call - subtext style
- * - Indented with ↳ prefix
- * - Dimmed for success (no status shown)
- * - Highlighted with ✗ for errors
- * - Special handling for task (subagent) calls
+ * Render a single tool call with collapsible display
+ * - Collapsed: shows status indicator + tool title
+ * - Expanded: shows tool-specific content (command output, diff, etc.)
+ * - Errors auto-expand
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number }) {
-  const display = () => getToolStatusDisplay(props.toolCall.status);
-  const isTask = () => props.toolCall.name === "task";
-
   const title = () => getToolTitle(
     props.toolCall.name,
     props.toolCall.arguments,
@@ -418,12 +547,12 @@ export function MessageBlock(props: MessageBlockProps) {
                     return attempts > 1 ? attempts : undefined;
                   })();
 
-                  const props = { toolCall };
+                  const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number } = { toolCall };
                   if (attempt !== undefined) {
-                    (props as any).attemptNumber = attempt;
+                    displayProps.attemptNumber = attempt;
                   }
 
-                  return <ToolCallDisplay {...props} />;
+                  return <ToolCallDisplay {...displayProps} />;
                 }}
               </For>
             </box>

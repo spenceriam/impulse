@@ -13,13 +13,20 @@ interface DiffLine {
 
 /**
  * Parse unified diff into typed lines
+ * 
+ * Unified diff format:
+ * - Lines starting with "---" or "+++" are file headers (skipped)
+ * - Lines starting with "@@" are hunk headers (line range info)
+ * - Lines starting with "+" are additions (green)
+ * - Lines starting with "-" are deletions (red)
+ * - Lines starting with " " or other content are context (unchanged)
  */
 function parseDiff(diff: string): DiffLine[] {
   const lines = diff.split("\n");
   const result: DiffLine[] = [];
 
   for (const line of lines) {
-    // Skip the first 4 header lines (---, +++, and file info)
+    // Skip file header lines (--- a/file, +++ b/file)
     if (line.startsWith("---") || line.startsWith("+++")) {
       continue;
     }

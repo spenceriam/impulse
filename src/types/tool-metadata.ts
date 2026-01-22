@@ -96,6 +96,16 @@ export type ToolMetadata =
 // ============================================
 // Type Guards
 // ============================================
+
+/**
+ * Type guard functions for narrowing ToolMetadata union types.
+ * Use these to safely access metadata-specific properties.
+ * 
+ * @example
+ * if (isBashMetadata(metadata)) {
+ *   console.log(metadata.command); // TypeScript knows this is BashMetadata
+ * }
+ */
 export function isBashMetadata(m: ToolMetadata): m is BashMetadata {
   return m.type === "bash";
 }
@@ -123,3 +133,27 @@ export function isGrepMetadata(m: ToolMetadata): m is GrepMetadata {
 export function isTaskMetadata(m: ToolMetadata): m is TaskMetadata {
   return m.type === "task";
 }
+
+// ============================================
+// Consolidated Type Guards Object
+// ============================================
+
+/**
+ * Consolidated type guards for cleaner imports.
+ * 
+ * @example
+ * import { TypeGuards } from "../types/tool-metadata";
+ * 
+ * if (TypeGuards.isBash(metadata)) {
+ *   console.log(metadata.command);
+ * }
+ */
+export const TypeGuards = {
+  isBash: (m: ToolMetadata): m is BashMetadata => m.type === "bash",
+  isFileEdit: (m: ToolMetadata): m is FileEditMetadata => m.type === "file_edit",
+  isFileWrite: (m: ToolMetadata): m is FileWriteMetadata => m.type === "file_write",
+  isFileRead: (m: ToolMetadata): m is FileReadMetadata => m.type === "file_read",
+  isGlob: (m: ToolMetadata): m is GlobMetadata => m.type === "glob",
+  isGrep: (m: ToolMetadata): m is GrepMetadata => m.type === "grep",
+  isTask: (m: ToolMetadata): m is TaskMetadata => m.type === "task",
+} as const;
