@@ -9,6 +9,8 @@ export { ToolBlock } from "./ToolBlock";
 export { TodoItem } from "./TodoItem";
 export { TodoPanel } from "./TodoPanel";
 export { BottomPanel } from "./BottomPanel";
+export { CollapsibleToolBlock } from "./CollapsibleToolBlock";
+export { DiffView } from "./DiffView";
 export { Overlay, type OverlayMode, type CommandOption } from "./Overlay";
 export { Autocomplete } from "./Autocomplete";
 export { QuestionOverlay } from "./QuestionOverlay";
