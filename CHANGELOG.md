@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-01-22
+
+### Fixed
+
+- **Tool Display Implementation** - Completed missing helper functions:
+  - Added `getToolTitle()` function for generating tool titles from metadata
+  - Added `getExpandedContent()` function for bash output, diffs, task actions
+  - Added imports for CollapsibleToolBlock and DiffView components
+  - Added imports for all type guard functions from tool-metadata
+  - Removed unused variables from ToolCallDisplay
+
+- **Type Safety** - Improved TypeScript compliance:
+  - Replaced `as any` type assertion with proper typed displayProps object
+  - Added consolidated TypeGuards object for cleaner imports
+  - Updated DiffView comment documentation
+
 ## [0.11.0] - 2026-01-22
 
 ### Added
