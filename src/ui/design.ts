@@ -48,6 +48,23 @@ export const Colors = {
   },
 
   /**
+   * Message background colors (for user vs AI differentiation)
+   */
+  message: {
+    user: "#2a2a3a",      // Slightly blue-tinted - User messages
+    assistant: "#1a1a2a", // Darker - AI messages
+    thinking: "#151520",  // Muted - Thinking blocks
+  },
+
+  /**
+   * Input area colors
+   */
+  input: {
+    background: "#252530", // Input area background
+    accent: "#5cffff",     // Mode-colored accent lines (default cyan)
+  },
+
+  /**
    * Diff colors (used in file changes)
    */
   diff: {

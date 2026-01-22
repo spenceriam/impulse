@@ -1,7 +1,6 @@
 import { Show } from "solid-js";
 import { InputArea, type CommandCandidate } from "./InputArea";
 import { TodoPanel } from "./TodoPanel";
-import { StackedSpinner } from "./Spinner";
 import { useTodo } from "../context";
 import { type Mode } from "../design";
 
@@ -14,37 +13,42 @@ import { type Mode } from "../design";
  * - When no todos: 100% prompt box
  * - Fixed height of 9 rows (see height calculation below)
  * 
- * Height Calculation for InputArea:
- * - border: 2 rows (top + bottom)
- * - padding: 2 rows (top + bottom, padding={1})
+ * Height Calculation for InputArea (new borderless design):
+ * - top accent line: 1 row
  * - textarea content: 5 rows
- * - Total: 2 + 2 + 5 = 9 rows
+ * - footer line: 1 row
+ * - bottom accent line: 1 row
+ * - Total: 1 + 5 + 1 + 1 = 8 rows
+ * 
+ * Note: Spinner column removed - spinner now in Gutter component
  * 
  * Structure:
  * ┌─────────────────────────────────────────────┬───────────┐
- * │ [Spinner] ┌─ MODE ─────────────────────┐    │┌─ Todo ──┐│
- * │           │ > _                        │    ││ [>] Task││
- * │           │                            │    ││ [ ] Next││
- * │           │                            │    ││         ││
- * │           │                            │    ││         ││
- * │           └────────────────────────────┘    │└─────────┘│
+ * │ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │┌─ Todo ──┐│
+ * │ > _                                         ││ [>] Task││
+ * │                                             ││ [ ] Next││
+ * │                                             ││         ││
+ * │ AUTO > GLM-4.7                              ││         ││
+ * │ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ │└─────────┘│
  * └─────────────────────────────────────────────┴───────────┘
  */
 
-// Height calculation: border(2) + padding(2) + textarea(5) = 9
+// Height calculation: accent(1) + textarea(5) + footer(1) + accent(1) = 8
 const TEXTAREA_HEIGHT = 5;
-const BORDER_HEIGHT = 2;
-const PADDING_HEIGHT = 2;
-const PANEL_HEIGHT = TEXTAREA_HEIGHT + BORDER_HEIGHT + PADDING_HEIGHT;  // 9 rows
+const ACCENT_HEIGHT = 2;  // Top + bottom accent lines
+const FOOTER_HEIGHT = 1;
+const PANEL_HEIGHT = TEXTAREA_HEIGHT + ACCENT_HEIGHT + FOOTER_HEIGHT;  // 8 rows
 
 const PROMPT_WIDTH_PERCENT = 70;
 const TODO_WIDTH_PERCENT = 30;
+
+// Export panel height for Gutter calculations
+export const BOTTOM_PANEL_HEIGHT = PANEL_HEIGHT;
 
 interface BottomPanelProps {
   mode: Mode;
   thinking: boolean;
   loading: boolean;
-  hasProcessed: boolean;  // True if AI has ever processed (for spinner idle state)
   onSubmit: (value: string) => void;
   onAutocompleteChange: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
@@ -63,30 +67,7 @@ export function BottomPanel(props: BottomPanelProps) {
       minWidth={0}
       overflow="hidden"
     >
-      {/* Spinner column - fixed width container to prevent layout shift */}
-      <box 
-        width={3} 
-        flexShrink={0} 
-        paddingRight={1} 
-        height={PANEL_HEIGHT} 
-        justifyContent="center"
-        alignItems="center"
-      >
-        {/* Show animated spinner while loading */}
-        <Show when={props.loading}>
-          <StackedSpinner height={5} />
-        </Show>
-        {/* Show static spinner when idle after processing */}
-        <Show when={!props.loading && props.hasProcessed}>
-          <StackedSpinner height={5} static />
-        </Show>
-        {/* Empty placeholder when never processed (maintains layout) */}
-        <Show when={!props.loading && !props.hasProcessed}>
-          <box width={2} height={5} />
-        </Show>
-      </box>
-      
-      {/* Prompt + Todo split */}
+      {/* Prompt + Todo split - no spinner column (moved to Gutter) */}
       <box flexDirection="row" flexGrow={1} minWidth={0} overflow="hidden">
         {/* Prompt box - 70% or 100% depending on todos */}
         <box 

@@ -2,11 +2,8 @@ import { createSignal, createMemo, createEffect } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { t, italic, fg } from "@opentui/core";
-import { Colors, Mode, Layout } from "../design";
+import { Colors, Mode, Layout, getModeColor } from "../design";
 import { CommandRegistry } from "../../commands/registry";
-
-// Background color for input area (dark purple tint per design spec)
-const INPUT_BACKGROUND = "#1a1a2a";
 
 
 /**
@@ -331,43 +328,66 @@ export function InputArea(props: InputAreaProps) {
     }, 0);
   };
 
-  const title = () => {
+  // Get the mode color for accent lines
+  const modeColor = () => getModeColor(props.mode);
+  
+  // Footer text: MODE > MODEL (thinking indicator)
+  const footerText = () => {
     const thinkingSuffix = props.thinking ? " (Thinking)" : "";
-    return `${props.mode}${thinkingSuffix}`;
+    return `${props.mode} > GLM-4.7${thinkingSuffix}`;
   };
+
+  // Generate accent line (repeated character to fill width)
+  // Using ▄ for top (lower half block) and ▀ for bottom (upper half block)
+  const accentLineTop = "▄".repeat(80);
+  const accentLineBottom = "▀".repeat(80);
 
   return (
     <box
-      border
-      title={title()}
-      titleAlignment="left"
       flexDirection="column"
-      padding={1}
-      backgroundColor={INPUT_BACKGROUND}
+      backgroundColor={Colors.input.background}
       minWidth={0}           // Allow shrinking in flex layout
-      overflow="hidden"      // Clip content at border bounds
+      overflow="hidden"      // Clip content at bounds
     >
-      {/* Row container with minWidth={0} for proper flex shrinking */}
-      <box flexDirection="row" alignItems="flex-start" minWidth={0}>
-        {/* Fixed-width prompt indicator */}
-        <box width={2} flexShrink={0}>
-          <text fg={Colors.ui.dim}>{">"} </text>
+      {/* Top accent line - mode colored */}
+      <box height={1} overflow="hidden">
+        <text fg={modeColor()}>{accentLineTop}</text>
+      </box>
+      
+      {/* Main content area with padding */}
+      <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+        {/* Row container with minWidth={0} for proper flex shrinking */}
+        <box flexDirection="row" alignItems="flex-start" minWidth={0}>
+          {/* Fixed-width prompt indicator */}
+          <box width={2} flexShrink={0}>
+            <text fg={Colors.ui.dim}>{">"} </text>
+          </box>
+          {/* Textarea fills remaining space, minWidth={0} allows shrinking */}
+          <box flexGrow={1} minWidth={0}>
+            <textarea
+              ref={(r: TextareaRenderable) => { textareaRef = r; }}
+              keyBindings={TEXTAREA_KEY_BINDINGS}
+              onContentChange={handleContentChange}
+              onSubmit={handleSubmit}
+              onPaste={handlePaste}
+              placeholder={showGhostText() ? ghostText : null}
+              width={-1}
+              height={props.fixedHeight ?? Layout.input.minHeight}
+              focused={!props.loading}
+              cursorColor={Colors.ui.primary}
+            />
+          </box>
         </box>
-        {/* Textarea fills remaining space, minWidth={0} allows shrinking */}
-        <box flexGrow={1} minWidth={0}>
-          <textarea
-            ref={(r: TextareaRenderable) => { textareaRef = r; }}
-            keyBindings={TEXTAREA_KEY_BINDINGS}
-            onContentChange={handleContentChange}
-            onSubmit={handleSubmit}
-            onPaste={handlePaste}
-            placeholder={showGhostText() ? ghostText : null}
-            width={-1}
-            height={props.fixedHeight ?? Layout.input.minHeight}
-            focused={!props.loading}
-            cursorColor={Colors.ui.primary}
-          />
+        
+        {/* Footer with mode indicator */}
+        <box height={1}>
+          <text fg={Colors.ui.dim}>{footerText()}</text>
         </box>
+      </box>
+      
+      {/* Bottom accent line - mode colored */}
+      <box height={1} overflow="hidden">
+        <text fg={modeColor()}>{accentLineBottom}</text>
       </box>
     </box>
   );

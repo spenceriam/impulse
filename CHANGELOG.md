@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-01-22
+
+### Changed
+
+- **Unified Left Gutter Layout** - Major redesign to fix scrollbar instability:
+  - Removed right scrollbar from ChatView (was pushing content horizontally)
+  - Added left-side gutter column with scroll position indicator
+  - Spinner animation moved from BottomPanel to gutter (aligned with input area)
+  - Session layout: `[Gutter | Content Column]` structure
+  - Gutter shows: `|` for scroll position, `█/░` for thumb, `⣾⣽⣻⢿` spinner during processing
+
+- **InputArea Borderless Design** - Replaced bordered box with color-block styling:
+  - Mode-colored accent lines (top: `▄▄▄`, bottom: `▀▀▀`)
+  - Dark background (`#252530`) instead of border
+  - Footer shows mode and model: `AUTO > GLM-4.7`
+  - Consistent styling between welcome screen and session view
+
+- **BottomPanel Simplified** - Removed internal spinner column (now in gutter):
+  - Height reduced from 9 to 8 rows (no border overhead)
+  - Cleaner 70/30 split for prompt/todos
+  - `hasProcessed` prop removed (gutter handles spinner state)
+
+### Technical
+
+- New `Gutter` component (`src/ui/components/Gutter.tsx`) with dual-purpose display
+- `GUTTER_WIDTH` (3) and `BOTTOM_PANEL_HEIGHT` (8) exported for layout calculations
+- ChatView: `scrollbarOptions: { visible: false }` to hide right scrollbar
+- App.tsx session view restructured with `flexDirection="row"` for gutter + content
+
 ## [0.13.3] - 2026-01-22
 
 ### Changed

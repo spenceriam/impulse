@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** glm-cli
-- **Version:** v0.13.3
+- **Version:** v0.13.4
 - **Tagline:** OpenTUI coding harness powered by Z.ai GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -888,6 +888,8 @@ This ensures:
 | 01-22-2026 | Height calculation constants | BottomPanel uses named constants (TEXTAREA_HEIGHT, BORDER_HEIGHT, PADDING_HEIGHT) |
 | 01-22-2026 | ThinkingBlock 2-row preview | Collapsed=2 rows auto-scroll, Expanded=8 rows manual scroll, click to toggle |
 | 01-22-2026 | Explicit dimensions at root | Use `dimensions().width/height` not "100%" strings - Yoga handles numbers more reliably |
+| 01-22-2026 | Unified left gutter layout | Eliminates right scrollbar (was pushing content), gutter shows scroll + spinner |
+| 01-22-2026 | InputArea borderless design | Mode-colored accent lines instead of border, footer shows mode/model |
 
 ## Future Work
 
