@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.13.2] - 2026-01-22
 
+### Changed
+
+- **MCP Status Indicator Colors** - Simplified indicator logic for clarity:
+  - Green = all servers connected successfully
+  - Red = any server failures (even if some connected)
+  - Yellow = still initializing (no results yet)
+  - Previously yellow hid partial failures, now failures are always visible
+
+- **MCP Error Display Width** - Increased error message width from 35 to 60 chars in `/mcp` command output for better readability
+
 ### Fixed
 
 - **UI Layout Stability** - Fixed text overflow breaking UI frame/borders:

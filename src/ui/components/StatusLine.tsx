@@ -121,21 +121,23 @@ export function StatusLine(props: StatusLineProps) {
   });
 
   // Reactive memo for MCP indicator color
+  // Simple logic: Green = all good, Red = any failure, Yellow = still loading
   const mcpIndicator = createMemo(() => {
     const summary = mcpStatus();
     
-    // Still initializing (no status yet)
+    // Still initializing (no status yet) - yellow/dim for "loading"
     if (summary.connected === 0 && summary.failed === 0 && summary.total > 0) {
-      return { dot: Indicators.dot, color: Colors.ui.dim };
+      return { dot: Indicators.dot, color: Colors.status.warning };
     }
     
+    // All servers connected successfully - green
     if (summary.connected === summary.total && summary.total > 0) {
       return { dot: Indicators.dot, color: Colors.status.success };
-    } else if (summary.connected > 0) {
-      return { dot: Indicators.dot, color: Colors.status.warning };
-    } else {
-      return { dot: Indicators.dot, color: Colors.status.error };
     }
+    
+    // Any failures - red (even if some connected)
+    // This is more honest than yellow which hides failures
+    return { dot: Indicators.dot, color: Colors.status.error };
   });
 
   // Reactive memo for progress bar

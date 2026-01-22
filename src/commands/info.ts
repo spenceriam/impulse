@@ -87,6 +87,8 @@ async function handleInstruct() {
 const MCP_STATUS_COL = 8;
 const MCP_NAME_COL = 14;
 const MCP_TYPE_COL = 8;
+// Wider error column to show full messages (was truncating at 35 chars)
+const MCP_ERROR_MAX = 60;
 
 async function handleMcp() {
   const servers = mcpManager.getAllServers();
@@ -115,9 +117,9 @@ async function handleMcp() {
     
     let info = "";
     if (server.status === "failed" && server.error) {
-      // Truncate error to first 35 chars for brevity
-      info = server.error.length > 35 
-        ? server.error.slice(0, 32) + "..." 
+      // Show more of the error message (increased from 35 to 60 chars)
+      info = server.error.length > MCP_ERROR_MAX 
+        ? server.error.slice(0, MCP_ERROR_MAX - 3) + "..." 
         : server.error;
     } else if (server.status === "connected") {
       info = `${server.tools.length} tools`;
