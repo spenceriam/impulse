@@ -115,7 +115,8 @@ class SessionStoreImpl {
     const sessions: Session[] = [];
 
     for (const key of keys) {
-      const sessionID = key[0];
+      // key is ["session", "sess_xxx"] - we need the second element
+      const sessionID = key[1];
       if (!sessionID) continue;
       try {
         const session = await this.read(sessionID);

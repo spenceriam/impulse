@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-01-22
+
+### Fixed
+
+- **Session List Bug** - `/load` command now correctly lists saved sessions:
+  - Fixed key indexing in `SessionStoreInstance.list()` - was using `key[0]` ("session") instead of `key[1]` (session ID)
+  - Sessions are now properly retrieved from `~/.config/glm-cli/storage/session/`
+
 ## [0.11.2] - 2026-01-22
 
 ### Added
