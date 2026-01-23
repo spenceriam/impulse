@@ -78,10 +78,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p packages/${{ matrix.platform }}-${{ matrix.arch }}/bin
+          # --no-compile-autoload-bunfig prevents the compiled binary from trying to load bunfig.toml
+          # JSX is already transformed during 'bun run build' step, so preload is not needed
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            bun build --compile --minify --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse.exe
+            bun build --compile --minify --no-compile-autoload-bunfig --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse.exe
           else
-            bun build --compile --minify --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
+            bun build --compile --minify --no-compile-autoload-bunfig --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
             chmod +x packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
           fi
 

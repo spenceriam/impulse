@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.15.4
+- **Version:** v0.15.5
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -893,6 +893,7 @@ This ensures:
 | 01-23-2026 | Multi-platform npm distribution | OpenCode-style binary packages per platform with wrapper CLI |
 | 01-23-2026 | chmod +x in CI/CD | Bun compile doesn't set execute bit - must chmod after build |
 | 01-23-2026 | chmod in postinstall | npm tarballs strip execute bits - must chmod in postinstall.mjs |
+| 01-23-2026 | --no-compile-autoload-bunfig | Compiled binaries must not load bunfig.toml - JSX already transformed |
 
 ## Future Work
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.5] - 2026-01-23
+
+### Fixed
+
+- **Compiled Binary Runtime Error** - Fixed "preload not found @opentui/solid/preload" error:
+  - Added `--no-compile-autoload-bunfig` flag to prevent compiled binary from loading bunfig.toml
+  - JSX is already transformed during build step, so the preload plugin is not needed at runtime
+  - This was preventing the npm-installed binary from running at all
+
 ## [0.15.4] - 2026-01-23
 
 ### Fixed
