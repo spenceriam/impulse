@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, BOTTOM_PANEL_HEIGHT, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -1295,20 +1295,6 @@ function AppWithSession() {
     }
   };
 
-  // Calculate heights for gutter - need terminal dimensions for chat height
-  const dimensions = useTerminalDimensions();
-  
-  // Fixed heights in the layout:
-  // - padding top: 1
-  // - header line: 1
-  // - warning line: 1
-  // - bottom panel: BOTTOM_PANEL_HEIGHT (8)
-  // - status line: 1
-  // - padding bottom: 1 (from root box)
-  // Total fixed: 1 + 1 + 1 + 8 + 1 + 1 = 13
-  const FIXED_HEIGHT = 13;
-  const chatHeight = () => Math.max(5, dimensions().height - FIXED_HEIGHT);
-
   // Use Show for reactive conditional rendering
   // Show session view if we have messages OR if user has started a session (for /clear behavior)
   return (
@@ -1331,12 +1317,9 @@ function AppWithSession() {
           
           {/* Main content row: Gutter + Content column */}
           <box flexDirection="row" flexGrow={1} minWidth={0}>
-            {/* Left gutter - full-height color-cycling line */}
+            {/* Left gutter - fills height naturally via flexGrow */}
             <box paddingLeft={1}>
-              <Gutter
-                height={chatHeight() + BOTTOM_PANEL_HEIGHT + 1}
-                loading={isLoading()}
-              />
+              <Gutter loading={isLoading()} />
             </box>
             
             {/* Content column */}

@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onCleanup, For } from "solid-js";
+import { createSignal, createEffect, onCleanup } from "solid-js";
 import { Colors } from "../design";
 
 /**
@@ -10,8 +10,9 @@ import { Colors } from "../design";
  * 
  * Colors cycle: cyan → purple → blue → orange → white → repeat
  * 
+ * Uses flexGrow to fill available height naturally (from header to above status line)
+ * 
  * Props:
- * - height: Total height in rows
  * - loading: Whether to animate colors
  */
 
@@ -27,11 +28,10 @@ const LOGO_COLORS = [
   "#ffffff", // White (AUTO)
 ];
 
-// Vertical line character
+// Vertical line character - using box-drawing for clean look
 const LINE_CHAR = "│";
 
 interface GutterProps {
-  height: number;
   loading: boolean;
 }
 
@@ -69,21 +69,20 @@ export function Gutter(props: GutterProps) {
     return Colors.ui.dim;
   };
   
-  // Generate array of row indices
-  const rows = () => Array.from({ length: props.height }, (_, i) => i);
+  // Use a tall repeated string that will be clipped by the container
+  // This avoids needing to calculate exact row count
+  const lineContent = () => (LINE_CHAR + "\n").repeat(100);
   
   return (
     <box 
       flexDirection="column" 
       width={GUTTER_WIDTH} 
       flexShrink={0}
+      flexGrow={1}
       paddingRight={1}
+      overflow="hidden"
     >
-      <For each={rows()}>
-        {() => (
-          <text fg={currentColor()}>{LINE_CHAR}</text>
-        )}
-      </For>
+      <text fg={currentColor()}>{lineContent()}</text>
     </box>
   );
 }
