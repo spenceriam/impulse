@@ -39,33 +39,59 @@ async function handleStats() {
 }
 
 async function handleHelp() {
-  const commands = CommandRegistry.list();
-
-  const byCategory = commands.reduce((acc, cmd) => {
-    if (!acc[cmd.category]) {
-      acc[cmd.category] = [];
-    }
-    const categoryCommands = acc[cmd.category];
-    if (categoryCommands) {
-      categoryCommands.push(cmd);
-    }
-    return acc;
-  }, {} as Record<string, CommandDefinition[]>);
-
-  let output = "Available commands:\n\n";
-
-  for (const [category, cmds] of Object.entries(byCategory)) {
-    if (!cmds) continue;
-    output += `${category.toUpperCase()}:\n`;
-    for (const cmd of cmds) {
-      output += `  /${cmd.name.padEnd(10)} - ${cmd.description}\n`;
-    }
-    output += "\n";
-  }
+  const lines: string[] = [
+    "GLM-CLI Quick Reference",
+    "",
+    "GLM-CLI is an AI coding agent powered by Zhipu's GLM models. Use natural",
+    "language to build, debug, and explore codebases with full tool access.",
+    "",
+    "MODES (Tab to cycle)",
+    "─".repeat(78),
+    `${"MODE".padEnd(12)}${"COLOR".padEnd(10)}DESCRIPTION`,
+    "",
+    `${"AUTO".padEnd(12)}${"Gray".padEnd(10)}AI analyzes your prompt and selects the best mode`,
+    `${"".padEnd(12)}${"".padEnd(10)}Tools: Switches dynamically based on task`,
+    "",
+    `${"AGENT".padEnd(12)}${"Cyan".padEnd(10)}Full execution mode with file editing and code generation`,
+    `${"".padEnd(12)}${"".padEnd(10)}Tools: All tools available`,
+    "",
+    `${"PLANNER".padEnd(12)}${"Purple".padEnd(10)}Research and documentation - explores without modifying`,
+    `${"".padEnd(12)}${"".padEnd(10)}Tools: Read-only + docs/`,
+    "",
+    `${"PLAN-PRD".padEnd(12)}${"Blue".padEnd(10)}Quick PRD generation via interactive Q&A`,
+    `${"".padEnd(12)}${"".padEnd(10)}Tools: Read-only + docs/`,
+    "",
+    `${"DEBUG".padEnd(12)}${"Orange".padEnd(10)}Systematic 7-step debugging methodology`,
+    `${"".padEnd(12)}${"".padEnd(10)}Tools: All tools available`,
+    "",
+    "STATUS LINE INDICATORS",
+    "─".repeat(78),
+    `${"(Thinking)".padEnd(24)}AI is using extended reasoning (GLM-4.7 feature)`,
+    `${"[EXPRESS]".padEnd(24)}Express mode - all permissions auto-approved (orange)`,
+    `${"[████░░░░] 45%".padEnd(24)}Context window usage - auto-compacts at 70%`,
+    `${"MCP: ●".padEnd(24)}Green=connected, Yellow=initializing, Red=failures`,
+    "",
+    "KEYBOARD SHORTCUTS",
+    "─".repeat(78),
+    `${"Tab / Shift+Tab".padEnd(24)}Cycle modes forward/backward`,
+    `${"Ctrl+P".padEnd(24)}Command palette`,
+    `${"Ctrl+M".padEnd(24)}MCP status overlay`,
+    `${"Ctrl+B".padEnd(24)}Toggle sidebar`,
+    `${"Esc (2x)".padEnd(24)}Cancel/stop generation`,
+    `${"Ctrl+C (2x)".padEnd(24)}Exit with summary`,
+    "",
+    "COMMANDS",
+    "─".repeat(78),
+    `${"/new".padEnd(14)}New session${"".padEnd(10)}${"/model".padEnd(14)}Switch model`,
+    `${"/save".padEnd(14)}Save session${"".padEnd(9)}${"/mode".padEnd(14)}Switch mode`,
+    `${"/load".padEnd(14)}Load session${"".padEnd(9)}${"/mcp".padEnd(14)}MCP server status`,
+    `${"/compact".padEnd(14)}Summarize context${"".padEnd(4)}${"/stats".padEnd(14)}Session statistics`,
+    `${"/quit".padEnd(14)}Exit with summary${"".padEnd(4)}${"/express".padEnd(14)}Toggle express mode`,
+  ];
 
   return {
     success: true,
-    output: output.trim(),
+    output: lines.join("\n"),
   };
 }
 
@@ -90,70 +116,7 @@ const MCP_TYPE_COL = 8;
 // Wider error column to show full messages (was truncating at 35 chars)
 const MCP_ERROR_MAX = 60;
 
-// Column widths for /modes command alignment
-const MODE_NAME_COL = 12;
-const MODE_COLOR_COL = 10;
 
-async function handleModes() {
-  // Mode definitions with descriptions
-  const modes = [
-    {
-      name: "AUTO",
-      color: "White",
-      hex: "#cccccc",
-      description: "AI analyzes your prompt and automatically selects the best mode",
-      tools: "Switches dynamically based on task",
-    },
-    {
-      name: "AGENT",
-      color: "Cyan",
-      hex: "#5cffff",
-      description: "Full execution mode with file editing, code generation, and looper skill for persistence",
-      tools: "All tools available",
-    },
-    {
-      name: "PLANNER",
-      color: "Purple",
-      hex: "#b48eff",
-      description: "Research and documentation mode - explores codebase and creates plans without modifying files",
-      tools: "Read-only tools + docs/",
-    },
-    {
-      name: "PLAN-PRD",
-      color: "Blue",
-      hex: "#5c8fff",
-      description: "Quick PRD generation via interactive Q&A - helps define requirements before building",
-      tools: "Read-only tools + docs/",
-    },
-    {
-      name: "DEBUG",
-      color: "Orange",
-      hex: "#ffaa5c",
-      description: "Systematic 7-step debugging methodology - identifies root causes and documents reasoning",
-      tools: "All tools available",
-    },
-  ];
-
-  const lines: string[] = [
-    "Available Modes (Tab to cycle, /mode to select)",
-    "",
-    `${"MODE".padEnd(MODE_NAME_COL)}${"COLOR".padEnd(MODE_COLOR_COL)}DESCRIPTION`,
-    `${"─".repeat(MODE_NAME_COL)}${"─".repeat(MODE_COLOR_COL)}${"─".repeat(50)}`,
-  ];
-
-  for (const mode of modes) {
-    lines.push(`${mode.name.padEnd(MODE_NAME_COL)}${mode.color.padEnd(MODE_COLOR_COL)}${mode.description}`);
-    lines.push(`${"".padEnd(MODE_NAME_COL)}${"".padEnd(MODE_COLOR_COL)}Tools: ${mode.tools}`);
-    lines.push("");
-  }
-
-  lines.push("Keyboard: Tab cycles forward, Shift+Tab cycles backward");
-
-  return {
-    success: true,
-    output: lines.join("\n"),
-  };
-}
 
 async function handleMcp() {
   const servers = mcpManager.getAllServers();
@@ -343,13 +306,7 @@ export function registerInfoCommands(): void {
       handler: handleMcp,
       examples: ["/mcp"],
     },
-    {
-      name: "modes",
-      category: "info",
-      description: "Show available modes and descriptions",
-      handler: handleModes,
-      examples: ["/modes"],
-    },
+
     {
       name: "mcp-tools",
       category: "info",

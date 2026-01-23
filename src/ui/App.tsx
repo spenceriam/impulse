@@ -127,6 +127,9 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
 }
 
 // Command result overlay (shows command output without creating messages)
+// Uses scrollbox for long content like /help
+const OVERLAY_MAX_HEIGHT = 24;  // Max visible rows for content
+
 function CommandResultOverlay(props: { 
   title: string;
   content: string; 
@@ -138,6 +141,13 @@ function CommandResultOverlay(props: {
       props.onClose();
     }
   });
+
+  // Count content lines to determine if scrolling needed
+  const contentLines = props.content.split("\n").length;
+  const needsScroll = contentLines > OVERLAY_MAX_HEIGHT;
+  // Use wider width for help content
+  const isHelp = props.title.toLowerCase().includes("help");
+  const overlayWidth = isHelp ? 85 : 70;
 
   return (
     <box
@@ -151,17 +161,40 @@ function CommandResultOverlay(props: {
         border
         title={props.title}
         flexDirection="column"
-        padding={2}
-        width={70}
-        maxHeight={20}
+        padding={1}
+        width={overlayWidth}
         backgroundColor="#1a1a1a"
       >
-        <text fg={props.isError ? Colors.status.error : Colors.ui.text}>
-          {props.content}
-        </text>
+        <Show
+          when={needsScroll}
+          fallback={
+            <text fg={props.isError ? Colors.status.error : Colors.ui.text}>
+              {props.content}
+            </text>
+          }
+        >
+          <scrollbox
+            height={OVERLAY_MAX_HEIGHT}
+            style={{
+              scrollbarOptions: {
+                trackOptions: {
+                  foregroundColor: Colors.mode.AGENT,
+                  backgroundColor: Colors.ui.dim,
+                },
+              },
+              viewportOptions: {
+                paddingRight: 1,
+              },
+            }}
+          >
+            <text fg={props.isError ? Colors.status.error : Colors.ui.text}>
+              {props.content}
+            </text>
+          </scrollbox>
+        </Show>
         <box height={1} />
         <text fg={Colors.ui.dim}>
-          Press Enter or Esc to close
+          {needsScroll ? "↑/↓: scroll | Enter/Esc: close" : "Press Enter or Esc to close"}
         </text>
       </box>
     </box>
