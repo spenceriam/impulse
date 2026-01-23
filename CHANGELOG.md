@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-01-23
+
+### Added
+
+- **Unknown flag validation** - CLI now fails with helpful error for unknown flags
+  - Example: `impulse --v` now shows "Unknown option: --v" instead of starting the app
+  - Directs users to run `impulse --help` for usage information
+
+### Changed
+
+- **API key screen redesign** - Improved first-run experience
+  - New title: "Welcome to IMPULSE"
+  - Explains Z.ai Coding Plan vs standard API
+  - Direct link to get API key: https://z.ai/manage-apikey/subscription
+
+- **Windows ARM64 error message** - Clear error when platform is unsupported
+  - Lists supported platforms and notes Windows ARM64 is pending Bun support
+
+### Fixed
+
+- **Invalid URL** - Fixed `z.ai/coding` to valid `z.ai/manage-apikey/subscription`
+
 ## [0.16.2] - 2026-01-23
 
 ### Added

@@ -47,6 +47,24 @@ function findBinary() {
   const packageName = `@spenceriam/impulse-${platform}-${arch}`;
   const binaryName = platform === "windows" ? "impulse.exe" : "impulse";
 
+  // Check for unsupported platform/arch combinations
+  const supportedCombos = [
+    "linux-x64",
+    "linux-arm64",
+    "darwin-x64",
+    "darwin-arm64",
+    "windows-x64",
+  ];
+  
+  const combo = `${platform}-${arch}`;
+  if (!supportedCombos.includes(combo)) {
+    throw new Error(
+      `Unsupported platform: ${platform}-${arch}\n` +
+      `IMPULSE currently supports: ${supportedCombos.join(", ")}\n` +
+      `Windows ARM64 support is pending Bun's cross-compile target.`
+    );
+  }
+
   try {
     const packageJsonPath = require.resolve(`${packageName}/package.json`);
     const packageDir = path.dirname(packageJsonPath);

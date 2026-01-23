@@ -89,22 +89,32 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
     >
       <box
         border
-        title="API Key Required"
+        title="Welcome to IMPULSE"
         flexDirection="column"
         padding={2}
-        width={70}
+        width={74}
         backgroundColor="#1a1a1a"
       >
         <text fg={Colors.ui.text}>
-          No API key detected. Please enter your API key.
+          IMPULSE is powered by Z.ai's Coding Plan - the best cost/engineering
+        </text>
+        <text fg={Colors.ui.text}>
+          ratio for builders.
+        </text>
+        <box height={1} />
+        <text fg={Colors.ui.text}>
+          To get started, you'll need a <text fg={Colors.mode.AGENT}>Coding Plan API key</text> from Z.ai.
+        </text>
+        <text fg={Colors.ui.dim}>
+          (This is different from the standard Z.ai API key)
         </text>
         <box height={1} />
         <text fg={Colors.ui.dim}>
-          You can also set the GLM_API_KEY environment variable.
+          Get your key at: <text fg={Colors.mode.AGENT}>https://z.ai/manage-apikey/subscription</text>
         </text>
         <box height={1} />
         <box flexDirection="row">
-          <text fg={Colors.ui.dim}>API Key: </text>
+          <text fg={Colors.ui.text}>API Key: </text>
           <input
             value={apiKey()}
             onInput={handleInput}

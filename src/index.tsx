@@ -52,7 +52,8 @@ OPTIONS:
         --verbose           Enable debug logging to file
 
 ENVIRONMENT:
-    GLM_API_KEY             API key for Z.ai (or configure interactively on first run)
+    GLM_API_KEY             Z.ai Coding Plan API key (not standard Z.ai API)
+                            Get your key at: https://z.ai/manage-apikey/subscription
                             Will be saved to ~/.config/impulse/config.json
 
 EXAMPLES:
@@ -89,6 +90,42 @@ const dirOverride = getFlagValue("-d", "--dir");
 const showContinue = hasFlag("-c", "--continue");
 const expressMode = hasFlag("-e", "--express");
 const verboseMode = hasFlag("", "--verbose");
+
+// =============================================================================
+// Validate for Unknown Flags
+// =============================================================================
+
+const knownFlags = new Set([
+  "-h", "--help",
+  "-v", "--version",
+  "-e", "--express",
+  "-p", "--prompt",
+  "-c", "--continue",
+  "-s", "--session",
+  "-m", "--model",
+  "--mode",
+  "-d", "--dir",
+  "--verbose",
+]);
+
+// Check for unknown flags (anything starting with - that's not in our known set)
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i]!;
+  if (arg.startsWith("-")) {
+    // Handle --flag=value format
+    const flagName = arg.includes("=") ? arg.split("=")[0]! : arg;
+    if (!knownFlags.has(flagName)) {
+      console.error(`Unknown option: ${arg}`);
+      console.error(`Run 'impulse --help' for usage information.`);
+      process.exit(1);
+    }
+    // Skip the next arg if this flag takes a value
+    const flagsWithValues = ["-p", "--prompt", "-s", "--session", "-m", "--model", "--mode", "-d", "--dir"];
+    if (flagsWithValues.includes(flagName) && !arg.includes("=")) {
+      i++; // Skip the value argument
+    }
+  }
+}
 
 // =============================================================================
 // Working Directory Override - Apply early
@@ -218,6 +255,10 @@ For help:
 IMPULSE v${packageJson.version}
 
 No API key configured.
+
+IMPULSE uses Z.ai's Coding Plan API (not the standard Z.ai API).
+Get your Coding Plan API key at: https://z.ai/manage-apikey/subscription
+
 The application will now start and prompt you to enter your API key.
 Your key will be saved to ~/.config/impulse/config.json
 
