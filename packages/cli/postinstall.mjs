@@ -78,6 +78,13 @@ function prepareBinDirectory(binaryName) {
 }
 
 function symlinkBinary(sourcePath, targetPath) {
+  // Ensure source binary is executable (npm tarball doesn't preserve execute bit)
+  try {
+    fs.chmodSync(sourcePath, 0o755);
+  } catch (e) {
+    // Ignore chmod errors (may not have permission)
+  }
+  
   fs.symlinkSync(sourcePath, targetPath);
   console.log(`IMPULSE binary symlinked: ${targetPath} -> ${sourcePath}`);
 

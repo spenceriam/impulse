@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.3] - 2026-01-23
+## [0.15.4] - 2026-01-23
 
 ### Fixed
 
 - **Binary Execute Permission** - npm-installed binaries now have proper execute permissions:
-  - Added `chmod +x` after building binaries in CI/CD workflow
+  - Added `chmod +x` in postinstall script (npm tarballs don't preserve execute bits)
   - Previously binaries installed via `npm i -g @spenceriam/impulse` would fail with "permission denied"
+
+## [0.15.3] - 2026-01-23
+
+### Fixed
+
+- **Binary Execute Permission (CI/CD)** - Added `chmod +x` after building binaries in CI/CD workflow:
+  - This alone wasn't enough - npm tarballs strip execute bits during packaging
 
 ## [0.15.0] - 2026-01-23
 
