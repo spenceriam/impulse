@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-01-23
+
+### Added
+
+- **LICENSE file** - Added MIT license file (was declared in package.json but missing)
+- **CONTRIBUTING.md** - Added contribution guidelines with setup instructions
+- **README badges** - Added live badges for npm version, build status, Bun version, and license
+
+### Changed
+
+- **README overhaul** - Streamlined and reorganized
+  - Fixed incorrect install command (`bun install` → `npm install -g @spenceriam/impulse`)
+  - Fixed requirements (Bun is required, not Node.js)
+  - Added CLI Options section
+  - Added Acknowledgements section
+  - Added GIF placeholder for future demo
+  - Removed ASCII mockups (will be replaced with GIF)
+
+- **Docs cleanup** - Archived outdated planning docs to `docs/archive/`
+
+### Fixed
+
+- **StartOverlay footer layout** - Fixed overlap on small terminals
+  - Increased footer height from 3 to 4 rows
+
 ## [0.16.1] - 2026-01-23
 
 ### Fixed
