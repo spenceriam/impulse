@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-01-23
+
+### Fixed
+
+- **Update Notification Wrong Version** - Fixed update checker showing wrong version
+  - Was hardcoded to `0.15.2`, now reads from `package.json`
+
+- **`--version` Output** - Simplified to just print version number (e.g., `0.16.0`)
+  - Previously printed `IMPULSE v0.16.0`
+
+- **Paste Indicator** - Fixed paste handling to match OpenCode behavior
+  - Shows `[Pasted ~{N} lines]` only for large pastes (>= 3 lines OR > 150 chars)
+  - Small pastes no longer show indicator
+
+### Added
+
+- **Image Paste Support** - Added indicator for pasted images
+  - Shows `[Pasted image pasted_image_MM-DD-YYYY_HHMM]`
+  - Handles duplicate timestamps with `-1`, `-2`, etc. suffix
+
+- **Auto-Update** - Updates now install automatically when detected
+  - Shows "Updating to X.X.X..." while installing
+  - Shows "Updated! Please restart IMPULSE to apply." on success
+  - Shows "Update failed. Run: npm i -g @spenceriam/impulse" on failure
+  - Notification anchored at bottom of chat (above prompt)
+  - Click `[X]` to dismiss
+
 ## [0.16.0] - 2026-01-23
 
 ### Added

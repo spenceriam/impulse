@@ -1,9 +1,44 @@
-import { createSignal, createMemo, createEffect } from "solid-js";
+import { createSignal, createMemo, createEffect, Show } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { t, italic, fg } from "@opentui/core";
 import { Colors, Mode, Layout, getModeColor } from "../design";
 import { CommandRegistry } from "../../commands/registry";
+
+/**
+ * Pasted content tracking
+ */
+interface PastedContent {
+  type: "text" | "image";
+  indicator: string;  // Display text like "[Pasted ~5 lines]" or "[Pasted image pasted_image_01-23-2026_1530]"
+  timestamp: number;
+}
+
+// Track image paste counts for same-minute deduplication
+const imagePasteCounts = new Map<string, number>();
+
+/**
+ * Generate image filename for pasted images without source
+ * Format: pasted_image_MM-DD-YYYY_HHMM[-N]
+ */
+function generateImageFilename(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const year = now.getFullYear();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  
+  const baseKey = `${month}-${day}-${year}_${hours}${minutes}`;
+  const count = imagePasteCounts.get(baseKey) ?? 0;
+  imagePasteCounts.set(baseKey, count + 1);
+  
+  if (count === 0) {
+    return `pasted_image_${baseKey}`;
+  } else {
+    return `pasted_image_${baseKey}-${count}`;
+  }
+}
 
 
 /**
@@ -64,6 +99,10 @@ export function InputArea(props: InputAreaProps) {
   // Double-ESC tracking for clear functionality
   const [lastEscTime, setLastEscTime] = createSignal(0);
   const DOUBLE_ESC_THRESHOLD = 500; // ms
+  
+  // Pasted content tracking - shows indicator for text/image pastes
+  const [pastedContent, setPastedContent] = createSignal<PastedContent | null>(null);
+  let pasteIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
   
   let textareaRef: TextareaRenderable | undefined;
 
@@ -318,11 +357,52 @@ export function InputArea(props: InputAreaProps) {
     }
   };
 
-  // Handle paste - normalize line endings and move cursor to end
-  const handlePaste = (_event: PasteEvent) => {
-    // Textarea's built-in handlePaste inserts the text
+  // Handle paste - show indicator with line count (for large pastes) or image filename
+  const handlePaste = (event: PasteEvent) => {
+    // Clear any existing timeout
+    if (pasteIndicatorTimeout) {
+      clearTimeout(pasteIndicatorTimeout);
+    }
+    
+    // Check if this is an image paste (OpenTUI passes image data differently)
+    // For now, we detect images by checking if text is empty but event fired
+    const pastedText = event.text ?? "";
+    
+    if (pastedText.length > 0) {
+      // Text paste - count lines (matching OpenCode: only show for >= 3 lines OR > 150 chars)
+      const lineCount = (pastedText.match(/\n/g)?.length ?? 0) + 1;
+      
+      if (lineCount >= 3 || pastedText.length > 150) {
+        const indicator = `[Pasted ~${lineCount} lines]`;
+        
+        setPastedContent({
+          type: "text",
+          indicator,
+          timestamp: Date.now(),
+        });
+        
+        // Clear indicator after 5 seconds
+        pasteIndicatorTimeout = setTimeout(() => {
+          setPastedContent(null);
+        }, 5000);
+      }
+      // Small pastes (< 3 lines AND <= 150 chars) don't show indicator
+    } else {
+      // Possible image paste (no text content)
+      const filename = generateImageFilename();
+      setPastedContent({
+        type: "image",
+        indicator: `[Pasted image ${filename}]`,
+        timestamp: Date.now(),
+      });
+      
+      // Clear indicator after 5 seconds
+      pasteIndicatorTimeout = setTimeout(() => {
+        setPastedContent(null);
+      }, 5000);
+    }
+    
     // After paste completes, move cursor to end of buffer
-    // Use setTimeout to ensure paste is processed first
     setTimeout(() => {
       if (textareaRef) {
         textareaRef.gotoBufferEnd();
@@ -366,6 +446,15 @@ export function InputArea(props: InputAreaProps) {
       
       {/* Main content area with padding */}
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+        {/* Paste indicator - shows when content was just pasted */}
+        <Show when={pastedContent()}>
+          {(content: () => PastedContent) => (
+            <box height={1} marginBottom={1}>
+              <text fg={Colors.ui.dim}>{content().indicator}</text>
+            </box>
+          )}
+        </Show>
+        
         {/* Row container with minWidth={0} for proper flex shrinking */}
         <box flexDirection="row" alignItems="flex-start" minWidth={0}>
           {/* Fixed-width prompt indicator */}

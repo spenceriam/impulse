@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js";
 import { MessageBlock, type Message } from "./MessageBlock";
 import { CompactingBlock } from "./CompactingBlock";
-import { UpdateInfo } from "../../util/update-check";
+import { UpdateState } from "../../util/update-check";
 import { Colors } from "../design";
 
 /**
@@ -21,23 +21,88 @@ export interface CompactingState {
  * - No right scrollbar - prevents horizontal push issues
  * - Scrollbox with stickyScroll for auto-scroll to newest content
  * - All content constrained within bounds (no overflow)
+ * - Update notification anchored at BOTTOM (above prompt), dismissable with X
  * 
  * Props:
  * - messages: Array of messages to display
  * - compactingState: Optional compacting indicator to show at end of messages
- * - updateInfo: Optional update notification to show at top
+ * - updateState: Optional update state to show at bottom (above prompt)
+ * - onDismissUpdate: Callback when user dismisses update notification
  */
 
 interface ChatViewProps {
   messages?: Message[];
   compactingState?: CompactingState | null;
-  updateInfo?: UpdateInfo | null;
+  updateState?: UpdateState | null;
+  onDismissUpdate?: () => void;
 }
 
 export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
   const compactingState = () => props.compactingState ?? null;
-  const updateInfo = () => props.updateInfo ?? null;
+  const updateState = () => props.updateState ?? null;
+
+  // Render update notification based on state
+  const renderUpdateNotification = () => {
+    const state = updateState();
+    if (!state) return null;
+
+    switch (state.status) {
+      case "installing":
+        return (
+          <box 
+            flexDirection="row" 
+            paddingLeft={1}
+            paddingRight={1}
+            height={1}
+            alignItems="center"
+            backgroundColor="#1a1a00"
+          >
+            <text fg={Colors.status.warning}>Updating to {state.latestVersion}...</text>
+          </box>
+        );
+      
+      case "installed":
+        return (
+          <box 
+            flexDirection="row" 
+            paddingLeft={1}
+            paddingRight={1}
+            height={1}
+            alignItems="center"
+            backgroundColor="#001a00"
+          >
+            <text fg={Colors.status.success}>Updated to {state.latestVersion}! Please restart IMPULSE to apply.</text>
+            <box flexGrow={1} />
+            <box onMouseDown={() => props.onDismissUpdate?.()}>
+              <text fg={Colors.ui.dim}>[X]</text>
+            </box>
+          </box>
+        );
+      
+      case "failed":
+        return (
+          <box 
+            flexDirection="row" 
+            paddingLeft={1}
+            paddingRight={1}
+            height={1}
+            alignItems="center"
+            backgroundColor="#1a0000"
+          >
+            <text fg={Colors.status.error}>Update failed. Run: </text>
+            <text fg={Colors.ui.primary}>{state.updateCommand}</text>
+            <box flexGrow={1} />
+            <box onMouseDown={() => props.onDismissUpdate?.()}>
+              <text fg={Colors.ui.dim}>[X]</text>
+            </box>
+          </box>
+        );
+      
+      default:
+        return null;
+    }
+  };
 
   return (
     <box 
@@ -46,6 +111,7 @@ export function ChatView(props: ChatViewProps) {
       flexDirection="column"
       overflow="hidden"
     >
+      {/* Scrollable message area */}
       <scrollbox 
         flexGrow={1}
         stickyScroll={true}
@@ -63,30 +129,6 @@ export function ChatView(props: ChatViewProps) {
         }}
       >
         <box flexDirection="column" minWidth={0} overflow="hidden">
-          {/* Update notification at top of chat */}
-          <Show when={updateInfo()}>
-            {(info: () => UpdateInfo) => (
-              <box 
-                flexDirection="column" 
-                padding={1}
-                marginBottom={1}
-                borderStyle="single"
-                borderColor={Colors.status.warning}
-              >
-                <box flexDirection="row">
-                  <text fg={Colors.status.warning}>Update available: </text>
-                  <text fg={Colors.ui.dim}>{info().currentVersion}</text>
-                  <text fg={Colors.ui.dim}> → </text>
-                  <text fg={Colors.status.success}>{info().latestVersion}</text>
-                </box>
-                <box flexDirection="row">
-                  <text fg={Colors.ui.dim}>Run </text>
-                  <text fg={Colors.ui.primary}>{info().updateCommand}</text>
-                  <text fg={Colors.ui.dim}> then restart IMPULSE</text>
-                </box>
-              </box>
-            )}
-          </Show>
           <For each={messages()}>
             {(message) => <MessageBlock message={message} />}
           </For>
@@ -104,6 +146,9 @@ export function ChatView(props: ChatViewProps) {
           </Show>
         </box>
       </scrollbox>
+      
+      {/* Update notification - anchored at BOTTOM of chat, above prompt */}
+      {renderUpdateNotification()}
     </box>
   );
 }

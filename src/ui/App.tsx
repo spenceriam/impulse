@@ -26,7 +26,7 @@ import { Tool } from "../tools/registry";
 import { type ToolCallInfo } from "./components/MessageBlock";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
-import { runUpdateCheck, type UpdateInfo } from "../util/update-check";
+import { runUpdateCheck, type UpdateState } from "../util/update-check";
 
 /**
  * App Component
@@ -672,7 +672,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   } | null>(null);
   
   // Update notification - checked on startup
-  const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
+  const [updateState, setUpdateState] = createSignal<UpdateState | null>(null);
   
   // Check if user has seen welcome screen on mount
   onMount(async () => {
@@ -763,10 +763,23 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           setCompactingState(null);
         }, 2000);
       }
-      // Update available event - show notification in ChatView
-      if (event.type === "update.available") {
-        const payload = event.properties as UpdateInfo;
-        setUpdateInfo(payload);
+      // Update events - show notification in ChatView
+      if (event.type === "update.installing") {
+        const payload = event.properties as { latestVersion: string };
+        setUpdateState({ status: "installing", latestVersion: payload.latestVersion });
+      }
+      if (event.type === "update.installed") {
+        const payload = event.properties as { latestVersion: string };
+        setUpdateState({ status: "installed", latestVersion: payload.latestVersion });
+      }
+      if (event.type === "update.failed") {
+        const payload = event.properties as { latestVersion: string; updateCommand: string; error?: string };
+        setUpdateState({ 
+          status: "failed", 
+          latestVersion: payload.latestVersion, 
+          updateCommand: payload.updateCommand,
+          ...(payload.error ? { error: payload.error } : {}),
+        });
       }
     });
     
@@ -1507,7 +1520,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             {/* Content column */}
             <box flexDirection="column" flexGrow={1} minWidth={0} paddingRight={4}>
               {/* Chat area - flexGrow={1} takes remaining space */}
-              <ChatView messages={messages()} compactingState={compactingState()} updateInfo={updateInfo()} />
+              <ChatView 
+                messages={messages()} 
+                compactingState={compactingState()} 
+                updateState={updateState()} 
+                onDismissUpdate={() => setUpdateState(null)}
+              />
               
               {/* Bottom section - flexShrink={0} prevents compression by chat content */}
               <box flexDirection="column" flexShrink={0}>

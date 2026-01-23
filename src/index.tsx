@@ -73,7 +73,7 @@ For more information, visit: https://github.com/spenceriam/impulse
 
 // --version, -v: Print version and exit (no API key needed, no TUI)
 if (hasFlag("-v", "--version")) {
-  console.log(`IMPULSE v${packageJson.version}`);
+  console.log(packageJson.version);
   process.exit(0);
 }
 

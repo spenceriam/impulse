@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.16.0
+- **Version:** v0.16.1
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
