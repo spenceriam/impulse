@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.16.4
+- **Version:** v0.17.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -837,6 +837,16 @@ This ensures:
   - Z.AI models send `{"timeout": null}` for omitted optional params
   - Zod `.optional()` means "can be omitted" but rejects `null` values
   - Use `stripNullValues()` helper before `schema.parse()`
+- **Preserved Thinking** - Include `reasoning_content` in all assistant messages sent back to API
+  - Improves model performance and cache hit rates (saves tokens/money)
+  - Send `thinking: { type: "enabled", clear_thinking: false }` to enable
+  - Must return reasoning_content exactly as received - don't modify or reorder
+- **Interleaved Thinking** - Include reasoning with tool call messages
+  - When assistant makes tool calls, include reasoning_content in that message
+  - Helps model reason about tool results in context
+- **Cache Tracking** - Extract `prompt_tokens_details.cached_tokens` from usage
+  - Shows actual tokens served from cache (billed at ~50% discount)
+  - Available in final streaming chunk's usage object
 
 ### Streaming
 - Use 16ms event batching to prevent flicker
@@ -899,6 +909,10 @@ This ensures:
 | 01-23-2026 | CLI args before TUI | Parse --help/--version before TUI init so they work without API key or TTY |
 | 01-23-2026 | TTY detection | Fail fast with clear message if not running in interactive terminal |
 | 01-23-2026 | First-run banner | Print plain-text message before TUI when no API key configured |
+| 01-23-2026 | Z.AI Preserved Thinking | Include reasoning_content in API messages per Z.AI docs - improves cache hit rates |
+| 01-23-2026 | Z.AI Thinking Config | Send thinking parameter with type/clear_thinking per Z.AI docs - enables toggle |
+| 01-23-2026 | Z.AI Cache Tracking | Extract cached_tokens from prompt_tokens_details - shows actual savings |
+| 01-23-2026 | Interleaved Thinking | Include reasoning in tool continuation messages per Z.AI docs |
 
 ## Future Work
 

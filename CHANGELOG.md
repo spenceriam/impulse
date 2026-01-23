@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-01-23
+
+### Added
+
+- **Z.AI Preserved Thinking** - Reasoning content now sent back to API in multi-turn conversations
+  - Improves model performance and reasoning continuity
+  - Increases cache hit rates, reducing token costs
+  - `/think` toggle now actually controls the thinking parameter sent to Z.AI
+
+- **Z.AI Cache Tracking** - Cache statistics now populate from API response
+  - Shows actual cached tokens in exit summary
+  - Extracted from `prompt_tokens_details.cached_tokens`
+
+- **Interleaved Thinking with Tools** - Reasoning included in tool continuation messages
+  - When assistant makes tool calls, reasoning is preserved
+  - Helps model reason about tool results in context
+
+### Changed
+
+- **Thinking configuration** - Now sends `thinking` parameter to Z.AI API
+  - `type: "enabled" | "disabled"` controlled by `/think` toggle
+  - `clear_thinking: false` enables preserved thinking by default
+
+- **Token usage tracking** - Now includes `cacheRead` from API response
+  - Previously hardcoded to 0, now shows actual savings
+
 ## [0.16.4] - 2026-01-23
 
 ### Added

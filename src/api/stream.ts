@@ -22,6 +22,8 @@ export interface StreamState {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    // Z.AI specific: cached tokens from preserved thinking
+    cachedTokens: number;
   } | null;
 }
 
@@ -138,6 +140,8 @@ export function processChunk(
       promptTokens: chunk.usage.prompt_tokens,
       completionTokens: chunk.usage.completion_tokens,
       totalTokens: chunk.usage.total_tokens,
+      // Z.AI specific: cached tokens from preserved thinking
+      cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0,
     };
   }
 

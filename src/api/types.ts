@@ -105,14 +105,33 @@ export const ChatCompletionRequest = z.object({
 
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequest>;
 
+// Prompt tokens details (Z.AI specific - cache information)
+export const PromptTokensDetails = z.object({
+  cached_tokens: z.number().optional(),
+});
+
+export type PromptTokensDetails = z.infer<typeof PromptTokensDetails>;
+
 // Usage statistics
 export const Usage = z.object({
   prompt_tokens: z.number(),
   completion_tokens: z.number(),
   total_tokens: z.number(),
+  // Z.AI specific: cache token details
+  prompt_tokens_details: PromptTokensDetails.optional(),
 });
 
 export type Usage = z.infer<typeof Usage>;
+
+// Thinking configuration (Z.AI specific)
+export const ThinkingConfig = z.object({
+  type: z.enum(["enabled", "disabled"]),
+  // clear_thinking: false = Preserved Thinking (keep reasoning across turns)
+  // Enabled by default on Coding Plan endpoint
+  clear_thinking: z.boolean().optional(),
+});
+
+export type ThinkingConfig = z.infer<typeof ThinkingConfig>;
 
 // Chat completion choice
 export const ChatCompletionChoice = z.object({

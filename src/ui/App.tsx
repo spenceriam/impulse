@@ -949,8 +949,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const executeToolsAndContinue = async (
     assistantMsgId: string,
     toolCallsMap: Map<number, ToolCallInfo>,
-    previousApiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
-    assistantContent: string
+    previousApiMessages: Array<{ role: "system" | "user" | "assistant"; content: string; reasoning_content?: string }>,
+    assistantContent: string,
+    assistantReasoning: string = ""  // Include reasoning for preserved thinking
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
     
@@ -1004,9 +1005,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     }
     
     // Build messages for next API call per Z.AI format:
-    // 1. Assistant message with tool_calls
+    // 1. Assistant message with tool_calls (and reasoning_content for preserved thinking)
     // 2. One "tool" message per tool call with tool_call_id
-    const assistantToolCallMessage = {
+    // Z.AI docs: "thinking blocks should be explicitly preserved and returned together with the tool results"
+    const assistantToolCallMessage: {
+      role: "assistant";
+      content: string | null;
+      reasoning_content?: string;
+      tool_calls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
+    } = {
       role: "assistant" as const,
       content: assistantContent || null,
       tool_calls: toolCalls.map(tc => ({
@@ -1018,6 +1025,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       })),
     };
+    
+    // Include reasoning_content for preserved thinking (interleaved thinking with tools)
+    if (assistantReasoning) {
+      assistantToolCallMessage.reasoning_content = assistantReasoning;
+    }
     
     // Build individual tool result messages (Z.AI format: role="tool" with tool_call_id)
     const toolResultMessages = toolCalls.map(tc => ({
@@ -1089,6 +1101,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             addTokenUsage({
               input: event.state.usage.promptTokens,
               output: event.state.usage.completionTokens,
+              // Z.AI specific: cached tokens from preserved thinking
+              cacheRead: event.state.usage.cachedTokens,
               thinking: accumulatedReasoning.length > 0 ? Math.floor(accumulatedReasoning.length / 4) : 0,
             });
           }
@@ -1097,12 +1111,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           updateMessage(newAssistantMsgId, { streaming: false });
           
           if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
-            // Recursive tool execution
+            // Recursive tool execution (pass reasoning for preserved thinking)
             executeToolsAndContinue(
               newAssistantMsgId,
               newToolCallsMap,
               continuationMessages as any,
-              accumulatedContent
+              accumulatedContent,
+              accumulatedReasoning  // Include reasoning for interleaved thinking
             );
           } else {
             setIsLoading(false);
@@ -1113,11 +1128,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         }
       });
       
+      // Continue streaming with thinking config (preserved thinking)
       const stream = GLMClient.stream({
         messages: continuationMessages as any,
         model: model() as any,
         tools: Tool.getAPIDefinitions(),
         signal: newProcessor.getAbortSignal(),
+        thinking: {
+          type: thinking() ? "enabled" : "disabled",
+          clear_thinking: false,  // Preserve reasoning across turns
+        },
       });
       
       await newProcessor.process(stream);
@@ -1393,12 +1413,21 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         content: generateSystemPrompt(currentMode),
       };
       
+      // Build messages for API including reasoning_content for preserved thinking
+      // Z.AI docs: "you must return the complete, unmodified reasoning_content back to the API"
       const userMessages = updatedMessages
         .filter((m) => m.id !== assistantMsgId)
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        }));
+        .map((m) => {
+          const msg: { role: "user" | "assistant"; content: string; reasoning_content?: string } = {
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          };
+          // Include reasoning_content for assistant messages (preserved thinking)
+          if (m.role === "assistant" && m.reasoning) {
+            msg.reasoning_content = m.reasoning;
+          }
+          return msg;
+        });
       
       const apiMessages = [systemMessage, ...userMessages];
 
@@ -1462,6 +1491,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             addTokenUsage({
               input: event.state.usage.promptTokens,
               output: event.state.usage.completionTokens,
+              // Z.AI specific: cached tokens from preserved thinking
+              cacheRead: event.state.usage.cachedTokens,
               // Z.AI doesn't split out thinking tokens in usage, but reasoning is separate
               thinking: accumulatedReasoning.length > 0 ? Math.floor(accumulatedReasoning.length / 4) : 0, // Rough estimate
             });
@@ -1473,7 +1504,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           // Check if we need to execute tools
           if (event.state.finishReason === "tool_calls" && toolCallsMap.size > 0) {
             // Execute tools and continue conversation
-            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent);
+            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning);
           } else {
             setIsLoading(false);
             setStreamProc(null);
@@ -1483,12 +1514,17 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         }
       });
 
-      // Start streaming
+      // Start streaming with thinking config
+      // Z.AI docs: thinking.type controls reasoning, clear_thinking: false enables preserved thinking
       const stream = GLMClient.stream({
         messages: apiMessages,
         model: model() as any,
         tools: Tool.getAPIDefinitions(),
         signal: processor.getAbortSignal(),
+        thinking: {
+          type: thinking() ? "enabled" : "disabled",
+          clear_thinking: false,  // Preserve reasoning across turns
+        },
       });
 
       await processor.process(stream);

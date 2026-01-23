@@ -8,6 +8,7 @@ import type {
   GLMModel,
   ChatMessage,
   ToolDefinition,
+  ThinkingConfig,
 } from "./types";
 
 /**
@@ -62,6 +63,8 @@ interface CompletionOptions {
   tool_choice?: ChatCompletionRequest["tool_choice"];
   stream?: false;
   signal?: AbortSignal;
+  // Z.AI specific: thinking mode configuration
+  thinking?: ThinkingConfig;
 }
 
 interface StreamCompletionOptions extends Omit<CompletionOptions, "stream"> {
@@ -199,6 +202,11 @@ class GLMClientImpl {
           request.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
         }
 
+        // Z.AI specific: thinking mode configuration
+        // Default to enabled with preserved thinking (clear_thinking: false)
+        const thinkingConfig = options.thinking ?? { type: "enabled" as const, clear_thinking: false };
+        (request as unknown as Record<string, unknown>)["thinking"] = thinkingConfig;
+
         const result = await client.chat.completions.create(request);
         return result;
       },
@@ -240,6 +248,8 @@ class GLMClientImpl {
         prompt_tokens: response.usage.prompt_tokens,
         completion_tokens: response.usage.completion_tokens,
         total_tokens: response.usage.total_tokens,
+        // Z.AI specific: extract cached tokens from prompt_tokens_details
+        prompt_tokens_details: (response.usage as unknown as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details,
       } : undefined,
     };
   }
@@ -276,6 +286,11 @@ class GLMClientImpl {
         if (options.tool_choice !== undefined) {
           request.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
         }
+
+        // Z.AI specific: thinking mode configuration
+        // Default to enabled with preserved thinking (clear_thinking: false)
+        const thinkingConfig = options.thinking ?? { type: "enabled" as const, clear_thinking: false };
+        (request as unknown as Record<string, unknown>)["thinking"] = thinkingConfig;
 
         return client.chat.completions.create(request);
       },
@@ -325,6 +340,8 @@ class GLMClientImpl {
           prompt_tokens: chunk.usage.prompt_tokens,
           completion_tokens: chunk.usage.completion_tokens,
           total_tokens: chunk.usage.total_tokens,
+          // Z.AI specific: extract cached tokens from prompt_tokens_details
+          prompt_tokens_details: (chunk.usage as unknown as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details,
         } : null,
       };
     }
