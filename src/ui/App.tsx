@@ -24,7 +24,7 @@ import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import { Tool } from "../tools/registry";
 import { type ToolCallInfo } from "./components/MessageBlock";
-import { registerMCPTools } from "../mcp";
+import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 
 /**
@@ -534,6 +534,10 @@ export function App(props: { initialExpress?: boolean }) {
 
       // Reset GLMClient to pick up new key
       GLMClient.reset();
+      
+      // Reset MCP manager to initialize with new API key
+      mcpManager.resetForNewApiKey();
+      mcpManager.ensureInitialized();
     } catch (error) {
       console.error("Failed to save API key:", error);
     }
@@ -856,6 +860,20 @@ function AppWithSession() {
         setStreamProc(null);
         setEscWarning(false);
         escCount = 0;
+        
+        // Add interruption notice to the current assistant message
+        const msgs = messages();
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg && lastMsg.role === "assistant") {
+          // Append interruption notice to the message
+          const interruptedContent = lastMsg.content 
+            ? lastMsg.content + "\n\n---\n*[Response interrupted by user]*"
+            : "*[Response interrupted by user]*";
+          updateMessage(lastMsg.id, { 
+            content: interruptedContent,
+            streaming: false 
+          });
+        }
       }
       return;
     }

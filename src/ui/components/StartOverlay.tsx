@@ -95,19 +95,20 @@ export function StartOverlay(props: StartOverlayProps) {
 
             {/* Help links */}
             <text fg={Colors.ui.dim}>Use /help for quick reference | See CONTRIBUTING.md to help out</text>
-            <box height={1} />
-
-            {/* Creator info at bottom */}
-            <box flexDirection="row">
-              <text fg={Colors.ui.dim}>Created by Spencer Francisco (@spencer_i_am) | </text>
-              <text fg={Colors.status.warning}>BETA</text>
-            </box>
           </box>
         </scrollbox>
 
-        {/* Fixed footer */}
-        <box flexShrink={0} height={2} justifyContent="center" paddingTop={1}>
-          <text fg={Colors.ui.dim}>Press Enter or Esc to close</text>
+        {/* Fixed footer with creator info and controls */}
+        <box flexShrink={0} height={3} flexDirection="column" paddingTop={1} borderColor={Colors.ui.dim} border={["top"]}>
+          <box justifyContent="center">
+            <text fg={Colors.ui.dim}>Created by Spencer Francisco (</text>
+            <text fg={Colors.mode.AGENT}>@spencer_i_am</text>
+            <text fg={Colors.ui.dim}>) | </text>
+            <text fg={Colors.status.warning}>BETA</text>
+          </box>
+          <box justifyContent="center">
+            <text fg={Colors.ui.dim}>Enter/Esc: close</text>
+          </box>
         </box>
       </box>
     </box>

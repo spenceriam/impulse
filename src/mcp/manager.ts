@@ -62,9 +62,26 @@ export class MCPManager {
   private servers: Map<MCPServerName, MCPServer> = new Map();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  private waitingForApiKey = false;  // True if init was skipped due to no API key
 
   constructor() {
     // Don't auto-initialize in constructor - let it be lazy
+  }
+
+  /**
+   * Check if waiting for API key before initialization can proceed
+   */
+  public isWaitingForApiKey(): boolean {
+    return this.waitingForApiKey;
+  }
+
+  /**
+   * Reset state to allow re-initialization after API key is set
+   */
+  public resetForNewApiKey(): void {
+    this.waitingForApiKey = false;
+    this.initialized = false;
+    this.initPromise = null;
   }
 
   /**
@@ -89,9 +106,12 @@ export class MCPManager {
     const config = await load();
     const apiKey = config.apiKey;
     if (!apiKey) {
-      console.error("MCP Manager: No API key configured");
+      console.error("MCP Manager: No API key configured, waiting...");
+      this.waitingForApiKey = true;
       return;
     }
+    
+    this.waitingForApiKey = false;
 
     // Define all 5 MCP server configurations
     // Vision MCP uses npx to run @z_ai/mcp-server package
@@ -394,13 +414,24 @@ export class MCPManager {
     total: number;
     connected: number;
     failed: number;
+    waitingForApiKey: boolean;
   } {
-    // Trigger initialization if not started
-    if (!this.initialized && !this.initPromise) {
+    // Trigger initialization if not started and not waiting for API key
+    if (!this.initialized && !this.initPromise && !this.waitingForApiKey) {
       this.ensureInitialized();
     }
 
     const servers = this.getAllServers();
+    
+    // If waiting for API key, return special state
+    if (this.waitingForApiKey) {
+      return {
+        total: 5,
+        connected: 0,
+        failed: 0,
+        waitingForApiKey: true,
+      };
+    }
     
     // If no servers yet (still initializing), return expected total with 0 status
     if (servers.length === 0) {
@@ -408,6 +439,7 @@ export class MCPManager {
         total: 5, // We expect 5 MCP servers
         connected: 0,
         failed: 0,
+        waitingForApiKey: false,
       };
     }
 
@@ -415,6 +447,7 @@ export class MCPManager {
       total: servers.length,
       connected: servers.filter((s) => s.status === "connected").length,
       failed: servers.filter((s) => s.status === "failed").length,
+      waitingForApiKey: false,
     };
   }
 

@@ -103,10 +103,11 @@ async function getGitBranch(): Promise<string> {
 
 export function StatusLine(props: StatusLineProps) {
   // Reactive signals for polled values
-  const [mcpStatus, setMcpStatus] = createSignal<{ connected: number; failed: number; total: number }>({
+  const [mcpStatus, setMcpStatus] = createSignal<{ connected: number; failed: number; total: number; waitingForApiKey?: boolean }>({
     connected: 0,
     failed: 0,
     total: 5,
+    waitingForApiKey: false,
   });
   const [gitBranch, setGitBranch] = createSignal("main");
 
@@ -145,23 +146,28 @@ export function StatusLine(props: StatusLineProps) {
   });
 
   // Reactive memo for MCP indicator color
-  // Simple logic: Green = all good, Red = any failure, Yellow = still loading
+  // Simple logic: Green = all good, Red = any failure, Yellow = still loading, Dim = waiting for API key
   const mcpIndicator = createMemo(() => {
     const summary = mcpStatus();
     
+    // Waiting for API key - dim/gray
+    if (summary.waitingForApiKey) {
+      return { dot: Indicators.dot, color: Colors.ui.dim, label: "MCP: waiting" };
+    }
+    
     // Still initializing (no status yet) - yellow/dim for "loading"
     if (summary.connected === 0 && summary.failed === 0 && summary.total > 0) {
-      return { dot: Indicators.dot, color: Colors.status.warning };
+      return { dot: Indicators.dot, color: Colors.status.warning, label: "MCP:" };
     }
     
     // All servers connected successfully - green
     if (summary.connected === summary.total && summary.total > 0) {
-      return { dot: Indicators.dot, color: Colors.status.success };
+      return { dot: Indicators.dot, color: Colors.status.success, label: "MCP:" };
     }
     
     // Any failures - red (even if some connected)
     // This is more honest than yellow which hides failures
-    return { dot: Indicators.dot, color: Colors.status.error };
+    return { dot: Indicators.dot, color: Colors.status.error, label: "MCP:" };
   });
 
   // Reactive memo for progress bar with warning state
@@ -232,8 +238,8 @@ export function StatusLine(props: StatusLineProps) {
           <text fg={Colors.ui.dim}> | </text>
           <text fg={Colors.status.warning}>[EXPRESS]</text>
         </Show>
-        <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | MCP: </text>
-        <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
+        <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | </text>
+        <text fg={mcpIndicator().color}>{mcpIndicator().label} {mcpIndicator().dot}</text>
         <text fg={Colors.ui.dim}> | {date}</text>
       </box>
     );
@@ -261,8 +267,8 @@ export function StatusLine(props: StatusLineProps) {
       <Show when={showCompactWarning()}>
         <text fg={Colors.status.warning}> Compacting soon</text>
       </Show>
-      <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | MCP: </text>
-      <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
+      <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | </text>
+      <text fg={mcpIndicator().color}>{mcpIndicator().label} {mcpIndicator().dot}</text>
       <text fg={Colors.ui.dim}> | {date}</text>
     </box>
   );
