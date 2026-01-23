@@ -1033,8 +1033,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       ...toolResultMessages,
     ];
     
-    // Add new assistant message for continuation
-    addMessage({ role: "assistant", content: "" });
+    // Add new assistant message for continuation (with streaming flag for "Thinking..." dots)
+    addMessage({ role: "assistant", content: "", streaming: true });
     const newMessages = messages();
     const newAssistantMsg = newMessages[newMessages.length - 1];
     if (!newAssistantMsg) {
@@ -1092,6 +1092,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
               thinking: accumulatedReasoning.length > 0 ? Math.floor(accumulatedReasoning.length / 4) : 0,
             });
           }
+          
+          // Mark message as no longer streaming
+          updateMessage(newAssistantMsgId, { streaming: false });
           
           if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
             // Recursive tool execution

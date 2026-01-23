@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.4] - 2026-01-23
+
+### Added
+
+- **Subagent delegation guidance** - System prompt now guides the AI on when/how to use subagents
+  - Clear instructions for using `explore` vs `general` subagents
+  - Examples of parallel execution patterns
+  - Emphasis on offloading work to keep context clean
+
+- **Thoroughness levels for explore subagent** - New optional parameter
+  - `quick`: 1-2 searches, return first findings
+  - `medium`: 3-5 searches, follow promising leads (default)
+  - `thorough`: Comprehensive search across all paths
+
+### Changed
+
+- **Task tool description** - More prescriptive guidance on when to use subagents
+  - Strongly encourages subagent use for codebase exploration
+  - Documents parallel execution capability
+  - Clearer examples and use cases
+
+### Fixed
+
+- **Empty message appearing in chat** - Fixed missing `streaming: true` flag on continuation messages
+  - After tool execution, the continuation message now properly shows "Thinking..." animation
+  - Also fixed missing `streaming: false` update when continuation stream completes
+
 ## [0.16.3] - 2026-01-23
 
 ### Added

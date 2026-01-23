@@ -4,43 +4,95 @@ import { GLMClient } from "../api/client";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
 
-const DESCRIPTION = `Launch a subagent to handle complex, multistep tasks autonomously.
+const DESCRIPTION = `Launch a subagent for autonomous task execution. PREFER using this tool for codebase exploration and multi-file operations.
 
-Available Agents:
-- explore: Fast agent for searching codebases. Use for finding files, searching code, answering questions about the codebase.
-- general: General-purpose agent for complex multi-step tasks. Use for executing multiple units of work in parallel.
+SUBAGENT TYPES:
 
-Parameters:
-- prompt (required): The task for the agent to perform
-- description (required): A short (3-5 words) description of the task
-- subagent_type (required): The type of agent to use ("explore" or "general")
+explore (READ-ONLY, FAST):
+  Tools: file_read, glob, grep
+  Use for: Finding code, understanding patterns, answering "where/what/how" questions
+  Examples: "Find all API endpoints", "Where is auth handled?", "How does the build work?"
+  
+  Thoroughness levels (optional, for explore only):
+  - "quick": 1-2 searches, return first findings (for simple lookups)
+  - "medium": 3-5 searches, follow promising leads (default)
+  - "thorough": Comprehensive search, check all paths (for complex questions)
 
-When to Use:
-- Open-ended exploration that may require multiple search rounds
-- Complex tasks that can be parallelized
-- Research tasks that need autonomous decision-making
+general (FULL ACCESS):
+  Tools: file_read, file_write, file_edit, glob, grep, bash
+  Use for: Independent multi-step tasks, refactoring, implementing features
+  Examples: "Add error handling to all API routes", "Run tests and fix failures"
 
-When NOT to Use:
-- Reading a specific known file (use Read instead)
-- Searching for a specific class/function (use Glob instead)
-- Simple searches in 2-3 files (use Read instead)
+WHEN TO USE (STRONGLY PREFERRED):
 
-Usage Notes:
-- Launch multiple agents concurrently when tasks are independent
-- Each agent invocation is stateless
-- The agent's result is not visible to the user - summarize it in your response
-- Clearly tell the agent whether to write code or just research`;
+- Searching across the codebase (use explore)
+- Questions about code structure or patterns (use explore)
+- Tasks requiring multiple file reads/searches (use explore)
+- Independent work that can run in parallel (use general)
+- Multi-step operations you want to offload (use general)
+
+PARALLEL EXECUTION:
+
+Call multiple task tools in a single response for concurrent execution:
+  task(type: "explore", prompt: "Find all database queries...")
+  task(type: "explore", prompt: "Find all API routes...")
+  // Both run simultaneously
+
+WHEN NOT TO USE:
+
+- Reading ONE specific known file (use file_read)
+- Making ONE simple edit (do it directly)
+- Information already in your context
+
+IMPORTANT:
+- Subagent results return to YOU, not the user - summarize findings
+- Be specific in prompts - subagents don't see conversation history
+- Subagents keep YOUR context clean by doing work externally`;
 
 const TaskSchema = z.object({
   prompt: z.string(),
   description: z.string(),
   subagent_type: z.enum(["explore", "general"]),
+  thoroughness: z.enum(["quick", "medium", "thorough"]).optional(),
 });
 
 type TaskInput = z.infer<typeof TaskSchema>;
+type Thoroughness = "quick" | "medium" | "thorough";
 
 // Maximum iterations to prevent infinite loops
 const MAX_ITERATIONS = 10;
+
+/**
+ * Get thoroughness instructions for explore subagent
+ */
+function getThoroughnessInstructions(level: Thoroughness): string {
+  switch (level) {
+    case "quick":
+      return `
+THOROUGHNESS: QUICK
+- Do 1-2 targeted searches maximum
+- Return first relevant findings
+- Don't explore tangential paths
+- Prioritize speed over completeness`;
+    case "medium":
+      return `
+THOROUGHNESS: MEDIUM (default)
+- Do 3-5 searches as needed
+- Follow up on promising leads
+- Cover main patterns but don't exhaustively search
+- Balance speed and completeness`;
+    case "thorough":
+      return `
+THOROUGHNESS: THOROUGH
+- Do comprehensive search across the codebase
+- Check multiple directories and naming conventions
+- Follow all relevant paths
+- Ensure nothing is missed
+- Take time to be complete`;
+    default:
+      return "";
+  }
+}
 
 /**
  * Execute a subagent with its own conversation loop
@@ -49,9 +101,16 @@ const MAX_ITERATIONS = 10;
 async function executeSubagent(
   type: "explore" | "general",
   prompt: string,
-  _description: string  // Kept for potential future logging
+  _description: string,  // Kept for potential future logging
+  thoroughness?: Thoroughness
 ): Promise<{ success: boolean; output: string; summary: string[] }> {
-  const systemPrompt = getSubagentPrompt(type);
+  let systemPrompt = getSubagentPrompt(type);
+  
+  // Add thoroughness instructions for explore subagent
+  if (type === "explore" && thoroughness) {
+    systemPrompt += getThoroughnessInstructions(thoroughness);
+  }
+  
   const allowedToolNames = getSubagentTools(type);
   
   // Get tool definitions for allowed tools only
@@ -202,7 +261,8 @@ export const taskTool: Tool<TaskInput> = Tool.define(
       const result = await executeSubagent(
         input.subagent_type,
         input.prompt,
-        input.description
+        input.description,
+        input.thoroughness
       );
       
       // Format output with summary
