@@ -35,8 +35,8 @@ jobs:
             platform: darwin
             arch: arm64
             target: bun-darwin-arm64
-          # macOS x64 (Intel) - using macos-15-intel since macos-13 is retired
-          - os: macos-15
+          # macOS x64 (Intel) - using macos-15-intel runner
+          - os: macos-15-intel
             platform: darwin
             arch: x64
             target: bun-darwin-x64
