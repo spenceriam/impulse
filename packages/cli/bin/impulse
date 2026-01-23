@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+
+import { spawn } from "child_process";
+import { existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { createRequire } from "module";
+import os from "os";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+
+function detectPlatformAndArch() {
+  let platform;
+  switch (os.platform()) {
+    case "darwin":
+      platform = "darwin";
+      break;
+    case "linux":
+      platform = "linux";
+      break;
+    case "win32":
+      platform = "windows";
+      break;
+    default:
+      platform = os.platform();
+      break;
+  }
+
+  let arch;
+  switch (os.arch()) {
+    case "x64":
+      arch = "x64";
+      break;
+    case "arm64":
+      arch = "arm64";
+      break;
+    default:
+      arch = os.arch();
+      break;
+  }
+
+  return { platform, arch };
+}
+
+function findBinary() {
+  const { platform, arch } = detectPlatformAndArch();
+  const packageName = `@spenceriam/impulse-${platform}-${arch}`;
+  const binaryName = platform === "windows" ? "impulse.exe" : "impulse";
+
+  try {
+    const packageJsonPath = require.resolve(`${packageName}/package.json`);
+    const packageDir = dirname(packageJsonPath);
+    const binaryPath = join(packageDir, "bin", binaryName);
+
+    if (!existsSync(binaryPath)) {
+      throw new Error(`Binary not found at ${binaryPath}`);
+    }
+
+    return binaryPath;
+  } catch (error) {
+    // Check if symlinked binary exists in same directory
+    const localBinary = join(__dirname, binaryName);
+    if (existsSync(localBinary)) {
+      return localBinary;
+    }
+    
+    throw new Error(
+      `Could not find IMPULSE binary for ${platform}-${arch}.\n` +
+      `Package ${packageName} may not be installed.\n` +
+      `Try reinstalling: npm install -g @spenceriam/impulse`
+    );
+  }
+}
+
+try {
+  const binaryPath = findBinary();
+  
+  const child = spawn(binaryPath, process.argv.slice(2), {
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  child.on("error", (err) => {
+    console.error("Failed to start IMPULSE:", err.message);
+    process.exit(1);
+  });
+
+  child.on("exit", (code) => {
+    process.exit(code ?? 0);
+  });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}

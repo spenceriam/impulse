@@ -1,6 +1,8 @@
 import { For, Show } from "solid-js";
 import { MessageBlock, type Message } from "./MessageBlock";
 import { CompactingBlock } from "./CompactingBlock";
+import { UpdateInfo } from "../../util/update-check";
+import { Colors } from "../design";
 
 /**
  * Compacting state for display in chat
@@ -23,16 +25,19 @@ export interface CompactingState {
  * Props:
  * - messages: Array of messages to display
  * - compactingState: Optional compacting indicator to show at end of messages
+ * - updateInfo: Optional update notification to show at top
  */
 
 interface ChatViewProps {
   messages?: Message[];
   compactingState?: CompactingState | null;
+  updateInfo?: UpdateInfo | null;
 }
 
 export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
   const compactingState = () => props.compactingState ?? null;
+  const updateInfo = () => props.updateInfo ?? null;
 
   return (
     <box 
@@ -58,6 +63,30 @@ export function ChatView(props: ChatViewProps) {
         }}
       >
         <box flexDirection="column" minWidth={0} overflow="hidden">
+          {/* Update notification at top of chat */}
+          <Show when={updateInfo()}>
+            {(info: () => UpdateInfo) => (
+              <box 
+                flexDirection="column" 
+                padding={1}
+                marginBottom={1}
+                borderStyle="single"
+                borderColor={Colors.status.warning}
+              >
+                <box flexDirection="row">
+                  <text fg={Colors.status.warning}>Update available: </text>
+                  <text fg={Colors.ui.dim}>{info().currentVersion}</text>
+                  <text fg={Colors.ui.dim}> → </text>
+                  <text fg={Colors.status.success}>{info().latestVersion}</text>
+                </box>
+                <box flexDirection="row">
+                  <text fg={Colors.ui.dim}>Run </text>
+                  <text fg={Colors.ui.primary}>{info().updateCommand}</text>
+                  <text fg={Colors.ui.dim}> then restart IMPULSE</text>
+                </box>
+              </box>
+            )}
+          </Show>
           <For each={messages()}>
             {(message) => <MessageBlock message={message} />}
           </For>

@@ -1,0 +1,36 @@
+# Source files (dist only)
+src/
+scripts/
+
+# Config files
+tsconfig.json
+bunfig.toml
+.eslintrc*
+.prettierrc*
+
+# Documentation (keep README)
+docs/
+AGENTS.md
+PRINCIPLES.md
+CHANGELOG.md
+
+# Development
+.git/
+.github/
+.vscode/
+.idea/
+
+# OpenCode/AI config
+.opencode/
+.impulse/
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__/
+
+# Misc
+*.log
+*.tgz
+.DS_Store
+node_modules/

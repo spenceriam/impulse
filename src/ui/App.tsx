@@ -26,6 +26,7 @@ import { Tool } from "../tools/registry";
 import { type ToolCallInfo } from "./components/MessageBlock";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
+import { runUpdateCheck, type UpdateInfo } from "../util/update-check";
 
 /**
  * App Component
@@ -652,6 +653,9 @@ function AppWithSession() {
     isManual: boolean;
   } | null>(null);
   
+  // Update notification - checked on startup
+  const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
+  
   // Check if user has seen welcome screen on mount
   onMount(async () => {
     try {
@@ -663,6 +667,10 @@ function AppWithSession() {
       // Config load failed, show welcome anyway for new users
       setShowStartOverlay(true);
     }
+    
+    // Check for updates in background (non-blocking)
+    // Result will come via Bus event "update.available"
+    runUpdateCheck();
   });
   
   // Handle start overlay close - save that user has seen it
@@ -736,6 +744,11 @@ function AppWithSession() {
         setTimeout(() => {
           setCompactingState(null);
         }, 2000);
+      }
+      // Update available event - show notification in ChatView
+      if (event.type === "update.available") {
+        const payload = event.properties as UpdateInfo;
+        setUpdateInfo(payload);
       }
     });
     
@@ -1454,7 +1467,7 @@ function AppWithSession() {
             {/* Content column */}
             <box flexDirection="column" flexGrow={1} minWidth={0} paddingRight={4}>
               {/* Chat area - flexGrow={1} takes remaining space */}
-              <ChatView messages={messages()} compactingState={compactingState()} />
+              <ChatView messages={messages()} compactingState={compactingState()} updateInfo={updateInfo()} />
               
               {/* Bottom section - flexShrink={0} prevents compression by chat content */}
               <box flexDirection="column" flexShrink={0}>

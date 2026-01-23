@@ -6,6 +6,12 @@ bun.lockb
 dist/
 *.tsbuildinfo
 
+# Platform binaries (built by CI/CD)
+packages/linux-*/
+packages/darwin-*/
+packages/windows-*/
+*.tgz
+
 # Environment variables
 .env
 .env.local

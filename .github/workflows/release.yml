@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.15.1)'
+        required: true
+        type: string
+
+env:
+  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            target: bun-linux-x64
+          # Linux ARM64 (uses ubuntu-24.04-arm runner)
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            target: bun-linux-arm64
+          # macOS ARM64 (M-series, Apple Silicon)
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+            target: bun-darwin-arm64
+          # macOS x64 (Intel)
+          - os: macos-13
+            platform: darwin
+            arch: x64
+            target: bun-darwin-x64
+          # Windows x64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            target: bun-windows-x64
+          # Windows ARM64
+          - os: windows-11-arm
+            platform: windows
+            arch: arm64
+            target: bun-windows-arm64
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build dist
+        run: bun run build
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build binary
+        shell: bash
+        run: |
+          mkdir -p packages/${{ matrix.platform }}-${{ matrix.arch }}/bin
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            bun build --compile --minify --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse.exe
+          else
+            bun build --compile --minify --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
+          fi
+
+      - name: Create platform package.json
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > packages/${{ matrix.platform }}-${{ matrix.arch }}/package.json << EOF
+          {
+            "name": "@spenceriam/impulse-${{ matrix.platform }}-${{ matrix.arch }}",
+            "version": "$VERSION",
+            "description": "IMPULSE binary for ${{ matrix.platform }}-${{ matrix.arch }}",
+            "license": "MIT",
+            "repository": {
+              "type": "git",
+              "url": "git+https://github.com/spenceriam/impulse.git"
+            },
+            "os": ["${{ matrix.platform == 'windows' && 'win32' || matrix.platform }}"],
+            "cpu": ["${{ matrix.arch }}"],
+            "files": ["bin/*"],
+            "publishConfig": {
+              "access": "public"
+            }
+          }
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: impulse-${{ matrix.platform }}-${{ matrix.arch }}
+          path: packages/${{ matrix.platform }}-${{ matrix.arch }}/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Publish platform packages
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          for platform_dir in artifacts/impulse-*/; do
+            platform_name=$(basename "$platform_dir")
+            echo "Publishing $platform_name..."
+            cd "$platform_dir"
+            npm publish --access public || echo "Failed to publish $platform_name (may already exist)"
+            cd -
+          done
+
+      - name: Create CLI wrapper package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p packages/cli/bin
+          
+          # Copy wrapper files
+          cp packages/cli/postinstall.mjs packages/cli-release/postinstall.mjs || true
+          
+          # Create package.json with correct version
+          cat > packages/cli/package.json << EOF
+          {
+            "name": "@spenceriam/impulse",
+            "version": "$VERSION",
+            "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan",
+            "license": "MIT",
+            "bin": {
+              "impulse": "./bin/impulse"
+            },
+            "scripts": {
+              "postinstall": "node ./postinstall.mjs"
+            },
+            "repository": {
+              "type": "git",
+              "url": "git+https://github.com/spenceriam/impulse.git"
+            },
+            "homepage": "https://github.com/spenceriam/impulse#readme",
+            "keywords": ["ai", "cli", "impulse", "terminal", "coding", "agent"],
+            "author": "Spencer Francisco",
+            "files": ["bin/*", "postinstall.mjs"],
+            "publishConfig": {
+              "access": "public"
+            },
+            "optionalDependencies": {
+              "@spenceriam/impulse-linux-x64": "$VERSION",
+              "@spenceriam/impulse-linux-arm64": "$VERSION",
+              "@spenceriam/impulse-darwin-x64": "$VERSION",
+              "@spenceriam/impulse-darwin-arm64": "$VERSION",
+              "@spenceriam/impulse-windows-x64": "$VERSION",
+              "@spenceriam/impulse-windows-arm64": "$VERSION"
+            }
+          }
+          EOF
+
+      - name: Publish CLI wrapper
+        run: |
+          cd packages/cli
+          npm publish --access public

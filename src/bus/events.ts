@@ -132,3 +132,14 @@ export const HeaderEvents = {
     })
   ),
 };
+
+export const UpdateEvents = {
+  Available: BusEvent.define(
+    "update.available",
+    z.object({
+      currentVersion: z.string(),
+      latestVersion: z.string(),
+      updateCommand: z.string(),
+    })
+  ),
+};

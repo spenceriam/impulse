@@ -1,0 +1,46 @@
+{
+  "name": "@spenceriam/impulse",
+  "version": "0.15.1",
+  "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders",
+  "license": "MIT",
+  "bin": {
+    "impulse": "./bin/impulse"
+  },
+  "scripts": {
+    "postinstall": "node ./postinstall.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spenceriam/impulse.git"
+  },
+  "homepage": "https://github.com/spenceriam/impulse#readme",
+  "bugs": {
+    "url": "https://github.com/spenceriam/impulse/issues"
+  },
+  "keywords": [
+    "ai",
+    "cli",
+    "impulse",
+    "terminal",
+    "coding",
+    "agent",
+    "z-ai",
+    "coding-plan"
+  ],
+  "author": "Spencer Francisco",
+  "files": [
+    "bin/*",
+    "postinstall.mjs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "optionalDependencies": {
+    "@spenceriam/impulse-linux-x64": "0.15.1",
+    "@spenceriam/impulse-linux-arm64": "0.15.1",
+    "@spenceriam/impulse-darwin-x64": "0.15.1",
+    "@spenceriam/impulse-darwin-arm64": "0.15.1",
+    "@spenceriam/impulse-windows-x64": "0.15.1",
+    "@spenceriam/impulse-windows-arm64": "0.15.1"
+  }
+}
