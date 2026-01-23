@@ -40,7 +40,6 @@
     "@spenceriam/impulse-linux-arm64": "0.15.1",
     "@spenceriam/impulse-darwin-x64": "0.15.1",
     "@spenceriam/impulse-darwin-arm64": "0.15.1",
-    "@spenceriam/impulse-windows-x64": "0.15.1",
-    "@spenceriam/impulse-windows-arm64": "0.15.1"
+    "@spenceriam/impulse-windows-x64": "0.15.1"
   }
 }
