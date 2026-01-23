@@ -1,12 +1,12 @@
 # IMPULSE
 
-> Terminal-based AI coding agent powered by GLM models
+> Terminal-based AI coding agent powered by Z.ai's Coding Plan
 
-A brutally minimal terminal interface for AI-assisted software development. Built with OpenTUI + SolidJS for flicker-free 60fps rendering. Powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders.
+A brutally minimal terminal interface for AI-assisted software development. Built with OpenTUI + SolidJS for flicker-free 60fps rendering. Powered by Z.ai's Coding Plan and their GLM-4.x models - the best cost/engineering ratio for builders.
 
 ## Features
 
-- **GLM-4.7** - Flagship model with thinking mode
+- **GLM-4.x Models** - Z.ai's flagship models with thinking mode
 - **5 Modes** - AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG
 - **MCP Integration** - Vision, Web Search, Web Reader, Zread, Context7
 - **Git Checkpoints** - Per-message undo/redo
