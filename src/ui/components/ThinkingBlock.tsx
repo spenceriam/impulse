@@ -1,40 +1,25 @@
-import { createSignal, Show } from "solid-js";
-import { Colors, Indicators } from "../design";
+import { createSignal, createMemo, Show } from "solid-js";
+import { Colors } from "../design";
 
 /**
  * Thinking Block Component
- * Collapsible thinking display with 2-row preview
+ * Collapsible thinking display that scales to content
  * 
  * States:
- * - Collapsed (default): 2-row scrollable preview, auto-scrolls to show latest
- * - Expanded: 8-row scrollable view, click to collapse
+ * - Collapsed (default): Shows "● Thinking" header only, click to expand
+ * - Expanded: Shows full content scaled to actual height (max 20 rows), click to collapse
  * 
- * Layout (Collapsed):
- * ▶ Thinking (click to expand)
- * ┃ I need to analyze the user's request carefully. First, I
- * ┃ should understand what they're asking for and then...
- * 
- * Layout (Expanded):
- * ▼ Thinking (click to collapse)
- * ┃ I need to analyze the user's request carefully. First, I
- * ┃ should understand what they're asking for and then plan
- * ┃ my approach. Let me break this down:
- * ┃
- * ┃ 1. The user wants to fix the UI layout
- * ┃ 2. There are issues with border alignment
- * ┃ 3. The thinking section should be collapsible
- * ┃
- * 
- * Design: No border, just darker background color for differentiation
+ * Icons:
+ * - ● (filled dot) = collapsed
+ * - ○ (hollow dot) = expanded
  * 
  * Props:
  * - content: Thinking content to display
- * - streaming: Whether content is currently being streamed (auto-scroll when true)
+ * - streaming: Whether content is currently being streamed
  */
 
-// Height constants
-const COLLAPSED_HEIGHT = 2;  // 2-row preview when collapsed
-const EXPANDED_HEIGHT = 8;   // 8-row view when expanded
+// Maximum height when expanded (to prevent huge blocks)
+const MAX_EXPANDED_HEIGHT = 20;
 
 interface ThinkingBlockProps {
   content?: string;
@@ -42,7 +27,6 @@ interface ThinkingBlockProps {
 }
 
 export function ThinkingBlock(props: ThinkingBlockProps) {
-  // Default to collapsed state
   const [expanded, setExpanded] = createSignal(false);
 
   const showContent = () => !!props.content && props.content.trim().length > 0;
@@ -51,9 +35,20 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
     setExpanded((e) => !e);
   };
 
-  const indicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
+  // Calculate content height based on actual line count
+  const contentLines = createMemo(() => {
+    if (!props.content) return 0;
+    return props.content.split("\n").length;
+  });
+
+  // Height scales to content when expanded, capped at MAX_EXPANDED_HEIGHT
+  const contentHeight = createMemo(() => {
+    if (!expanded()) return 0; // Collapsed shows no content
+    return Math.min(contentLines(), MAX_EXPANDED_HEIGHT);
+  });
+
+  const indicator = () => expanded() ? "○" : "●";
   const label = () => expanded() ? "Thinking (click to collapse)" : "Thinking (click to expand)";
-  const height = () => expanded() ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT;
 
   return (
     <Show when={showContent()}>
@@ -62,7 +57,6 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
         marginTop={1}
         marginBottom={1}
         backgroundColor={Colors.message.thinking}
-        width="100%"
         overflow="hidden"
         flexShrink={0}
       >
@@ -80,25 +74,26 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
           </text>
         </box>
         
-        {/* Content area - scrollable with left border accent */}
-        <box flexDirection="row" paddingLeft={1}>
-          <box flexShrink={0} width={2}>
-            <text fg={Colors.ui.dim}>┃ </text>
+        {/* Content area - only shown when expanded */}
+        <Show when={expanded()}>
+          <box flexDirection="row" paddingLeft={1}>
+            <box flexShrink={0} width={2}>
+              <text fg={Colors.ui.dim}>  </text>
+            </box>
+            <scrollbox
+              height={contentHeight()}
+              flexGrow={1}
+              stickyScroll={false}
+              style={{
+                viewportOptions: {
+                  paddingRight: 1,
+                },
+              }}
+            >
+              <text fg={Colors.ui.dim}><em>{props.content}</em></text>
+            </scrollbox>
           </box>
-          <scrollbox
-            height={height()}
-            flexGrow={1}
-            stickyScroll={(props.streaming ?? false) && !expanded()}  // Auto-scroll in collapsed+streaming mode
-            stickyStart="bottom"
-            style={{
-              viewportOptions: {
-                paddingRight: 1,
-              },
-            }}
-          >
-            <text fg={Colors.ui.dim}><em>{props.content}</em></text>
-          </scrollbox>
-        </box>
+        </Show>
       </box>
     </Show>
   );

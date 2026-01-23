@@ -5,12 +5,11 @@ import { MessageBlock, type Message } from "./MessageBlock";
  * Chat View Component
  * Scrollable message list WITHOUT border or right scrollbar
  * 
- * Layout (v0.13.4 redesign):
- * - No border - uses left gutter for scroll indication instead
+ * Layout (v0.13.8 redesign):
+ * - No border - uses left gutter for visual anchor
  * - No right scrollbar - prevents horizontal push issues
  * - Scrollbox with stickyScroll for auto-scroll to newest content
- * 
- * The gutter component handles scroll indication separately.
+ * - All content constrained within bounds (no overflow)
  * 
  * Props:
  * - messages: Array of messages to display
@@ -27,29 +26,26 @@ export function ChatView(props: ChatViewProps) {
     <box 
       flexGrow={1}
       minWidth={0}
-      width="100%"
       flexDirection="column"
       overflow="hidden"
     >
       <scrollbox 
         flexGrow={1}
-        width="100%"
         stickyScroll={true}
         stickyStart="bottom"
         style={{
           viewportOptions: {
-            paddingRight: 2,
+            paddingRight: 1,
             paddingLeft: 1,
             paddingTop: 1,
             paddingBottom: 1,
           },
-          // No scrollbar - gutter handles scroll indication
           scrollbarOptions: {
             visible: false,
           },
         }}
       >
-        <box flexDirection="column" minWidth={0}>
+        <box flexDirection="column" minWidth={0} overflow="hidden">
           <For each={messages()}>
             {(message) => <MessageBlock message={message} />}
           </For>

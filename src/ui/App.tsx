@@ -598,8 +598,8 @@ function AppWithSession() {
 
   const [isLoading, setIsLoading] = createSignal(false);
   
-  // Track if AI has ever processed (for spinner idle state)
-  const [hasProcessed, setHasProcessed] = createSignal(false);
+  // Track if user has ever started a session (to keep session view after /clear or /new)
+  const [hasStartedSession, setHasStartedSession] = createSignal(false);
   
   // Stream processor signal - needs to be a signal so keyboard handler can access current value
   const [streamProc, setStreamProc] = createSignal<StreamProcessor | null>(null);
@@ -1155,6 +1155,9 @@ function AppWithSession() {
     // Ensure session is created on first message (lazy creation)
     await ensureSessionCreated();
     
+    // Mark that user has started a session (keeps session view after /clear)
+    setHasStartedSession(true);
+    
     // Add user message
     addMessage({ role: "user", content: trimmedContent });
 
@@ -1264,7 +1267,6 @@ function AppWithSession() {
           } else {
             setIsLoading(false);
             setStreamProc(null);
-            setHasProcessed(true);  // Mark that AI has processed at least once
             // Save after AI response completes (event-driven, not interval-based)
             saveAfterResponse();
           }
@@ -1305,10 +1307,11 @@ function AppWithSession() {
   const chatHeight = () => Math.max(5, dimensions().height - FIXED_HEIGHT);
 
   // Use Show for reactive conditional rendering
+  // Show session view if we have messages OR if user has started a session (for /clear behavior)
   return (
     <>
       <Show
-        when={messages().length > 0}
+        when={messages().length > 0 || hasStartedSession()}
         fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} />}
       >
         {/* Session view with unified gutter layout */}
@@ -1325,13 +1328,11 @@ function AppWithSession() {
           
           {/* Main content row: Gutter + Content column */}
           <box flexDirection="row" flexGrow={1} minWidth={0}>
-            {/* Left gutter - visual anchor for chat, spinner for input */}
+            {/* Left gutter - full-height color-cycling line */}
             <box paddingLeft={1}>
               <Gutter
-                chatHeight={chatHeight()}
-                inputHeight={BOTTOM_PANEL_HEIGHT}
+                height={chatHeight() + BOTTOM_PANEL_HEIGHT + 1}
                 loading={isLoading()}
-                hasProcessed={hasProcessed()}
               />
             </box>
             

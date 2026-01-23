@@ -3,164 +3,74 @@ import { Colors } from "../design";
 
 /**
  * Gutter Component
- * Unified left gutter that serves dual purpose:
- * 1. Visual anchor line for ChatView region
- * 2. Spinner animation for InputArea region during processing
+ * Full-height left gutter that serves as visual anchor
  * 
- * Layout:
- * ┌───┬─────────────────────────────────────────────┐
- * │ │ │ Chat content area                           │
- * │ │ │                                             │
- * │ │ │                                             │
- * ├───┼─────────────────────────────────────────────┤
- * │ ⣾ │ ┌─ Input Area ─────────────────────────────┐│
- * │ ⣽ │ │                                          ││
- * │ ⣻ │ │                                          ││
- * │ ⢿ │ └──────────────────────────────────────────┘│
- * └───┴─────────────────────────────────────────────┘
+ * Idle: Dim vertical line
+ * Processing: Color cycles through GLM-CLI logo palette (200ms per color)
  * 
- * Note: OpenTUI scrollbox doesn't expose scroll events, so the chat region
- * just shows a dim vertical line. The scrollbox handles scrolling internally.
+ * Colors cycle: cyan → purple → blue → orange → white → repeat
  * 
  * Props:
- * - chatHeight: Height of chat region in rows
- * - inputHeight: Height of input region in rows
- * - loading: Whether spinner should animate
- * - hasProcessed: Whether to show static spinner (idle after processing)
+ * - height: Total height in rows
+ * - loading: Whether to animate colors
  */
 
 // Gutter width constant - exported for layout calculations
-export const GUTTER_WIDTH = 3;
+export const GUTTER_WIDTH = 2;
 
-// DNA Helix animation frames
-const DNA_HELIX_FRAMES = [
-  "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷",
+// GLM-CLI logo color palette
+const LOGO_COLORS = [
+  "#5cffff", // Cyan (primary)
+  "#b48eff", // Purple (PLANNER)
+  "#5c8fff", // Blue (PLAN-PRD)
+  "#ffaa5c", // Orange (DEBUG)
+  "#ffffff", // White (AUTO)
 ];
 
-// Gradient colors for spinner
-const GRADIENT_COLORS = [
-  "#5cffff", "#4ad4d4", "#38a9a9", "#267e7e", "#1a6666", "#666666",
-];
-
-// Scroll indicator characters
-const SCROLL_CHARS = {
-  filled: "█",
-  empty: "░",
-  arrowUp: "▲",
-  arrowDown: "▼",
-  line: "│",
-};
+// Vertical line character
+const LINE_CHAR = "│";
 
 interface GutterProps {
-  chatHeight: number;
-  inputHeight: number;
+  height: number;
   loading: boolean;
-  hasProcessed: boolean;
-  // Note: scroll position props removed - OpenTUI scrollbox doesn't expose scroll events
-  // Future: could add scroll tracking if OpenTUI adds support
 }
 
 export function Gutter(props: GutterProps) {
-  // Spinner animation state
-  const [frameIndices, setFrameIndices] = createSignal<number[]>([]);
-  let intervalIds: ReturnType<typeof setInterval>[] = [];
+  const [colorIndex, setColorIndex] = createSignal(0);
+  let intervalId: ReturnType<typeof setInterval> | undefined;
   
-  // Helper to clear all intervals
-  const clearAllIntervals = () => {
-    intervalIds.forEach((id) => clearInterval(id));
-    intervalIds = [];
-  };
-  
-  // Helper to start animation
-  const startAnimation = () => {
-    clearAllIntervals();
-    const spinnerHeight = props.inputHeight;
-    
-    // Animated mode - set random initial positions and start intervals
-    const initial = Array.from({ length: spinnerHeight }, () => 
-      Math.floor(Math.random() * DNA_HELIX_FRAMES.length)
-    );
-    setFrameIndices(initial);
-    
-    for (let i = 0; i < spinnerHeight; i++) {
-      const rowInterval = 100 + (Math.random() * 40 - 20);
-      const id = setInterval(() => {
-        setFrameIndices((indices) => {
-          const newIndices = [...indices];
-          newIndices[i] = ((newIndices[i] ?? 0) + 1) % DNA_HELIX_FRAMES.length;
-          return newIndices;
-        });
-      }, rowInterval);
-      intervalIds.push(id);
-    }
-  };
-  
-  // Helper to stop animation and show static state
-  const stopAnimation = (showStatic: boolean) => {
-    clearAllIntervals();
-    const spinnerHeight = props.inputHeight;
-    
-    if (showStatic) {
-      // Static mode - show last frame
-      const lastFrameIndex = DNA_HELIX_FRAMES.length - 1;
-      setFrameIndices(Array.from({ length: spinnerHeight }, () => lastFrameIndex));
-    } else {
-      // Not processed yet - blank
-      setFrameIndices(Array.from({ length: spinnerHeight }, () => 0));
-    }
-  };
-  
-  // React to loading changes
+  // Start/stop color cycling based on loading state
   createEffect(() => {
-    const loading = props.loading;
-    const hasProcessed = props.hasProcessed;
-    
-    if (loading) {
-      startAnimation();
+    if (props.loading) {
+      // Start cycling at 200ms
+      intervalId = setInterval(() => {
+        setColorIndex((i) => (i + 1) % LOGO_COLORS.length);
+      }, 200);
     } else {
-      stopAnimation(hasProcessed);
+      // Stop cycling
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = undefined;
+      }
+      setColorIndex(0); // Reset to first color
     }
   });
   
   onCleanup(() => {
-    clearAllIntervals();
+    if (intervalId) {
+      clearInterval(intervalId);
+    }
   });
   
-  // Calculate scroll indicator rows
-  // Note: OpenTUI scrollbox doesn't expose scroll position events,
-  // so we show a simple vertical line. The scrollbox handles scrolling internally.
-  const getScrollRows = () => {
-    const height = props.chatHeight;
-    const rows: { char: string; color: string }[] = [];
-    
-    // Show a dim vertical line - visual anchor for the gutter
-    for (let i = 0; i < height; i++) {
-      rows.push({ char: SCROLL_CHARS.line, color: Colors.ui.dim });
+  const currentColor = (): string => {
+    if (props.loading) {
+      return LOGO_COLORS[colorIndex()] ?? "#5cffff";
     }
-    
-    return rows;
+    return Colors.ui.dim;
   };
   
-  // Get spinner row
-  const getSpinnerColor = (index: number): string => {
-    if (!props.loading && props.hasProcessed) {
-      return Colors.ui.dim;
-    }
-    if (!props.loading && !props.hasProcessed) {
-      return "transparent";
-    }
-    const colorIndex = Math.floor((index / props.inputHeight) * GRADIENT_COLORS.length);
-    return GRADIENT_COLORS[Math.min(colorIndex, GRADIENT_COLORS.length - 1)] || "#5cffff";
-  };
-  
-  const getSpinnerFrame = (index: number): string => {
-    if (!props.loading && !props.hasProcessed) {
-      return " ";
-    }
-    const indices = frameIndices();
-    const frameIdx = indices[index] ?? 0;
-    return DNA_HELIX_FRAMES[frameIdx] ?? "⣾";
-  };
+  // Generate array of row indices
+  const rows = () => Array.from({ length: props.height }, (_, i) => i);
   
   return (
     <box 
@@ -169,23 +79,11 @@ export function Gutter(props: GutterProps) {
       flexShrink={0}
       paddingRight={1}
     >
-      {/* Scroll indicator region (ChatView height) */}
-      <box flexDirection="column" height={props.chatHeight} flexShrink={0}>
-        <For each={getScrollRows()}>
-          {(row) => (
-            <text fg={row.color}>{row.char}</text>
-          )}
-        </For>
-      </box>
-      
-      {/* Spinner region (InputArea height) */}
-      <box flexDirection="column" height={props.inputHeight} flexShrink={0}>
-        <For each={Array.from({ length: props.inputHeight }, (_, i) => i)}>
-          {(index) => (
-            <text fg={getSpinnerColor(index)}>{getSpinnerFrame(index)}</text>
-          )}
-        </For>
-      </box>
+      <For each={rows()}>
+        {() => (
+          <text fg={currentColor()}>{LINE_CHAR}</text>
+        )}
+      </For>
     </box>
   );
 }

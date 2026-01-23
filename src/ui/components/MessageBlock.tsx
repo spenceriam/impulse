@@ -13,6 +13,7 @@ import {
 import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 import { DiffView } from "./DiffView";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { BouncingDots } from "./BouncingDots";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
@@ -457,7 +458,8 @@ export function MessageBlock(props: MessageBlockProps) {
   const isUser = () => props.message.role === "user";
   const model = () => props.message.model || "GLM-4.7";
   const mode = () => props.message.mode;
-  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.ui.primary;
+  // AI messages use mode color; default to AUTO's color (soft white) if no mode set
+  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.mode.AUTO;
   const toolCalls = () => props.message.toolCalls ?? [];
   const reasoning = () => props.message.reasoning;
   const isStreaming = () => props.message.streaming ?? false;
@@ -492,24 +494,23 @@ export function MessageBlock(props: MessageBlockProps) {
             minWidth={0}
             overflow="hidden"
           >
-            {/* Header: Model [MODE] or processing indicator */}
-            <Show
-              when={!isStreaming() || props.message.content || reasoning()}
-              fallback={
-                <box flexDirection="row">
-                  <text fg={modeColor()}>Processing...</text>
-                </box>
-              }
-            >
-              <box flexDirection="row">
-                <text>
-                  <strong>{model().toUpperCase()}</strong>
-                </text>
-                <Show when={mode()}>
-                  <text fg={Colors.ui.dim}> [</text>
-                  <text fg={modeColor()}>{mode()}</text>
-                  <text fg={Colors.ui.dim}>]</text>
-                </Show>
+            {/* Header: Model [MODE] */}
+            <box flexDirection="row">
+              <text>
+                <strong>{model().toUpperCase()}</strong>
+              </text>
+              <Show when={mode()}>
+                <text fg={Colors.ui.dim}> [</text>
+                <text fg={modeColor()}>{mode()}</text>
+                <text fg={Colors.ui.dim}>]</text>
+              </Show>
+            </box>
+            
+            {/* Bouncing dots during initial processing (before content/reasoning arrives) */}
+            <Show when={isStreaming() && !props.message.content && !reasoning()}>
+              <box flexDirection="row" marginTop={1}>
+                <text fg={Colors.ui.dim}>Thinking </text>
+                <BouncingDots color={modeColor()} />
               </box>
             </Show>
             

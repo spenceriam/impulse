@@ -47,7 +47,14 @@ function getCurrentDate(): string {
   return `${month}-${day}-${year}`;
 }
 
-// Estimate context usage percentage (simplified)
+// Calculate context usage percentage from actual token usage
+function calculateContextUsage(inputTokens: number, outputTokens: number): number {
+  const totalTokens = inputTokens + outputTokens;
+  const contextWindow = 200000; // GLM-4.7 context window
+  return Math.min(100, Math.round((totalTokens / contextWindow) * 100));
+}
+
+// Fallback: Estimate context usage from message content when no token data available
 function estimateContextUsage(messages: { content: string }[]): number {
   // Rough estimate: ~4 chars per token, 200k context window
   const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
@@ -114,8 +121,14 @@ export function StatusLine(props: StatusLineProps) {
   // Reactive memo for express mode
   const isExpress = createMemo(() => expressContext?.express() ?? false);
   
-  // Reactive memo for context usage - re-evaluates when messages change
+  // Reactive memo for context usage - uses actual token data when available
   const progress = createMemo(() => {
+    const stats = sessionContext?.stats();
+    if (stats && stats.tokens && (stats.tokens.input > 0 || stats.tokens.output > 0)) {
+      // Use actual token counts from API responses
+      return calculateContextUsage(stats.tokens.input, stats.tokens.output);
+    }
+    // Fallback to estimate from message content
     const messages = sessionContext?.messages() ?? [];
     return estimateContextUsage(messages);
   });

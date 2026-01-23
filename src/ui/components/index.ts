@@ -17,5 +17,6 @@ export { QuestionOverlay } from "./QuestionOverlay";
 export { PermissionPrompt } from "./PermissionPrompt";
 export { ExpressWarning } from "./ExpressWarning";
 export { Spinner, StackedSpinner } from "./Spinner";
+export { BouncingDots } from "./BouncingDots";
 export { SessionPickerOverlay } from "./SessionPicker";
 export { Gutter, GUTTER_WIDTH } from "./Gutter";

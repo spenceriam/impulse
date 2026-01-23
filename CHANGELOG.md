@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.8] - 2026-01-23
+
+### Changed
+
+- **Gutter Redesign** - Replaced DNA helix spinner with color-cycling vertical line:
+  - Full-height line on left edge spans entire chat area
+  - Cycles through GLM-CLI logo colors (cyan, purple, blue, orange, white) at 200ms during processing
+  - Dim gray when idle
+  - Removed scroll indicator (not needed with hidden scrollbar)
+
+- **ThinkingBlock Icons** - Updated collapse/expand indicators:
+  - Collapsed: filled dot (●)
+  - Expanded: hollow dot (○)
+  - Content scales to actual line count (max 20 rows)
+  - No extra blank space in expanded view
+
+- **AI Message Accent Lines** - Now use mode color instead of cyan:
+  - AUTO mode: soft white (#cccccc)
+  - AGENT mode: cyan (#5cffff)
+  - PLANNER mode: purple (#b48eff)
+  - User messages remain cyan (primary accent)
+
+### Added
+
+- **Bouncing Dots Animation** - "Thinking · · ·" during AI processing:
+  - Shows below model header while waiting for response
+  - Three dots bounce in sequence (200ms interval)
+  - Mode-colored animation
+
+- **No-Emoji Instruction** - System prompt now explicitly requests no emojis:
+  - Terminal interfaces may not render emojis correctly
+  - ASCII characters only for indicators
+
+### Fixed
+
+- **/clear and /new Behavior** - No longer returns to welcome screen:
+  - Stays on session view after clearing messages
+  - Smoother UX without jarring transitions
+
+- **Context Usage Bar** - Now uses actual token counts when available:
+  - Falls back to character-based estimate if no token data
+  - More accurate progress display
+
+- **ChatView Layout** - Fixed potential overflow issues:
+  - Removed redundant width="100%" from container
+  - Added overflow="hidden" to inner content box
+
 ## [0.13.7] - 2026-01-23
 
 ### Fixed
