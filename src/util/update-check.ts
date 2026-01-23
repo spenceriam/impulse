@@ -8,7 +8,7 @@ import { Bus, UpdateEvents } from "../bus/index";
 
 // Package info
 const PACKAGE_NAME = "@spenceriam/impulse";
-const CURRENT_VERSION = "0.15.1"; // Kept in sync with package.json
+const CURRENT_VERSION = "0.15.2"; // Kept in sync with package.json
 const REGISTRY_URL = "https://registry.npmjs.org";
 
 export interface UpdateInfo {

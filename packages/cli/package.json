@@ -1,6 +1,6 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders",
   "license": "MIT",
   "bin": {
@@ -36,10 +36,10 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@spenceriam/impulse-linux-x64": "0.15.1",
-    "@spenceriam/impulse-linux-arm64": "0.15.1",
-    "@spenceriam/impulse-darwin-x64": "0.15.1",
-    "@spenceriam/impulse-darwin-arm64": "0.15.1",
-    "@spenceriam/impulse-windows-x64": "0.15.1"
+    "@spenceriam/impulse-linux-x64": "0.15.2",
+    "@spenceriam/impulse-linux-arm64": "0.15.2",
+    "@spenceriam/impulse-darwin-x64": "0.15.2",
+    "@spenceriam/impulse-darwin-arm64": "0.15.2",
+    "@spenceriam/impulse-windows-x64": "0.15.2"
   }
 }
