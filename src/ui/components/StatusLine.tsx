@@ -47,6 +47,10 @@ function getCurrentDate(): string {
   return `${month}-${day}-${year}`;
 }
 
+// Compact thresholds
+const COMPACT_WARNING_THRESHOLD = 70;  // Show "Compacting soon" at 70%
+const COMPACT_TRIGGER_THRESHOLD = 85;  // Auto-compact triggers at 85%
+
 // Calculate context usage percentage from actual token usage
 function calculateContextUsage(inputTokens: number, outputTokens: number): number {
   const totalTokens = inputTokens + outputTokens;
@@ -63,11 +67,18 @@ function estimateContextUsage(messages: { content: string }[]): number {
   return Math.min(100, Math.round((estimatedTokens / contextWindow) * 100));
 }
 
-// Build progress bar string
-function buildProgressBar(percent: number, width: number = 10): string {
+// Build progress bar string with optional warning state
+function buildProgressBar(percent: number, width: number = 10): { bar: string; warning: boolean } {
   const filled = Math.round((percent / 100) * width);
   const empty = width - filled;
-  return `[${Indicators.progress.filled.repeat(filled)}${Indicators.progress.empty.repeat(empty)}] ${percent}%`;
+  const bar = `[${Indicators.progress.filled.repeat(filled)}${Indicators.progress.empty.repeat(empty)}] ${percent}%`;
+  const warning = percent >= COMPACT_WARNING_THRESHOLD && percent < COMPACT_TRIGGER_THRESHOLD;
+  return { bar, warning };
+}
+
+// Check if compacting soon (70-84%)
+function isCompactingSoon(percent: number): boolean {
+  return percent >= COMPACT_WARNING_THRESHOLD && percent < COMPACT_TRIGGER_THRESHOLD;
 }
 
 // Get git branch name (synchronous version using spawnSync-like approach)
@@ -153,8 +164,10 @@ export function StatusLine(props: StatusLineProps) {
     return { dot: Indicators.dot, color: Colors.status.error };
   });
 
-  // Reactive memo for progress bar
-  const progressBar = createMemo(() => buildProgressBar(progress(), 10));
+  // Reactive memo for progress bar with warning state
+  const progressBarData = createMemo(() => buildProgressBar(progress(), 10));
+  const progressBar = createMemo(() => progressBarData().bar);
+  const showCompactWarning = createMemo(() => isCompactingSoon(progress()));
 
   // Reactive memo for mode color
   const modeColor = createMemo(() => {
@@ -226,8 +239,13 @@ export function StatusLine(props: StatusLineProps) {
     );
   }
 
+  // Reactive memo for progress bar color (yellow when compacting soon)
+  const progressColor = createMemo(() => 
+    showCompactWarning() ? Colors.status.warning : Colors.ui.dim
+  );
+
   // Full format for session view
-  // Format: Model | [EX] | Mode | Progress | Dir | Branch | MCP | Date
+  // Format: Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Date
   // [EX] comes right after Model (same position as welcome screen)
   return (
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
@@ -238,7 +256,12 @@ export function StatusLine(props: StatusLineProps) {
       </Show>
       <text fg={Colors.ui.dim}> | </text>
       <text fg={modeColor()}>{mode()}</text>
-      <text fg={Colors.ui.dim}> | {progressBar()} | {dir} |  {gitBranch()} | MCP: </text>
+      <text fg={Colors.ui.dim}> | </text>
+      <text fg={progressColor()}>{progressBar()}</text>
+      <Show when={showCompactWarning()}>
+        <text fg={Colors.status.warning}> Compacting soon</text>
+      </Show>
+      <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | MCP: </text>
       <text fg={mcpIndicator().color}>{mcpIndicator().dot}</text>
       <text fg={Colors.ui.dim}> | {date}</text>
     </box>

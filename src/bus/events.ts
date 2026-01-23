@@ -67,6 +67,8 @@ export const SessionEvents = {
       sessionID: z.string(),
       summary: z.string(),
       removedCount: z.number(),
+      isManual: z.boolean().optional(),
+      continuationPrompt: z.string().optional(),
     })
   ),
 };

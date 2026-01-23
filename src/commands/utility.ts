@@ -131,7 +131,8 @@ async function handleCompact(args: Record<string, unknown>) {
   }
 
   if (parsed.force || (await CompactManager.shouldCompact(sessionID))) {
-    const result = await CompactManager.compact(sessionID);
+    // Manual compact - will generate "what next?" prompt
+    const result = await CompactManager.compact(sessionID, true);
 
     if (result.compacted) {
       return {

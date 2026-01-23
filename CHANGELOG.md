@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-01-23
+
+### Added
+
+- **Enhanced Compaction System** - Visual feedback and smart continuation:
+  - Shows "Compacting conversation..." with bouncing dots animation
+  - Shows "Compact complete" message when done
+  - Auto-compact triggers at 85% context usage (was 70%)
+  - Status line shows "Compacting soon" warning at 70-84%
+  - Progress bar turns yellow in warning zone
+  
+- **Smart Continuation After Compact**:
+  - Auto-compact: Automatically continues with context-aware prompt
+  - Manual `/compact`: Shows "What would you like to focus on next?" based on context
+  - Includes pending todos in continuation context
+  - Natural conversation flow without explicit "continuing" language
+
+### Changed
+
+- **Improved Token Calculation** - More accurate context usage:
+  - Includes tool call arguments and results in estimates
+  - Uses actual API token counts when available
+  - Better estimation for tool-heavy sessions
+
+- **Compact Thresholds**:
+  - Warning zone: 70-84% (shows "Compacting soon" in status line)
+  - Auto-compact trigger: 85% (was 70%)
+  - Provides ~15% headroom for AI responses
+
 ## [0.13.9] - 2026-01-23
 
 ### Added

@@ -1,5 +1,14 @@
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import { MessageBlock, type Message } from "./MessageBlock";
+import { CompactingBlock } from "./CompactingBlock";
+
+/**
+ * Compacting state for display in chat
+ */
+export interface CompactingState {
+  status: "compacting" | "complete";
+  removedCount?: number;
+}
 
 /**
  * Chat View Component
@@ -13,14 +22,17 @@ import { MessageBlock, type Message } from "./MessageBlock";
  * 
  * Props:
  * - messages: Array of messages to display
+ * - compactingState: Optional compacting indicator to show at end of messages
  */
 
 interface ChatViewProps {
   messages?: Message[];
+  compactingState?: CompactingState | null;
 }
 
 export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
+  const compactingState = () => props.compactingState ?? null;
 
   return (
     <box 
@@ -49,6 +61,18 @@ export function ChatView(props: ChatViewProps) {
           <For each={messages()}>
             {(message) => <MessageBlock message={message} />}
           </For>
+          {/* Show compacting indicator when active */}
+          <Show when={compactingState()}>
+            {(state: () => CompactingState) => {
+              const s = state();
+              return (
+                <CompactingBlock 
+                  status={s.status} 
+                  {...(s.removedCount !== undefined ? { removedCount: s.removedCount } : {})}
+                />
+              );
+            }}
+          </Show>
         </box>
       </scrollbox>
     </box>

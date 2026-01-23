@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate, type CompactingState } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -639,6 +639,15 @@ function AppWithSession() {
   // Start/welcome overlay state
   const [showStartOverlay, setShowStartOverlay] = createSignal(false);
   
+  // Compacting state - shown in ChatView when context is being compacted
+  const [compactingState, setCompactingState] = createSignal<CompactingState | null>(null);
+  
+  // Pending continuation prompt - used to auto-continue after auto-compact
+  const [pendingContinuation, setPendingContinuation] = createSignal<{
+    prompt: string;
+    isManual: boolean;
+  } | null>(null);
+  
   // Check if user has seen welcome screen on mount
   onMount(async () => {
     try {
@@ -674,7 +683,7 @@ function AppWithSession() {
     showWarning() ||
     showStartOverlay();
   
-  // Subscribe to question, permission, and header events from the bus
+  // Subscribe to question, permission, header, and compact events from the bus
   onMount(() => {
     const unsubscribe = Bus.subscribe((event) => {
       if (event.type === "question.asked") {
@@ -692,11 +701,66 @@ function AppWithSession() {
         const payload = event.properties as { title: string };
         setHeaderTitle(payload.title, true); // Clear any prefix when AI sets header
       }
+      // Session status events - show/hide compacting indicator
+      if (event.type === "session.status") {
+        const payload = event.properties as { sessionID: string; status: string };
+        if (payload.status === "compacting") {
+          setCompactingState({ status: "compacting" });
+        }
+      }
+      // Session compacted event - update indicator and trigger continuation
+      if (event.type === "session.compacted") {
+        const payload = event.properties as { 
+          sessionID: string; 
+          summary: string; 
+          removedCount: number;
+          isManual?: boolean;
+          continuationPrompt?: string;
+        };
+        // Show completion state briefly
+        setCompactingState({ status: "complete", removedCount: payload.removedCount });
+        
+        // Store continuation prompt for processing
+        if (payload.continuationPrompt) {
+          setPendingContinuation({
+            prompt: payload.continuationPrompt,
+            isManual: payload.isManual ?? false,
+          });
+        }
+        
+        // Clear compacting state after a delay
+        setTimeout(() => {
+          setCompactingState(null);
+        }, 2000);
+      }
     });
     
     onCleanup(() => {
       unsubscribe();
     });
+  });
+  
+  // Handle pending continuation after compact (auto-continue for auto-compact)
+  createEffect(() => {
+    const continuation = pendingContinuation();
+    if (continuation && !isLoading()) {
+      // Clear the pending continuation first
+      setPendingContinuation(null);
+      
+      if (continuation.isManual) {
+        // For manual compact: add AI message asking "what next?"
+        addMessage({ 
+          role: "assistant", 
+          content: continuation.prompt 
+        });
+      } else {
+        // For auto-compact: automatically submit continuation prompt
+        // Small delay to let UI update
+        setTimeout(() => {
+          handleSubmit(continuation.prompt);
+        }, 500);
+      }
+    }
   });
   
   // Handle question submission
@@ -1372,7 +1436,7 @@ function AppWithSession() {
             {/* Content column */}
             <box flexDirection="column" flexGrow={1} minWidth={0} paddingRight={4}>
               {/* Chat area - flexGrow={1} takes remaining space */}
-              <ChatView messages={messages()} />
+              <ChatView messages={messages()} compactingState={compactingState()} />
               
               {/* Bottom section - flexShrink={0} prevents compression by chat content */}
               <box flexDirection="column" flexShrink={0}>
