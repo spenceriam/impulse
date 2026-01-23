@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.15.2
+- **Version:** v0.15.3
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -890,6 +890,8 @@ This ensures:
 | 01-22-2026 | Explicit dimensions at root | Use `dimensions().width/height` not "100%" strings - Yoga handles numbers more reliably |
 | 01-22-2026 | Unified left gutter layout | Eliminates right scrollbar (was pushing content), gutter shows scroll + spinner |
 | 01-22-2026 | InputArea borderless design | Mode-colored accent lines instead of border, footer shows mode/model |
+| 01-23-2026 | Multi-platform npm distribution | OpenCode-style binary packages per platform with wrapper CLI |
+| 01-23-2026 | chmod +x in CI/CD | Bun compile doesn't set execute bit - must chmod after build |
 
 ## Future Work
 

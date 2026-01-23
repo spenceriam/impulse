@@ -82,6 +82,7 @@ jobs:
             bun build --compile --minify --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse.exe
           else
             bun build --compile --minify --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
+            chmod +x packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
           fi
 
       - name: Create platform package.json
