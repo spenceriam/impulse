@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.7] - 2026-01-23
+
+### Added
+
+- **Windows ARM64 Support** - Added cross-compiled binary for Windows ARM64 (Snapdragon, etc.):
+  - New package: `@spenceriam/impulse-windows-arm64`
+  - Cross-compiled from Linux runner using `bun build --compile --target=bun-windows-arm64`
+  - GitHub Actions doesn't provide Windows ARM64 runners, so manual validation is required
+
+- **CLI Flags** - Added command-line argument handling:
+  - `-h, --help`: Print help and exit (works without API key or TTY)
+  - `-v, --version`: Print version and exit (works without API key or TTY)
+  - `-e, --express`: Start with express mode enabled (existing, now documented)
+
+### Fixed
+
+- **First-Run "Hang" Issue** - Fixed app appearing to hang on first run without API key:
+  - `--help` and `--version` now work without requiring API key or entering TUI
+  - Added TTY detection - clear error message if stdin/stdout isn't a terminal
+  - Added plain-text banner before TUI on first run explaining what's happening
+  - Users no longer see a blank/frozen screen when API key prompt isn't obvious
+  - This affected ALL platforms, not just specific architectures
+
+### Documentation
+
+- **CI/CD Pipeline Documentation** - Added comprehensive CI/CD section to AGENTS.md:
+  - Build matrix with all 6 platform/arch combinations
+  - Explanation of cross-compilation for Windows ARM64
+  - Release workflow instructions
+  - postinstall.mjs behavior documentation
+  - Test devices list
+
 ## [0.15.6] - 2026-01-23
 
 ### Fixed

@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.15.6
+- **Version:** v0.15.7
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -895,6 +895,10 @@ This ensures:
 | 01-23-2026 | chmod in postinstall | npm tarballs strip execute bits - must chmod in postinstall.mjs |
 | 01-23-2026 | --no-compile-autoload-bunfig | Compiled binaries must not load bunfig.toml - JSX already transformed |
 | 01-23-2026 | Inline tool descriptions | External .txt files can't be embedded in compiled binary - inline in TypeScript |
+| 01-23-2026 | Windows ARM64 cross-compile | No GH Actions runner available - cross-compile from Linux, validate on Windows ARM64 device |
+| 01-23-2026 | CLI args before TUI | Parse --help/--version before TUI init so they work without API key or TTY |
+| 01-23-2026 | TTY detection | Fail fast with clear message if not running in interactive terminal |
+| 01-23-2026 | First-run banner | Print plain-text message before TUI when no API key configured |
 
 ## Future Work
 
@@ -974,6 +978,98 @@ bun test --watch
 # Run specific test file
 bun test src/path/to/test.ts
 ```
+
+## CI/CD Pipeline
+
+### Overview
+
+IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipeline builds standalone binaries for 6 platform/architecture combinations and publishes them as scoped npm packages.
+
+### Workflow: `.github/workflows/release.yml`
+
+**Triggers:**
+- Push to tags matching `v*` (e.g., `v0.15.6`)
+- Manual workflow dispatch with version input
+
+### Build Matrix
+
+| Platform | Architecture | Runner | Build Method | Package |
+|----------|--------------|--------|--------------|---------|
+| Linux | x64 | `ubuntu-latest` | Native | `@spenceriam/impulse-linux-x64` |
+| Linux | ARM64 | `ubuntu-24.04-arm` | Native | `@spenceriam/impulse-linux-arm64` |
+| macOS | ARM64 | `macos-latest` | Native | `@spenceriam/impulse-darwin-arm64` |
+| macOS | x64 | `macos-15-intel` | Native | `@spenceriam/impulse-darwin-x64` |
+| Windows | x64 | `windows-latest` | Native | `@spenceriam/impulse-windows-x64` |
+| Windows | ARM64 | `ubuntu-latest` | **Cross-compile** | `@spenceriam/impulse-windows-arm64` |
+
+**Note:** Windows ARM64 is cross-compiled from Linux because GitHub Actions doesn't provide Windows ARM64 runners. The binary is built using `bun build --compile --target=bun-windows-arm64` and cannot be tested in CI. Manual validation is done on ASUS Zenbook A14 (Snapdragon X1).
+
+### Build Process
+
+1. **Build dist** - `bun run build` transforms TypeScript/JSX to JavaScript via `scripts/build.ts`
+2. **Compile binary** - `bun build --compile --minify --no-compile-autoload-bunfig --target=<target>` creates standalone executable
+3. **Package** - Each binary is packaged with its own `package.json` specifying `os` and `cpu` fields
+
+### Key Flags
+
+- `--no-compile-autoload-bunfig`: Prevents compiled binary from loading `bunfig.toml` at runtime (JSX already transformed)
+- `--minify`: Reduces binary size
+- `--target=<target>`: Specifies build target (enables cross-compilation)
+
+### Publishing
+
+1. Platform packages published first (6 packages)
+2. CLI wrapper package (`@spenceriam/impulse`) published last with `optionalDependencies` pointing to all platform packages
+3. npm's `optionalDependencies` automatically installs only the matching platform package
+
+### Wrapper Package Structure
+
+```
+@spenceriam/impulse/
+├── bin/impulse           # Node.js wrapper script (Unix)
+├── bin/impulse.cmd       # Batch wrapper script (Windows) 
+├── postinstall.mjs       # Symlinks correct platform binary
+└── package.json          # Lists all platform packages as optionalDependencies
+```
+
+### postinstall.mjs Behavior
+
+1. Detects platform (`darwin`/`linux`/`windows`) and architecture (`x64`/`arm64`)
+2. Finds the matching platform package (e.g., `@spenceriam/impulse-linux-x64`)
+3. Sets execute permission (`chmod +x`) on the binary (npm tarballs strip this)
+4. Creates symlink from `bin/impulse` to the platform binary
+5. On Windows: Uses the binary directly (no symlink needed)
+
+### Release Workflow
+
+```bash
+# 1. Update version
+npm version patch  # or minor/major
+
+# 2. Update CHANGELOG.md
+# 3. Commit changes
+git add -A && git commit -m "fix/feat: description"
+
+# 4. Create and push tag
+git tag -a v0.X.Y -m "Release v0.X.Y"
+git push origin main
+git push origin v0.X.Y
+
+# 5. Monitor workflow
+gh run watch
+```
+
+### Secrets Required
+
+- `NPM_TOKEN`: npm automation token with publish access to `@spenceriam` scope
+
+### Test Devices
+
+| Platform | Device | Notes |
+|----------|--------|-------|
+| Windows ARM64 | Windows ARM64 device | Manual validation required (cross-compiled) |
+| macOS ARM64 | Apple Silicon Mac | CI tested |
+| Linux ARM64 | ARM64 runner | CI tested |
 
 ## Project Structure
 

@@ -45,7 +45,12 @@ jobs:
             platform: windows
             arch: x64
             target: bun-windows-x64
-          # NOTE: Windows ARM64 not supported by Bun yet - skipped
+          # Windows ARM64 (cross-compiled from Linux - no native GH Actions runner available)
+          - os: ubuntu-latest
+            platform: windows
+            arch: arm64
+            target: bun-windows-arm64
+            cross_compile: true
 
     runs-on: ${{ matrix.os }}
     
@@ -81,6 +86,7 @@ jobs:
           # --no-compile-autoload-bunfig prevents the compiled binary from trying to load bunfig.toml
           # JSX is already transformed during 'bun run build' step, so preload is not needed
           if [ "${{ matrix.platform }}" = "windows" ]; then
+            # Windows builds (native or cross-compiled) need .exe extension
             bun build --compile --minify --no-compile-autoload-bunfig --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse.exe
           else
             bun build --compile --minify --no-compile-autoload-bunfig --target=${{ matrix.target }} ./dist/index.js --outfile packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
@@ -193,7 +199,8 @@ jobs:
               "@spenceriam/impulse-linux-arm64": "$VERSION",
               "@spenceriam/impulse-darwin-x64": "$VERSION",
               "@spenceriam/impulse-darwin-arm64": "$VERSION",
-              "@spenceriam/impulse-windows-x64": "$VERSION"
+              "@spenceriam/impulse-windows-x64": "$VERSION",
+              "@spenceriam/impulse-windows-arm64": "$VERSION"
             }
           }
           EOF
