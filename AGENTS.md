@@ -895,7 +895,7 @@ This ensures:
 | 01-23-2026 | chmod in postinstall | npm tarballs strip execute bits - must chmod in postinstall.mjs |
 | 01-23-2026 | --no-compile-autoload-bunfig | Compiled binaries must not load bunfig.toml - JSX already transformed |
 | 01-23-2026 | Inline tool descriptions | External .txt files can't be embedded in compiled binary - inline in TypeScript |
-| 01-23-2026 | Windows ARM64 cross-compile | No GH Actions runner available - cross-compile from Linux, validate on Windows ARM64 device |
+| 01-23-2026 | Windows ARM64 not supported | Bun doesn't have cross-compile target yet - will add when available |
 | 01-23-2026 | CLI args before TUI | Parse --help/--version before TUI init so they work without API key or TTY |
 | 01-23-2026 | TTY detection | Fail fast with clear message if not running in interactive terminal |
 | 01-23-2026 | First-run banner | Print plain-text message before TUI when no API key configured |
@@ -1000,9 +1000,8 @@ IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipelin
 | macOS | ARM64 | `macos-latest` | Native | `@spenceriam/impulse-darwin-arm64` |
 | macOS | x64 | `macos-15-intel` | Native | `@spenceriam/impulse-darwin-x64` |
 | Windows | x64 | `windows-latest` | Native | `@spenceriam/impulse-windows-x64` |
-| Windows | ARM64 | `ubuntu-latest` | **Cross-compile** | `@spenceriam/impulse-windows-arm64` |
 
-**Note:** Windows ARM64 is cross-compiled from Linux because GitHub Actions doesn't provide Windows ARM64 runners. The binary is built using `bun build --compile --target=bun-windows-arm64` and cannot be tested in CI. Manual validation is done on ASUS Zenbook A14 (Snapdragon X1).
+**Note:** Windows ARM64 is not currently supported. Bun doesn't have a cross-compile target for Windows ARM64 yet (`bun-windows-aarch64` returns "Unsupported compile target"). Will be added when Bun supports it.
 
 ### Build Process
 
@@ -1067,7 +1066,6 @@ gh run watch
 
 | Platform | Device | Notes |
 |----------|--------|-------|
-| Windows ARM64 | Windows ARM64 device | Manual validation required (cross-compiled) |
 | macOS ARM64 | Apple Silicon Mac | CI tested |
 | Linux ARM64 | ARM64 runner | CI tested |
 

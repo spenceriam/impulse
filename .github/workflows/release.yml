@@ -45,12 +45,9 @@ jobs:
             platform: windows
             arch: x64
             target: bun-windows-x64
-          # Windows ARM64 (cross-compiled from Linux - no native GH Actions runner available)
-          - os: ubuntu-latest
-            platform: windows
-            arch: arm64
-            target: bun-windows-arm64
-            cross_compile: true
+          # NOTE: Windows ARM64 not supported - Bun doesn't have cross-compile target yet
+          # Error: "Unsupported compile target: bun-windows-aarch64"
+          # Will add when Bun supports it
 
     runs-on: ${{ matrix.os }}
     
@@ -199,8 +196,7 @@ jobs:
               "@spenceriam/impulse-linux-arm64": "$VERSION",
               "@spenceriam/impulse-darwin-x64": "$VERSION",
               "@spenceriam/impulse-darwin-arm64": "$VERSION",
-              "@spenceriam/impulse-windows-x64": "$VERSION",
-              "@spenceriam/impulse-windows-arm64": "$VERSION"
+              "@spenceriam/impulse-windows-x64": "$VERSION"
             }
           }
           EOF

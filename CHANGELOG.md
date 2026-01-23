@@ -11,10 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Windows ARM64 Support** - Added cross-compiled binary for Windows ARM64 (Snapdragon, etc.):
-  - New package: `@spenceriam/impulse-windows-arm64`
-  - Cross-compiled from Linux runner using `bun build --compile --target=bun-windows-arm64`
-  - GitHub Actions doesn't provide Windows ARM64 runners, so manual validation is required
+- **CI/CD Documentation** - Added comprehensive build/release documentation to AGENTS.md
 
 - **CLI Flags** - Added command-line argument handling:
   - `-h, --help`: Print help and exit (works without API key or TTY)
