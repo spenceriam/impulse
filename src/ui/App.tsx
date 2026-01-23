@@ -1163,8 +1163,8 @@ function AppWithSession() {
 
     setIsLoading(true);
 
-    // Add assistant message placeholder
-    addMessage({ role: "assistant", content: "" });
+    // Add assistant message placeholder with streaming flag
+    addMessage({ role: "assistant", content: "", streaming: true });
 
     // Get the assistant message ID (last message)
     const updatedMessages = messages();
@@ -1260,7 +1260,10 @@ function AppWithSession() {
             });
           }
           
-          // Stream finished - check if we need to execute tools
+          // Stream finished - mark message as no longer streaming
+          updateMessage(assistantMsgId, { streaming: false });
+          
+          // Check if we need to execute tools
           if (event.state.finishReason === "tool_calls" && toolCallsMap.size > 0) {
             // Execute tools and continue conversation
             executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent);
