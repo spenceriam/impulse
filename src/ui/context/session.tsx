@@ -1,4 +1,4 @@
-import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onCleanup } from "solid-js";
+import { createContext, createSignal, createEffect, useContext, ParentComponent, Accessor, Setter, onCleanup } from "solid-js";
 import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
 import { type HeaderPrefix } from "../components/HeaderLine";
@@ -112,12 +112,21 @@ function uiToStoreMessage(msg: Message): StoreMessage {
 }
 
 /**
+ * Session Provider Props
+ */
+interface SessionProviderProps {
+  initialModel?: string;
+  initialSessionId?: string;
+  children?: any;
+}
+
+/**
  * Session Provider Component
  * Manages messages, model selection, and stats with persistence via SessionManager
  */
-export const SessionProvider: ParentComponent = (props) => {
+export const SessionProvider: ParentComponent<SessionProviderProps> = (props) => {
   const [messages, setMessages] = createSignal<Message[]>([]);
-  const [model, setModel] = createSignal<string>("glm-4.7");
+  const [model, setModel] = createSignal<string>(props.initialModel ?? "glm-4.7");
   const [thinking, setThinking] = createSignal<boolean>(true);
   const [totalTokens, setTotalTokens] = createSignal<number>(0);
   const [totalCost, setTotalCost] = createSignal<number>(0);
@@ -170,6 +179,21 @@ export const SessionProvider: ParentComponent = (props) => {
       SessionStoreInstance.cancelAutoSave(currentId);
     }
   });
+
+  // Load initial session if provided via CLI flag (-s/--session)
+  if (props.initialSessionId) {
+    // Use createEffect to load async
+    createEffect(async () => {
+      try {
+        const session = await SessionManager.load(props.initialSessionId!);
+        loadSessionIntoContext(session);
+        setSessionPersisted(true);
+        setIsDirty(false);
+      } catch (error) {
+        console.error(`Failed to load session ${props.initialSessionId}:`, error);
+      }
+    });
+  }
 
   // Load session data into context signals
   const loadSessionIntoContext = (session: Session) => {

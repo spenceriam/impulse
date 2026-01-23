@@ -14,6 +14,14 @@ interface ModeContextType {
 }
 
 /**
+ * Mode Provider Props
+ */
+interface ModeProviderProps {
+  initialMode?: Mode;
+  children?: any;
+}
+
+/**
  * Mode Context
  */
 const ModeContext = createContext<ModeContextType>();
@@ -22,8 +30,8 @@ const ModeContext = createContext<ModeContextType>();
  * Mode Provider Component
  * Manages current execution mode and thinking toggle
  */
-export const ModeProvider: ParentComponent = (props) => {
-  const [mode, setModeRaw] = createSignal<Mode>("AUTO");
+export const ModeProvider: ParentComponent<ModeProviderProps> = (props) => {
+  const [mode, setModeRaw] = createSignal<Mode>(props.initialMode ?? "AUTO");
   const [thinking, setThinking] = createSignal<boolean>(true);
 
   const modes: Mode[] = ["AUTO", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"];

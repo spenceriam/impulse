@@ -480,8 +480,18 @@ async function initializeMCPTools() {
   }
 }
 
+// App props interface
+interface AppProps {
+  initialExpress?: boolean;
+  initialModel?: string;
+  initialMode?: "AUTO" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
+  initialSessionId?: string;
+  showSessionPicker?: boolean;
+  verbose?: boolean;
+}
+
 // Main app wrapper
-export function App(props: { initialExpress?: boolean }) {
+export function App(props: AppProps) {
   const renderer = useRenderer();
   
   // Register commands and MCP tools on mount
@@ -553,10 +563,18 @@ export function App(props: { initialExpress?: boolean }) {
   // Using explicit numeric dimensions prevents layout calculation issues
   const dimensions = useTerminalDimensions();
 
+  // Build provider props - only include defined values (exactOptionalPropertyTypes)
+  const modeProviderProps = props.initialMode ? { initialMode: props.initialMode } : {};
+  const sessionProviderProps = {
+    ...(props.initialModel ? { initialModel: props.initialModel } : {}),
+    ...(props.initialSessionId ? { initialSessionId: props.initialSessionId } : {}),
+  };
+  const appWithSessionProps = props.showSessionPicker ? { showSessionPicker: true } : {};
+
   // Show API key overlay if needed, otherwise show main app
   return (
-    <ModeProvider>
-      <SessionProvider>
+    <ModeProvider {...modeProviderProps}>
+      <SessionProvider {...sessionProviderProps}>
         <TodoProvider>
           <ExpressProvider initialExpress={props.initialExpress ?? false}>
             {/* Use explicit dimensions from terminal, not "100%" strings */}
@@ -566,7 +584,7 @@ export function App(props: { initialExpress?: boolean }) {
               padding={1}
             >
               <Show when={hasApiKey()}>
-                <AppWithSession />
+                <AppWithSession {...appWithSessionProps} />
               </Show>
               <Show when={!hasApiKey() && !showApiKeyOverlay()}>
                 {/* Brief moment before overlay shows */}
@@ -596,7 +614,7 @@ function formatDuration(ms: number): string {
 }
 
 // App that decides between welcome screen and session view
-function AppWithSession() {
+function AppWithSession(props: { showSessionPicker?: boolean }) {
   const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
@@ -626,8 +644,8 @@ function AppWithSession() {
   // Model select overlay state
   const [showModelSelect, setShowModelSelect] = createSignal(false);
   
-  // Session picker overlay state
-  const [showSessionPicker, setShowSessionPicker] = createSignal(false);
+  // Session picker overlay state - initialize from props if provided via CLI (-c flag)
+  const [showSessionPicker, setShowSessionPicker] = createSignal(props.showSessionPicker ?? false);
   
   // Question overlay state (from AI question tool)
   const [pendingQuestions, setPendingQuestions] = createSignal<Question[] | null>(null);
@@ -1124,6 +1142,9 @@ function AppWithSession() {
         const tokens = currentStats.tokens;
         const totalTokens = tokens.input + tokens.output + tokens.thinking;
         
+        // Get session ID for continuation hint
+        const currentSessionId = currentStats.sessionId;
+        
         const summaryLines = [
           "━".repeat(66),
           "  IMPULSE SESSION COMPLETE",
@@ -1132,13 +1153,21 @@ function AppWithSession() {
           `  Session       ${currentHeaderTitle}`,
           `  Model         ${currentModel}`,
           `  Duration      ${duration}`,
+        ];
+        
+        // Add session ID if available
+        if (currentSessionId) {
+          summaryLines.push(`  Session ID    ${currentSessionId}`);
+        }
+        
+        summaryLines.push(
           "",
           "━".repeat(66),
           "  TOOLS",
           "━".repeat(66),
           "",
           `  Calls         ${currentStats.tools.total} total     ${currentStats.tools.success} success     ${currentStats.tools.failed} failed`,
-        ];
+        );
         
         // Add tool breakdown if there are any tool calls
         if (toolBreakdown) {
@@ -1156,11 +1185,22 @@ function AppWithSession() {
           `  Thinking      ${tokens.thinking.toLocaleString()}       Total          ${totalTokens.toLocaleString()}`,
           "",
           "━".repeat(66),
-          "",
-          "  Until next time!",
-          "",
-          "━".repeat(66),
         );
+        
+        // Add continuation hint if session was saved
+        if (currentSessionId) {
+          summaryLines.push(
+            "",
+            "  To continue this session:",
+            `    impulse -s ${currentSessionId}`,
+            "  Or:",
+            "    impulse -c          # Show session picker",
+            "",
+            "━".repeat(66),
+          );
+        }
+        
+        summaryLines.push("", "  Until next time!", "", "━".repeat(66));
         
         const summary = summaryLines.join("\n");
         

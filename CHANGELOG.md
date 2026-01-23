@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-01-23
+
+### Added
+
+- **Headless Mode** (`-p, --prompt`): Run prompts directly from command line without TUI
+  - Output streams to stdout, useful for piping and scripting
+  - Example: `impulse -p "explain this code" < file.ts`
+  - Exits after response completes
+
+- **Session Continuation Flags**:
+  - `-c, --continue`: Show session picker to resume a previous session
+  - `-s, --session <id>`: Resume specific session by ID directly
+
+- **Configuration Flags**:
+  - `-m, --model <name>`: Override default model (e.g., `glm-4.7-flash`)
+  - `--mode <mode>`: Start in specific mode (`auto`/`agent`/`planner`/`debug`)
+  - `-d, --dir <path>`: Set working directory before starting
+  - `--verbose`: Enable debug logging (for troubleshooting)
+
+- **Enhanced Exit Summary**:
+  - Shows session ID after session ends
+  - Displays continuation hints: `impulse -s <session_id>` or `impulse -c`
+  - Makes it easy to resume work later
+
+### Changed
+
+- Help text expanded with all new flags and examples
+- Session ID now visible in stats for scripting/automation
+
 ## [0.15.7] - 2026-01-23
 
 ### Added
