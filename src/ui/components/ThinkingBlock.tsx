@@ -10,22 +10,22 @@ import { Colors, Indicators } from "../design";
  * - Expanded: 8-row scrollable view, click to collapse
  * 
  * Layout (Collapsed):
- * ┌─ Thinking (click to expand) ▶ ────────────────────────────────┐
- * │ I need to analyze the user's request carefully. First, I     │
- * │ should understand what they're asking for and then...        │
- * └──────────────────────────────────────────────────────────────┘
+ * ▶ Thinking (click to expand)
+ * ┃ I need to analyze the user's request carefully. First, I
+ * ┃ should understand what they're asking for and then...
  * 
  * Layout (Expanded):
- * ┌─ Thinking (click to collapse) ▼ ──────────────────────────────┐
- * │ I need to analyze the user's request carefully. First, I     │
- * │ should understand what they're asking for and then plan      │
- * │ my approach. Let me break this down:                         │
- * │                                                              │
- * │ 1. The user wants to fix the UI layout                       │
- * │ 2. There are issues with border alignment                    │
- * │ 3. The thinking section should be collapsible                │
- * │                                                              │
- * └──────────────────────────────────────────────────────────────┘
+ * ▼ Thinking (click to collapse)
+ * ┃ I need to analyze the user's request carefully. First, I
+ * ┃ should understand what they're asking for and then plan
+ * ┃ my approach. Let me break this down:
+ * ┃
+ * ┃ 1. The user wants to fix the UI layout
+ * ┃ 2. There are issues with border alignment
+ * ┃ 3. The thinking section should be collapsible
+ * ┃
+ * 
+ * Design: No border, just darker background color for differentiation
  * 
  * Props:
  * - content: Thinking content to display
@@ -61,8 +61,8 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
         flexDirection="column" 
         marginTop={1}
         marginBottom={1}
-        border
-        borderColor={Colors.ui.dim}
+        backgroundColor={Colors.message.thinking}
+        width="100%"
         overflow="hidden"
         flexShrink={0}
       >
@@ -71,7 +71,6 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
           flexDirection="row"
           paddingLeft={1}
           paddingRight={1}
-          backgroundColor={Colors.ui.background}
           // @ts-ignore: OpenTUI onMouseDown handler
           onMouseDown={handleToggle}
           flexShrink={0}
@@ -81,20 +80,25 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
           </text>
         </box>
         
-        {/* Content area - scrollable */}
-        <scrollbox
-          height={height()}
-          stickyScroll={(props.streaming ?? false) && !expanded()}  // Auto-scroll in collapsed+streaming mode
-          stickyStart="bottom"
-          style={{
-            viewportOptions: {
-              paddingLeft: 1,
-              paddingRight: 1,
-            },
-          }}
-        >
-          <text fg={Colors.ui.dim}>{props.content}</text>
-        </scrollbox>
+        {/* Content area - scrollable with left border accent */}
+        <box flexDirection="row" paddingLeft={1}>
+          <box flexShrink={0} width={2}>
+            <text fg={Colors.ui.dim}>┃ </text>
+          </box>
+          <scrollbox
+            height={height()}
+            flexGrow={1}
+            stickyScroll={(props.streaming ?? false) && !expanded()}  // Auto-scroll in collapsed+streaming mode
+            stickyStart="bottom"
+            style={{
+              viewportOptions: {
+                paddingRight: 1,
+              },
+            }}
+          >
+            <text fg={Colors.ui.dim}><em>{props.content}</em></text>
+          </scrollbox>
+        </box>
       </box>
     </Show>
   );

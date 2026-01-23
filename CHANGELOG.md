@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.7] - 2026-01-23
+
+### Fixed
+
+- **Model Picker Checkbox** - `/model` overlay now shows `[x]` checkbox for current model:
+  - Added checkbox column before model name
+  - Current model shows `[x]` in green, others show `[ ]` dimmed
+  - Increased overlay width from 90 to 100 characters
+
+- **Message Accent Lines** - User and AI messages now have thin horizontal accent lines:
+  - User messages: cyan (`─`) lines at top and bottom
+  - AI messages: mode-colored lines at top and bottom
+  - Subtle background colors differentiate message types
+
+- **ThinkingBlock Style** - Removed border, using background color only:
+  - Cleaner visual appearance matching brutalist design
+  - Dark background (`#0d1a1a`) for collapsed state
+  - Proper click-to-expand functionality preserved
+
+- **Streaming Processing Indicator** - AI messages now show "Processing..." during initial streaming:
+  - Prevents blank message block when AI is thinking
+  - Shows mode-colored indicator until content arrives
+
 ## [0.13.6] - 2026-01-23
 
 ### Added

@@ -41,6 +41,7 @@ export interface Message {
   mode?: Mode;           // Mode used when generating (for assistant messages)
   model?: string;        // Model used (e.g., "glm-4.7")
   toolCalls?: ToolCallInfo[];  // Tool calls made in this message
+  streaming?: boolean;   // Whether this message is currently being streamed
 }
 
 /**
@@ -447,101 +448,145 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   );
 }
 
+// Thin accent line character (half-height block)
+const THIN_LINE = "─";
+
 export function MessageBlock(props: MessageBlockProps) {
   const parsed = () => parseMarkdown(props.message.content);
 
   const isUser = () => props.message.role === "user";
   const model = () => props.message.model || "GLM-4.7";
   const mode = () => props.message.mode;
-  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.ui.dim;
+  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.ui.primary;
   const toolCalls = () => props.message.toolCalls ?? [];
   const reasoning = () => props.message.reasoning;
+  const isStreaming = () => props.message.streaming ?? false;
+  
+  // User accent color is cyan (primary)
+  const userAccentColor = Colors.ui.primary;
 
   return (
     <Show
       when={isUser()}
       fallback={
-        // Assistant message - subtle dark background
-        // width="100%" ensures background spans full width
-        // minWidth={0} allows shrinking, overflow="hidden" clips content
+        // Assistant message with mode-colored thin accent lines
         <box 
           flexDirection="column" 
           marginBottom={1}
-          backgroundColor={ASSISTANT_BG}
-          paddingLeft={1}
-          paddingRight={1}
           width="100%"
           minWidth={0}
           overflow="hidden"
         >
-          <box flexDirection="row">
-            <text>
-              <strong>{model().toUpperCase()}</strong>
-            </text>
-            <Show when={mode()}>
-              <text fg={Colors.ui.dim}> [</text>
-              <text fg={modeColor()}>{mode()}</text>
-              <text fg={Colors.ui.dim}>]</text>
-            </Show>
+          {/* Top accent line - mode colored */}
+          <box height={1} width="100%" overflow="hidden">
+            <text fg={modeColor()}>{THIN_LINE.repeat(200)}</text>
           </box>
-          {/* Thinking/Reasoning content - collapsible block */}
-          <Show when={reasoning()}>
-            <ThinkingBlock content={reasoning()!} />
-          </Show>
-          {/* Message content */}
-          <Show when={props.message.content}>
-            <box flexDirection="column">
-              <For each={parsed()}>
-                {(node: MarkdownNode) => renderMarkdownNode(node)}
-              </For>
-            </box>
-          </Show>
-          {/* Tool calls - tighter spacing */}
-          <Show when={toolCalls().length > 0}>
-            <box flexDirection="column">
-              <For each={toolCalls()}>
-                {(toolCall, index) => {
-                  const attempt = (() => {
-                    const current = toolCalls()[index()];
-                    if (!current || current.status !== "error") return undefined;
+          
+          {/* Message content area */}
+          <box 
+            flexDirection="column"
+            backgroundColor={ASSISTANT_BG}
+            paddingLeft={1}
+            paddingRight={1}
+            width="100%"
+            minWidth={0}
+            overflow="hidden"
+          >
+            {/* Header: Model [MODE] or processing indicator */}
+            <Show
+              when={!isStreaming() || props.message.content || reasoning()}
+              fallback={
+                <box flexDirection="row">
+                  <text fg={modeColor()}>Processing...</text>
+                </box>
+              }
+            >
+              <box flexDirection="row">
+                <text>
+                  <strong>{model().toUpperCase()}</strong>
+                </text>
+                <Show when={mode()}>
+                  <text fg={Colors.ui.dim}> [</text>
+                  <text fg={modeColor()}>{mode()}</text>
+                  <text fg={Colors.ui.dim}>]</text>
+                </Show>
+              </box>
+            </Show>
+            
+            {/* Thinking/Reasoning content - collapsible block */}
+            <Show when={reasoning()}>
+              <ThinkingBlock content={reasoning()!} streaming={isStreaming()} />
+            </Show>
+            
+            {/* Message content */}
+            <Show when={props.message.content}>
+              <box flexDirection="column">
+                <For each={parsed()}>
+                  {(node: MarkdownNode) => renderMarkdownNode(node)}
+                </For>
+              </box>
+            </Show>
+            
+            {/* Tool calls - tighter spacing */}
+            <Show when={toolCalls().length > 0}>
+              <box flexDirection="column">
+                <For each={toolCalls()}>
+                  {(toolCall, index) => {
+                    const attempt = (() => {
+                      const current = toolCalls()[index()];
+                      if (!current || current.status !== "error") return undefined;
 
-                    let attempts = 1;
-                    for (let i = index() - 1; i >= 0; i--) {
-                      const prev = toolCalls()[i];
-                      if (prev?.name === current.name && prev?.status === "error") {
-                        attempts++;
-                      } else {
-                        break;
+                      let attempts = 1;
+                      for (let i = index() - 1; i >= 0; i--) {
+                        const prev = toolCalls()[i];
+                        if (prev?.name === current.name && prev?.status === "error") {
+                          attempts++;
+                        } else {
+                          break;
+                        }
                       }
+
+                      return attempts > 1 ? attempts : undefined;
+                    })();
+
+                    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number } = { toolCall };
+                    if (attempt !== undefined) {
+                      displayProps.attemptNumber = attempt;
                     }
 
-                    return attempts > 1 ? attempts : undefined;
-                  })();
-
-                  const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number } = { toolCall };
-                  if (attempt !== undefined) {
-                    displayProps.attemptNumber = attempt;
-                  }
-
-                  return <ToolCallDisplay {...displayProps} />;
-                }}
-              </For>
-            </box>
-          </Show>
+                    return <ToolCallDisplay {...displayProps} />;
+                  }}
+                </For>
+              </box>
+            </Show>
+          </box>
+          
+          {/* Bottom accent line - mode colored */}
+          <box height={1} width="100%" overflow="hidden">
+            <text fg={modeColor()}>{THIN_LINE.repeat(200)}</text>
+          </box>
         </box>
       }
     >
-      {/* User message - cyan left border + dark cyan background */}
-      {/* width="100%" ensures background spans full width */}
-      {/* minWidth={0} and overflow="hidden" prevent text from breaking layout */}
-      <box flexDirection="row" marginBottom={1} width="100%" minWidth={0} overflow="hidden">
-        <text fg={Colors.mode.AGENT}>┃</text>
+      {/* User message with cyan thin accent lines */}
+      <box 
+        flexDirection="column" 
+        marginBottom={1} 
+        width="100%" 
+        minWidth={0} 
+        overflow="hidden"
+      >
+        {/* Top accent line - cyan */}
+        <box height={1} width="100%" overflow="hidden">
+          <text fg={userAccentColor}>{THIN_LINE.repeat(200)}</text>
+        </box>
+        
+        {/* Message content area */}
         <box 
           flexDirection="column" 
           backgroundColor={USER_MESSAGE_BG}
           paddingLeft={1}
           paddingRight={1}
-          flexGrow={1}
           width="100%"
           minWidth={0}
           overflow="hidden"
@@ -558,6 +603,11 @@ export function MessageBlock(props: MessageBlockProps) {
               </For>
             </box>
           </Show>
+        </box>
+        
+        {/* Bottom accent line - cyan */}
+        <box height={1} width="100%" overflow="hidden">
+          <text fg={userAccentColor}>{THIN_LINE.repeat(200)}</text>
         </box>
       </box>
     </Show>

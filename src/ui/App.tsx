@@ -221,6 +221,7 @@ const MODEL_INFO: Record<string, ModelInfo> = {
 // Column widths for alignment
 const MODEL_COL_WIDTH = 16;
 const INPUT_COL_WIDTH = 14;
+const CHECKBOX_COL_WIDTH = 5; // "[x] " or "[ ] "
 
 // Model select overlay - interactive model selection
 function ModelSelectOverlay(props: { 
@@ -270,11 +271,12 @@ function ModelSelectOverlay(props: {
         title="Select Model"
         flexDirection="column"
         padding={1}
-        width={90}
+        width={100}
         backgroundColor="#1a1a1a"
       >
         {/* Header row - same structure as data rows for alignment */}
         <box flexDirection="row">
+          <text fg={Colors.ui.dim}>{" ".repeat(CHECKBOX_COL_WIDTH)}</text>
           <text fg={Colors.ui.dim}>{"MODEL".padEnd(MODEL_COL_WIDTH)}</text>
           <text fg={Colors.ui.dim}>{"INPUT".padEnd(INPUT_COL_WIDTH)}</text>
           <text fg={Colors.ui.dim}>{"DESCRIPTION"}</text>
@@ -288,7 +290,8 @@ function ModelSelectOverlay(props: {
             const info = MODEL_INFO[model] || { description: "", input: "text" };
             const displayName = model.toUpperCase();
             
-            // Build the row content with proper alignment (no > prefix)
+            // Build the row content with proper alignment
+            const checkbox = isCurrent ? "[x] " : "[ ] ";
             const nameCol = displayName.padEnd(MODEL_COL_WIDTH);
             const inputCol = info.input.padEnd(INPUT_COL_WIDTH);
             const desc = info.description;
@@ -298,22 +301,18 @@ function ModelSelectOverlay(props: {
                 when={isSelected()}
                 fallback={
                   <box flexDirection="row">
+                    <text fg={isCurrent ? Colors.status.success : Colors.ui.dim}>{checkbox}</text>
                     <text fg={Colors.ui.text}>{nameCol}</text>
                     <text fg={Colors.ui.dim}>{inputCol}</text>
                     <text fg={Colors.ui.dim}>{desc}</text>
-                    <Show when={isCurrent}>
-                      <text fg={Colors.status.success}> (current)</text>
-                    </Show>
                   </box>
                 }
               >
                 <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
+                  <text fg={isCurrent ? "#006600" : "#333333"}>{checkbox}</text>
                   <text fg="#000000">{nameCol}</text>
                   <text fg="#000000">{inputCol}</text>
                   <text fg="#000000">{desc}</text>
-                  <Show when={isCurrent}>
-                    <text fg="#006600"> (current)</text>
-                  </Show>
                 </box>
               </Show>
             );
