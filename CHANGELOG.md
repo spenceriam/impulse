@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.6] - 2026-01-23
+
+### Added
+
+- **Comprehensive `/help` Command** - Quick reference guide with scrollable overlay:
+  - 2-sentence intro explaining GLM-CLI
+  - All 5 modes with colors, descriptions, and available tools
+  - Status line indicators: (Thinking), [EXPRESS], context bar, MCP dot
+  - Keyboard shortcuts reference
+  - Common commands in two-column layout
+  - Scrollbox support for long content (24 rows max, then scrolls)
+
+### Fixed
+
+- **Dynamic Model Name in InputArea** - Accent bar now shows actual selected model:
+  - Added `model` prop to InputArea and BottomPanel
+  - Switching models via `/model` updates the display immediately
+
+- **Mode Label Truncation** - `(Thinking)` suffix no longer cut off:
+  - Added `flexShrink={0}` to mode label box in accent bar
+
 ## [0.13.5] - 2026-01-22
 
 ### Fixed
