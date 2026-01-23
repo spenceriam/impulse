@@ -2,13 +2,34 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { GLMClient } from "../api/client";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
-import { readFileSync } from "fs";
 import type { ChatMessage, ToolDefinition } from "../api/types";
 
-const DESCRIPTION = readFileSync(
-  new URL("./task.txt", import.meta.url),
-  "utf-8"
-);
+const DESCRIPTION = `Launch a subagent to handle complex, multistep tasks autonomously.
+
+Available Agents:
+- explore: Fast agent for searching codebases. Use for finding files, searching code, answering questions about the codebase.
+- general: General-purpose agent for complex multi-step tasks. Use for executing multiple units of work in parallel.
+
+Parameters:
+- prompt (required): The task for the agent to perform
+- description (required): A short (3-5 words) description of the task
+- subagent_type (required): The type of agent to use ("explore" or "general")
+
+When to Use:
+- Open-ended exploration that may require multiple search rounds
+- Complex tasks that can be parallelized
+- Research tasks that need autonomous decision-making
+
+When NOT to Use:
+- Reading a specific known file (use Read instead)
+- Searching for a specific class/function (use Glob instead)
+- Simple searches in 2-3 files (use Read instead)
+
+Usage Notes:
+- Launch multiple agents concurrently when tasks are independent
+- Each agent invocation is stateless
+- The agent's result is not visible to the user - summarize it in your response
+- Clearly tell the agent whether to write code or just research`;
 
 const TaskSchema = z.object({
   prompt: z.string(),

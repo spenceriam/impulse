@@ -1,14 +1,37 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { readFileSync } from "fs";
 import { resolve, relative, isAbsolute } from "path";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 
-const DESCRIPTION = readFileSync(
-  new URL("./bash.txt", import.meta.url),
-  "utf-8"
-) as string;
+const DESCRIPTION = `Executes a given bash command in a persistent shell session.
+
+Usage:
+- All commands run in the project working directory by default
+- Use the workdir parameter to run in a different directory
+- AVOID using "cd <directory> && <command>" patterns - use workdir instead
+
+Parameters:
+- command (required): The command to execute
+- description (required): A clear, concise description of what this command does (5-10 words)
+- workdir (optional): The working directory to run the command in
+- timeout (optional): Timeout in milliseconds (default 120000 = 2 minutes)
+
+Important Notes:
+- Always quote file paths that contain spaces with double quotes
+- Output exceeding 2000 lines will be truncated
+- Avoid using bash for file operations - use dedicated tools instead:
+  - File search: Use Glob (NOT find or ls)
+  - Content search: Use Grep (NOT grep or rg)
+  - Read files: Use Read (NOT cat/head/tail)
+  - Edit files: Use Edit (NOT sed/awk)
+  - Write files: Use Write (NOT echo)
+
+Git Safety:
+- NEVER update git config
+- NEVER run destructive git commands (push --force, hard reset) without explicit user request
+- NEVER skip hooks (--no-verify) unless explicitly requested
+- NEVER commit changes unless explicitly asked`;
 
 const BashSchema = z.object({
   command: z.string(),

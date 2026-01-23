@@ -1,13 +1,27 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { readFileSync } from "fs";
 import { glob as globSync } from "glob";
 import { sanitizePath } from "../util/path";
 
-const DESCRIPTION = readFileSync(
-  new URL("./glob.txt", import.meta.url),
-  "utf-8"
-);
+const DESCRIPTION = `Fast file pattern matching tool that works with any codebase size.
+
+Usage:
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time
+- Use this tool when you need to find files by name patterns
+
+Parameters:
+- pattern (required): The glob pattern to match files against
+- path (optional): The directory to search in (defaults to current working directory)
+
+When to Use:
+- Finding files by extension or name pattern
+- Locating specific file types in a directory tree
+- Quick file discovery before reading
+
+When NOT to Use:
+- Searching for content inside files (use Grep instead)
+- Finding a specific known file path (use Read instead)`;
 
 const GlobSchema = z.object({
   pattern: z.string(),

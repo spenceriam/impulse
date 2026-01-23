@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.6] - 2026-01-23
+
+### Fixed
+
+- **Compiled Binary Tool Loading** - Fixed "file-read.txt not found" error in npm-installed binaries:
+  - Tool descriptions were loaded from external `.txt` files using `import.meta.url`
+  - `import.meta.url` resolves to `/$bunfs/root/` in compiled binaries, which doesn't contain the `.txt` files
+  - Inlined all 9 tool descriptions directly in TypeScript files
+  - Removed external `.txt` description files that couldn't be embedded
+
 ## [0.15.5] - 2026-01-23
 
 ### Fixed

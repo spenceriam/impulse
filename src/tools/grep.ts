@@ -1,12 +1,27 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { readFileSync } from "fs";
 import { sanitizePath } from "../util/path";
 
-const DESCRIPTION = readFileSync(
-  new URL("./grep.txt", import.meta.url),
-  "utf-8"
-) as string;
+const DESCRIPTION = `Fast content search tool that works with any codebase size.
+
+Usage:
+- Searches file contents using regular expressions
+- Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
+- Filter files by pattern with the include parameter
+- Returns file paths and line numbers with matches, sorted by modification time
+
+Parameters:
+- pattern (required): The regex pattern to search for in file contents
+- path (optional): The directory to search in (defaults to current working directory)
+- include (optional): File pattern to include (e.g., "*.js", "*.{ts,tsx}")
+
+When to Use:
+- Finding files containing specific patterns
+- Locating function definitions or usages
+- Searching for error messages or log statements
+
+Notes:
+- Use Bash with rg (ripgrep) directly if you need to count matches within files`;
 
 const GrepSchema = z.object({
   pattern: z.string(),
