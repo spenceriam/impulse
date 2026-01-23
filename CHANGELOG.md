@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-01-23
+
+### Fixed
+
+- **App crash on API key screen** - Fixed nested `<text>` elements causing OpenTUI render error
+  - Bug was introduced in v0.16.3, manifested only when no API key configured
+  - Error: "TextNodeRenderable only accepts strings, TextNodeRenderable instances, or StyledText instances"
+  - Changed nested `<text>` to adjacent `<text>` elements in `<box flexDirection="row">`
+
 ## [0.17.0] - 2026-01-23
 
 ### Added

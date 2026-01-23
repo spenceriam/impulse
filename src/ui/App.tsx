@@ -102,16 +102,19 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
           ratio for builders.
         </text>
         <box height={1} />
-        <text fg={Colors.ui.text}>
-          To get started, you'll need a <text fg={Colors.mode.AGENT}>Coding Plan API key</text> from Z.ai.
-        </text>
+        <box flexDirection="row" flexWrap="wrap">
+          <text fg={Colors.ui.text}>To get started, you'll need a </text>
+          <text fg={Colors.mode.AGENT}>Coding Plan API key</text>
+          <text fg={Colors.ui.text}> from Z.ai.</text>
+        </box>
         <text fg={Colors.ui.dim}>
           (This is different from the standard Z.ai API key)
         </text>
         <box height={1} />
-        <text fg={Colors.ui.dim}>
-          Get your key at: <text fg={Colors.mode.AGENT}>https://z.ai/manage-apikey/subscription</text>
-        </text>
+        <box flexDirection="row">
+          <text fg={Colors.ui.dim}>Get your key at: </text>
+          <text fg={Colors.mode.AGENT}>https://z.ai/manage-apikey/subscription</text>
+        </box>
         <box height={1} />
         <box flexDirection="row">
           <text fg={Colors.ui.text}>API Key: </text>
