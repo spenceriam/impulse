@@ -19,4 +19,5 @@ export { ExpressWarning } from "./ExpressWarning";
 export { Spinner, StackedSpinner } from "./Spinner";
 export { BouncingDots } from "./BouncingDots";
 export { SessionPickerOverlay } from "./SessionPicker";
+export { StartOverlay } from "./StartOverlay";
 export { Gutter, GUTTER_WIDTH } from "./Gutter";

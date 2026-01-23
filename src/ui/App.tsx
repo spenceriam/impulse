@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -524,6 +524,7 @@ export function App(props: { initialExpress?: boolean }) {
         defaultModel: "glm-4.7",
         defaultMode: "AUTO",
         thinking: true,
+        hasSeenWelcome: false,
       }));
       cfg.apiKey = key;
 
@@ -634,6 +635,44 @@ function AppWithSession() {
     commands: { name: string; description: string }[];
     selectedIndex: number;
   } | null>(null);
+  
+  // Start/welcome overlay state
+  const [showStartOverlay, setShowStartOverlay] = createSignal(false);
+  
+  // Check if user has seen welcome screen on mount
+  onMount(async () => {
+    try {
+      const cfg = await loadConfig();
+      if (!cfg.hasSeenWelcome) {
+        setShowStartOverlay(true);
+      }
+    } catch {
+      // Config load failed, show welcome anyway for new users
+      setShowStartOverlay(true);
+    }
+  });
+  
+  // Handle start overlay close - save that user has seen it
+  const handleStartOverlayClose = async () => {
+    setShowStartOverlay(false);
+    try {
+      const cfg = await loadConfig();
+      cfg.hasSeenWelcome = true;
+      await saveConfig(cfg);
+    } catch {
+      // Ignore save errors
+    }
+  };
+  
+  // Computed: any overlay is active (unfocus input when true)
+  const isOverlayActive = () => 
+    !!commandOverlay() || 
+    showModelSelect() || 
+    showSessionPicker() || 
+    !!pendingQuestions() || 
+    (!!pendingPermission() && !express()) ||
+    showWarning() ||
+    showStartOverlay();
   
   // Subscribe to question, permission, and header events from the bus
   onMount(() => {
@@ -1051,6 +1090,13 @@ function AppWithSession() {
         return;
       }
       
+      // Handle /start specially - show welcome overlay
+      if (parsed && parsed.name === "start") {
+        setAutocompleteData(null);
+        setShowStartOverlay(true);
+        return;
+      }
+      
       // Handle /model specially - show interactive selection popup
       // Only if no model name provided (just "/model")
       if (parsed && parsed.name === "model") {
@@ -1310,15 +1356,16 @@ function AppWithSession() {
           height="100%"
           paddingTop={1}
         >
-          {/* Header line at top - full width, flexShrink={0} to prevent compression */}
-          <box flexShrink={0} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
+          {/* Header line at top - full width */}
+          <box flexShrink={0} height={1} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
             <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
           </box>
           
           {/* Main content row: Gutter + Content column */}
-          <box flexDirection="row" flexGrow={1} minWidth={0}>
-            {/* Left gutter - fills height naturally via flexGrow */}
-            <box paddingLeft={1}>
+          {/* flexGrow={1} + flexShrink={1} allows this to fill remaining space */}
+          <box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={0} minHeight={0} overflow="hidden">
+            {/* Left gutter - fills height of this row */}
+            <box paddingLeft={1} flexShrink={0}>
               <Gutter loading={isLoading()} />
             </box>
             
@@ -1345,6 +1392,7 @@ function AppWithSession() {
                   model={model()}
                   thinking={thinking()}
                   loading={isLoading()}
+                  overlayActive={isOverlayActive()}
                   onSubmit={handleSubmit}
                   onAutocompleteChange={setAutocompleteData}
                 />
@@ -1352,8 +1400,8 @@ function AppWithSession() {
             </box>
           </box>
           
-          {/* Status line at very bottom - full width */}
-          <box flexShrink={0} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
+          {/* Status line at very bottom - full width, outside gutter area */}
+          <box flexShrink={0} height={1} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
             <StatusLine />
           </box>
         </box>
@@ -1430,6 +1478,11 @@ function AppWithSession() {
       {/* Express mode warning - shown first time Express is enabled */}
       <Show when={showWarning()}>
         <ExpressWarning onAcknowledge={acknowledgeExpress} />
+      </Show>
+      
+      {/* Start/welcome overlay - shown on first launch or via /start */}
+      <Show when={showStartOverlay()}>
+        <StartOverlay onClose={handleStartOverlayClose} />
       </Show>
       
       {/* Command autocomplete overlay - positioned above input area */}

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.9] - 2026-01-23
+
+### Added
+
+- **/start Command** - Welcome screen accessible anytime:
+  - Auto-shows on first launch (tracked in config)
+  - Shows MCP server list, target users, modes info
+  - Creator credit and beta status notice
+  - Press any key or click to dismiss
+
+### Fixed
+
+- **Cursor Focus During Overlays** - Input cursor no longer flashes when overlays are shown:
+  - Affects /start, /mcp, /model, session picker, and other overlays
+  - Cleaner UX without distracting cursor blink
+
 ## [0.13.8] - 2026-01-23
 
 ### Changed

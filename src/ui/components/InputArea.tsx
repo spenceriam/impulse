@@ -42,6 +42,7 @@ interface InputAreaProps {
   model: string;  // Current model name (e.g., "glm-4.7", "glm-4.6v")
   thinking: boolean;
   loading?: boolean;
+  overlayActive?: boolean;  // When true, unfocus input (overlay is showing)
   fixedHeight?: number;  // Fixed height for textarea content (overrides Layout.input.minHeight)
   onSubmit?: (value: string) => void;
   onAutocompleteChange?: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
@@ -382,7 +383,7 @@ export function InputArea(props: InputAreaProps) {
               placeholder={showGhostText() ? ghostText : null}
               width={-1}
               height={props.fixedHeight ?? Layout.input.minHeight}
-              focused={!props.loading}
+              focused={!props.loading && !props.overlayActive}
               cursorColor={Colors.ui.primary}
             />
           </box>

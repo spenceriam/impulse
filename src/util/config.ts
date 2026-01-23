@@ -8,6 +8,7 @@ const ConfigSchema = z.object({
   defaultModel: z.string().default("glm-4.7").describe("Default GLM model to use"),
   defaultMode: z.string().default("AUTO").describe("Default mode: AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG"),
   thinking: z.boolean().default(true).describe("Enable thinking mode"),
+  hasSeenWelcome: z.boolean().default(false).describe("Whether user has seen the welcome screen"),
 });
 
 type Config = z.infer<typeof ConfigSchema>;
@@ -42,6 +43,7 @@ function applyDefaults(config: Partial<Config>): Config {
     defaultModel: config.defaultModel,
     defaultMode: config.defaultMode,
     thinking: config.thinking,
+    hasSeenWelcome: config.hasSeenWelcome,
   });
 }
 

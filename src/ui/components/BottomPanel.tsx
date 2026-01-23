@@ -50,6 +50,7 @@ interface BottomPanelProps {
   model: string;  // Current model name
   thinking: boolean;
   loading: boolean;
+  overlayActive?: boolean;  // When true, unfocus input (overlay is showing)
   onSubmit: (value: string) => void;
   onAutocompleteChange: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
@@ -82,6 +83,7 @@ export function BottomPanel(props: BottomPanelProps) {
             model={props.model}
             thinking={props.thinking}
             loading={props.loading}
+            overlayActive={props.overlayActive ?? false}
             onSubmit={props.onSubmit}
             onAutocompleteChange={props.onAutocompleteChange}
             fixedHeight={TEXTAREA_HEIGHT}  // 5 rows of textarea content

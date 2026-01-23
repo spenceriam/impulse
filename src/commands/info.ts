@@ -324,6 +324,16 @@ export function registerInfoCommands(): void {
         "/mcp-tools context7 query-docs",
       ],
     },
+    {
+      name: "start",
+      category: "info",
+      description: "Show welcome screen",
+      handler: async () => {
+        // Handled specially in App.tsx - returns signal to show overlay
+        return { success: true, output: "__SHOW_START_OVERLAY__" };
+      },
+      examples: ["/start"],
+    },
   ];
 
   for (const command of commands) {
