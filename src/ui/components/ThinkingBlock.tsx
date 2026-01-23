@@ -20,7 +20,6 @@ import { Colors } from "../design";
 
 // Height constants
 const PREVIEW_HEIGHT = 5;      // 5-row preview when collapsed
-const MAX_EXPANDED_HEIGHT = 20; // Max height when expanded
 
 interface ThinkingBlockProps {
   content?: string;
@@ -44,11 +43,11 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
 
   // Height depends on state:
   // - Collapsed: min(contentLines, PREVIEW_HEIGHT) - shows up to 5 rows
-  // - Expanded: min(contentLines, MAX_EXPANDED_HEIGHT) - shows up to 20 rows
+  // - Expanded: full content height (no max)
   const contentHeight = createMemo(() => {
     const lines = contentLines();
     if (expanded()) {
-      return Math.min(lines, MAX_EXPANDED_HEIGHT);
+      return lines; // Full height when expanded
     }
     return Math.min(lines, PREVIEW_HEIGHT);
   });
