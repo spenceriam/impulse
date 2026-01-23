@@ -5,7 +5,7 @@ import { Colors } from "../design";
  * StartOverlay Component
  * Welcome screen shown on first launch, accessible via /start command
  * 
- * Soft, friendly introduction to GLM-CLI with key info about the tool.
+ * Soft, friendly introduction to IMPULSE with key info about the tool.
  */
 
 interface StartOverlayProps {
@@ -40,7 +40,7 @@ export function StartOverlay(props: StartOverlayProps) {
     >
       <box
         border
-        title="Welcome to GLM-CLI"
+        title="Welcome to IMPULSE"
         flexDirection="column"
         width={85}
         height={30}
@@ -60,7 +60,7 @@ export function StartOverlay(props: StartOverlayProps) {
         >
           <box flexDirection="column">
             {/* Welcome and intro */}
-            <text fg={Colors.ui.text}>Welcome! GLM-CLI is a terminal-based AI coding agent with a brutally</text>
+            <text fg={Colors.ui.text}>Welcome! IMPULSE is a terminal-based AI coding agent with a brutally</text>
             <text fg={Colors.ui.text}>minimal UI. It provides flicker-free streaming, tool execution, and</text>
             <text fg={Colors.ui.text}>session management for developers who prefer working in the terminal.</text>
             <box height={1} />
@@ -68,8 +68,8 @@ export function StartOverlay(props: StartOverlayProps) {
             <box height={1} />
 
             {/* MCP servers section */}
-            <text fg={Colors.ui.text}>This is an agentic coding harness focused on Z.ai/Zhipu's GLM-4.x models</text>
-            <text fg={Colors.ui.text}>with supporting MCP servers designed by the Z.ai team:</text>
+            <text fg={Colors.ui.text}>Powered by Z.ai's Coding Plan - the best cost/engineering ratio for</text>
+            <text fg={Colors.ui.text}>builders. Integrated MCP servers:</text>
             <box height={1} />
             {MCP_SERVERS.map((server) => (
               <box flexDirection="row">
@@ -83,12 +83,12 @@ export function StartOverlay(props: StartOverlayProps) {
             <box height={1} />
 
             {/* Target users and sessions */}
-            <text fg={Colors.ui.text}>Built for developers on the Z.ai Coding Plan who want a focused harness</text>
-            <text fg={Colors.ui.text}>with integrated MCP tools. Run from any working directory - sessions are</text>
-            <text fg={Colors.ui.text}>stored per-directory so you can return to previous conversations.</text>
+            <text fg={Colors.ui.text}>Built for developers who want a focused terminal harness with integrated</text>
+            <text fg={Colors.ui.text}>MCP tools. Run from any working directory - sessions are stored per-</text>
+            <text fg={Colors.ui.text}>directory so you can return to previous conversations.</text>
             <box height={1} />
-            <text fg={Colors.ui.text}>Uses Z.ai Coding Plan APIs on OpenTUI with tool calling. Supports 5 modes:</text>
-            <text fg={Colors.ui.text}>AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG. Data is sent only to Z.ai's API.</text>
+            <text fg={Colors.ui.text}>Built on OpenTUI with tool calling. Supports 5 modes: AUTO, AGENT,</text>
+            <text fg={Colors.ui.text}>PLANNER, PLAN-PRD, DEBUG.</text>
             <box height={1} />
             <text fg={Colors.ui.dim}>{SEPARATOR}</text>
             <box height={1} />
@@ -102,7 +102,6 @@ export function StartOverlay(props: StartOverlayProps) {
               <text fg={Colors.ui.dim}>Created by Spencer Francisco (@spencer_i_am) | </text>
               <text fg={Colors.status.warning}>BETA</text>
             </box>
-            <text fg={Colors.ui.dim}>Note: The creator is not affiliated with Z.ai</text>
           </box>
         </scrollbox>
 

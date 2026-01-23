@@ -1,17 +1,17 @@
-# glm-cli
+# IMPULSE
 
-> AI coding agent powered by GLM models from Z.ai/Zhipu
+> Terminal-based AI coding agent powered by GLM models
 
-A brutally minimal terminal interface for AI-assisted software development. Built with OpenTUI + SolidJS for flicker-free 60fps rendering.
+A brutally minimal terminal interface for AI-assisted software development. Built with OpenTUI + SolidJS for flicker-free 60fps rendering. Powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders.
 
 ## Features
 
-- **GLM-4.7** - Zhipu AI's flagship model with thinking mode
+- **GLM-4.7** - Flagship model with thinking mode
 - **5 Modes** - AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG
 - **MCP Integration** - Vision, Web Search, Web Reader, Zread, Context7
 - **Git Checkpoints** - Per-message undo/redo
-- **Auto-Compact** - AI summarization at 70% context
-- **Auto-Save** - Sessions persist automatically (30s interval)
+- **Auto-Compact** - AI summarization at 85% context
+- **Auto-Save** - Sessions persist automatically
 - **Express Mode** - Skip permission prompts in trusted environments
 - **Interactive Overlays** - Model picker, session loader, question prompts
 
@@ -21,27 +21,27 @@ A brutally minimal terminal interface for AI-assisted software development. Buil
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                                                                          ┃
-┃     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                  ┃
-┃    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                  ┃
-┃    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                  ┃
-┃    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                  ┃
-┃    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                  ┃
-┃     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                  ┃
+┃  ██╗███╗   ███╗██████╗ ██╗   ██╗██╗     ███████╗███████╗                  ┃
+┃  ██║████╗ ████║██╔══██╗██║   ██║██║     ██╔════╝██╔════╝                  ┃
+┃  ██║██╔████╔██║██████╔╝██║   ██║██║     ███████╗█████╗                    ┃
+┃  ██║██║╚██╔╝██║██╔═══╝ ██║   ██║██║     ╚════██║██╔══╝                    ┃
+┃  ██║██║ ╚═╝ ██║██║     ╚██████╔╝███████╗███████║███████╗                  ┃
+┃  ╚═╝╚═╝     ╚═╝╚═╝      ╚═════╝ ╚══════╝╚══════╝╚══════╝                  ┃
 ┃                                                                          ┃
-┃    v0.8.3                                                      GLM-4.7   ┃
-┃    built 01-21-2026                                          ~/project   ┃
+┃    v0.14.0                                                     GLM-4.7   ┃
+┃    built 01-23-2026                                          ~/project   ┃
 ┃                                                                          ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 ┌─ AUTO ─────────────────────────────────────────────────────────────────────┐
 │  > _                                                                       │
 └────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 | ~/project | main | MCP: ● | 01-21-2026
+GLM-4.7 | ~/project | main | MCP: ● | 01-23-2026
 ```
 
 **Session View:**
 ```
-[GLM-CLI] | Implementing API client
+[IMPULSE] | Implementing API client
 ────────────────────────────────────────────────────────────────────────────────
 
   You                                                            12:34 PM
@@ -56,73 +56,25 @@ GLM-4.7 | ~/project | main | MCP: ● | 01-21-2026
 ┌─ AGENT ────────────────────────────────────────────────────────────────────┐
 │  > _                                                                       │
 └────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 | AGENT | [██████░░░░] 62% | ~/project | main | MCP: ● | 01-21-2026
-```
-
-**Loading Animation (DNA Helix Spinner):**
-```
-┌─ AGENT ────────────────────────────────────────────────────────────────────┐
-│  ⣾                                                                         │
-│  ⣽  > Thinking...                                                          │
-│  ⣻                                                                         │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Session Picker (`/load`):**
-```
-┌─ Load Session ─────────────────────────────────────────────────────────────┐
-│                                                                            │
-│  NAME                        UPDATED           MSGS   DIRECTORY            │
-│                                                                            │
-│  Fix API Bug                 2h ago            12     ~/projects/api       │
-│  Refactor authentication     Jan 20, 3:45 PM   28     ~/projects/auth      │
-│  Session Jan 19              Jan 19            5      ~/glm-cli            │
-│                                                                            │
-│  ──────────────────────────────────────────────────────────────────────    │
-│                                                                            │
-│  Preview                                                                   │
-│  ────────                                                                  │
-│  You: Can you help me fix the API client timeout issue?                    │
-│  GLM-4.7: I'll help you debug the timeout...                               │
-│                                                                            │
-├────────────────────────────────────────────────────────────────────────────┤
-│  Up/Down: navigate | Enter: load | Esc: cancel                             │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Model Picker (`/model`):**
-```
-┌─ Select Model ─────────────────────────────────────────────────────────────┐
-│                                                                            │
-│  MODEL              INPUT          DESCRIPTION                             │
-│                                                                            │
-│  GLM-4.7            text           Flagship - complex coding (current)     │
-│  GLM-4.7-FLASH      text           Fast flagship variant                   │
-│  GLM-4.6            text           Previous gen flagship                   │
-│  GLM-4.6V           text + vision  Image understanding                     │
-│  GLM-4.5            text           Efficient general model                 │
-│                                                                            │
-├────────────────────────────────────────────────────────────────────────────┤
-│  Up/Down: navigate | Enter: select | Esc: cancel                           │
-└────────────────────────────────────────────────────────────────────────────┘
+GLM-4.7 | AGENT | [██████░░░░] 62% | ~/project | main | MCP: ● | 01-23-2026
 ```
 
 ## Quick Start
 
 ```bash
 # Install
-bun install -g glm-cli
+bun install -g impulse
 
 # Set API key
 export GLM_API_KEY=your_key_here
 
 # Run
-glm
+impulse
 
 # Run with Express mode (skip permission prompts)
-glm --express
+impulse --express
 # or
-glm -e
+impulse -e
 ```
 
 ## Modes
@@ -167,7 +119,6 @@ glm -e
 | `@` | File autocomplete |
 | `Esc` (2x) | Cancel operation |
 | `Ctrl+C` (2x) | Exit with summary |
-| `Ctrl+B` | Toggle sidebar |
 | `Ctrl+P` | Command palette |
 | `Ctrl+M` | MCP status |
 
@@ -186,21 +137,21 @@ glm -e
 
 ## MCP Servers
 
-glm-cli integrates with 5 MCP servers out of the box:
+IMPULSE integrates with 5 MCP servers out of the box:
 
 | Server | Type | Tools |
 |--------|------|-------|
 | **Vision** | Local (stdio) | Image analysis, UI screenshots, diagrams |
-| **Web Search** | Remote (HTTP) | Web search via Z.AI |
+| **Web Search** | Remote (HTTP) | Web search |
 | **Web Reader** | Remote (HTTP) | Fetch and parse web pages |
 | **Zread** | Remote (HTTP) | Search docs, read GitHub repos |
 | **Context7** | Remote (HTTP) | Library/framework documentation |
 
-The agent discovers MCP tools on-demand using `/mcp-tools` to keep context lean.
+The agent discovers MCP tools on-demand to keep context lean.
 
 ## Configuration
 
-Config file: `~/.glm-cli/config.json`
+Config file: `~/.config/impulse/config.json`
 
 ```json
 {
@@ -220,9 +171,9 @@ export GLM_API_KEY=your_key_here
 
 ## Project Instructions
 
-glm-cli loads project-specific instructions from these files (first found wins):
+IMPULSE loads project-specific instructions from these files (first found wins):
 
-1. `.glm-cli/instructions.md`
+1. `.impulse/instructions.md`
 2. `AGENTS.md`
 3. `CLAUDE.md`
 4. `GEMINI.md`

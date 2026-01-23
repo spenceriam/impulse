@@ -1,6 +1,6 @@
 # Requirements
 
-> Functional and non-functional requirements for glm-cli
+> Functional and non-functional requirements for impulse
 
 Generated: 01-19-2026
 
@@ -8,7 +8,7 @@ Generated: 01-19-2026
 
 ## Overview
 
-**glm-cli** is a terminal-based AI coding agent powered by Zhipu AI's GLM-4.x models. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development.
+**impulse** is a terminal-based AI coding agent powered by Zhipu AI's GLM-4.x models. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development.
 
 ### Target Users
 
@@ -163,7 +163,7 @@ Generated: 01-19-2026
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR-1.11.1 | Discover instruction files in priority order | Must |
-| FR-1.11.2 | Support 9 formats (.glm-cli/instructions.md, AGENTS.md, CLAUDE.md, etc.) | Must |
+| FR-1.11.2 | Support 9 formats (.impulse/instructions.md, AGENTS.md, CLAUDE.md, etc.) | Must |
 | FR-1.11.3 | Load and apply instructions to system prompt | Must |
 | FR-1.11.4 | /instruct command for editing instructions | Should |
 

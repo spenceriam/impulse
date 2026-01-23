@@ -19,13 +19,13 @@ export * from "./types";
  * Three levels of approval:
  * - once: Allow this specific action only
  * - session: Auto-approve for current session (in-memory)
- * - always: Save to project config (persisted to .glm-cli/permissions.json)
+ * - always: Save to project config (persisted to .impulse/permissions.json)
  * 
  * When Express mode is ON, all permissions are auto-approved.
  */
 
 // Project permissions file path
-const PERMISSIONS_FILE = ".glm-cli/permissions.json";
+const PERMISSIONS_FILE = ".impulse/permissions.json";
 
 // Generate unique IDs for permission requests
 let permissionIdCounter = 0;
@@ -83,7 +83,7 @@ let expressMode = false;
 let expressAcknowledged = false;
 
 /**
- * Load project permissions from .glm-cli/permissions.json
+ * Load project permissions from .impulse/permissions.json
  */
 function loadProjectPermissions(): Map<string, Set<string>> {
   if (projectApprovals !== null) {
@@ -112,12 +112,12 @@ function loadProjectPermissions(): Map<string, Set<string>> {
 }
 
 /**
- * Save project permissions to .glm-cli/permissions.json
+ * Save project permissions to .impulse/permissions.json
  */
 function saveProjectPermissions(): void {
   if (!projectApprovals) return;
   
-  const dirPath = join(process.cwd(), ".glm-cli");
+  const dirPath = join(process.cwd(), ".impulse");
   const filePath = join(dirPath, "permissions.json");
   
   try {
@@ -341,7 +341,7 @@ export function respond(input: {
       break;
       
     case "always":
-      // Add patterns to project-level approvals (persisted to .glm-cli/permissions.json)
+      // Add patterns to project-level approvals (persisted to .impulse/permissions.json)
       for (const pattern of pending.request.patterns) {
         addProjectApproval(pending.request.permission, pattern);
       }

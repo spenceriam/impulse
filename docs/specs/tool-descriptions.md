@@ -1,6 +1,6 @@
 # Tool Descriptions Specification
 
-> Complete prompt text for all glm-cli tools. These descriptions are loaded at runtime and sent to the LLM to guide tool usage.
+> Complete prompt text for all impulse tools. These descriptions are loaded at runtime and sent to the LLM to guide tool usage.
 
 Generated: 01-19-2026
 

@@ -1,6 +1,6 @@
 # Design
 
-> Architecture and system design for glm-cli
+> Architecture and system design for impulse
 
 Generated: 01-19-2026
 Updated: 01-20-2026 (Visual Design System from OpenTUI + frontend-design skills)
@@ -9,7 +9,7 @@ Updated: 01-20-2026 (Visual Design System from OpenTUI + frontend-design skills)
 
 ## 1. System Overview
 
-glm-cli is a terminal-based AI coding agent with a brutalist, flicker-free UI. It connects to Zhipu AI's GLM models via the Coding Plan API and integrates with 4 MCP servers for extended capabilities.
+impulse is a terminal-based AI coding agent with a brutalist, flicker-free UI. It connects to Zhipu AI's GLM models via the Coding Plan API and integrates with 4 MCP servers for extended capabilities.
 
 ### Design Goals
 
@@ -303,7 +303,7 @@ italic            AI thinking, metadata
 │     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
 │                                                                                                            │
 │    v0.1.0                                                              built 01-20-2026                    │
-│    Model: GLM-4.7                                                      Dir: ~/glm-cli                      │
+│    Model: GLM-4.7                                                      Dir: ~/impulse                      │
 │                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
@@ -314,7 +314,7 @@ italic            AI thinking, metadata
 │    What are we building, breaking, or making better?                                                       │
 │                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
 ```
 
 **Elements:**
@@ -355,7 +355,7 @@ GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/glm-cli │  main
 │ │                                                           │   │                                          │
 │ └───────────────────────────────────────────────────────────┘   │                                          │
 ├─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
-│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026                           │
+│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026                           │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -374,12 +374,12 @@ MODEL │ MODE │ [PROGRESS] XX% │ DIR │  BRANCH │ MCPs: X/X │ DATE
 
 **Example:**
 ```
-GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
 ```
 
 **During tool execution:**
 ```
-GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/glm-cli │  main │ MCPs: 4/4 │ file_write...
+GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/impulse │  main │ MCPs: 4/4 │ file_write...
 ```
 
 **Segments:**
@@ -591,7 +591,7 @@ Cost: $0.12
 
 ```
 ────────────────────────────────────────────────────────────────────────────────────────
-  GLM-CLI SESSION COMPLETE
+  IMPULSE SESSION COMPLETE
 ────────────────────────────────────────────────────────────────────────────────────────
 
   Duration        1h 23m 45s
@@ -616,7 +616,7 @@ Cost: $0.12
 ## 6. Directory Structure
 
 ```
-glm-cli/
+impulse/
 ├── src/
 │   ├── index.tsx                # CLI entry point
 │   ├── global.ts                # Global paths configuration
@@ -935,7 +935,7 @@ type Todo = z.infer<typeof TodoSchema>
 Todos are stored per-session in the storage layer:
 - Key: `["todo", sessionID]`
 - Format: JSON array of Todo objects
-- Location: `~/.config/glm-cli/storage/todo/{sessionID}.json`
+- Location: `~/.config/impulse/storage/todo/{sessionID}.json`
 
 ### 10.3 Tools
 
@@ -1001,7 +1001,7 @@ The agent should NOT use todos when:
 
 ## 12. Security Considerations
 
-1. **API Key** - Stored in environment variable or `~/.config/glm-cli/config.json`
+1. **API Key** - Stored in environment variable or `~/.config/impulse/config.json`
 2. **File Access** - Tools operate within working directory by default
 3. **Command Execution** - Bash tool shows command before execution
 4. **No Logging of Secrets** - API keys redacted from all logs

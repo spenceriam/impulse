@@ -95,7 +95,7 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
         backgroundColor="#1a1a1a"
       >
         <text fg={Colors.ui.text}>
-          No API key detected. Please enter your Z.AI API key.
+          No API key detected. Please enter your API key.
         </text>
         <box height={1} />
         <text fg={Colors.ui.dim}>
@@ -344,14 +344,14 @@ function WelcomeScreen(props: {
   const dimensions = useTerminalDimensions();
   const terminalWidth = () => dimensions().width;
 
-  // ASCII logo for GLM-CLI - centered inside [[ ]] frame
+  // ASCII logo for IMPULSE - centered inside [[ ]] frame
   const logo = [
-    " ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗",
-    "██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║",
-    "██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║",
-    "██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║",
-    "╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║",
-    " ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝",
+    "██╗███╗   ███╗██████╗ ██╗   ██╗██╗     ███████╗███████╗",
+    "██║████╗ ████║██╔══██╗██║   ██║██║     ██╔════╝██╔════╝",
+    "██║██╔████╔██║██████╔╝██║   ██║██║     ███████╗█████╗  ",
+    "██║██║╚██╔╝██║██╔═══╝ ██║   ██║██║     ╚════██║██╔══╝  ",
+    "██║██║ ╚═╝ ██║██║     ╚██████╔╝███████╗███████║███████╗",
+    "╚═╝╚═╝     ╚═╝╚═╝      ╚═════╝ ╚══════╝╚══════╝╚══════╝",
   ];
 
   // Gradient colors from bright cyan to dim (per Design.md)
@@ -1095,7 +1095,7 @@ function AppWithSession() {
         
         const summaryLines = [
           "━".repeat(66),
-          "  GLM-CLI SESSION COMPLETE",
+          "  IMPULSE SESSION COMPLETE",
           "━".repeat(66),
           "",
           `  Session       ${currentHeaderTitle}`,

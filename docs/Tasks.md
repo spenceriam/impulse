@@ -1,6 +1,6 @@
 # Tasks
 
-> Implementation tasks for glm-cli using BMAD-method
+> Implementation tasks for impulse using BMAD-method
 
 Generated: 01-19-2026
 Updated: 01-20-2026 (Phase 8 added - Integration Wiring discovered during testing)
@@ -72,7 +72,7 @@ Create project structure with Bun, TypeScript strict mode, and core dependencies
 
 #### Before
 ```
-glm-cli/
+impulse/
 ├── AGENTS.md
 ├── PRINCIPLES.md
 ├── README.md
@@ -81,7 +81,7 @@ glm-cli/
 
 #### After
 ```
-glm-cli/
+impulse/
 ├── AGENTS.md
 ├── PRINCIPLES.md
 ├── README.md
@@ -153,9 +153,9 @@ Create Global namespace with path configuration for config, data, and logs direc
 // src/global.ts
 export namespace Global {
   export namespace Path {
-    export const config: string  // ~/.config/glm-cli
-    export const data: string    // ~/.config/glm-cli
-    export const logs: string    // ~/.config/glm-cli/logs
+    export const config: string  // ~/.config/impulse
+    export const data: string    // ~/.config/impulse
+    export const logs: string    // ~/.config/impulse/logs
   }
 }
 ```
@@ -168,7 +168,7 @@ export namespace Global {
 
 #### Verification
 - [ ] Paths resolve correctly on current platform
-- [ ] Global.Path.config returns ~/.config/glm-cli
+- [ ] Global.Path.config returns ~/.config/impulse
 - [ ] Importing Global works from other files
 
 ---
@@ -344,7 +344,7 @@ src/
    - `defaultModel: string` (default: "glm-4.7")
    - `defaultMode: string` (default: "AUTO")
    - `thinking: boolean` (default: true)
-3. Load from `~/.config/glm-cli/config.json`
+3. Load from `~/.config/impulse/config.json`
 4. Override with environment variables (GLM_API_KEY)
 5. Validate with Zod schema
 6. Provide sensible defaults for optional fields
@@ -385,7 +385,7 @@ src/util/
 #### Steps
 1. Create `src/util/logger.ts`
 2. Define log levels: debug, info, warn, error
-3. Implement file output to `~/.config/glm-cli/logs/glm-cli.log`
+3. Implement file output to `~/.config/impulse/logs/impulse.log`
 4. Add timestamp to each log entry
 5. Create redaction for API keys in log output
 6. Export Log namespace with level-specific methods
@@ -517,7 +517,7 @@ src/util/
 #### Steps
 1. Create `src/util/instructions.ts`
 2. Define priority order array:
-   - `.glm-cli/instructions.md`
+   - `.impulse/instructions.md`
    - `AGENTS.md`
    - `CLAUDE.md`
    - `GEMINI.md`
@@ -697,7 +697,7 @@ src/ui/components/
 │     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
 │                                                                                                            │
 │    v0.1.0                                                              built 01-20-2026                    │
-│    Model: GLM-4.7                                                      Dir: ~/glm-cli                      │
+│    Model: GLM-4.7                                                      Dir: ~/impulse                      │
 │                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
@@ -705,7 +705,7 @@ src/ui/components/
 │  > _                                                                                                       │
 │    What are we building, breaking, or making better?                                                       │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
 ```
 
 #### Verification
@@ -830,12 +830,12 @@ src/ui/
 
 #### Visual Specification
 ```
-GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/glm-cli │  main │ MCPs: 4/4 │ 01-20-2026
+GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
 ```
 
 During tool execution:
 ```
-GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/glm-cli │  main │ MCPs: 4/4 │ file_write...
+GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/impulse │  main │ MCPs: 4/4 │ file_write...
 ```
 
 #### Steps
@@ -2606,7 +2606,7 @@ src/session/
 
 #### Steps
 1. Create `src/session/store.ts`
-2. Save sessions to `~/.config/glm-cli/storage/session/`
+2. Save sessions to `~/.config/impulse/storage/session/`
 3. Use JSON format with metadata
 4. Implement auto-save every 30 seconds
 5. Load existing sessions on startup

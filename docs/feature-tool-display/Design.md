@@ -10,7 +10,7 @@ Baseline Version: v0.10.2
 
 ## Architecture Overview
 
-The Tool Display Refactor adds a metadata layer to tool execution and a component system for rendering tool-specific displays. It follows the existing glm-cli patterns for state management (signals), event handling (event bus), and UI (OpenTUI + SolidJS).
+The Tool Display Refactor adds a metadata layer to tool execution and a component system for rendering tool-specific displays. It follows the existing impulse patterns for state management (signals), event handling (event bus), and UI (OpenTUI + SolidJS).
 
 ### System Architecture Diagram
 

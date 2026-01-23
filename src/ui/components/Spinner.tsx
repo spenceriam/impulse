@@ -65,7 +65,7 @@ export function Spinner(props: SpinnerProps) {
 /**
  * StackedSpinner Component
  * Vertical stack of spinners with staggered timing and gradient colors
- * Matches the GLM-CLI logo gradient colors
+ * Matches the IMPULSE logo gradient colors
  * 
  * Props:
  * - height: Number of spinner rows (default 3)
@@ -78,7 +78,7 @@ interface StackedSpinnerProps {
   static?: boolean;  // Show static last frame (idle after processing)
 }
 
-// GLM-CLI logo gradient colors (cyan to dim)
+// IMPULSE logo gradient colors (cyan to dim)
 const GRADIENT_COLORS = [
   "#5cffff", // Brightest cyan
   "#4ad4d4",

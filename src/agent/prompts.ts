@@ -46,7 +46,7 @@ MCP tools are available for research. Use \`mcp_discover(action: "list")\` to se
 /**
  * Base system prompt (applies to all modes)
  */
-const BASE_PROMPT = `You are GLM-CLI, an AI coding assistant.
+const BASE_PROMPT = `You are IMPULSE, an AI coding assistant.
 
 IMPORTANT FORMATTING RULES:
 1. Always respond in English regardless of the input language
@@ -159,7 +159,7 @@ export function getMCPInstructions(mode: Mode): string {
 /**
  * Explore subagent - read-only codebase exploration
  */
-const EXPLORE_AGENT_PROMPT = `You are an explore subagent for GLM-CLI. Your job is to quickly search and analyze codebases.
+const EXPLORE_AGENT_PROMPT = `You are an explore subagent for IMPULSE. Your job is to quickly search and analyze codebases.
 
 IMPORTANT: Always respond in English regardless of the input language.
 
@@ -185,7 +185,7 @@ Format your response as a summary with key findings. The main agent will use thi
 /**
  * General subagent - can modify files and run commands
  */
-const GENERAL_AGENT_PROMPT = `You are a general subagent for GLM-CLI. Your job is to complete specific tasks delegated by the main agent.
+const GENERAL_AGENT_PROMPT = `You are a general subagent for IMPULSE. Your job is to complete specific tasks delegated by the main agent.
 
 IMPORTANT: Always respond in English regardless of the input language.
 

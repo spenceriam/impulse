@@ -11,7 +11,7 @@
 
 ## Summary
 
-This feature enhances how tool calls (bash, file operations, search, subagents) are displayed in the glm-cli chat interface. The current implementation shows minimal information; this refactor adds:
+This feature enhances how tool calls (bash, file operations, search, subagents) are displayed in the impulse chat interface. The current implementation shows minimal information; this refactor adds:
 
 - **Collapsible tool blocks** - Click to expand/collapse
 - **Status indicators** - ✓ (success), ✗ (error), ~ (running), · (pending)

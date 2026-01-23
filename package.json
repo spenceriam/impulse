@@ -1,7 +1,7 @@
 {
-  "name": "glm-cli",
-  "version": "0.14.0",
-  "description": "OpenTUI coding harness powered by Z.ai GLM models",
+  "name": "impulse",
+  "version": "0.15.0",
+  "description": "Terminal-based AI coding agent powered by GLM models",
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.tsx",
@@ -26,14 +26,15 @@
     "typescript": "^5.7.0"
   },
   "bin": {
-    "glm": "./dist/index.js"
+    "impulse": "./dist/index.js"
   },
   "keywords": [
     "ai",
     "cli",
-    "glm",
+    "impulse",
     "terminal",
-    "coding"
+    "coding",
+    "glm"
   ],
   "author": "",
   "license": "MIT"

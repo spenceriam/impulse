@@ -10,11 +10,11 @@ Baseline Version: v0.10.2
 
 ## Overview
 
-**Tool Display Refactor** enhances how tool calls (bash, file operations, search, subagents) are displayed in the glm-cli chat interface. The current implementation shows minimal information; this refactor adds collapsible blocks, unified diffs, output previews, and retry visibility.
+**Tool Display Refactor** enhances how tool calls (bash, file operations, search, subagents) are displayed in the impulse chat interface. The current implementation shows minimal information; this refactor adds collapsible blocks, unified diffs, output previews, and retry visibility.
 
 ### Target Users
 
-- Developers using glm-cli for agentic coding workflows
+- Developers using impulse for agentic coding workflows
 - Users who need visibility into what the AI agent is doing
 - Developers debugging failed tool executions
 - Users following the "Ralph loop" pattern who need to "watch the loop"

@@ -1,11 +1,26 @@
 # Changelog
 
-All notable changes to glm-cli will be documented in this file.
+All notable changes to impulse will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.15.0] - 2026-01-23
+
+### Changed
+
+- **REBRAND: GLM-CLI → IMPULSE** - Complete project rename:
+  - New ASCII logo in welcome screen
+  - Package name: `impulse`
+  - Binary command: `impulse` (was `glm`)
+  - Header prefix: `[IMPULSE]`
+  - Config path: `~/.config/impulse/`
+  - Project config: `.impulse/` directory
+  - Log file: `impulse.log`
+  - All UI text, prompts, and documentation updated
+  - Tagline: "Powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders"
 
 ## [0.14.0] - 2026-01-23
 
@@ -58,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Gutter Redesign** - Replaced DNA helix spinner with color-cycling vertical line:
   - Full-height line on left edge spans entire chat area
-  - Cycles through GLM-CLI logo colors (cyan, purple, blue, orange, white) at 200ms during processing
+  - Cycles through IMPULSE logo colors (cyan, purple, blue, orange, white) at 200ms during processing
   - Dim gray when idle
   - Removed scroll indicator (not needed with hidden scrollbar)
 
@@ -127,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Comprehensive `/help` Command** - Quick reference guide with scrollable overlay:
-  - 2-sentence intro explaining GLM-CLI
+  - 2-sentence intro explaining IMPULSE
   - All 5 modes with colors, descriptions, and available tools
   - Status line indicators: (Thinking), [EXPRESS], context bar, MCP dot
   - Keyboard shortcuts reference
@@ -356,7 +371,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Project-Based Session Storage** - Sessions are now organized by working directory:
-  - Sessions stored in `~/.config/glm-cli/storage/session/<projectID>/`
+  - Sessions stored in `~/.config/impulse/storage/session/<projectID>/`
   - Project ID is SHA-1 hash of the working directory path
   - `/load` only shows sessions for the current project
   - Matches OpenCode's session organization pattern
@@ -399,7 +414,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Session List Bug** - `/load` command now correctly lists saved sessions:
   - Fixed key indexing in `SessionStoreInstance.list()` - was using `key[0]` ("session") instead of `key[1]` (session ID)
-  - Sessions are now properly retrieved from `~/.config/glm-cli/storage/session/`
+  - Sessions are now properly retrieved from `~/.config/impulse/storage/session/`
 
 ## [0.11.2] - 2026-01-22
 
@@ -691,7 +706,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Permission Persistence** - Three-tier approval system:
   - **Allow once**: One-time approval for this specific action
   - **Allow session**: Auto-approve pattern for current session (in-memory)
-  - **Allow always**: Persisted to `.glm-cli/permissions.json`, applies to all future sessions
+  - **Allow always**: Persisted to `.impulse/permissions.json`, applies to all future sessions
 
 ## [0.9.8] - 2026-01-21
 
@@ -723,7 +738,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Welcome Screen** - Centered GLM-CLI logo properly:
+- **Welcome Screen** - Centered IMPULSE logo properly:
   - Replaced heavy border with `[[━━━...━━━]]` bracket accents
   - Calculated padding to center logo within frame
   - Version and build info aligned with logo width
@@ -914,7 +929,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Stacked Spinner Animation** - Loading indicator when AI is processing:
   - DNA helix style braille animation (`⣾⣽⣻⢿⡿⣟⣯⣷`)
-  - Gradient colors matching GLM-CLI logo (cyan to dim)
+  - Gradient colors matching IMPULSE logo (cyan to dim)
   - Staggered/randomized timing for organic feel
   - Positioned to the left of input box, matching its height
   - Input disabled while loading
@@ -924,7 +939,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Session Header** - Dynamic header line at top of session screen:
-  - Format: `[GLM-CLI] | <context>`
+  - Format: `[IMPULSE] | <context>`
   - AI updates via `set_header` tool at meaningful milestones
   - Prefixes for system actions: `Compacted:`, `Reverted:`, `Reapplied:`
   - Persists with session on save/load
@@ -940,7 +955,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keyboard navigation: left/right to select, Enter to confirm, Esc to reject
 
 - **Express Mode** - Skip all permission prompts for trusted environments:
-  - Enable with `glm-cli --express` or `-e` flag
+  - Enable with `impulse --express` or `-e` flag
   - Toggle during session with `/express` command
   - First-time warning overlay explains risks and requires Enter to acknowledge
   - `[EX]` indicator in status line when Express mode is active (orange color)
@@ -994,7 +1009,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Collapsible Sidebar** - Sidebar can now be toggled with `Ctrl+B`; when collapsed, shows a 1-char strip with vertical "GLM-CLI" branding
+- **Collapsible Sidebar** - Sidebar can now be toggled with `Ctrl+B`; when collapsed, shows a 1-char strip with vertical "IMPULSE" branding
 - **Mode Display in Messages** - Assistant messages now show mode used (e.g., "GLM-4.7 [AGENT]") with mode-colored brackets
 - **Sidebar Context** - New SidebarProvider for managing sidebar visibility state
 - **CollapsedSidebar Component** - Clickable 1-char strip to expand sidebar with mouse
@@ -1059,7 +1074,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Logo Centering** - GLM-CLI ASCII logo now properly centered in welcome screen border frame using flexbox
+- **Logo Centering** - IMPULSE ASCII logo now properly centered in welcome screen border frame using flexbox
 
 ## [0.2.1] - 2026-01-20
 

@@ -6,7 +6,7 @@ import { Colors } from "../design";
  * Full-height left gutter that serves as visual anchor
  * 
  * Idle: Dim vertical line
- * Processing: Color cycles through GLM-CLI logo palette (200ms per color)
+ * Processing: Color cycles through IMPULSE logo palette (200ms per color)
  * 
  * Colors cycle: cyan → purple → blue → orange → white → repeat
  * 
@@ -19,7 +19,7 @@ import { Colors } from "../design";
 // Gutter width constant - exported for layout calculations
 export const GUTTER_WIDTH = 2;
 
-// GLM-CLI logo color palette
+// IMPULSE logo color palette
 const LOGO_COLORS = [
   "#5cffff", // Cyan (primary)
   "#b48eff", // Purple (PLANNER)

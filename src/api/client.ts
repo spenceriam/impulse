@@ -80,7 +80,7 @@ class GLMClientImpl {
     const config = await loadConfig();
     
     if (!config.apiKey) {
-      throw new GLMAuthError("API key not configured. Set GLM_API_KEY environment variable or configure in ~/.config/glm-cli/config.json");
+      throw new GLMAuthError("API key not configured. Set GLM_API_KEY environment variable or configure in ~/.config/impulse/config.json");
     }
 
     this.apiKey = config.apiKey;

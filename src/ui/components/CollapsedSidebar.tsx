@@ -4,12 +4,12 @@ import { useSidebar } from "../context";
 
 /**
  * Collapsed Sidebar Component
- * A 1-character wide strip with vertical "GLM-CLI" text
+ * A 1-character wide strip with vertical "IMPULSE" text
  * Click to expand the sidebar
  */
 
 // Vertical text for the strip
-const VERTICAL_TEXT = ["G", "L", "M", "-", "C", "L", "I"];
+const VERTICAL_TEXT = ["I", "M", "P", "U", "L", "S", "E"];
 
 export function CollapsedSidebar() {
   const { show } = useSidebar();
@@ -28,7 +28,7 @@ export function CollapsedSidebar() {
         <text fg={Colors.ui.dim}></text>
       </box>
       
-      {/* Vertical GLM-CLI text */}
+      {/* Vertical IMPULSE text */}
       <For each={VERTICAL_TEXT}>
         {(char) => (
           <text fg={Colors.ui.dim}>{char}</text>

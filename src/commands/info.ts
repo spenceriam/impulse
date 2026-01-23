@@ -40,10 +40,10 @@ async function handleStats() {
 
 async function handleHelp() {
   const lines: string[] = [
-    "GLM-CLI Quick Reference",
+    "IMPULSE Quick Reference",
     "",
-    "GLM-CLI is an AI coding agent powered by Zhipu's GLM models. Use natural",
-    "language to build, debug, and explore codebases with full tool access.",
+    "IMPULSE is an AI coding agent powered by GLM models. Use natural language",
+    "to build, debug, and explore codebases with full tool access.",
     "",
     "MODES (Tab to cycle)",
     "─".repeat(78),

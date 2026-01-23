@@ -15,10 +15,10 @@ The Storage module provides a simple key-value abstraction over the filesystem. 
 ## Directory Structure
 
 ```
-~/.config/glm-cli/
+~/.config/impulse/
 ├── config.json              # User configuration
 ├── logs/                    # Log files
-│   └── glm-cli.log
+│   └── impulse.log
 └── storage/                 # Persisted data
     ├── migration            # Migration version number
     ├── session/
@@ -119,8 +119,8 @@ function keyToPath(key: string[]): string {
 }
 
 // Examples:
-// ["todo", "session123"] -> ~/.config/glm-cli/storage/todo/session123.json
-// ["session", "proj1", "sess1"] -> ~/.config/glm-cli/storage/session/proj1/sess1.json
+// ["todo", "session123"] -> ~/.config/impulse/storage/todo/session123.json
+// ["session", "proj1", "sess1"] -> ~/.config/impulse/storage/session/proj1/sess1.json
 ```
 
 ### File Locking
@@ -280,7 +280,7 @@ async function runMigrations() {
 export namespace Global {
   export namespace Path {
     // Base config directory
-    export const config = path.join(os.homedir(), ".config", "glm-cli")
+    export const config = path.join(os.homedir(), ".config", "impulse")
     
     // Data directory (same as config for simplicity)
     export const data = config

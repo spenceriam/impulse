@@ -4,7 +4,7 @@ import path from "path";
 export namespace Global {
   export namespace Path {
     const homeDir = os.homedir();
-    const baseConfigDir = path.join(homeDir, ".config", "glm-cli");
+    const baseConfigDir = path.join(homeDir, ".config", "impulse");
 
     export const config: string = baseConfigDir;
     export const data: string = baseConfigDir;

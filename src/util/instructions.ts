@@ -8,7 +8,7 @@ import path from "path";
 
 // Priority order for instruction files (first found wins)
 const INSTRUCTION_FILES = [
-  ".glm-cli/instructions.md",
+  ".impulse/instructions.md",
   "AGENTS.md",
   "CLAUDE.md",
   "GEMINI.md",

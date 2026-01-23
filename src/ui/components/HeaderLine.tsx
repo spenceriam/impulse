@@ -7,13 +7,13 @@ import { Colors } from "../design";
  * the current conversation/task. Similar to how ChatGPT/Claude/Gemini
  * auto-generate chat titles.
  * 
- * Format: [GLM-CLI] | <context>
+ * Format: [IMPULSE] | <context>
  * 
  * Prefixes for system actions:
- * - Normal: [GLM-CLI] | Express mode permission system
- * - Compacted: [GLM-CLI] | Compacted: Express mode permission system
- * - Reverted: [GLM-CLI] | Reverted: Express mode permission system
- * - Reapplied: [GLM-CLI] | Reapplied: Express mode permission system
+ * - Normal: [IMPULSE] | Express mode permission system
+ * - Compacted: [IMPULSE] | Compacted: Express mode permission system
+ * - Reverted: [IMPULSE] | Reverted: Express mode permission system
+ * - Reapplied: [IMPULSE] | Reapplied: Express mode permission system
  * 
  * Props:
  * - title: AI-generated description of current task/conversation
@@ -27,7 +27,7 @@ interface HeaderLineProps {
   prefix?: HeaderPrefix;
 }
 
-const BRAND = "[GLM-CLI]";
+const BRAND = "[IMPULSE]";
 const DEFAULT_TITLE = "New session";
 
 export function HeaderLine(props: HeaderLineProps) {

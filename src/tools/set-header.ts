@@ -3,7 +3,7 @@ import { Tool, ToolResult } from "./registry";
 import { Bus, HeaderEvents } from "../bus";
 
 /**
- * Maximum length for header title (context portion only, not including "[GLM-CLI] | ")
+ * Maximum length for header title (context portion only, not including "[IMPULSE] | ")
  */
 const MAX_TITLE_LENGTH = 50;
 
@@ -12,7 +12,7 @@ const MAX_TITLE_LENGTH = 50;
  */
 const DESCRIPTION = `Set the session header title to provide context about the current task or conversation.
 
-The header appears at the top of the session screen as: "[GLM-CLI] | <your title>"
+The header appears at the top of the session screen as: "[IMPULSE] | <your title>"
 
 Guidelines:
 - Set at meaningful milestones (initial understanding, phase changes, focus shifts)
@@ -61,7 +61,7 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
 
       return {
         success: true,
-        output: `Header updated to: [GLM-CLI] | ${title}`,
+        output: `Header updated to: [IMPULSE] | ${title}`,
         metadata: {
           title,
         },

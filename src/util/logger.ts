@@ -4,7 +4,7 @@ import path from "path";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
-const logPath = path.join(Global.Path.logs, "glm-cli.log");
+const logPath = path.join(Global.Path.logs, "impulse.log");
 
 const REDACTED_PATTERNS = [
   /["']?api[_-]?key["']?\s*[:=]\s*/gi,
