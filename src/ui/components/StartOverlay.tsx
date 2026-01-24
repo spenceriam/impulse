@@ -99,15 +99,16 @@ export function StartOverlay(props: StartOverlayProps) {
         </scrollbox>
 
         {/* Fixed footer with creator info and controls */}
-        <box flexShrink={0} height={4} flexDirection="column" borderColor={Colors.ui.dim} border={["top"]}>
+        <box flexShrink={0} flexDirection="column" paddingTop={1}>
+          <text fg={Colors.ui.dim}>{"─".repeat(81)}</text>
           <box height={1} />
-          <box justifyContent="center">
+          <box flexDirection="row" justifyContent="center">
             <text fg={Colors.ui.dim}>Created by Spencer Francisco (</text>
             <text fg={Colors.mode.AGENT}>@spencer_i_am</text>
             <text fg={Colors.ui.dim}>) | </text>
             <text fg={Colors.status.warning}>BETA</text>
           </box>
-          <box justifyContent="center">
+          <box flexDirection="row" justifyContent="center">
             <text fg={Colors.ui.dim}>Enter/Esc: close</text>
           </box>
         </box>

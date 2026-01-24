@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-01-24
+
+### Fixed
+
+- **StartOverlay footer layout** - Fixed overlapping text in welcome screen footer
+  - `border={["top"]}` syntax not supported in OpenTUI
+  - Changed to manual separator line with `"─".repeat(81)`
+  - Creator credit and BETA status now display correctly
+
 ## [0.18.0] - 2026-01-24
 
 ### Added
