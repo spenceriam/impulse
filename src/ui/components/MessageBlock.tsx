@@ -417,13 +417,137 @@ function getExpandedContent(
 
 // ThinkingSection removed - now using ThinkingBlock component
 
+// ============================================
+// Activity Status Grouping
+// ============================================
+
+/**
+ * Activity categories for grouping tool calls
+ */
+type ActivityCategory = "reading" | "editing" | "mcp" | "questions" | "other";
+
+/**
+ * Get activity category for a tool call
+ */
+function getActivityCategory(name: string): ActivityCategory {
+  // Reading/reviewing tools
+  if (["file_read", "glob", "grep"].includes(name)) {
+    return "reading";
+  }
+  
+  // Editing/writing tools
+  if (["file_write", "file_edit", "bash"].includes(name)) {
+    return "editing";
+  }
+  
+  // Question tool
+  if (name === "question") {
+    return "questions";
+  }
+  
+  // MCP tools (start with mcp_ or are known MCP tool names)
+  if (name.startsWith("mcp_") || 
+      ["webSearchPrime", "webReader", "search_doc", "get_repo_structure", "read_file",
+       "ui_to_artifact", "extract_text_from_screenshot", "diagnose_error_screenshot",
+       "understand_technical_diagram", "analyze_data_visualization", "ui_diff_check",
+       "image_analysis", "video_analysis", "resolve-library-id", "query-docs"].includes(name)) {
+    return "mcp";
+  }
+  
+  return "other";
+}
+
+/**
+ * Get activity status label based on category and status
+ */
+function getActivityLabel(category: ActivityCategory, hasRunning: boolean): string {
+  if (!hasRunning) return ""; // No label when all done
+  
+  switch (category) {
+    case "reading":
+      return "Reviewing documents...";
+    case "editing":
+      return "Editing documents...";
+    case "mcp":
+      return "Using external tools...";
+    case "questions":
+      return "Clarifying with questions...";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Get MCP server name from tool name for display
+ */
+function getMCPServerName(toolName: string): string {
+  // Map known MCP tools to their server names
+  const toolToServer: Record<string, string> = {
+    webSearchPrime: "Web Search",
+    webReader: "Web Reader",
+    search_doc: "Zread",
+    get_repo_structure: "Zread",
+    read_file: "Zread",
+    ui_to_artifact: "Vision",
+    extract_text_from_screenshot: "Vision",
+    diagnose_error_screenshot: "Vision",
+    understand_technical_diagram: "Vision",
+    analyze_data_visualization: "Vision",
+    ui_diff_check: "Vision",
+    image_analysis: "Vision",
+    video_analysis: "Vision",
+    "resolve-library-id": "Context7",
+    "query-docs": "Context7",
+  };
+  
+  return toolToServer[toolName] || "MCP";
+}
+
+/**
+ * Group tool calls by activity category
+ */
+interface ToolCallGroup {
+  category: ActivityCategory;
+  toolCalls: Array<{ toolCall: ToolCallInfo; index: number }>;
+  hasRunning: boolean;
+}
+
+function groupToolCalls(toolCalls: ToolCallInfo[]): ToolCallGroup[] {
+  const groups = new Map<ActivityCategory, ToolCallGroup>();
+  const categoryOrder: ActivityCategory[] = ["reading", "editing", "mcp", "questions", "other"];
+  
+  toolCalls.forEach((toolCall, index) => {
+    const category = getActivityCategory(toolCall.name);
+    
+    if (!groups.has(category)) {
+      groups.set(category, {
+        category,
+        toolCalls: [],
+        hasRunning: false,
+      });
+    }
+    
+    const group = groups.get(category)!;
+    group.toolCalls.push({ toolCall, index });
+    
+    if (toolCall.status === "pending" || toolCall.status === "running") {
+      group.hasRunning = true;
+    }
+  });
+  
+  // Return groups in consistent order
+  return categoryOrder
+    .filter(cat => groups.has(cat))
+    .map(cat => groups.get(cat)!);
+}
+
 /**
  * Render a single tool call with collapsible display
  * - Collapsed: shows status indicator + tool title
  * - Expanded: shows tool-specific content (command output, diff, etc.)
  * - Errors auto-expand
  */
-function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number }) {
+function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number }): JSX.Element {
   const title = () => getToolTitle(
     props.toolCall.name,
     props.toolCall.arguments,
@@ -528,35 +652,54 @@ export function MessageBlock(props: MessageBlockProps) {
               </box>
             </Show>
             
-            {/* Tool calls - tighter spacing */}
+            {/* Tool calls - grouped by activity type */}
             <Show when={toolCalls().length > 0}>
               <box flexDirection="column">
-                <For each={toolCalls()}>
-                  {(toolCall, index) => {
-                    const attempt = (() => {
-                      const current = toolCalls()[index()];
-                      if (!current || current.status !== "error") return undefined;
+                <For each={groupToolCalls(toolCalls())}>
+                  {(group) => (
+                    <box flexDirection="column" marginTop={1}>
+                      {/* Activity status label (only when running) */}
+                      <Show when={group.hasRunning && getActivityLabel(group.category, group.hasRunning)}>
+                        <box flexDirection="row" marginBottom={1}>
+                          <text fg={Colors.ui.primary}>
+                            {group.category === "mcp" 
+                              ? `Using ${getMCPServerName(group.toolCalls[0]?.toolCall.name || "")} (MCP)...`
+                              : getActivityLabel(group.category, group.hasRunning)}
+                          </text>
+                        </box>
+                      </Show>
+                      
+                      {/* Tool calls in this group */}
+                      <For each={group.toolCalls}>
+                        {({ toolCall, index }) => {
+                          const attempt = (() => {
+                            const allToolCalls = toolCalls();
+                            const current = allToolCalls[index];
+                            if (!current || current.status !== "error") return undefined;
 
-                      let attempts = 1;
-                      for (let i = index() - 1; i >= 0; i--) {
-                        const prev = toolCalls()[i];
-                        if (prev?.name === current.name && prev?.status === "error") {
-                          attempts++;
-                        } else {
-                          break;
-                        }
-                      }
+                            let attempts = 1;
+                            for (let i = index - 1; i >= 0; i--) {
+                              const prev = allToolCalls[i];
+                              if (prev?.name === current.name && prev?.status === "error") {
+                                attempts++;
+                              } else {
+                                break;
+                              }
+                            }
 
-                      return attempts > 1 ? attempts : undefined;
-                    })();
+                            return attempts > 1 ? attempts : undefined;
+                          })();
 
-                    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number } = { toolCall };
-                    if (attempt !== undefined) {
-                      displayProps.attemptNumber = attempt;
-                    }
+                          const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number } = { toolCall };
+                          if (attempt !== undefined) {
+                            displayProps.attemptNumber = attempt;
+                          }
 
-                    return <ToolCallDisplay {...displayProps} />;
-                  }}
+                          return <ToolCallDisplay {...displayProps} />;
+                        }}
+                      </For>
+                    </box>
+                  )}
                 </For>
               </box>
             </Show>

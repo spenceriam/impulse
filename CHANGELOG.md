@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-01-24
+
+### Added
+
+- **Activity Status Indicators** - Tool calls now grouped by activity type with status labels
+  - "Reviewing documents..." when reading files
+  - "Editing documents..." when writing/editing files
+  - "Using Web Search (MCP)..." when using MCP servers (shows server name)
+  - "Clarifying with questions..." when AI uses question tool
+  - Labels only appear while activity is in progress
+
+- **Question Tool Context Field** - AI can now explain WHY it's asking a question
+  - New `context` field in question schema
+  - Header shows "CLARIFYING: <context>" instead of just the header text
+  - Helps users understand the purpose of AI questions
+
+### Changed
+
+- **Question Overlay Redesign** - Complete visual overhaul for better usability
+  - 2-column grid layout instead of vertical list
+  - Numbered hotkeys (1-9 for options, 0 for "Other")
+  - Keyboard navigation with arrow keys in grid pattern
+  - Visual feedback with borders on hover/selection
+  - Semi-transparent backdrop overlay
+  - Header increased from 12 to 30 characters max
+
+### Fixed
+
+- **Question Tool UX Confusion** - Users now understand what AI is asking and why
+  - Previously the header just showed a short label with no context
+  - Now shows full context explaining the clarification needed
+
 ## [0.17.1] - 2026-01-23
 
 ### Fixed

@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.17.1
+- **Version:** v0.18.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -628,7 +628,8 @@ Interactive question tool for structured user input. Allows the AI to ask multip
 ```typescript
 interface Question {
   question: string;           // Full question text
-  header: string;             // Short label (max 12 chars)
+  header: string;             // Short label (max 30 chars)
+  context?: string;           // Why this clarification is needed (shown in header)
   options: {
     label: string;            // 1-5 words
     description: string;      // Explanation
@@ -642,34 +643,55 @@ interface QuestionToolOutput {
 }
 ```
 
-### UI Mockup
+### UI Mockup (2-Column Grid Layout)
 
 ```
-┌─ HEADER ─────────────────────────────────────────────────┐
-│                                                          │
-│ Question text here?                                      │
-│                                                          │
-│ (*) Option 1 label                                       │
-│     Description of option 1                              │
-│                                                          │
-│ ( ) Option 2 label                                       │
-│     Description of option 2                              │
-│                                                          │
-│ ( ) Other...                                             │
-│     Provide custom text input                            │
-│                                                          │
-├──────────────────────────────────────────────────────────┤
-│ [1/3]  Tab: Next  Enter: Select  Esc: Cancel             │
-└──────────────────────────────────────────────────────────┘
+┌─ CLARIFYING: Development Environment ────────────────────────────┐
+│                                                                  │
+│ What is your current Mac model and year?                         │
+│                                                                  │
+│  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
+│  │ [ ] [1] MacBook Pro      │  │ [ ] [2] MacBook Pro          │  │
+│  │         (Intel)          │  │         (Apple Silicon)      │  │
+│  │         2016-2021        │  │         M1/M2/M3             │  │
+│  └──────────────────────────┘  └──────────────────────────────┘  │
+│                                                                  │
+│  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
+│  │ [ ] [3] MacBook Air      │  │ [ ] [4] MacBook Air          │  │
+│  │         (Intel)          │  │         (Apple Silicon)      │  │
+│  │         2018-2020        │  │         M1/M2/M3             │  │
+│  └──────────────────────────┘  └──────────────────────────────┘  │
+│                                                                  │
+│  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
+│  │ [ ] [5] iMac / Mac mini  │  │ [ ] [0] Other...             │  │
+│  │         / Mac Studio     │  │         Type custom answer   │  │
+│  └──────────────────────────┘  └──────────────────────────────┘  │
+│                                                                  │
+│──────────────────────────────────────────────────────────────────│
+│ [1/3]  0-9: Select  Enter: Confirm  Esc: Cancel                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `0-9` | Quick-select option by number (0 = Other) |
+| `Arrow keys` | Navigate grid (up/down/left/right) |
+| `Space` | Toggle selection (multi-select mode) |
+| `Enter` | Confirm selection and advance |
+| `Tab` | Next question (multi-question flows) |
+| `Shift+Tab` | Previous question |
+| `Esc` | Cancel |
 
 ### Agent Usage
 
 - Use for gathering user preferences or requirements
 - Use for clarifying ambiguous instructions
 - Use for getting decisions on implementation choices
-- Users can always select "Other" to provide custom text
-- Keep headers to max 12 characters
+- **Always set `context`** to explain WHY you're asking (shown in header)
+- Users can always select "Other" (key 0) to provide custom text
+- Keep headers to max 30 characters
 - Keep option labels concise (1-5 words)
 - First option is typically the recommended choice
 

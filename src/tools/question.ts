@@ -16,7 +16,8 @@ const QuestionOptionSchema = z.object({
  */
 const QuestionSchema = z.object({
   question: z.string().describe("Complete question text"),
-  header: z.string().max(12).describe("Very short label (max 12 chars)"),
+  header: z.string().max(30).describe("Short label (max 30 chars)"),
+  context: z.string().optional().describe("Brief explanation of why this clarification is needed (shown in header)"),
   options: z.array(QuestionOptionSchema).describe("Available choices"),
   multiple: z.boolean().optional().describe("Allow selecting multiple choices"),
 });
@@ -89,8 +90,9 @@ Notes:
 - Users can always select "Other" to provide custom text input
 - Answers are returned as arrays of labels per question
 - Set multiple: true to allow selecting more than one option
-- Keep headers to max 12 characters
-- Keep option labels concise (1-5 words)`;
+- Keep headers to max 30 characters
+- Keep option labels concise (1-5 words)
+- Use the 'context' field to explain WHY you're asking (shown to user in header)`;
 
 export const questionTool: Tool<QuestionToolInput> = Tool.define(
   "question",
