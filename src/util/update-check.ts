@@ -9,12 +9,27 @@
 import * as semver from "semver";
 import { spawn } from "child_process";
 import { Bus, UpdateEvents } from "../bus/index";
+import { isDebugEnabled } from "./debug-log";
 import packageJson from "../../package.json";
 
 // Package info
 const PACKAGE_NAME = "@spenceriam/impulse";
 const CURRENT_VERSION = packageJson.version; // Read from package.json
 const REGISTRY_URL = "https://registry.npmjs.org";
+
+/**
+ * Debug log helper - writes to stderr when --verbose is enabled
+ */
+function debugLog(message: string, data?: unknown): void {
+  if (isDebugEnabled()) {
+    const timestamp = new Date().toISOString();
+    if (data !== undefined) {
+      console.error(`[UPDATE ${timestamp}] ${message}`, JSON.stringify(data));
+    } else {
+      console.error(`[UPDATE ${timestamp}] ${message}`);
+    }
+  }
+}
 
 /**
  * Detect if running from a global npm install
@@ -88,14 +103,19 @@ export type UpdateState =
  * Non-blocking, fails silently on network errors
  */
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
+  debugLog("Starting update check", { currentVersion: CURRENT_VERSION, package: PACKAGE_NAME });
+  
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
 
     // URL-encode the scoped package name for npm registry
     const encodedName = PACKAGE_NAME.replace("/", "%2F");
+    const url = `${REGISTRY_URL}/${encodedName}/latest`;
+    debugLog("Fetching from registry", { url });
+    
     const response = await fetch(
-      `${REGISTRY_URL}/${encodedName}/latest`,
+      url,
       {
         signal: controller.signal,
         headers: {
@@ -107,18 +127,28 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
     clearTimeout(timeout);
 
     if (!response.ok) {
+      debugLog("Registry returned error", { status: response.status, statusText: response.statusText });
       return null;
     }
 
     const data = (await response.json()) as { version?: string };
     const latestVersion = data.version;
+    debugLog("Registry response", { latestVersion });
 
     if (!latestVersion) {
+      debugLog("No version in response");
       return null;
     }
 
     // Compare versions using semver
-    if (semver.gt(latestVersion, CURRENT_VERSION)) {
+    const isNewer = semver.gt(latestVersion, CURRENT_VERSION);
+    debugLog("Version comparison", { 
+      current: CURRENT_VERSION, 
+      latest: latestVersion, 
+      isNewer 
+    });
+    
+    if (isNewer) {
       return {
         currentVersion: CURRENT_VERSION,
         latestVersion,
@@ -127,8 +157,9 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
     }
 
     return null;
-  } catch {
+  } catch (error) {
     // Silently fail on network errors - don't block the app
+    debugLog("Update check failed", { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -226,19 +257,29 @@ async function verifyInstalledVersion(expectedVersion: string): Promise<boolean>
  * Called once on app startup
  */
 export async function runUpdateCheck(): Promise<void> {
+  debugLog("runUpdateCheck started");
   const update = await checkForUpdate();
 
   if (!update) {
+    debugLog("No update available or check failed");
     return;
   }
+
+  debugLog("Update available, starting install", { 
+    from: update.currentVersion, 
+    to: update.latestVersion,
+    command: update.updateCommand 
+  });
 
   // Notify that we're installing
   Bus.publish(UpdateEvents.Installing, { latestVersion: update.latestVersion });
 
   // Run the install
   const installResult = await runNpmInstall();
+  debugLog("Install result", installResult);
 
   if (!installResult.success) {
+    debugLog("Install failed", { error: installResult.error });
     Bus.publish(UpdateEvents.Failed, {
       latestVersion: update.latestVersion,
       updateCommand: update.updateCommand,
@@ -248,7 +289,9 @@ export async function runUpdateCheck(): Promise<void> {
   }
 
   // Verify installation by checking what version is actually installed
+  debugLog("Verifying installed version");
   const verified = await verifyInstalledVersion(update.latestVersion);
+  debugLog("Verification result", { verified, expectedVersion: update.latestVersion });
 
   if (verified) {
     Bus.publish(UpdateEvents.Installed, { latestVersion: update.latestVersion });

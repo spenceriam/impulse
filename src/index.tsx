@@ -50,6 +50,7 @@ OPTIONS:
         --mode <mode>       Start in specific mode (auto/agent/planner/debug)
     -d, --dir <path>        Set working directory
         --verbose           Enable debug logging to file
+        --check-update      Check for updates and exit (debug utility)
 
 ENVIRONMENT:
     GLM_API_KEY             Z.ai Coding Plan API key (not standard Z.ai API)
@@ -76,6 +77,29 @@ For more information, visit: https://github.com/spenceriam/impulse
 if (hasFlag("-v", "--version")) {
   console.log(packageJson.version);
   process.exit(0);
+}
+
+// --check-update: Run update check with debug output and exit
+if (hasFlag("", "--check-update")) {
+  import("./util/update-check").then(async ({ checkForUpdate, getCurrentVersion }) => {
+    console.log(`Current version: ${getCurrentVersion()}`);
+    console.log("Checking for updates...");
+    
+    const update = await checkForUpdate();
+    
+    if (update) {
+      console.log(`\nUpdate available!`);
+      console.log(`  Latest version: ${update.latestVersion}`);
+      console.log(`  Update command: ${update.updateCommand}`);
+    } else {
+      console.log("\nNo update available (or check failed)");
+      console.log("You are on the latest version.");
+    }
+    
+    process.exit(0);
+  });
+  // Prevent further execution while async import runs
+  await new Promise(() => {});
 }
 
 // =============================================================================
@@ -106,6 +130,7 @@ const knownFlags = new Set([
   "--mode",
   "-d", "--dir",
   "--verbose",
+  "--check-update",
 ]);
 
 // Check for unknown flags (anything starting with - that's not in our known set)
