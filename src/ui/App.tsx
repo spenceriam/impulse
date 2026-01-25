@@ -353,6 +353,8 @@ const MIN_BOX_WIDTH = LOGO_WIDTH + 8;
 function WelcomeScreen(props: { 
   onSubmit: (value: string) => void;
   onAutocompleteChange?: (data: { commands: { name: string; description: string }[]; selectedIndex: number } | null) => void;
+  updateState?: UpdateState | null;
+  onDismissUpdate?: () => void;
 }) {
   const { mode, thinking } = useMode();
   const { model } = useSession();
@@ -441,8 +443,61 @@ function WelcomeScreen(props: {
           <text fg={Colors.ui.dim}>{bracketLine()}</text>
         </box>
         
-        {/* 5-line gap between logo box and prompt */}
-        <box height={5} />
+        {/* Update notification - show between logo and prompt */}
+        <Show when={props.updateState && props.updateState.status !== "checking"}>
+          <box flexDirection="column" alignItems="center" paddingTop={2}>
+            <box width={boxWidth()}>
+              <Show when={props.updateState?.status === "installing"}>
+                <box 
+                  flexDirection="row" 
+                  paddingLeft={1}
+                  paddingRight={1}
+                  height={1}
+                  alignItems="center"
+                  backgroundColor="#1a1a00"
+                >
+                  <text fg={Colors.status.warning}>Updating to {(props.updateState as { latestVersion: string }).latestVersion}...</text>
+                </box>
+              </Show>
+              <Show when={props.updateState?.status === "installed"}>
+                <box 
+                  flexDirection="row" 
+                  paddingLeft={1}
+                  paddingRight={1}
+                  height={1}
+                  alignItems="center"
+                  backgroundColor="#001a00"
+                >
+                  <text fg={Colors.status.success}>Updated to {(props.updateState as { latestVersion: string }).latestVersion}! Please restart IMPULSE to apply.</text>
+                  <box flexGrow={1} />
+                  <box onMouseDown={() => props.onDismissUpdate?.()}>
+                    <text fg={Colors.ui.dim}>[X]</text>
+                  </box>
+                </box>
+              </Show>
+              <Show when={props.updateState?.status === "failed"}>
+                <box 
+                  flexDirection="row" 
+                  paddingLeft={1}
+                  paddingRight={1}
+                  height={1}
+                  alignItems="center"
+                  backgroundColor="#1a0000"
+                >
+                  <text fg={Colors.status.error}>Update failed. Run: </text>
+                  <text fg={Colors.ui.primary}>{(props.updateState as { updateCommand: string }).updateCommand}</text>
+                  <box flexGrow={1} />
+                  <box onMouseDown={() => props.onDismissUpdate?.()}>
+                    <text fg={Colors.ui.dim}>[X]</text>
+                  </box>
+                </box>
+              </Show>
+            </box>
+          </box>
+        </Show>
+        
+        {/* Gap between logo box (or update notification) and prompt */}
+        <box height={props.updateState ? 2 : 5} />
         
         {/* Input area positioned after the gap - responsive width to match logo box */}
         <box width={boxWidth()}>
@@ -744,6 +799,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
+  const dimensions = useTerminalDimensions();
 
   const [isLoading, setIsLoading] = createSignal(false);
   
@@ -1319,62 +1375,43 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         // Get session ID for continuation hint
         const currentSessionId = currentStats.sessionId;
         
+        // Column alignment helpers
+        const COL1 = 14; // Label column width
+        const COL2 = 15; // First value column width
+        const COL3 = 17; // Second value column width
+        const pad = (s: string, w: number) => s.padEnd(w);
+        
         const summaryLines = [
           "━".repeat(66),
-          "  IMPULSE SESSION COMPLETE",
+          "IMPULSE SESSION COMPLETE",
           "━".repeat(66),
-          "",
-          `  Session       ${currentHeaderTitle}`,
-          `  Model         ${currentModel}`,
-          `  Duration      ${duration}`,
+          `  ${pad("Session", COL1)}${currentHeaderTitle}`,
+          `  ${pad("Model", COL1)}${currentModel}`,
+          `  ${pad("Duration", COL1)}${duration}`,
+          "───────────────────────────────────────────────────────────────────",
+          `  ${pad("Tools", COL1)}${pad(currentStats.tools.total + " calls", COL2)}${pad(currentStats.tools.success + " success", COL3)}${currentStats.tools.failed} failed`,
         ];
-        
-        // Add session ID if available
-        if (currentSessionId) {
-          summaryLines.push(`  Session ID    ${currentSessionId}`);
-        }
-        
-        summaryLines.push(
-          "",
-          "━".repeat(66),
-          "  TOOLS",
-          "━".repeat(66),
-          "",
-          `  Calls         ${currentStats.tools.total} total     ${currentStats.tools.success} success     ${currentStats.tools.failed} failed`,
-        );
         
         // Add tool breakdown if there are any tool calls
         if (toolBreakdown) {
-          summaryLines.push(`  ${toolBreakdown}`);
+          summaryLines.push(`  ${pad("", COL1)}${toolBreakdown}`);
         }
         
         summaryLines.push(
-          "",
-          "━".repeat(66),
-          "  TOKENS",
-          "━".repeat(66),
-          "",
-          `  Input         ${tokens.input.toLocaleString()}       Cache read     ${tokens.cacheRead.toLocaleString()}`,
-          `  Output        ${tokens.output.toLocaleString()}       Cache write    ${tokens.cacheWrite.toLocaleString()}`,
-          `  Thinking      ${tokens.thinking.toLocaleString()}       Total          ${totalTokens.toLocaleString()}`,
-          "",
-          "━".repeat(66),
+          `  ${pad("Tokens", COL1)}${pad(totalTokens.toLocaleString() + " total", COL2)}`,
+          `  ${pad("", COL1)}${pad("In: " + tokens.input.toLocaleString(), COL2)}${pad("Out: " + tokens.output.toLocaleString(), COL3)}Think: ${tokens.thinking.toLocaleString()}`,
+          `  ${pad("", COL1)}${pad("Cache read: " + tokens.cacheRead.toLocaleString(), COL2 + COL3)}Cache write: ${tokens.cacheWrite.toLocaleString()}`,
         );
         
         // Add continuation hint if session was saved
         if (currentSessionId) {
           summaryLines.push(
-            "",
-            "  To continue this session:",
-            `    impulse -s ${currentSessionId}`,
-            "  Or:",
-            "    impulse -c          # Show session picker",
-            "",
-            "━".repeat(66),
+            "───────────────────────────────────────────────────────────────────",
+            `  ${pad("Continue", COL1)}impulse -s ${currentSessionId}   or   impulse -c`,
           );
         }
         
-        summaryLines.push("", "  Until next time!", "", "━".repeat(66));
+        summaryLines.push("━".repeat(66));
         
         const summary = summaryLines.join("\n");
         
@@ -1670,7 +1707,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     <>
       <Show
         when={messages().length > 0 || hasStartedSession()}
-        fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} />}
+        fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} updateState={updateState()} onDismissUpdate={() => setUpdateState(null)} />}
       >
         {/* Session view with unified gutter layout */}
         <box 
@@ -1815,56 +1852,68 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       </Show>
       
       {/* Command autocomplete overlay - positioned above input area */}
+      {/* On WelcomeScreen: centered. On session view: left-aligned with gutter offset */}
       <Show when={autocompleteData()}>
-        {(data: () => { commands: CommandCandidate[]; selectedIndex: number }) => (
-          <box
-            position="absolute"
-            bottom={12}
-            left={8}
-            width={70}
-            border
-            borderColor={Colors.ui.dim}
-            flexDirection="column"
-            backgroundColor="#1a1a1a"
-          >
-            <scrollbox height={Math.min(10, data().commands.length + 1)}>
-              <box flexDirection="column">
-                <For each={data().commands}>
-                  {(cmd, index) => {
-                    const isSelected = () => index() === data().selectedIndex;
-                    return (
-                      <Show
-                        when={isSelected()}
-                        fallback={
-                          <box flexDirection="row" height={1}>
-                            <text fg={Colors.ui.text}>
+        {(data: () => { commands: CommandCandidate[]; selectedIndex: number }) => {
+          const isOnWelcomeScreen = () => messages().length === 0 && !hasStartedSession();
+          const menuWidth = 70;
+          // WelcomeScreen: center the menu. Session view: offset from gutter
+          const leftPos = () => isOnWelcomeScreen() 
+            ? Math.max(4, Math.floor((dimensions().width - menuWidth) / 2))
+            : GUTTER_WIDTH + 4;
+          // WelcomeScreen: position above the centered input. Session view: above bottom panel
+          const bottomPos = () => isOnWelcomeScreen() ? 4 : 12;
+          
+          return (
+            <box
+              position="absolute"
+              bottom={bottomPos()}
+              left={leftPos()}
+              width={menuWidth}
+              border
+              borderColor={Colors.ui.dim}
+              flexDirection="column"
+              backgroundColor="#1a1a1a"
+            >
+              <scrollbox height={Math.min(10, data().commands.length + 1)}>
+                <box flexDirection="column">
+                  <For each={data().commands}>
+                    {(cmd, index) => {
+                      const isSelected = () => index() === data().selectedIndex;
+                      return (
+                        <Show
+                          when={isSelected()}
+                          fallback={
+                            <box flexDirection="row" height={1}>
+                              <text fg={Colors.ui.text}>
+                                {` /${cmd.name.padEnd(12)}`}
+                              </text>
+                              <text fg={Colors.ui.dim} wrapMode="none">
+                                {cmd.description}
+                              </text>
+                            </box>
+                          }
+                        >
+                          <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
+                            <text fg="#000000">
                               {` /${cmd.name.padEnd(12)}`}
                             </text>
-                            <text fg={Colors.ui.dim} wrapMode="none">
+                            <text fg="#000000" wrapMode="none">
                               {cmd.description}
                             </text>
                           </box>
-                        }
-                      >
-                        <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
-                          <text fg="#000000">
-                            {` /${cmd.name.padEnd(12)}`}
-                          </text>
-                          <text fg="#000000" wrapMode="none">
-                            {cmd.description}
-                          </text>
-                        </box>
-                      </Show>
-                    );
-                  }}
-                </For>
+                        </Show>
+                      );
+                    }}
+                  </For>
+                </box>
+              </scrollbox>
+              <box height={1} paddingLeft={1}>
+                <text fg={Colors.ui.dim}>Tab: complete | Enter: select | Esc: close</text>
               </box>
-            </scrollbox>
-            <box height={1} paddingLeft={1}>
-              <text fg={Colors.ui.dim}>Tab: complete | Enter: select | Esc: close</text>
             </box>
-          </box>
-        )}
+          );
+        }}
       </Show>
     </>
   );
