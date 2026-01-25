@@ -5,6 +5,49 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.3] - 2026-01-25
+
+### Added
+
+- **Turn footer on AI messages** - Shows model, mode, and timestamp at bottom right of completed turns
+  - Format: `GLM-4.7 | AGENT | 12:34 PM`
+  - Only visible after streaming completes (not during generation)
+
+- **`set_mode` tool** - AI can now programmatically switch modes mid-conversation
+  - Emits event that updates UI mode and message block styling
+  - Guidelines built into tool description for when to switch
+
+- **Command aliases** - Commands can now have multiple names
+  - `/details` is now an alias for `/verbose`
+
+### Changed
+
+- **Mode-specific backgrounds for AI messages** - Each mode now has a subtle tinted background
+  - AUTO: neutral dark gray (#1a1a1a)
+  - EXPLORE: dark green tint (#0d1a0d)
+  - AGENT: dark cyan tint (#0d1a1a)
+  - PLANNER: dark purple tint (#1a0d1a)
+  - PLAN-PRD: dark blue tint (#0d0d1a)
+  - DEBUG: dark orange/red tint (#1a0d0d)
+
+- **Thinking block auto-collapses** - When streaming ends, thinking section automatically collapses
+  - User can still expand manually to review reasoning
+  - Reduces clutter for completed messages
+
+- **Mode and model tracked on messages** - Assistant messages now store the mode/model used
+  - Enables accurate footer display
+  - Mode updates in real-time if AI switches modes mid-turn
+
+### Fixed
+
+- **Content looping bug** - Fixed AI content being repeated 4x during tool continuations
+  - Root cause: Total accumulated content was being sent as each turn's content
+  - Now properly tracks "content from this turn" vs "total for UI display"
+
+- **Excessive blank lines** - Normalized whitespace when joining content sections
+  - Added `joinContentSections()` helper that trims and joins with proper paragraph breaks
+  - Prevents double/triple blank lines in conversation
+
 ## [0.24.2] - 2026-01-25
 
 ### Fixed
