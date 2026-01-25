@@ -797,7 +797,7 @@ function buildAPIMessages(
 // App that decides between welcome screen and session view
 function AppWithSession(props: { showSessionPicker?: boolean }) {
   const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
-  const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
+  const { mode, setMode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
   const dimensions = useTerminalDimensions();
@@ -918,6 +918,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       if (event.type === "header.updated") {
         const payload = event.properties as { title: string };
         setHeaderTitle(payload.title, true); // Clear any prefix when AI sets header
+      }
+      // Mode changed by AI - switch mode and optionally create new message block
+      if (event.type === "mode.changed") {
+        const payload = event.properties as { mode: string; reason?: string };
+        const newMode = payload.mode as typeof MODES[number];
+        if (MODES.includes(newMode)) {
+          setMode(newMode);
+          // TODO: Create new message block for the new mode (future enhancement)
+        }
       }
       // Session status events - show/hide compacting indicator
       if (event.type === "session.status") {

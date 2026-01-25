@@ -11,3 +11,4 @@ export { taskTool } from "./task";
 export { questionTool, resolveQuestion, rejectQuestion, hasPendingQuestion } from "./question";
 export type { Question, QuestionOption, QuestionToolInput, QuestionToolOutput } from "./question";
 export { setHeader } from "./set-header";
+export { setMode } from "./set-mode";

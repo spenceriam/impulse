@@ -27,6 +27,7 @@ import "./question";
 
 // Session
 import "./set-header";
+import "./set-mode";
 
 // MCP discovery
 import "./mcp-discover";

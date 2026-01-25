@@ -134,6 +134,16 @@ export const HeaderEvents = {
   ),
 };
 
+export const ModeEvents = {
+  Changed: BusEvent.define(
+    "mode.changed",
+    z.object({
+      mode: z.enum(["AUTO", "EXPLORE", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"]),
+      reason: z.string().optional().describe("Brief explanation of why mode was changed"),
+    })
+  ),
+};
+
 export const UpdateEvents = {
   Available: BusEvent.define(
     "update.available",
