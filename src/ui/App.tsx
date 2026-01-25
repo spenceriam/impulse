@@ -938,13 +938,20 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         const payload = event.properties as { title: string };
         setHeaderTitle(payload.title, true); // Clear any prefix when AI sets header
       }
-      // Mode changed by AI - switch mode and optionally create new message block
+      // Mode changed by AI - switch mode and update current assistant message
       if (event.type === "mode.changed") {
         const payload = event.properties as { mode: string; reason?: string };
         const newMode = payload.mode as typeof MODES[number];
         if (MODES.includes(newMode)) {
           setMode(newMode);
-          // TODO: Create new message block for the new mode (future enhancement)
+          
+          // Update the current assistant message to use the new mode
+          // This changes the accent color and footer display for the rest of the turn
+          const currentMessages = messages();
+          const lastMsg = currentMessages[currentMessages.length - 1];
+          if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+            updateMessage(lastMsg.id, { mode: newMode });
+          }
         }
       }
       // Session status events - show/hide compacting indicator
@@ -1640,8 +1647,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
     setIsLoading(true);
 
-    // Add assistant message placeholder with streaming flag
-    addMessage({ role: "assistant", content: "", streaming: true });
+    // Capture current mode for this assistant message
+    const currentMode = mode() as typeof MODES[number];
+
+    // Add assistant message placeholder with streaming flag and current mode
+    addMessage({ role: "assistant", content: "", streaming: true, mode: currentMode, model: model() });
 
     // Get the assistant message ID (last message)
     const updatedMessages = messages();
@@ -1657,7 +1667,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     try {
       // Build messages for API call (without the empty assistant message)
       // Generate mode-aware system prompt with MCP discovery instructions
-      const currentMode = mode() as typeof MODES[number];
       
       // Set the mode for tool handlers (for mode-aware path restrictions)
       setCurrentMode(currentMode);
