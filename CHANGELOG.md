@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] - 2026-01-25
+
+### Fixed
+
+- **Tool calls now stay visible after completion** - Previously tools would disappear after execution
+  - Tools now remain as collapsed summaries showing what actions were taken
+  - Click to expand and see details (diff, output, etc.)
+
+- **TextNodeRenderable errors in multiple components** - Fixed JSX rendering crashes
+  - QuestionOverlay: Fixed nested text elements and undefined value handling
+  - TodoOverlay: Fixed string concatenation and strikethrough display
+  - StatusLine: Fixed template literal formatting
+  - CollapsibleToolBlock: Fixed string concatenation in indicators
+
 ## [0.24.1] - 2026-01-25
 
 ### Added
