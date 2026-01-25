@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-01-25
+
+### Fixed
+
+- **Auto-updater** - Fixed update verification and location detection
+  - Now actually verifies installed version by running `impulse --version`
+  - Detects global vs local install and updates the correct location
+  - Better error messages for permission issues
+  - Previously would say "installed" even when update didn't apply
+
 ## [0.20.0] - 2026-01-25
 
 ### Fixed

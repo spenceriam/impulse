@@ -30,7 +30,7 @@ export async function enableDebugLog(): Promise<string> {
   await appendLog({
     type: "session_start",
     timestamp: new Date().toISOString(),
-    version: "0.20.0",
+    version: "0.20.1",
   });
   
   return sessionLogPath;
