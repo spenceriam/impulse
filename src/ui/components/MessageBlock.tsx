@@ -44,6 +44,7 @@ export interface Message {
   model?: string;        // Model used (e.g., "glm-4.7")
   toolCalls?: ToolCallInfo[];  // Tool calls made in this message
   streaming?: boolean;   // Whether this message is currently being streamed
+  timestamp?: number;    // Unix timestamp when message was created
 }
 
 /**
@@ -620,6 +621,18 @@ export function MessageBlock(props: MessageBlockProps) {
   
   // AI message background color - mode-specific dim tint for visual distinction
   const aiBackground = () => mode() ? getModeBackground(mode()!) : ASSISTANT_BG_FALLBACK;
+  
+  // Format timestamp for display (e.g., "12:34 PM")
+  const formattedTime = () => {
+    const ts = props.message.timestamp;
+    if (!ts) return "";
+    const date = new Date(ts);
+    return date.toLocaleTimeString("en-US", { 
+      hour: "numeric", 
+      minute: "2-digit", 
+      hour12: true 
+    });
+  };
 
   return (
     <Show
@@ -734,6 +747,25 @@ export function MessageBlock(props: MessageBlockProps) {
                     </box>
                   )}
                 </For>
+              </box>
+            </Show>
+            
+            {/* Turn footer - only show when not streaming */}
+            <Show when={!isStreaming()}>
+              <box 
+                flexDirection="row" 
+                justifyContent="flex-end" 
+                marginTop={1}
+                paddingRight={1}
+              >
+                <text fg={Colors.ui.dim}>{model()}</text>
+                <Show when={mode()}>
+                  <text fg={Colors.ui.dim}>{" | "}</text>
+                  <text fg={modeColor()}>{mode()}</text>
+                </Show>
+                <Show when={formattedTime()}>
+                  <text fg={Colors.ui.dim}>{` | ${formattedTime()}`}</text>
+                </Show>
               </box>
             </Show>
           </box>
