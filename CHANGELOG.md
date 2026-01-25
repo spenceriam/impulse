@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.4] - 2026-01-25
+
+### Fixed
+
+- **Auto-updater race condition** - Fixed issue where update events could be emitted before the Bus subscription was ready
+  - Moved `runUpdateCheck()` call to after `Bus.subscribe()` is set up
+  - This ensures update notifications are properly received and displayed
+
+### Added
+
+- **"Checking for updates..." indicator** - Brief visual feedback during update check
+  - Shows for ~500ms at startup while checking npm registry
+  - Disappears automatically if no update is available
+
 ## [0.24.3] - 2026-01-25
 
 ### Added
