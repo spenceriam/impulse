@@ -72,7 +72,7 @@ export const TodoProvider: ParentComponent = (props) => {
   };
 
   const incompleteTodos = () =>
-    todos().filter((todo) => todo.status !== "completed");
+    todos().filter((todo) => todo.status !== "completed" && todo.status !== "cancelled");
 
   const contextValue = {
     todos,

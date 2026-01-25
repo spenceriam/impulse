@@ -14,6 +14,7 @@ import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 import { DiffView } from "./DiffView";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { BouncingDots } from "./BouncingDots";
+import { useSession } from "../context/session";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
@@ -546,8 +547,9 @@ function groupToolCalls(toolCalls: ToolCallInfo[]): ToolCallGroup[] {
  * - Collapsed: shows status indicator + tool title
  * - Expanded: shows tool-specific content (command output, diff, etc.)
  * - Errors auto-expand
+ * - Verbose mode: all tools default expanded
  */
-function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number }): JSX.Element {
+function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean }): JSX.Element {
   const title = () => getToolTitle(
     props.toolCall.name,
     props.toolCall.arguments,
@@ -560,10 +562,14 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
     props.toolCall.result
   );
 
+  // In verbose mode, default to expanded; otherwise let CollapsibleToolBlock decide
+  const defaultExpanded = () => props.verbose === true;
+
   return (
     <CollapsibleToolBlock
       status={props.toolCall.status}
       expandedContent={expandedContent()}
+      defaultExpanded={defaultExpanded()}
     >
       <text fg={Colors.ui.dim}>{title()}</text>
       <Show when={props.attemptNumber}>
@@ -577,6 +583,9 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
 const THIN_LINE = "─";
 
 export function MessageBlock(props: MessageBlockProps) {
+  // Access session context for verbose setting
+  const { verboseTools } = useSession();
+  
   const parsed = () => parseMarkdown(props.message.content);
 
   const isUser = () => props.message.role === "user";
@@ -690,7 +699,10 @@ export function MessageBlock(props: MessageBlockProps) {
                             return attempts > 1 ? attempts : undefined;
                           })();
 
-                          const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number } = { toolCall };
+                          const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = { 
+                            toolCall,
+                            verbose: verboseTools(),
+                          };
                           if (attempt !== undefined) {
                             displayProps.attemptNumber = attempt;
                           }

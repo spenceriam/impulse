@@ -257,6 +257,15 @@ async function handleExpress() {
   };
 }
 
+async function handleVerbose() {
+  // This is handled specially in App.tsx to toggle verboseTools in SessionContext
+  // This handler is just a placeholder for the command registry
+  return {
+    success: true,
+    output: "Verbose tool display toggled (handled by UI)",
+  };
+}
+
 export function registerUtilityCommands(): void {
   const commands: CommandDefinition[] = [
     {
@@ -312,6 +321,13 @@ export function registerUtilityCommands(): void {
       description: "Toggle Express mode (auto-approve all permissions)",
       handler: handleExpress,
       examples: ["/express"],
+    },
+    {
+      name: "verbose",
+      category: "utility",
+      description: "Toggle verbose tool display (shows expanded details)",
+      handler: handleVerbose,
+      examples: ["/verbose"],
     },
   ];
 

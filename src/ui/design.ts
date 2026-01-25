@@ -54,7 +54,7 @@ export const Colors = {
   message: {
     user: "#2a2a3a",      // Slightly blue-tinted - User messages
     assistant: "#1a1a2a", // Darker - AI messages
-    thinking: "#151520",  // Muted - Thinking blocks
+    thinking: "#1a1525",  // Purple-tinted muted - Thinking blocks (distinct from assistant)
   },
 
   /**
@@ -63,6 +63,22 @@ export const Colors = {
   input: {
     background: "#252530", // Input area background
     accent: "#5cffff",     // Mode-colored accent lines (default cyan)
+  },
+
+  /**
+   * Header area colors
+   */
+  header: {
+    background: "#12121a", // Subtle dark background for header
+  },
+
+  /**
+   * Todo panel colors (alternating rows for readability)
+   */
+  todo: {
+    rowOdd: "#1a1a24",     // Darker row (1, 3, 5)
+    rowEven: "#222230",    // Lighter row (2, 4)
+    border: "#444444",     // Panel border
   },
 
   /**

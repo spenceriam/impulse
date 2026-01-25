@@ -39,11 +39,17 @@ export function HeaderLine(props: HeaderLineProps) {
 
   return (
     <box flexDirection="column" flexShrink={0} width="100%">
-      <box height={1} paddingLeft={1} paddingRight={1}>
+      {/* Header with background */}
+      <box 
+        height={1} 
+        paddingLeft={1} 
+        paddingRight={1}
+        backgroundColor={Colors.header.background}
+      >
         <text fg={Colors.ui.text}>{displayTitle()}</text>
       </box>
-      {/* Separator line - uses bottom border on a 1-height box for thin line */}
-      <box border={["bottom"]} borderColor={Colors.ui.dim} height={1} />
+      {/* Empty row for spacing */}
+      <box height={1} />
     </box>
   );
 }

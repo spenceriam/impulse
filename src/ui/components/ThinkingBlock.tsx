@@ -52,8 +52,16 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
     return Math.min(lines, PREVIEW_HEIGHT);
   });
 
+  // Only show expand/collapse if content exceeds preview height
+  const canExpand = () => contentLines() > PREVIEW_HEIGHT;
+  
   const indicator = () => expanded() ? "○" : "●";
-  const label = () => expanded() ? "Thinking (click to collapse)" : "Thinking (click to expand)";
+  const label = () => {
+    if (!canExpand()) {
+      return "Thinking";  // No expand option if fits in preview
+    }
+    return expanded() ? "Thinking (click to collapse)" : "Thinking (click to expand)";
+  };
 
   // Auto-scroll when collapsed and streaming
   const shouldAutoScroll = () => !expanded() && (props.streaming ?? false);
@@ -68,19 +76,28 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
         overflow="hidden"
         flexShrink={0}
       >
-        {/* Header - clickable to toggle */}
-        <box
-          flexDirection="row"
-          paddingLeft={1}
-          paddingRight={1}
-          // @ts-ignore: OpenTUI onMouseDown handler
-          onMouseDown={handleToggle}
-          flexShrink={0}
+        {/* Header - clickable to toggle only if expandable */}
+        <Show
+          when={canExpand()}
+          fallback={
+            <box flexDirection="row" paddingLeft={1} paddingRight={1} flexShrink={0}>
+              <text fg={Colors.ui.dim}>● {label()}</text>
+            </box>
+          }
         >
-          <text fg={Colors.ui.dim}>
-            {indicator()} {label()}
-          </text>
-        </box>
+          <box
+            flexDirection="row"
+            paddingLeft={1}
+            paddingRight={1}
+            // @ts-ignore: OpenTUI onMouseDown handler
+            onMouseDown={handleToggle}
+            flexShrink={0}
+          >
+            <text fg={Colors.ui.dim}>
+              {indicator()} {label()}
+            </text>
+          </box>
+        </Show>
         
         {/* Content area - always shown (preview or full) */}
         <box flexDirection="row" paddingLeft={1}>

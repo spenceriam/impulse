@@ -796,7 +796,7 @@ function buildAPIMessages(
 
 // App that decides between welcome screen and session view
 function AppWithSession(props: { showSessionPicker?: boolean }) {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, verboseTools, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
@@ -1487,6 +1487,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         return;
       }
       
+      // Handle /verbose specially - toggle verbose tool display in session context
+      if (parsed && parsed.name === "verbose") {
+        setVerboseTools((current) => !current);
+        // No confirmation overlay - just toggle silently
+        return;
+      }
+      
       // Handle /think specially - toggle thinking mode without confirmation
       if (parsed && parsed.name === "think") {
         setThinking((current) => !current);
@@ -1729,8 +1736,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           height="100%"
           paddingTop={1}
         >
-          {/* Header line at top - full width */}
-          <box flexShrink={0} height={1} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
+          {/* Header line at top - full width (2 rows: title + spacing) */}
+          <box flexShrink={0} height={2} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
             <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
           </box>
           

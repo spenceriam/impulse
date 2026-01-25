@@ -629,12 +629,31 @@ interface Todo {
 
 ### UI Display
 
-Todos appear in the sidebar panel:
-- `[ ]` = pending (muted)
-- `[>]` = in_progress (cyan)
-- `[x]` = completed (muted)
+Todos appear in a fixed-height bordered panel above the input prompt:
 
-Section collapses when >2 items, hides when all completed.
+```
+┌─ Todo ──────────────────────────────────────────────── 2/5 ───┐
+│ [>] Current task                                              │ <- cyan, darker bg
+│ [ ] Next task                                                 │ <- dim, lighter bg
+│ [ ] Another task                                              │ <- dim, darker bg
+│ [x] Completed task                                            │ <- dim, lighter bg
+│ [-] Cancelled task                                            │ <- dim+strikethrough
+└───────────────────────────────────────────────────────────────┘
+```
+
+**Status indicators:**
+- `[>]` = in_progress (cyan text)
+- `[ ]` = pending (dim text)
+- `[x]` = completed (dim text)
+- `[-]` = cancelled (dim text + strikethrough entire line)
+
+**Features:**
+- Fixed 5-row height with scrollbar when > 5 items
+- Alternating row backgrounds for readability
+- Counter in upper right: incomplete/total
+- Auto-scrolls to keep in_progress task at top
+- Collapses to single "All tasks complete" row when done
+- Completely hidden when no todos exist
 
 ### Agent Usage
 
@@ -1026,6 +1045,58 @@ This ensures:
 - `src/ui/components/MessageBlock.tsx` - Integration point
 
 **Archived Documentation:** [docs/archive/feature-tool-display/](docs/archive/feature-tool-display/)
+
+### Stale Documentation Detection (Consideration)
+
+**Goal:** AI should proactively notice when documentation files become outdated and ask permission before updating.
+
+**Target Files:**
+- `AGENTS.md` - Project brain
+- `docs/Requirements.md`, `docs/Design.md`, `docs/Tasks.md`
+- Any markdown files describing architecture or implementation
+
+**Challenges:**
+- **Staleness detection** is non-trivial:
+  - Compare doc modification time vs. referenced code files?
+  - Parse docs for file paths/function names and verify they exist?
+  - Track git commits since doc was last updated?
+- **Over-triggering risk** - AI might ask too frequently ("version number changed, update?")
+- **Context cost** - Checking staleness requires reading docs + comparing to codebase
+
+**Possible Approaches:**
+1. Manual trigger only (`/docs-check` command)
+2. Post-task reminder ("You may want to update AGENTS.md")
+3. Git-based heuristic (doc unchanged in N commits but referenced code changed)
+
+**Current Decision:** Deferred. Complexity-to-value ratio not justified for MVP. Convention-based approach (AI updates docs when explicitly asked) works well enough.
+
+### MCP Node.js Version Check (Consideration)
+
+**Goal:** Check Node.js version at startup and warn/block if below required version for MCP servers.
+
+**Background:** Some MCP servers (especially stdio-based like Vision) require Node.js v24+ to function properly. Users with older Node versions get confusing errors during MCP initialization.
+
+**Implementation Approach:**
+```typescript
+async function checkNodeVersion(): Promise<{ ok: boolean; version: string }> {
+  const result = await exec("node --version");
+  const version = result.stdout.trim(); // "v24.1.0"
+  const major = parseInt(version.slice(1).split(".")[0], 10);
+  return { ok: major >= 24, version };
+}
+```
+
+**UX Options:**
+1. **Hard block** - Don't initialize MCPs if Node < 24, show clear message
+2. **Warning only** - Initialize anyway but warn (some MCPs might work)
+3. **Per-server check** - Only block servers that actually need v24
+
+**Message Should Include:**
+- Current Node version detected
+- Required version (v24+)
+- Upgrade instructions (link to nodejs.org or `nvm install 24`)
+
+**Current Decision:** Deferred. Need to verify exact minimum version requirement and decide on hard-block vs. warning approach. Can be added when MCP failures are reported in the wild.
 
 ## How to Run
 

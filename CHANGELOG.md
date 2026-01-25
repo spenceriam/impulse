@@ -5,6 +5,40 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-01-25
+
+### Added
+
+- **`/verbose` command** - Toggle verbose tool display mode
+  - In verbose mode, all tool calls default to expanded view
+  - In normal mode (default), tools are collapsed with click-to-expand
+
+- **Version in status line** - Version number now shown at right of status bar
+
+### Changed
+
+- **Todo UI complete redesign** - New stacked panel layout above input
+  - Fixed 5-row height with scrollbar when overflow
+  - Alternating row backgrounds for easy scanning
+  - Counter shows incomplete/total (e.g., `2/5`)
+  - Auto-scrolls to keep in_progress task at top
+  - Collapses to "All tasks complete" when done
+  - Hidden when no todos exist
+  - Status indicators: `[>]` in_progress, `[ ]` pending, `[x]` completed, `[-]` cancelled
+  - Cancelled tasks show strikethrough on entire line (including indicator)
+
+- **Header line** - Added subtle background color and spacing below title
+  - Distinct visual separation from chat content
+
+- **ThinkingBlock improvements**
+  - Different background color (`#1a1525` purple tint) for better distinction
+  - Expand/collapse only shown when content exceeds 5 rows
+  - Simpler display for short thinking content
+
+### Fixed
+
+- **Todo incomplete filter** - Now properly excludes both completed AND cancelled todos
+
 ## [0.22.0] - 2026-01-25
 
 ### Fixed

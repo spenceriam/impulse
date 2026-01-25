@@ -69,6 +69,9 @@ interface SessionContextType {
   setHeaderTitle: (title: string, clearPrefix?: boolean) => void;
   headerPrefix: Accessor<HeaderPrefix>;
   setHeaderPrefix: Setter<HeaderPrefix>;
+  // Tool display verbosity (toggleable via /verbose)
+  verboseTools: Accessor<boolean>;
+  setVerboseTools: Setter<boolean>;
   // Stats tracking
   addTokenUsage: (usage: Partial<TokenStats>) => void;
   recordToolCall: (name: string, success: boolean) => void;
@@ -223,6 +226,9 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
   // Header state
   const [headerTitle, setHeaderTitleSignal] = createSignal<string>("New session");
   const [headerPrefix, setHeaderPrefix] = createSignal<HeaderPrefix>(null);
+  
+  // Tool display verbosity (default: false = compact display)
+  const [verboseTools, setVerboseTools] = createSignal<boolean>(false);
   
   // Set header title with optional prefix clearing
   const setHeaderTitle = (title: string, clearPrefix: boolean = true) => {
@@ -528,6 +534,9 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
     setHeaderTitle,
     headerPrefix,
     setHeaderPrefix,
+    // Tool display verbosity
+    verboseTools,
+    setVerboseTools,
     // Stats tracking
     addTokenUsage,
     recordToolCall,

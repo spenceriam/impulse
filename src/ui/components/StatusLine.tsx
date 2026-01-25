@@ -4,6 +4,7 @@ import { useMode } from "../context/mode";
 import { useSession } from "../context/session";
 import { useExpress } from "../context/express";
 import { mcpManager } from "../../mcp/manager";
+import packageJson from "../../../package.json";
 
 // Format model name for display (glm-4.7 -> GLM-4.7)
 function formatModelName(model: string): string {
@@ -235,10 +236,13 @@ export function StatusLine(props: StatusLineProps) {
     clearInterval(gitIntervalId);
   });
 
+  // Version from package.json
+  const version = `v${packageJson.version}`;
+
   // Render based on screen type
   if (props.isInitialScreen) {
     // Simplified format for welcome screen
-    // Format: Model | [EX] | Dir | Branch | MCP | Date
+    // Format: Model | [EX] | Dir | Branch | MCP | Date | Version
     return (
       <box height={1} justifyContent="center" flexDirection="row">
         <text fg={Colors.ui.dim}>{displayModel()}</text>
@@ -248,7 +252,7 @@ export function StatusLine(props: StatusLineProps) {
         </Show>
         <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | </text>
         <text fg={mcpIndicator().color}>{mcpIndicator().label} {mcpIndicator().dot}</text>
-        <text fg={Colors.ui.dim}> | {date}</text>
+        <text fg={Colors.ui.dim}> | {date} | {version}</text>
       </box>
     );
   }
@@ -277,7 +281,7 @@ export function StatusLine(props: StatusLineProps) {
       </Show>
       <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | </text>
       <text fg={mcpIndicator().color}>{mcpIndicator().label} {mcpIndicator().dot}</text>
-      <text fg={Colors.ui.dim}> | {date}</text>
+      <text fg={Colors.ui.dim}> | {date} | {version}</text>
     </box>
   );
 }
