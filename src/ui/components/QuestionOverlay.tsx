@@ -365,15 +365,16 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
             
             // Tab style: [ Topic ✓ ] or [ Topic ]
             const tabText = () => {
+              const topic = q?.topic || `Q${idx() + 1}`;
               const check = isComplete() ? " ✓" : "";
-              return `[ ${q.topic}${check} ]`;
+              return `[ ${topic}${check} ]`;
             };
             
             return (
               <text 
                 fg={isActive() ? Colors.ui.primary : (isComplete() ? Colors.status.success : Colors.ui.dim)}
               >
-                {tabText()}{" "}
+                {tabText() + " "}
               </text>
             );
           }}
@@ -393,7 +394,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
     
     return (
       <>
-        <For each={q.options}>
+        <For each={q.options || []}>
           {(opt, idx) => {
             const isHovered = () => hoveredIndex() === idx();
             const isSelected = () => selectedIdx === idx() && !hasCustom;
@@ -402,6 +403,8 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
             const checkbox = () => isSelected() ? "[x]" : "[ ]";
             const rowBg = () => isHovered() ? "#252530" : "#1a1a1a";
             const textColor = () => isSelected() ? Colors.ui.primary : Colors.ui.text;
+            const label = opt?.label || `Option ${optNum}`;
+            const description = opt?.description || "";
             
             return (
               <box backgroundColor={rowBg()} paddingLeft={1} height={1}>
@@ -409,9 +412,9 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                   <text fg={isSelected() ? Colors.ui.primary : Colors.ui.dim}>
                     {checkbox()}
                   </text>
-                  <text fg={Colors.status.info}> [{optNum}] </text>
-                  <text fg={textColor()}>{opt.label}</text>
-                  <text fg={Colors.ui.dim}> ── {opt.description}</text>
+                  <text fg={Colors.status.info}>{` [${optNum}] `}</text>
+                  <text fg={textColor()}>{label}</text>
+                  <text fg={Colors.ui.dim}>{` ── ${description}`}</text>
                 </box>
               </box>
             );
@@ -438,9 +441,8 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
           <Show when={customExpanded()}>
             <box flexDirection="row" paddingLeft={6} height={1}>
               <text fg={Colors.ui.dim}>{">"} </text>
-              <text fg={Colors.ui.text}>
-                {customText}<text fg={Colors.ui.dim}>_</text>
-              </text>
+              <text fg={Colors.ui.text}>{customText || ""}</text>
+              <text fg={Colors.ui.dim}>_</text>
             </box>
           </Show>
         </box>
@@ -462,11 +464,13 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
             {(q, idx) => {
               const isFocused = () => reviewFocusIndex() === idx();
               const answer = () => answers[idx()] || "";
+              const topic = q?.topic || `Q${idx() + 1}`;
+              const question = q?.question || "";
               
               return (
                 <box flexDirection="column" marginBottom={1}>
                   <text fg={Colors.ui.dim}>
-                    [{idx() + 1}] {q.topic}: {q.question}
+                    {`[${idx() + 1}] ${topic}: ${question}`}
                   </text>
                   <box 
                     border 
@@ -474,10 +478,12 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                     backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
                     paddingLeft={1}
                     height={3}
+                    flexDirection="row"
                   >
-                    <text fg={isFocused() ? Colors.ui.text : Colors.ui.text}>
-                      {answer() || "(no answer)"}{isFocused() ? <text fg={Colors.ui.dim}>_</text> : ""}
-                    </text>
+                    <text fg={Colors.ui.text}>{answer() || "(no answer)"}</text>
+                    <Show when={isFocused()}>
+                      <text fg={Colors.ui.dim}>_</text>
+                    </Show>
                   </box>
                 </box>
               );
@@ -532,12 +538,12 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
         width={76}
         backgroundColor="#1a1a1a"
       >
-        <Show when={uiState() === "answering"}>
+        <Show when={uiState() === "answering" && currentQuestion()}>
           {/* Tabs */}
           {renderTabs()}
           
           {/* Question text */}
-          <text fg={Colors.ui.text}>{currentQuestion()?.question}</text>
+          <text fg={Colors.ui.text}>{currentQuestion()?.question || ""}</text>
           <box height={1} />
           
           {/* Options */}

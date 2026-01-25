@@ -250,9 +250,9 @@ export function StatusLine(props: StatusLineProps) {
           <text fg={Colors.ui.dim}> | </text>
           <text fg={Colors.status.warning}>[EXPRESS]</text>
         </Show>
-        <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | </text>
-        <text fg={mcpIndicator().color}>{mcpIndicator().label} {mcpIndicator().dot}</text>
-        <text fg={Colors.ui.dim}> | {date} | {version}</text>
+        <text fg={Colors.ui.dim}>{` | ${dir} |  ${gitBranch()} | `}</text>
+        <text fg={mcpIndicator().color}>{`${mcpIndicator().label} ${mcpIndicator().dot}`}</text>
+        <text fg={Colors.ui.dim}>{` | ${date} | ${version}`}</text>
       </box>
     );
   }
@@ -269,19 +269,19 @@ export function StatusLine(props: StatusLineProps) {
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
       <text fg={Colors.ui.dim}>{displayModel()}</text>
       <Show when={isExpress()}>
-        <text fg={Colors.ui.dim}> | </text>
-        <text fg={Colors.status.warning}>[EXPRESS]</text>
+        <text fg={Colors.ui.dim}>{" | "}</text>
+        <text fg={Colors.status.warning}>{"[EXPRESS]"}</text>
       </Show>
-      <text fg={Colors.ui.dim}> | </text>
+      <text fg={Colors.ui.dim}>{" | "}</text>
       <text fg={modeColor()}>{mode()}</text>
-      <text fg={Colors.ui.dim}> | </text>
+      <text fg={Colors.ui.dim}>{" | "}</text>
       <text fg={progressColor()}>{progressBar()}</text>
       <Show when={showCompactWarning()}>
-        <text fg={Colors.status.warning}> Compacting soon</text>
+        <text fg={Colors.status.warning}>{" Compacting soon"}</text>
       </Show>
-      <text fg={Colors.ui.dim}> | {dir} |  {gitBranch()} | </text>
-      <text fg={mcpIndicator().color}>{mcpIndicator().label} {mcpIndicator().dot}</text>
-      <text fg={Colors.ui.dim}> | {date} | {version}</text>
+      <text fg={Colors.ui.dim}>{` | ${dir} |  ${gitBranch()} | `}</text>
+      <text fg={mcpIndicator().color}>{`${mcpIndicator().label} ${mcpIndicator().dot}`}</text>
+      <text fg={Colors.ui.dim}>{` | ${date} | ${version}`}</text>
     </box>
   );
 }

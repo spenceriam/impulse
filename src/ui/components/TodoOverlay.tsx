@@ -91,7 +91,7 @@ export function TodoOverlay(props: TodoOverlayProps) {
           <text>
             <strong>Todo List</strong>
           </text>
-          <text fg={Colors.ui.dim}> ({completedCount()}/{totalCount()} completed)</text>
+          <text fg={Colors.ui.dim}>{` (${completedCount()}/${totalCount()} completed)`}</text>
         </box>
         
         {/* Todo list */}
@@ -110,19 +110,19 @@ export function TodoOverlay(props: TodoOverlayProps) {
                 
                 return (
                   <box flexDirection="row" height={1}>
-                    <text fg={color}>{indicator} </text>
+                    <text fg={color}>{indicator + " "}</text>
                     <text fg={todo.priority === "high" ? Colors.status.warning : Colors.ui.dim}>
-                      {priorityIndicator}{" "}
+                      {priorityIndicator + " "}
                     </text>
                     <Show
                       when={!isCancelled}
                       fallback={
                         <text fg={Colors.ui.dim}>
-                          <s>{todo.content}</s>
+                          {`~~${todo.content || ""}~~`}
                         </text>
                       }
                     >
-                      <text fg={Colors.ui.text}>{todo.content}</text>
+                      <text fg={Colors.ui.text}>{todo.content || ""}</text>
                     </Show>
                   </box>
                 );

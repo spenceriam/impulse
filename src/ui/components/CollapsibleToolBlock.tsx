@@ -76,12 +76,12 @@ export function CollapsibleToolBlock(props: CollapsibleToolBlockProps) {
         onMouseUp={handleClick}
       >
         {/* Expand indicator (only show if expandable) */}
-        <Show when={hasExpandableContent()} fallback={<text fg={Colors.ui.dim}>  </text>}>
-          <text fg={Colors.ui.dim}>{expandIndicator()} </text>
+        <Show when={hasExpandableContent()} fallback={<text fg={Colors.ui.dim}>{"  "}</text>}>
+          <text fg={Colors.ui.dim}>{expandIndicator() + " "}</text>
         </Show>
 
         {/* Status indicator */}
-        <text fg={config().color}>{config().indicator} </text>
+        <text fg={config().color}>{config().indicator + " "}</text>
 
         {/* Title content (passed as children) */}
         {props.children}

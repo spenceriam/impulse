@@ -1240,11 +1240,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     ];
     
     // SINGLE MESSAGE BLOCK PER TURN: Reuse the same message ID
-    // Clear completed tool calls from UI (they're done, hide them)
-    // Keep the same message block and update it with continuation content
+    // Keep completed tool calls visible as collapsed summaries (OpenCode style)
+    // They stay in the UI to show what actions were taken
     updateMessage(assistantMsgId, {
-      toolCalls: [], // Hide completed tools
-      streaming: true, // Show "Thinking..." indicator
+      // toolCalls kept as-is (already updated with success/error status)
+      streaming: true, // Show "Thinking..." indicator for continuation
     });
     
     // Use the same message ID for continuation
