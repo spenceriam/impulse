@@ -170,9 +170,10 @@ export const Layout = {
 
   /**
    * Input height
+   * Note: Add 1 row for visual breathing room below cursor
    */
   input: {
-    minHeight: 3,
+    minHeight: 4,      // 3 rows visible text + 1 empty row below cursor
     maxHeight: 10,
   },
 

@@ -12,21 +12,22 @@ const QuestionOptionSchema = z.object({
 });
 
 /**
- * Question - a single question with options
+ * Question - a single question with options, grouped by topic
  */
 const QuestionSchema = z.object({
+  topic: z.string().max(20).describe("Topic/category name shown as tab (max 20 chars, e.g. 'Project setup', 'UI stack')"),
   question: z.string().describe("Complete question text"),
-  header: z.string().max(30).describe("Short label (max 30 chars)"),
-  context: z.string().optional().describe("Brief explanation of why this clarification is needed (shown in header)"),
-  options: z.array(QuestionOptionSchema).describe("Available choices"),
+  options: z.array(QuestionOptionSchema).describe("Available choices (user can also type custom answer)"),
   multiple: z.boolean().optional().describe("Allow selecting multiple choices"),
 });
 
 /**
  * Question Tool Input Schema
+ * Maximum 3 questions (topics) per call - use follow-up calls for more
  */
 const QuestionToolSchema = z.object({
-  questions: z.array(QuestionSchema).describe("Questions to ask"),
+  context: z.string().optional().describe("Brief explanation shown in header of why clarification is needed"),
+  questions: z.array(QuestionSchema).max(3).describe("Questions to ask (max 3 topics per call)"),
 });
 
 export type QuestionOption = z.infer<typeof QuestionOptionSchema>;
@@ -78,7 +79,7 @@ export function hasPendingQuestion(): boolean {
   return pendingResolver !== null;
 }
 
-const DESCRIPTION = `Ask the user questions with structured options.
+const DESCRIPTION = `Ask the user questions with structured options, organized by topic tabs.
 
 Use this tool when you need to:
 - Gather user preferences or requirements
@@ -86,13 +87,37 @@ Use this tool when you need to:
 - Get decisions on implementation choices
 - Offer choices about what direction to take
 
-Notes:
-- Users can always select "Other" to provide custom text input
-- Answers are returned as arrays of labels per question
-- Set multiple: true to allow selecting more than one option
-- Keep headers to max 30 characters
+IMPORTANT GUIDELINES:
+- Maximum 3 topics per call (UI shows them as tabs)
+- If you need more questions, make a follow-up call after receiving answers
+- Each topic should have a short name (max 20 chars) like "Project setup", "UI stack", "Deployment"
+- Users can always type a custom answer instead of selecting an option
+- Use the 'context' field to explain WHY you're asking (shown in header)
 - Keep option labels concise (1-5 words)
-- Use the 'context' field to explain WHY you're asking (shown to user in header)`;
+
+Example with multiple topics:
+{
+  "context": "Setting up your new project",
+  "questions": [
+    {
+      "topic": "Platform",
+      "question": "What platforms do you need to support?",
+      "options": [
+        { "label": "macOS + Linux", "description": "Unix terminals" },
+        { "label": "Windows", "description": "CMD/PowerShell" },
+        { "label": "Cross-platform", "description": "All of the above" }
+      ]
+    },
+    {
+      "topic": "UI Framework",
+      "question": "What UI approach do you prefer?",
+      "options": [
+        { "label": "React-like", "description": "Component-based, declarative" },
+        { "label": "Immediate mode", "description": "Redraw each frame" }
+      ]
+    }
+  ]
+}`;
 
 export const questionTool: Tool<QuestionToolInput> = Tool.define(
   "question",
@@ -108,6 +133,7 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
 
       // Publish event to notify UI to show the question overlay
       Bus.publish(QuestionEvents.Asked, {
+        context: input.context,
         questions: input.questions,
       });
 
@@ -117,7 +143,7 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
       // Format answers for the AI
       const formattedAnswers = input.questions.map((q, i) => {
         const selected = answers[i] || [];
-        return `${q.header}: ${selected.join(", ") || "(no selection)"}`;
+        return `${q.topic}: ${selected.join(", ") || "(no selection)"}`;
       });
 
       return {

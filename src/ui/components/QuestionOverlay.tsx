@@ -1,4 +1,4 @@
-import { createSignal, Show, For, createMemo } from "solid-js";
+import { createSignal, Show, For } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { Colors } from "../design";
 import type { Question } from "../../tools/question";
@@ -7,309 +7,487 @@ import type { Question } from "../../tools/question";
  * QuestionOverlay Props
  */
 interface QuestionOverlayProps {
+  context?: string;
   questions: Question[];
   onSubmit: (answers: string[][]) => void;
   onCancel: () => void;
 }
 
 /**
+ * UI State
+ */
+type UIState = "answering" | "review";
+
+/**
  * QuestionOverlay Component
  * 
- * Displays structured questions from the AI with selectable options.
- * Supports single-select and multi-select questions.
+ * Tab-based question UI with topics, review screen, and editable answers.
  * 
- * NEW DESIGN - 2-column grid layout with numbered hotkeys:
- * 
- * ┌─ CLARIFYING: Development Environment ────────────────────────────┐
- * │                                                                  │
- * │ What is your current Mac model and year?                         │
- * │                                                                  │
- * │  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
- * │  │ [1] MacBook Pro (Intel)  │  │ [2] MacBook Pro (Apple Si)   │  │
- * │  │     2016-2021            │  │     M1/M2/M3                 │  │
- * │  └──────────────────────────┘  └──────────────────────────────┘  │
- * │                                                                  │
- * │  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
- * │  │ [3] MacBook Air (Intel)  │  │ [4] MacBook Air (Apple Si)   │  │
- * │  │     2018-2020            │  │     M1/M2/M3                 │  │
- * │  └──────────────────────────┘  └──────────────────────────────┘  │
- * │                                                                  │
- * │  [0] Other...  (type custom answer)                              │
- * │                                                                  │
- * ├──────────────────────────────────────────────────────────────────┤
- * │ [1/3]  1-9: Select  Enter: Confirm  Esc: Cancel                  │
- * └──────────────────────────────────────────────────────────────────┘
+ * DESIGN:
+ * - Topics shown as tabs: [ Project setup ] [ UI stack ] [ CI/CD ]
+ * - Tab/Shift+Tab navigates between topics
+ * - Up/Down navigates options within topic
+ * - "Type your own answer" expands when selected
+ * - Review screen shows all answers as editable text boxes
+ * - Max 3 topics per batch
  */
 export function QuestionOverlay(props: QuestionOverlayProps) {
-  // Current question index
-  const [questionIndex, setQuestionIndex] = createSignal(0);
+  // UI state: answering questions or reviewing
+  const [uiState, setUIState] = createSignal<UIState>("answering");
   
-  // Currently hovered option index (-1 = none)
-  const [hoveredIndex, setHoveredIndex] = createSignal(-1);
+  // Current topic (tab) index
+  const [topicIndex, setTopicIndex] = createSignal(0);
   
-  // Selected options per question: questionIndex -> Set of selected option indices
-  const [selections, setSelections] = createSignal<Map<number, Set<number>>>(new Map());
+  // Currently hovered option index within current topic
+  const [hoveredIndex, setHoveredIndex] = createSignal(0);
   
-  // Custom "Other" input per question
-  const [otherInputs, setOtherInputs] = createSignal<Map<number, string>>(new Map());
+  // Selected option per topic: topicIndex -> selected option index (-1 = custom)
+  const [selections, setSelections] = createSignal<Map<number, number>>(new Map());
   
-  // Whether "Other" is being edited
-  const [editingOther, setEditingOther] = createSignal(false);
+  // Custom answer text per topic
+  const [customAnswers, setCustomAnswers] = createSignal<Map<number, string>>(new Map());
   
-  const currentQuestion = () => props.questions[questionIndex()];
+  // Whether custom input is expanded (for current topic)
+  const [customExpanded, setCustomExpanded] = createSignal(false);
   
-  // Options with "Other" appended (assigned index 0)
-  const optionsWithOther = createMemo(() => {
-    const q = currentQuestion();
-    if (!q) return [];
-    // Regular options get indices 1-9, Other gets index 0
-    return [...q.options, { label: "Other...", description: "Type custom answer" }];
-  });
+  // Review screen: which answer field is focused
+  const [reviewFocusIndex, setReviewFocusIndex] = createSignal(0);
   
-  // Get display number for an option (1-9 for regular, 0 for Other)
-  const getOptionNumber = (index: number) => {
-    const opts = optionsWithOther();
-    // Last option (Other) gets 0, rest get 1-9
-    if (index === opts.length - 1) return 0;
-    return index + 1;
+  // Review screen: editable answers (pre-filled from selections)
+  const [reviewAnswers, setReviewAnswers] = createSignal<string[]>([]);
+  
+  const currentQuestion = () => props.questions[topicIndex()];
+  const totalTopics = () => props.questions.length;
+  
+  // Options for current topic (without "Type your own" - that's separate)
+  const currentOptions = () => currentQuestion()?.options || [];
+  
+  // Total items to navigate: options + 1 for "Type your own"
+  const totalItems = () => currentOptions().length + 1;
+  
+  // Check if "Type your own" is the hovered item
+  const isCustomHovered = () => hoveredIndex() === currentOptions().length;
+  
+  // Check if topic has an answer
+  const hasAnswer = (tIdx: number) => {
+    const sel = selections().get(tIdx);
+    const custom = customAnswers().get(tIdx);
+    return sel !== undefined || (custom !== undefined && custom.length > 0);
   };
   
-  // Find option index from keyboard number
-  const getIndexFromNumber = (num: number): number => {
-    const opts = optionsWithOther();
-    if (num === 0) return opts.length - 1; // 0 = Other (last item)
-    if (num > 0 && num <= opts.length - 1) return num - 1;
-    return -1;
-  };
-  
-  const isOtherSelected = () => {
-    const q = currentQuestion();
-    if (!q) return false;
-    const qSel = selections().get(questionIndex());
-    const otherIdx = q.options.length; // "Other" is always last
-    return qSel?.has(otherIdx) ?? false;
-  };
-
-  // Toggle selection for an option
-  const toggleSelection = (optIdx: number) => {
-    const q = currentQuestion();
-    if (!q) return;
+  // Get answer text for a topic
+  const getAnswerText = (tIdx: number): string => {
+    const sel = selections().get(tIdx);
+    const custom = customAnswers().get(tIdx);
     
-    const qIdx = questionIndex();
-    const newSelections = new Map(selections());
-    const qSel = new Set(newSelections.get(qIdx) || []);
-    
-    if (q.multiple) {
-      // Multi-select: toggle
-      if (qSel.has(optIdx)) {
-        qSel.delete(optIdx);
-      } else {
-        qSel.add(optIdx);
-      }
-    } else {
-      // Single-select: replace
-      qSel.clear();
-      qSel.add(optIdx);
+    if (custom && custom.length > 0) {
+      return custom;
     }
     
-    newSelections.set(qIdx, qSel);
+    if (sel !== undefined && sel >= 0) {
+      const q = props.questions[tIdx];
+      const opt = q?.options[sel];
+      return opt?.label || "";
+    }
+    
+    return "";
+  };
+  
+  // Select an option (clears custom answer)
+  const selectOption = (optIdx: number) => {
+    const tIdx = topicIndex();
+    const newSelections = new Map(selections());
+    newSelections.set(tIdx, optIdx);
+    setSelections(newSelections);
+    
+    // Clear custom answer when selecting an option
+    const newCustom = new Map(customAnswers());
+    newCustom.delete(tIdx);
+    setCustomAnswers(newCustom);
+    setCustomExpanded(false);
+  };
+  
+  // Set custom answer (clears option selection)
+  const setCustomAnswer = (text: string) => {
+    const tIdx = topicIndex();
+    const newCustom = new Map(customAnswers());
+    newCustom.set(tIdx, text);
+    setCustomAnswers(newCustom);
+    
+    // Clear option selection when typing custom
+    const newSelections = new Map(selections());
+    newSelections.delete(tIdx);
     setSelections(newSelections);
   };
   
-  // Select option and advance (for single-select on hotkey)
-  const selectAndAdvance = (optIdx: number) => {
-    const q = currentQuestion();
-    if (!q) return;
-    
-    toggleSelection(optIdx);
-    
-    // If "Other" was selected, start editing
-    if (optIdx === q.options.length) {
-      setEditingOther(true);
-      return;
-    }
-    
-    // For single-select, advance to next question or submit
-    if (!q.multiple) {
-      if (questionIndex() < props.questions.length - 1) {
-        setQuestionIndex((i) => i + 1);
-        setHoveredIndex(-1);
-      } else {
-        submitAnswers();
-      }
+  // Navigate to next topic or go to review
+  const nextTopic = () => {
+    if (topicIndex() < totalTopics() - 1) {
+      setTopicIndex(i => i + 1);
+      setHoveredIndex(0);
+      setCustomExpanded(false);
+    } else {
+      // All topics answered, go to review
+      initializeReview();
+      setUIState("review");
     }
   };
-
-  // Handle keyboard navigation
-  useKeyboard((key) => {
-    // If editing "Other" input, handle text input
-    if (editingOther()) {
+  
+  // Navigate to previous topic
+  const prevTopic = () => {
+    if (topicIndex() > 0) {
+      setTopicIndex(i => i - 1);
+      setHoveredIndex(0);
+      setCustomExpanded(false);
+    }
+  };
+  
+  // Initialize review answers from selections
+  const initializeReview = () => {
+    const answers = props.questions.map((_, idx) => getAnswerText(idx));
+    setReviewAnswers(answers);
+    setReviewFocusIndex(0);
+  };
+  
+  // Go back from review to edit a specific topic (used by number keys in review)
+  const editTopic = (tIdx: number) => {
+    setTopicIndex(tIdx);
+    setHoveredIndex(0);
+    setCustomExpanded(false);
+    setUIState("answering");
+  };
+  
+  // Submit all answers
+  const submitAnswers = () => {
+    const answers: string[][] = reviewAnswers().map(answer => 
+      answer.trim() ? [answer.trim()] : []
+    );
+    props.onSubmit(answers);
+  };
+  
+  // Handle keyboard in answering state
+  const handleAnsweringKeys = (key: any) => {
+    // If custom input is expanded, handle text input
+    if (customExpanded()) {
       if (key.name === "escape") {
-        setEditingOther(false);
+        setCustomExpanded(false);
         return;
       }
       if (key.name === "return") {
-        setEditingOther(false);
-        // Advance to next question
-        if (questionIndex() < props.questions.length - 1) {
-          setQuestionIndex((i) => i + 1);
-          setHoveredIndex(-1);
-        } else {
-          submitAnswers();
-        }
+        // Confirm custom answer and move to next topic
+        nextTopic();
         return;
       }
       if (key.name === "backspace") {
-        const qIdx = questionIndex();
-        const newInputs = new Map(otherInputs());
-        const current = newInputs.get(qIdx) || "";
-        newInputs.set(qIdx, current.slice(0, -1));
-        setOtherInputs(newInputs);
+        const tIdx = topicIndex();
+        const current = customAnswers().get(tIdx) || "";
+        setCustomAnswer(current.slice(0, -1));
         return;
       }
       // Regular character input
       if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-        const qIdx = questionIndex();
-        const newInputs = new Map(otherInputs());
-        const current = newInputs.get(qIdx) || "";
-        newInputs.set(qIdx, current + key.sequence);
-        setOtherInputs(newInputs);
+        const tIdx = topicIndex();
+        const current = customAnswers().get(tIdx) || "";
+        setCustomAnswer(current + key.sequence);
         return;
       }
       return;
     }
     
-    // Cancel
+    // Tab/Shift+Tab: navigate topics
+    if (key.name === "tab") {
+      if (key.shift) {
+        prevTopic();
+      } else {
+        nextTopic();
+      }
+      return;
+    }
+    
+    // Up/Down: navigate options
+    if (key.name === "up") {
+      setHoveredIndex(i => Math.max(0, i - 1));
+      return;
+    }
+    if (key.name === "down") {
+      setHoveredIndex(i => Math.min(totalItems() - 1, i + 1));
+      return;
+    }
+    
+    // Number keys 1-9 for quick select, 0 for custom
+    if (key.sequence && /^[0-9]$/.test(key.sequence)) {
+      const num = parseInt(key.sequence, 10);
+      if (num === 0) {
+        // Select custom input
+        setHoveredIndex(currentOptions().length);
+        setCustomExpanded(true);
+      } else if (num <= currentOptions().length) {
+        // Select option and advance
+        selectOption(num - 1);
+        nextTopic();
+      }
+      return;
+    }
+    
+    // Enter: select hovered item
+    if (key.name === "return") {
+      if (isCustomHovered()) {
+        setCustomExpanded(true);
+      } else {
+        selectOption(hoveredIndex());
+        nextTopic();
+      }
+      return;
+    }
+    
+    // Escape: cancel
     if (key.name === "escape") {
       props.onCancel();
       return;
     }
+  };
+  
+  // Handle keyboard in review state
+  const handleReviewKeys = (key: any) => {
+    const focused = reviewFocusIndex();
+    const answers = reviewAnswers();
     
-    // Number keys 0-9 for quick selection
-    if (key.sequence && /^[0-9]$/.test(key.sequence)) {
-      const num = parseInt(key.sequence, 10);
-      const idx = getIndexFromNumber(num);
-      if (idx !== -1) {
-        selectAndAdvance(idx);
+    // Tab/Shift+Tab: navigate answer fields
+    if (key.name === "tab") {
+      if (key.shift) {
+        setReviewFocusIndex(i => Math.max(0, i - 1));
+      } else {
+        setReviewFocusIndex(i => Math.min(totalTopics() - 1, i + 1));
       }
       return;
     }
     
-    // Arrow keys for navigation in 2-column grid
-    const opts = optionsWithOther();
-    const cols = 2;
-    const currentIdx = hoveredIndex() === -1 ? 0 : hoveredIndex();
-    
+    // Up/Down: also navigate fields
     if (key.name === "up") {
-      const newIdx = currentIdx - cols;
-      setHoveredIndex(Math.max(0, newIdx));
+      setReviewFocusIndex(i => Math.max(0, i - 1));
       return;
     }
     if (key.name === "down") {
-      const newIdx = currentIdx + cols;
-      setHoveredIndex(Math.min(opts.length - 1, newIdx));
-      return;
-    }
-    if (key.name === "left") {
-      setHoveredIndex(Math.max(0, currentIdx - 1));
-      return;
-    }
-    if (key.name === "right") {
-      setHoveredIndex(Math.min(opts.length - 1, currentIdx + 1));
+      setReviewFocusIndex(i => Math.min(totalTopics() - 1, i + 1));
       return;
     }
     
-    // Space to toggle selection (for multi-select)
-    if (key.name === "space") {
-      const idx = hoveredIndex() === -1 ? 0 : hoveredIndex();
-      toggleSelection(idx);
+    // Number keys: focus that field
+    if (key.sequence && /^[1-9]$/.test(key.sequence)) {
+      const num = parseInt(key.sequence, 10);
+      if (num <= totalTopics()) {
+        setReviewFocusIndex(num - 1);
+      }
       return;
     }
     
-    // Enter to select hovered option and proceed
+    // 'e' key: go back to edit the focused topic's original question
+    if (key.name === "e" || key.sequence === "e") {
+      editTopic(reviewFocusIndex());
+      return;
+    }
+    
+    // Backspace: delete last char in focused field
+    if (key.name === "backspace") {
+      const newAnswers = [...answers];
+      newAnswers[focused] = (newAnswers[focused] || "").slice(0, -1);
+      setReviewAnswers(newAnswers);
+      return;
+    }
+    
+    // Regular character input
+    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+      const newAnswers = [...answers];
+      newAnswers[focused] = (newAnswers[focused] || "") + key.sequence;
+      setReviewAnswers(newAnswers);
+      return;
+    }
+    
+    // Enter: submit all
     if (key.name === "return") {
-      const idx = hoveredIndex() === -1 ? 0 : hoveredIndex();
-      selectAndAdvance(idx);
+      submitAnswers();
       return;
     }
     
-    // Tab to go to next question (for multi-select)
-    if (key.name === "tab" && !key.shift) {
-      if (questionIndex() < props.questions.length - 1) {
-        setQuestionIndex((i) => i + 1);
-        setHoveredIndex(-1);
-      } else {
-        submitAnswers();
-      }
+    // Escape: go back to answering (edit mode)
+    if (key.name === "escape") {
+      // Go back to first topic that needs attention
+      setTopicIndex(0);
+      setUIState("answering");
       return;
     }
-    
-    // Shift+Tab to go to previous question
-    if (key.name === "tab" && key.shift) {
-      if (questionIndex() > 0) {
-        setQuestionIndex((i) => i - 1);
-        setHoveredIndex(-1);
-      }
-      return;
+  };
+  
+  // Keyboard handler
+  useKeyboard((key) => {
+    if (uiState() === "answering") {
+      handleAnsweringKeys(key);
+    } else {
+      handleReviewKeys(key);
     }
   });
-
-  // Submit all answers
-  const submitAnswers = () => {
-    const answers: string[][] = props.questions.map((q, qIdx) => {
-      const qSel = selections().get(qIdx);
-      if (!qSel || qSel.size === 0) return [];
-      
-      const labels: string[] = [];
-      qSel.forEach((optIdx) => {
-        if (optIdx < q.options.length) {
-          // Regular option
-          const opt = q.options[optIdx];
-          if (opt) labels.push(opt.label);
-        } else {
-          // "Other" option - use the custom input
-          const otherText = otherInputs().get(qIdx);
-          if (otherText) {
-            labels.push(otherText);
-          } else {
-            labels.push("Other");
-          }
-        }
-      });
-      
-      return labels;
-    });
-    
-    props.onSubmit(answers);
-  };
-
-  const q = currentQuestion();
-  if (!q) return null;
   
-  // Build header title with context
+  // Render tabs
+  const renderTabs = () => {
+    return (
+      <box flexDirection="row" marginBottom={1}>
+        <For each={props.questions}>
+          {(q, idx) => {
+            const isActive = () => topicIndex() === idx();
+            const isComplete = () => hasAnswer(idx());
+            
+            // Tab style: [ Topic ✓ ] or [ Topic ]
+            const tabText = () => {
+              const check = isComplete() ? " ✓" : "";
+              return `[ ${q.topic}${check} ]`;
+            };
+            
+            return (
+              <text 
+                fg={isActive() ? Colors.ui.primary : (isComplete() ? Colors.status.success : Colors.ui.dim)}
+              >
+                {tabText()}{" "}
+              </text>
+            );
+          }}
+        </For>
+      </box>
+    );
+  };
+  
+  // Render options for current topic
+  const renderOptions = () => {
+    const q = currentQuestion();
+    if (!q) return null;
+    
+    const selectedIdx = selections().get(topicIndex());
+    const customText = customAnswers().get(topicIndex()) || "";
+    const hasCustom = customText.length > 0;
+    
+    return (
+      <>
+        <For each={q.options}>
+          {(opt, idx) => {
+            const isHovered = () => hoveredIndex() === idx();
+            const isSelected = () => selectedIdx === idx() && !hasCustom;
+            const optNum = idx() + 1;
+            
+            const checkbox = () => isSelected() ? "[x]" : "[ ]";
+            const rowBg = () => isHovered() ? "#252530" : "#1a1a1a";
+            const textColor = () => isSelected() ? Colors.ui.primary : Colors.ui.text;
+            
+            return (
+              <box backgroundColor={rowBg()} paddingLeft={1} height={1}>
+                <box flexDirection="row">
+                  <text fg={isSelected() ? Colors.ui.primary : Colors.ui.dim}>
+                    {checkbox()}
+                  </text>
+                  <text fg={Colors.status.info}> [{optNum}] </text>
+                  <text fg={textColor()}>{opt.label}</text>
+                  <text fg={Colors.ui.dim}> ── {opt.description}</text>
+                </box>
+              </box>
+            );
+          }}
+        </For>
+        
+        {/* "Type your own answer" option */}
+        <box 
+          backgroundColor={isCustomHovered() ? "#252530" : "#1a1a1a"} 
+          paddingLeft={1}
+          flexDirection="column"
+        >
+          <box flexDirection="row" height={1}>
+            <text fg={hasCustom ? Colors.ui.primary : Colors.ui.dim}>
+              {hasCustom ? "[x]" : "[ ]"}
+            </text>
+            <text fg={Colors.status.info}> [0] </text>
+            <text fg={hasCustom ? Colors.ui.primary : Colors.ui.text}>
+              Type your own answer
+            </text>
+          </box>
+          
+          {/* Expanded custom input */}
+          <Show when={customExpanded()}>
+            <box flexDirection="row" paddingLeft={6} height={1}>
+              <text fg={Colors.ui.dim}>{">"} </text>
+              <text fg={Colors.ui.primary}>
+                {customText + "_"}
+              </text>
+            </box>
+          </Show>
+        </box>
+      </>
+    );
+  };
+  
+  // Render review screen
+  const renderReview = () => {
+    const answers = reviewAnswers();
+    
+    return (
+      <box flexDirection="column">
+        <text fg={Colors.ui.text}>Please confirm your answers:</text>
+        <box height={1} />
+        
+        <scrollbox height={Math.min(totalTopics() * 4 + 2, 14)}>
+          <For each={props.questions}>
+            {(q, idx) => {
+              const isFocused = () => reviewFocusIndex() === idx();
+              const answer = () => answers[idx()] || "";
+              
+              return (
+                <box flexDirection="column" marginBottom={1}>
+                  <text fg={Colors.ui.dim}>
+                    [{idx() + 1}] {q.topic}: {q.question}
+                  </text>
+                  <box 
+                    border 
+                    borderColor={isFocused() ? Colors.ui.primary : Colors.ui.dim}
+                    backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
+                    paddingLeft={1}
+                    height={1}
+                  >
+                    <text fg={isFocused() ? Colors.ui.primary : Colors.ui.text}>
+                      {isFocused() ? answer() + "_" : answer() || "(no answer)"}
+                    </text>
+                  </box>
+                </box>
+              );
+            }}
+          </For>
+        </scrollbox>
+      </box>
+    );
+  };
+  
+  // Footer hints
+  const footerHints = () => {
+    if (uiState() === "review") {
+      return "Tab: Next field  ↑↓: Navigate  Enter: Submit all  Esc: Back";
+    }
+    
+    if (customExpanded()) {
+      return "Type answer  Enter: Confirm  Esc: Cancel";
+    }
+    
+    const parts: string[] = [];
+    if (topicIndex() > 0) parts.push("Shift+Tab: Prev");
+    parts.push("Tab: Next");
+    parts.push("↑↓: Navigate");
+    parts.push("Enter: Select");
+    parts.push("Esc: Cancel");
+    
+    return parts.join("  ");
+  };
+  
+  // Header title
   const headerTitle = () => {
-    if (q.context) {
-      return `CLARIFYING: ${q.context}`;
+    if (uiState() === "review") {
+      return "REVIEW ANSWERS";
     }
-    return q.header.toUpperCase();
+    return props.context ? `CLARIFYING: ${props.context}` : "CLARIFYING";
   };
-  
-  // Group options into pairs for 2-column layout
-  const optionPairs = createMemo(() => {
-    const opts = optionsWithOther();
-    const pairs: Array<Array<{ opt: typeof opts[0]; index: number }>> = [];
-    
-    for (let i = 0; i < opts.length; i += 2) {
-      const pair: Array<{ opt: typeof opts[0]; index: number }> = [];
-      pair.push({ opt: opts[i]!, index: i });
-      if (i + 1 < opts.length) {
-        pair.push({ opt: opts[i + 1]!, index: i + 1 });
-      }
-      pairs.push(pair);
-    }
-    
-    return pairs;
-  });
 
   return (
     <box
@@ -324,103 +502,31 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
         border
         title={headerTitle()}
         flexDirection="column"
-        padding={2}
-        width={80}
-        maxHeight={28}
+        padding={1}
+        paddingLeft={2}
+        paddingRight={2}
+        width={76}
         backgroundColor="#1a1a1a"
       >
-        {/* Question text */}
-        <text fg={Colors.ui.text}>{q.question}</text>
-        <box height={1} />
+        <Show when={uiState() === "answering"}>
+          {/* Tabs */}
+          {renderTabs()}
+          
+          {/* Question text */}
+          <text fg={Colors.ui.text}>{currentQuestion()?.question}</text>
+          <box height={1} />
+          
+          {/* Options */}
+          {renderOptions()}
+        </Show>
         
-        {/* Options in 2-column grid */}
-        <For each={optionPairs()}>
-          {(pair) => (
-            <box flexDirection="row" marginBottom={1}>
-              <For each={pair}>
-                {({ opt, index }) => {
-                  const isHovered = () => hoveredIndex() === index;
-                  const isSelected = () => {
-                    const qSel = selections().get(questionIndex());
-                    return qSel?.has(index) ?? false;
-                  };
-                  const optNum = getOptionNumber(index);
-                  const isOther = index === optionsWithOther().length - 1;
-                  
-                  // Checkbox/radio indicator
-                  const indicator = () => {
-                    if (q.multiple) {
-                      return isSelected() ? "[x]" : "[ ]";
-                    } else {
-                      return isSelected() ? "(*)" : "( )";
-                    }
-                  };
-                  
-                  return (
-                    <box
-                      width={36}
-                      marginRight={2}
-                      flexDirection="column"
-                      padding={1}
-                      border={isHovered() || isSelected()}
-                      borderColor={isSelected() ? Colors.ui.primary : Colors.ui.dim}
-                      backgroundColor={isHovered() ? "#252530" : "#1a1a1a"}
-                    >
-                      <box flexDirection="row">
-                        <text fg={isSelected() ? Colors.ui.primary : Colors.ui.dim}>
-                          {indicator()}
-                        </text>
-                        <text fg={Colors.status.info}> [{optNum}] </text>
-                        <text fg={isSelected() ? Colors.ui.primary : Colors.ui.text}>
-                          {opt.label}
-                        </text>
-                      </box>
-                      <text fg={Colors.ui.dim}>    {opt.description}</text>
-                      
-                      {/* Show "Other" input field when selected */}
-                      <Show when={isOther && isOtherSelected()}>
-                        <box flexDirection="row" marginTop={1}>
-                          <text fg={Colors.ui.dim}>{">"} </text>
-                          <Show
-                            when={editingOther()}
-                            fallback={
-                              <text fg={Colors.ui.text}>
-                                {otherInputs().get(questionIndex()) || "(press Enter to type)"}
-                              </text>
-                            }
-                          >
-                            <text fg={Colors.ui.primary}>
-                              {(otherInputs().get(questionIndex()) || "") + "_"}
-                            </text>
-                          </Show>
-                        </box>
-                      </Show>
-                    </box>
-                  );
-                }}
-              </For>
-            </box>
-          )}
-        </For>
+        <Show when={uiState() === "review"}>
+          {renderReview()}
+        </Show>
         
-        {/* Footer with navigation hints */}
+        {/* Footer */}
         <box height={1} />
-        <text fg={Colors.ui.dim}>{"─".repeat(74)}</text>
-        <box 
-          flexDirection="row" 
-          justifyContent="space-between"
-          paddingTop={1}
-        >
-          <text fg={Colors.ui.dim}>
-            [{questionIndex() + 1}/{props.questions.length}]
-          </text>
-          <text fg={Colors.ui.dim}>
-            0-9: Select
-            <Show when={q.multiple}>{" "}Space: Toggle</Show>
-            <Show when={props.questions.length > 1}>{" "}Tab: Next</Show>
-            {" "}Enter: Confirm  Esc: Cancel
-          </text>
-        </box>
+        <text fg={Colors.ui.dim}>{footerHints()}</text>
       </box>
     </box>
   );

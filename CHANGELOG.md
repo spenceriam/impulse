@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-01-25
+
+### Added
+
+- **Tab-Based Question UI** - Complete redesign of the question overlay
+  - Topics shown as navigable tabs: `[ Project setup ] [ UI stack ] [ CI/CD ]`
+  - Tab/Shift+Tab navigation between topics
+  - Completed tabs show checkmark indicator
+  - Maximum 3 topics per question batch (AI sends follow-ups if needed)
+
+- **Review Screen** - Confirm answers before submission
+  - Shows all answers in scrollable list with editable text boxes
+  - Tab between fields to edit any answer
+  - Press 'e' to go back to original question options
+  - Enter submits all, Esc goes back to editing
+
+- **"Type Your Own Answer"** - Improved custom input flow
+  - Always visible as last option in each topic
+  - Expands to show text input when selected
+  - Collapses when navigating away (remembers text)
+  - Esc while typing closes input without losing data
+
+### Changed
+
+- **Question Schema** - Updated data model for topic-based questions
+  - New `topic` field (max 20 chars) replaces `header`
+  - `context` field moved to top level (shown in overlay header)
+  - Max 3 questions enforced via Zod schema
+
+- **System Prompt** - Enhanced AI guidance
+  - Strong enforcement to use question tool (not plain text questions)
+  - Clear instructions for topic-based batching (max 3)
+  - Architecture diagram guidance (avoid complex Unicode box-drawing)
+  - Examples updated for new schema format
+
+- **Input Box Height** - Increased from 3 to 4 rows for visual breathing room
+
 ## [0.18.1] - 2026-01-24
 
 ### Fixed

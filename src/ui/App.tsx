@@ -661,7 +661,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const [showSessionPicker, setShowSessionPicker] = createSignal(props.showSessionPicker ?? false);
   
   // Question overlay state (from AI question tool)
-  const [pendingQuestions, setPendingQuestions] = createSignal<Question[] | null>(null);
+  const [pendingQuestions, setPendingQuestions] = createSignal<{ context?: string; questions: Question[] } | null>(null);
   
   // Permission prompt state (from tool permission requests)
   const [pendingPermission, setPendingPermission] = createSignal<PermissionRequest | null>(null);
@@ -730,8 +730,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   onMount(() => {
     const unsubscribe = Bus.subscribe((event) => {
       if (event.type === "question.asked") {
-        const payload = event.properties as { questions: Question[] };
-        setPendingQuestions(payload.questions);
+        const payload = event.properties as { context?: string; questions: Question[] };
+        setPendingQuestions({ 
+          ...(payload.context ? { context: payload.context } : {}),
+          questions: payload.questions 
+        });
       }
       if (event.type === "permission.asked") {
         const payload = event.properties as PermissionRequest;
@@ -1652,9 +1655,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       
       {/* Question overlay - shown when AI calls the question tool */}
       <Show when={pendingQuestions()}>
-        {(questions: () => Question[]) => (
+        {(data: () => { context?: string; questions: Question[] }) => (
           <QuestionOverlay
-            questions={questions()}
+            {...(data().context ? { context: data().context } : {})}
+            questions={data().questions}
             onSubmit={handleQuestionSubmit}
             onCancel={handleQuestionCancel}
           />

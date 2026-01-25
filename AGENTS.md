@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.18.1
+- **Version:** v0.19.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -621,15 +621,14 @@ Section collapses when >2 items, hides when all completed.
 
 ## Question Tool
 
-Interactive question tool for structured user input. Allows the AI to ask multiple-choice questions and receive user selections.
+Interactive question tool for structured user input. Displays questions as navigable tabs with options and a review screen before submission.
 
 ### Schema
 
 ```typescript
 interface Question {
+  topic: string;              // Tab name (max 20 chars, e.g. "Platform", "UI stack")
   question: string;           // Full question text
-  header: string;             // Short label (max 30 chars)
-  context?: string;           // Why this clarification is needed (shown in header)
   options: {
     label: string;            // 1-5 words
     description: string;      // Explanation
@@ -637,38 +636,52 @@ interface Question {
   multiple?: boolean;         // Multi-select (default: false)
 }
 
+// Tool input
+interface QuestionToolInput {
+  context?: string;           // Why clarification is needed (shown in header)
+  questions: Question[];      // Max 3 topics per call
+}
+
 // Tool output
 interface QuestionToolOutput {
-  answers: string[][];  // Selected labels per question
+  answers: string[][];        // Selected/typed answers per topic
 }
 ```
 
-### UI Mockup (2-Column Grid Layout)
+### UI Mockup (Tab-Based Layout)
 
 ```
-┌─ CLARIFYING: Development Environment ────────────────────────────┐
+┌─ CLARIFYING: Setting up your project ────────────────────────────┐
 │                                                                  │
-│ What is your current Mac model and year?                         │
+│  [ Platform ✓ ] [ UI stack ] [ Database ]                        │
 │                                                                  │
-│  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
-│  │ [ ] [1] MacBook Pro      │  │ [ ] [2] MacBook Pro          │  │
-│  │         (Intel)          │  │         (Apple Silicon)      │  │
-│  │         2016-2021        │  │         M1/M2/M3             │  │
-│  └──────────────────────────┘  └──────────────────────────────┘  │
+│  What UI framework approach do you prefer?                       │
 │                                                                  │
-│  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
-│  │ [ ] [3] MacBook Air      │  │ [ ] [4] MacBook Air          │  │
-│  │         (Intel)          │  │         (Apple Silicon)      │  │
-│  │         2018-2020        │  │         M1/M2/M3             │  │
-│  └──────────────────────────┘  └──────────────────────────────┘  │
+│   [ ] [1] React-like ── Component-based, declarative             │
+│   [x] [2] Immediate mode ── Redraw each frame                    │
+│   [ ] [3] No preference ── You decide                            │
+│   [ ] [0] Type your own answer                                   │
 │                                                                  │
-│  ┌──────────────────────────┐  ┌──────────────────────────────┐  │
-│  │ [ ] [5] iMac / Mac mini  │  │ [ ] [0] Other...             │  │
-│  │         / Mac Studio     │  │         Type custom answer   │  │
-│  └──────────────────────────┘  └──────────────────────────────┘  │
+│  Tab: Next topic  ↑↓: Navigate  Enter: Select  Esc: Cancel       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Review Screen
+
+```
+┌─ REVIEW ANSWERS ─────────────────────────────────────────────────┐
 │                                                                  │
-│──────────────────────────────────────────────────────────────────│
-│ [1/3]  0-9: Select  Enter: Confirm  Esc: Cancel                  │
+│  [1] Platform: What platforms do you need to support?            │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │ macOS + Linux                                             │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  [2] UI stack: What UI framework approach do you prefer?         │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │ Immediate mode_                                           │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Tab: Next  ↑↓: Navigate  e: Edit  Enter: Submit  Esc: Back      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -676,24 +689,23 @@ interface QuestionToolOutput {
 
 | Key | Action |
 |-----|--------|
-| `0-9` | Quick-select option by number (0 = Other) |
-| `Arrow keys` | Navigate grid (up/down/left/right) |
-| `Space` | Toggle selection (multi-select mode) |
-| `Enter` | Confirm selection and advance |
-| `Tab` | Next question (multi-question flows) |
-| `Shift+Tab` | Previous question |
-| `Esc` | Cancel |
+| `Tab` | Next topic/field |
+| `Shift+Tab` | Previous topic/field |
+| `↑/↓` | Navigate options |
+| `1-9` | Quick-select option |
+| `0` | Select "Type your own answer" |
+| `Enter` | Confirm and advance (or submit on review) |
+| `e` | Edit topic (on review screen) |
+| `Esc` | Cancel / go back |
 
 ### Agent Usage
 
-- Use for gathering user preferences or requirements
-- Use for clarifying ambiguous instructions
-- Use for getting decisions on implementation choices
-- **Always set `context`** to explain WHY you're asking (shown in header)
-- Users can always select "Other" (key 0) to provide custom text
-- Keep headers to max 30 characters
+- **ALWAYS** use for gathering user preferences (never plain text questions)
+- Maximum **3 topics** per call - use follow-up calls for more
+- Each topic needs a short name (max 20 chars)
+- Users can always type a custom answer
+- Set `context` to explain WHY you're asking
 - Keep option labels concise (1-5 words)
-- First option is typically the recommended choice
 
 ## MCP Servers
 
