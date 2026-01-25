@@ -27,6 +27,7 @@ import { type ToolCallInfo } from "./components/MessageBlock";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 import { runUpdateCheck, type UpdateState } from "../util/update-check";
+import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
 
 /**
  * App Component
@@ -497,7 +498,7 @@ async function initializeMCPTools() {
 interface AppProps {
   initialExpress?: boolean;
   initialModel?: string;
-  initialMode?: "AUTO" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
+  initialMode?: "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
   initialSessionId?: string;
   showSessionPicker?: boolean;
   verbose?: boolean;
@@ -508,10 +509,16 @@ export function App(props: AppProps) {
   const renderer = useRenderer();
   
   // Register commands and MCP tools on mount
-  onMount(() => {
+  onMount(async () => {
     initializeCommands();
     // MCP tools registered async in background (don't block UI)
     initializeMCPTools();
+    
+    // Enable debug logging if verbose flag is set
+    if (props.verbose) {
+      const logPath = await enableDebugLog();
+      console.log(`Debug logging enabled: ${logPath}`);
+    }
   });
   
   // Check for API key - env var first, then we'll check config
@@ -624,6 +631,111 @@ function formatDuration(ms: number): string {
     return `${hours}h ${mins}m`;
   }
   return `${mins}m`;
+}
+
+/**
+ * API Message types for proper conversation serialization
+ * OpenAI-compatible format requires:
+ * - system, user, assistant roles for normal messages
+ * - assistant messages with tool_calls array when tools are invoked
+ * - tool role messages with tool_call_id for each tool result
+ */
+type APIMessage = 
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string | null; reasoning_content?: string; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+/**
+ * Build API messages from UI messages with proper tool call serialization
+ * 
+ * This function handles the complex case where assistant messages may have tool calls.
+ * The API expects:
+ * 1. assistant message with tool_calls array
+ * 2. tool messages with results (one per tool_call_id)
+ * 3. Optional continuation assistant message (after tools complete)
+ * 
+ * UI messages are stored as separate Message objects, but we need to detect
+ * when an assistant message with tool calls is followed by another assistant
+ * message (the continuation) and NOT send them as back-to-back assistant messages.
+ * 
+ * Instead, the continuation becomes the "response after tool results" in the API format.
+ */
+function buildAPIMessages(
+  uiMessages: Array<{ 
+    id: string; 
+    role: "user" | "assistant"; 
+    content: string; 
+    reasoning?: string;
+    toolCalls?: ToolCallInfo[];
+  }>,
+  excludeMessageId?: string
+): APIMessage[] {
+  const apiMessages: APIMessage[] = [];
+  const filtered = excludeMessageId 
+    ? uiMessages.filter(m => m.id !== excludeMessageId)
+    : uiMessages;
+  
+  for (const msg of filtered) {
+    if (msg.role === "user") {
+      apiMessages.push({
+        role: "user",
+        content: msg.content,
+      });
+    } else if (msg.role === "assistant") {
+      // Check if this assistant message has tool calls
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        // Assistant message with tool calls
+        const assistantMsg: APIMessage = {
+          role: "assistant",
+          content: msg.content || null,
+          tool_calls: msg.toolCalls.map(tc => ({
+            id: tc.id,
+            type: "function" as const,
+            function: {
+              name: tc.name,
+              arguments: tc.arguments,
+            },
+          })),
+        };
+        
+        // Include reasoning_content for preserved thinking
+        if (msg.reasoning) {
+          (assistantMsg as any).reasoning_content = msg.reasoning;
+        }
+        
+        apiMessages.push(assistantMsg);
+        
+        // Add tool result messages
+        for (const tc of msg.toolCalls) {
+          apiMessages.push({
+            role: "tool",
+            content: tc.result || "",
+            tool_call_id: tc.id,
+          });
+        }
+        
+        // Check if next message is also an assistant message (continuation after tools)
+        // If so, we'll handle it as the response after tool results - which is correct API format
+        // The next iteration will add it as a normal assistant message
+      } else {
+        // Regular assistant message without tool calls
+        const assistantMsg: APIMessage = {
+          role: "assistant",
+          content: msg.content,
+        };
+        
+        // Include reasoning_content for preserved thinking
+        if (msg.reasoning) {
+          (assistantMsg as any).reasoning_content = msg.reasoning;
+        }
+        
+        apiMessages.push(assistantMsg);
+      }
+    }
+  }
+  
+  return apiMessages;
 }
 
 // App that decides between welcome screen and session view
@@ -938,14 +1050,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       return;
     }
 
-    // Tab to cycle modes
-    if (key.name === "tab" && !key.shift && !key.ctrl) {
+    // Tab to cycle modes (only when no overlay is active)
+    if (key.name === "tab" && !key.shift && !key.ctrl && !isOverlayActive()) {
       cycleMode();
       return;
     }
 
-    // Shift+Tab to cycle modes reverse
-    if (key.name === "tab" && key.shift) {
+    // Shift+Tab to cycle modes reverse (only when no overlay is active)
+    if (key.name === "tab" && key.shift && !isOverlayActive()) {
       cycleModeReverse();
       return;
     }
@@ -955,7 +1067,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const executeToolsAndContinue = async (
     assistantMsgId: string,
     toolCallsMap: Map<number, ToolCallInfo>,
-    previousApiMessages: Array<{ role: "system" | "user" | "assistant"; content: string; reasoning_content?: string }>,
+    previousApiMessages: APIMessage[],
     assistantContent: string,
     assistantReasoning: string = ""  // Include reasoning for preserved thinking
   ) => {
@@ -989,6 +1101,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         // Execute the tool
         const result = await Tool.execute(toolCall.name, args);
         
+        // Debug log tool execution
+        if (isDebugEnabled()) {
+          await logToolExecution(toolCall.name, args, result);
+        }
+        
         // Update with result
         toolCall.status = result.success ? "success" : "error";
         toolCall.result = result.output;
@@ -999,6 +1116,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         // Record tool call for stats
         recordToolCall(toolCall.name, result.success);
       } catch (error) {
+        // Debug log error
+        if (isDebugEnabled()) {
+          await logError(`Tool execution: ${toolCall.name}`, error instanceof Error ? error : String(error));
+        }
+        
         toolCall.status = "error";
         toolCall.result = error instanceof Error ? error.message : "Unknown error";
         updateMessage(assistantMsgId, {
@@ -1391,6 +1513,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     // Mark that user has started a session (keeps session view after /clear)
     setHasStartedSession(true);
     
+    // Debug log user message
+    if (isDebugEnabled()) {
+      await logUserMessage(trimmedContent);
+    }
+    
     // Add user message
     addMessage({ role: "user", content: trimmedContent });
 
@@ -1414,28 +1541,21 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       // Build messages for API call (without the empty assistant message)
       // Generate mode-aware system prompt with MCP discovery instructions
       const currentMode = mode() as typeof MODES[number];
-      const systemMessage = {
-        role: "system" as const,
+      const systemMessage: APIMessage = {
+        role: "system",
         content: generateSystemPrompt(currentMode),
       };
       
-      // Build messages for API including reasoning_content for preserved thinking
-      // Z.AI docs: "you must return the complete, unmodified reasoning_content back to the API"
-      const userMessages = updatedMessages
-        .filter((m) => m.id !== assistantMsgId)
-        .map((m) => {
-          const msg: { role: "user" | "assistant"; content: string; reasoning_content?: string } = {
-            role: m.role as "user" | "assistant",
-            content: m.content,
-          };
-          // Include reasoning_content for assistant messages (preserved thinking)
-          if (m.role === "assistant" && m.reasoning) {
-            msg.reasoning_content = m.reasoning;
-          }
-          return msg;
-        });
-      
-      const apiMessages = [systemMessage, ...userMessages];
+      // Build messages for API with proper tool call serialization
+      // This handles: tool_calls arrays, tool result messages, and preserved thinking
+      const conversationMessages = buildAPIMessages(updatedMessages, assistantMsgId);
+      const apiMessages = [systemMessage, ...conversationMessages];
+
+      // Debug log API request
+      if (isDebugEnabled()) {
+        await logAPIRequest(model(), apiMessages, Tool.getAPIDefinitions());
+        await logRawAPIMessages(apiMessages);
+      }
 
       // Create stream processor and store in signal
       const processor = new StreamProcessor();

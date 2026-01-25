@@ -15,7 +15,7 @@ A brutally minimal terminal interface for AI-assisted software development. Flic
 ## Features
 
 - **GLM-4.x Models** - Z.ai's flagship models with thinking mode
-- **5 Modes** - AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG (Tab to cycle)
+- **6 Modes** - AUTO, EXPLORE, AGENT, PLANNER, PLAN-PRD, DEBUG (Tab to cycle)
 - **MCP Integration** - Vision, Web Search, Web Reader, Zread, Context7
 - **Session Management** - Auto-save, load previous sessions, undo/redo via git checkpoints
 - **Auto-Compact** - AI summarization at 85% context usage
@@ -73,13 +73,14 @@ impulse --prompt "explain this codebase"
 
 | Mode | Purpose |
 |------|---------|
-| **AUTO** | AI decides tool usage based on prompt |
+| **AUTO** | AI decides approach, starts exploratory |
+| **EXPLORE** | Read-only understanding - patient, curious, anticipatory |
 | **AGENT** | Full execution with all tools |
 | **PLANNER** | Generate project documentation |
 | **PLAN-PRD** | Quick PRD via Q&A |
 | **DEBUG** | 7-step systematic debugging |
 
-Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse.
+Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mode switches at natural inflection points.
 
 ## Commands
 

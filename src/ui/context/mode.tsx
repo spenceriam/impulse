@@ -34,7 +34,7 @@ export const ModeProvider: ParentComponent<ModeProviderProps> = (props) => {
   const [mode, setModeRaw] = createSignal<Mode>(props.initialMode ?? "AUTO");
   const [thinking, setThinking] = createSignal<boolean>(true);
 
-  const modes: Mode[] = ["AUTO", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"];
+  const modes: Mode[] = ["AUTO", "EXPLORE", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"];
 
   const setMode = (value: Mode | ((prev: Mode) => Mode)) => {
     setModeRaw(value);

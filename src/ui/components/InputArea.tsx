@@ -54,7 +54,7 @@ function generateImageFilename(): string {
  * - Loading spinner when AI is processing
  * 
  * Props:
- * - mode: Current mode (AUTO, AGENT, PLANNER, PLAN-PRD, DEBUG)
+ * - mode: Current mode (AUTO, EXPLORE, AGENT, PLANNER, PLAN-PRD, DEBUG)
  * - thinking: Whether thinking mode is enabled
  * - loading: Whether AI is currently processing
  * - onSubmit: Callback when user presses Enter to submit

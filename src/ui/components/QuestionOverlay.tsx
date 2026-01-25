@@ -120,26 +120,34 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
     setSelections(newSelections);
   };
   
-  // Navigate to next topic or go to review
+  // Navigate to next topic (wraps around)
   const nextTopic = () => {
-    if (topicIndex() < totalTopics() - 1) {
-      setTopicIndex(i => i + 1);
-      setHoveredIndex(0);
-      setCustomExpanded(false);
-    } else {
-      // All topics answered, go to review
+    setTopicIndex(i => (i + 1) % totalTopics());
+    setHoveredIndex(0);
+    setCustomExpanded(false);
+  };
+  
+  // Check if all topics have answers
+  const allAnswered = () => {
+    for (let i = 0; i < totalTopics(); i++) {
+      if (!hasAnswer(i)) return false;
+    }
+    return true;
+  };
+  
+  // Go to review screen (only when all answered)
+  const goToReview = () => {
+    if (allAnswered()) {
       initializeReview();
       setUIState("review");
     }
   };
   
-  // Navigate to previous topic
+  // Navigate to previous topic (wraps around)
   const prevTopic = () => {
-    if (topicIndex() > 0) {
-      setTopicIndex(i => i - 1);
-      setHoveredIndex(0);
-      setCustomExpanded(false);
-    }
+    setTopicIndex(i => (i - 1 + totalTopics()) % totalTopics());
+    setHoveredIndex(0);
+    setCustomExpanded(false);
   };
   
   // Initialize review answers from selections
@@ -174,8 +182,16 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
         return;
       }
       if (key.name === "return") {
-        // Confirm custom answer and move to next topic
-        nextTopic();
+        // Confirm custom answer - check if all answered, go to review or next topic
+        setCustomExpanded(false);
+        // Use setTimeout to let state update before checking
+        setTimeout(() => {
+          if (allAnswered()) {
+            goToReview();
+          } else {
+            nextTopic();
+          }
+        }, 0);
         return;
       }
       if (key.name === "backspace") {
@@ -214,33 +230,46 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
       return;
     }
     
-    // Number keys 1-9 for quick select, 0 for custom
-    if (key.sequence && /^[0-9]$/.test(key.sequence)) {
+    // Number keys 1-9 for quick select (no auto-advance)
+    if (key.sequence && /^[1-9]$/.test(key.sequence)) {
       const num = parseInt(key.sequence, 10);
-      if (num === 0) {
-        // Select custom input
-        setHoveredIndex(currentOptions().length);
-        setCustomExpanded(true);
-      } else if (num <= currentOptions().length) {
-        // Select option and advance
+      if (num <= currentOptions().length) {
         selectOption(num - 1);
-        nextTopic();
       }
       return;
     }
     
-    // Enter: select hovered item
+    // Enter: select hovered item, or go to review if all answered
     if (key.name === "return") {
       if (isCustomHovered()) {
         setCustomExpanded(true);
-      } else {
-        selectOption(hoveredIndex());
-        nextTopic();
+        return;
       }
+      
+      // Select the option
+      selectOption(hoveredIndex());
+      
+      // After selecting, check if all topics are answered
+      // If all answered, go to review. Otherwise advance to next unanswered topic.
+      setTimeout(() => {
+        if (allAnswered()) {
+          goToReview();
+        } else {
+          // Find next unanswered topic and go to it
+          for (let i = 0; i < totalTopics(); i++) {
+            const nextIdx = (topicIndex() + 1 + i) % totalTopics();
+            if (!hasAnswer(nextIdx)) {
+              setTopicIndex(nextIdx);
+              setHoveredIndex(0);
+              return;
+            }
+          }
+        }
+      }, 10);
       return;
     }
     
-    // Escape: cancel
+    // Escape: cancel overlay
     if (key.name === "escape") {
       props.onCancel();
       return;
@@ -287,6 +316,18 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
       return;
     }
     
+    // Enter: submit all (check BEFORE character input handler)
+    if (key.name === "return") {
+      submitAnswers();
+      return;
+    }
+    
+    // Escape: cancel overlay
+    if (key.name === "escape") {
+      props.onCancel();
+      return;
+    }
+    
     // Backspace: delete last char in focused field
     if (key.name === "backspace") {
       const newAnswers = [...answers];
@@ -295,25 +336,11 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
       return;
     }
     
-    // Regular character input
-    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+    // Regular character input (exclude control characters)
+    if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta && key.sequence.charCodeAt(0) >= 32) {
       const newAnswers = [...answers];
       newAnswers[focused] = (newAnswers[focused] || "") + key.sequence;
       setReviewAnswers(newAnswers);
-      return;
-    }
-    
-    // Enter: submit all
-    if (key.name === "return") {
-      submitAnswers();
-      return;
-    }
-    
-    // Escape: go back to answering (edit mode)
-    if (key.name === "escape") {
-      // Go back to first topic that needs attention
-      setTopicIndex(0);
-      setUIState("answering");
       return;
     }
   };
@@ -391,7 +418,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
           }}
         </For>
         
-        {/* "Type your own answer" option */}
+        {/* "Type your own answer" option - no number key, user navigates with arrows */}
         <box 
           backgroundColor={isCustomHovered() ? "#252530" : "#1a1a1a"} 
           paddingLeft={1}
@@ -401,7 +428,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
             <text fg={hasCustom ? Colors.ui.primary : Colors.ui.dim}>
               {hasCustom ? "[x]" : "[ ]"}
             </text>
-            <text fg={Colors.status.info}> [0] </text>
+            <text>     </text>
             <text fg={hasCustom ? Colors.ui.primary : Colors.ui.text}>
               Type your own answer
             </text>
@@ -411,8 +438,8 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
           <Show when={customExpanded()}>
             <box flexDirection="row" paddingLeft={6} height={1}>
               <text fg={Colors.ui.dim}>{">"} </text>
-              <text fg={Colors.ui.primary}>
-                {customText + "_"}
+              <text fg={Colors.ui.text}>
+                {customText}<text fg={Colors.ui.dim}>_</text>
               </text>
             </box>
           </Show>
@@ -430,7 +457,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
         <text fg={Colors.ui.text}>Please confirm your answers:</text>
         <box height={1} />
         
-        <scrollbox height={Math.min(totalTopics() * 4 + 2, 14)}>
+        <scrollbox height={Math.min(totalTopics() * 5 + 2, 16)}>
           <For each={props.questions}>
             {(q, idx) => {
               const isFocused = () => reviewFocusIndex() === idx();
@@ -446,10 +473,10 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                     borderColor={isFocused() ? Colors.ui.primary : Colors.ui.dim}
                     backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
                     paddingLeft={1}
-                    height={1}
+                    height={3}
                   >
-                    <text fg={isFocused() ? Colors.ui.primary : Colors.ui.text}>
-                      {isFocused() ? answer() + "_" : answer() || "(no answer)"}
+                    <text fg={isFocused() ? Colors.ui.text : Colors.ui.text}>
+                      {answer() || "(no answer)"}{isFocused() ? <text fg={Colors.ui.dim}>_</text> : ""}
                     </text>
                   </box>
                 </box>
@@ -496,15 +523,12 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
       height="100%"
       justifyContent="center"
       alignItems="center"
-      backgroundColor="rgba(0,0,0,0.5)"
     >
       <box
         border
         title={headerTitle()}
         flexDirection="column"
         padding={1}
-        paddingLeft={2}
-        paddingRight={2}
         width={76}
         backgroundColor="#1a1a1a"
       >

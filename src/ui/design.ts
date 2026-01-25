@@ -20,6 +20,7 @@ export const Colors = {
    */
   mode: {
     AUTO: "#cccccc",      // Soft white/gray - AI decides (less harsh than pure white)
+    EXPLORE: "#6fca6f",   // Green - Read-only understanding, research, patient
     AGENT: "#5cffff",     // Cyan - Full execution
     PLANNER: "#b48eff",   // Purple - Research + docs
     "PLAN-PRD": "#5c8fff", // Blue - Quick PRD
@@ -173,7 +174,7 @@ export const Layout = {
    * Note: Add 1 row for visual breathing room below cursor
    */
   input: {
-    minHeight: 4,      // 3 rows visible text + 1 empty row below cursor
+    minHeight: 5,      // 4 rows visible text + 1 empty row below cursor
     maxHeight: 10,
   },
 

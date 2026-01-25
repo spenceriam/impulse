@@ -130,27 +130,27 @@ const KNOWN_TOOLS: Record<MCPServerName, MCPTool[]> = {
   "web-search": [
     {
       name: "webSearchPrime",
-      description: "Search the web for current information, news, and real-time data",
+      description: "Search the web for current information. Use this FIRST to discover GitHub repos, documentation URLs, or verify information before using other tools like zread or webReader. Essential for finding correct repo names (owner/repo format).",
       server: "web-search",
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Search query" },
-          maxResults: { type: "number", description: "Maximum number of results (default: 10)" },
+          search_query: { type: "string", description: "Search query text" },
+          max_results: { type: "number", description: "Maximum number of results (default: 10)" },
         },
-        required: ["query"],
+        required: ["search_query"],
       },
     },
   ],
   "web-reader": [
     {
       name: "webReader",
-      description: "Read and extract content from a web page URL",
+      description: "Read and extract content from a web page URL. IMPORTANT: Only use with URLs discovered via webSearchPrime. Do not guess URLs.",
       server: "web-reader",
       inputSchema: {
         type: "object",
         properties: {
-          url: { type: "string", description: "URL to read" },
+          url: { type: "string", description: "URL to read (must be a verified URL from search results)" },
           extractImages: { type: "boolean", description: "Whether to extract images" },
         },
         required: ["url"],
@@ -160,25 +160,25 @@ const KNOWN_TOOLS: Record<MCPServerName, MCPTool[]> = {
   "zread": [
     {
       name: "search_doc",
-      description: "Search documentation across GitHub repositories and libraries",
+      description: "Search documentation across GitHub repositories. IMPORTANT: Only use this after you have confirmed the exact repo name exists (e.g., via webSearchPrime). Do not guess repo names.",
       server: "zread",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string", description: "Search query for documentation" },
-          repo: { type: "string", description: "Optional: specific repo to search" },
+          repo: { type: "string", description: "Optional: specific repo in owner/name format (must be verified to exist first)" },
         },
         required: ["query"],
       },
     },
     {
       name: "get_repo_structure",
-      description: "Get the file/directory structure of a GitHub repository",
+      description: "Get the file/directory structure of a GitHub repository. IMPORTANT: Only use after confirming the exact repo name via webSearchPrime. Format: owner/repo (e.g., 'pioner92/opentui', NOT 'opentui' alone).",
       server: "zread",
       inputSchema: {
         type: "object",
         properties: {
-          repo: { type: "string", description: "Repository in owner/name format" },
+          repo: { type: "string", description: "Repository in owner/name format (e.g., 'facebook/react'). Must be verified to exist first." },
           branch: { type: "string", description: "Branch name (default: main)" },
         },
         required: ["repo"],
@@ -186,13 +186,13 @@ const KNOWN_TOOLS: Record<MCPServerName, MCPTool[]> = {
     },
     {
       name: "read_file",
-      description: "Read a file from a GitHub repository",
+      description: "Read a file from a GitHub repository. IMPORTANT: First use get_repo_structure to find valid file paths, then read specific files.",
       server: "zread",
       inputSchema: {
         type: "object",
         properties: {
-          repo: { type: "string", description: "Repository in owner/name format" },
-          path: { type: "string", description: "File path within the repo" },
+          repo: { type: "string", description: "Repository in owner/name format (e.g., 'facebook/react')" },
+          path: { type: "string", description: "File path within the repo (use get_repo_structure to find valid paths)" },
           branch: { type: "string", description: "Branch name (default: main)" },
         },
         required: ["repo", "path"],

@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.19.1
+- **Version:** v0.20.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -315,11 +315,34 @@ preload = ["@opentui/solid/preload"]
 
 | Mode | Color | Hex | Purpose | Tools |
 |------|-------|-----|---------|-------|
-| **AUTO** | White | `#ffffff` | AI decides based on prompt | Switches dynamically |
+| **AUTO** | Gray | `#cccccc` | AI decides, starts exploratory | Switches dynamically |
+| **EXPLORE** | Green | `#6fca6f` | Read-only understanding - patient, curious | Read-only + web research |
 | **AGENT** | Cyan | `#5cffff` | Full execution + looper skill | All tools |
 | **PLANNER** | Purple | `#b48eff` | Research + documentation | Read-only + docs/ |
 | **PLAN-PRD** | Blue | `#5c8fff` | Quick PRD via Q&A | Read-only + docs/ |
 | **DEBUG** | Orange | `#ffaa5c` | 7-step systematic debugging | All tools |
+
+### Mode Switching
+
+All modes are **mode-aware** and will suggest switching when the conversation shifts:
+
+| From | To | Signals |
+|------|-----|---------|
+| EXPLORE | PLAN-PRD | "I want to build...", "Let's create...", simple feature |
+| EXPLORE | PLANNER | Complex feature, needs architecture |
+| EXPLORE | DEBUG | "Something's broken...", "This error..." |
+| PLAN-PRD | AGENT | Requirements clear, user says "let's do it" |
+| PLANNER | AGENT | Plan complete, user approves |
+| Any | EXPLORE | "Wait, explain...", "I don't understand..." |
+
+### EXPLORE Mode Personality
+
+EXPLORE is the "conversational" mode - like a traditional ChatGPT experience but with codebase awareness:
+
+- **Patient**: Doesn't rush to solutions, lets user think aloud
+- **Curious**: Asks "why" and "what if" questions
+- **Anticipatory**: Tries to be 1-2 steps ahead ("Are you thinking about X?")
+- **Non-presumptuous**: Suggests but doesn't assume user wants to build
 
 ## Visual Design System
 
@@ -338,6 +361,7 @@ preload = ["@opentui/solid/preload"]
 | Mode | Color | Hex |
 |------|-------|-----|
 | AUTO | White | `#ffffff` |
+| EXPLORE | Green | `#6fca6f` |
 | AGENT | Cyan | `#5cffff` |
 | PLANNER | Purple | `#b48eff` |
 | PLAN-PRD | Blue | `#5c8fff` |
@@ -881,6 +905,11 @@ This ensures:
 - **Cache Tracking** - Extract `prompt_tokens_details.cached_tokens` from usage
   - Shows actual tokens served from cache (billed at ~50% discount)
   - Available in final streaming chunk's usage object
+- **API Message Format for Tool Calls** - Conversation history must include tool_calls and tool results
+  - After tool execution, don't just send back-to-back assistant messages
+  - Correct format: `assistant (with tool_calls array)` -> `tool (results)` -> `assistant (continuation)`
+  - Use `buildAPIMessages()` helper in App.tsx to properly serialize conversation history
+  - Tool results use `role: "tool"` with `tool_call_id` matching the original call
 
 ### Streaming
 - Use 16ms event batching to prevent flicker
@@ -947,6 +976,7 @@ This ensures:
 | 01-23-2026 | Z.AI Thinking Config | Send thinking parameter with type/clear_thinking per Z.AI docs - enables toggle |
 | 01-23-2026 | Z.AI Cache Tracking | Extract cached_tokens from prompt_tokens_details - shows actual savings |
 | 01-23-2026 | Interleaved Thinking | Include reasoning in tool continuation messages per Z.AI docs |
+| 01-25-2026 | buildAPIMessages helper | Fix duplicate assistant messages - properly serialize tool_calls and tool results in conversation history |
 
 ## Future Work
 
@@ -1025,6 +1055,43 @@ bun test --watch
 
 # Run specific test file
 bun test src/path/to/test.ts
+```
+
+## How to Debug
+
+### Verbose Mode (`--verbose`)
+
+Run with `--verbose` flag to enable debug logging:
+
+```bash
+# Development
+bun run start -- --verbose
+
+# Production binary
+impulse --verbose
+```
+
+**Log Location:** `~/.config/impulse/debug/session-<timestamp>.jsonl`
+
+**What Gets Logged:**
+- `session_start` - Version and timestamp
+- `user_message` - Full user input
+- `api_request` - Model, message count, content previews, tool count
+- `raw_api_messages` - Full API message array (for debugging conversation format)
+- `tool_execution` - Tool name, arguments, success/failure, output
+- `error` - Context and error details
+
+**Use Cases:**
+- Debugging API message serialization (tool_calls, tool results)
+- Verifying conversation history is correctly formatted
+- Tracking tool execution flow
+- Diagnosing MCP tool failures
+
+**Performance Impact:** None when `--verbose` is not passed. All log functions check `debugEnabled` first and return immediately if false.
+
+**Example Log Entry:**
+```json
+{"type":"api_request","timestamp":"2026-01-25T01:58:31.331Z","model":"glm-4.7","messageCount":5,"messages":[{"role":"system","contentLength":6735},{"role":"user","contentLength":240},{"role":"assistant","contentLength":112},{"role":"tool","contentLength":45},{"role":"assistant","contentLength":1831}],"toolCount":27}
 ```
 
 ## CI/CD Pipeline

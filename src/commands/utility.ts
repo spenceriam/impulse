@@ -297,7 +297,7 @@ export function registerUtilityCommands(): void {
       description: "Switch AI mode",
       args: ModeArgsSchema,
       handler: handleMode,
-      examples: ["/mode AUTO", "/mode AGENT", "/mode PLANNER"],
+      examples: ["/mode AUTO", "/mode EXPLORE", "/mode AGENT"],
     },
     {
       name: "think",

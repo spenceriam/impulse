@@ -11,6 +11,7 @@ export const GLM_MODELS = [
 
 export const MODES = [
   "AUTO",
+  "EXPLORE",
   "AGENT",
   "PLANNER",
   "PLAN-PRD",

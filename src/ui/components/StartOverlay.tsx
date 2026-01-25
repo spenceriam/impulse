@@ -87,8 +87,8 @@ export function StartOverlay(props: StartOverlayProps) {
             <text fg={Colors.ui.text}>MCP tools. Run from any working directory - sessions are stored per-</text>
             <text fg={Colors.ui.text}>directory so you can return to previous conversations.</text>
             <box height={1} />
-            <text fg={Colors.ui.text}>Built on OpenTUI with tool calling. Supports 5 modes: AUTO, AGENT,</text>
-            <text fg={Colors.ui.text}>PLANNER, PLAN-PRD, DEBUG.</text>
+            <text fg={Colors.ui.text}>Built on OpenTUI with tool calling. Supports 6 modes: AUTO, EXPLORE,</text>
+            <text fg={Colors.ui.text}>AGENT, PLANNER, PLAN-PRD, DEBUG. Tab to cycle modes.</text>
             <box height={1} />
             <text fg={Colors.ui.dim}>{SEPARATOR}</text>
             <box height={1} />

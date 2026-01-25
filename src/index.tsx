@@ -176,7 +176,7 @@ const runHeadless = async (prompt: string) => {
   const cfg = await loadConfig();
 
   // Use mode override or default to AUTO
-  const mode = (modeOverride?.toUpperCase() ?? "AUTO") as "AUTO" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
+  const mode = (modeOverride?.toUpperCase() ?? "AUTO") as "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
   const model = modelOverride ?? cfg.defaultModel ?? "glm-4.7";
 
   const messages = [
@@ -280,7 +280,7 @@ You can also set the GLM_API_KEY environment variable to skip this prompt.
     const initialProps = {
       ...(expressMode ? { initialExpress: true } : {}),
       ...(modelOverride ? { initialModel: modelOverride } : {}),
-      ...(modeOverride ? { initialMode: modeOverride.toUpperCase() as "AUTO" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG" } : {}),
+      ...(modeOverride ? { initialMode: modeOverride.toUpperCase() as "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG" } : {}),
       ...(sessionId ? { initialSessionId: sessionId } : {}),
       ...(showContinue ? { showSessionPicker: true } : {}),
       ...(verboseMode ? { verbose: true } : {}),

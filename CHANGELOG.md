@@ -5,7 +5,43 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.0] - 2026-01-25
+
+### Fixed
+
+- **API message serialization** - Fixed duplicate assistant messages being sent to API
+  - Tool calls now properly include `tool_calls` array in conversation history
+  - Tool results now sent as `role: "tool"` messages with `tool_call_id`
+  - Added `buildAPIMessages()` helper for correct conversation serialization
+  - Prevents API confusion from back-to-back assistant messages
+
+### Added
+
+- **EXPLORE mode** - New read-only mode for conversational codebase exploration
+  - Patient, curious, anticipatory personality (like ChatGPT with codebase awareness)
+  - Suggests mode switches at natural inflection points
+  - Available via Tab cycling or `/mode explore`
+  - Green color (`#6fca6f`) to distinguish from other modes
+
+### Changed
+
+- **Mode switching awareness** - All modes now suggest switching when conversation shifts
+  - EXPLORE suggests PLAN-PRD/PLANNER/DEBUG based on user intent signals
+  - Modes transition naturally at meaningful inflection points
+
+- **webSearchPrime MCP** - Fixed parameter name from `query` to `search_query` (Z.AI requirement)
+
+- **Question tool enforcement** - Strengthened system prompt to always use structured questions
+
+- **Debug logging** - Added `--verbose` flag for API debugging
+  - Logs to `~/.config/impulse/debug/session-<timestamp>.jsonl`
+  - Captures: user messages, API requests, tool executions, errors
+
+- **QuestionOverlay UI** - Multiple visual and interaction fixes
+  - Removed magenta background overlay (matches other overlays now)
+  - Tab no longer changes modes when overlay is active
+  - Tab navigation wraps around topics correctly
+  - Removed `[0]` prefix from "Type your own answer"
 
 ## [0.19.1] - 2026-01-25
 
