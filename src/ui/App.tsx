@@ -1139,12 +1139,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   });
 
   // Execute tools and continue conversation with tool results
+  // NOTE: assistantContent is the content from THIS continuation only (for API messages)
+  //       totalContentForUI is the accumulated total for display (passed via UI update)
   const executeToolsAndContinue = async (
     assistantMsgId: string,
     toolCallsMap: Map<number, ToolCallInfo>,
     previousApiMessages: APIMessage[],
-    assistantContent: string,
-    assistantReasoning: string = ""  // Include reasoning for preserved thinking
+    assistantContent: string,        // Content from THIS turn only (for API messages)
+    assistantReasoning: string = "", // Reasoning from THIS turn only (for API messages)
+    totalContentForUI: string = ""   // Total accumulated for UI display
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
     
@@ -1260,8 +1263,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     const newAssistantMsgId = assistantMsgId;
     
     // Track the content we already have (to append to)
-    // Base content from before tool execution - we'll append new content to this
-    const baseContent = assistantContent;
+    // baseContent is the TOTAL accumulated content for UI display (not just this turn)
+    // On first call, totalContentForUI === assistantContent (both are the initial content)
+    // On recursive calls, totalContentForUI is the full accumulated content
+    const baseContent = totalContentForUI || assistantContent;
     // Base reasoning from before tool execution
     const baseReasoning = assistantReasoning;
     
@@ -1329,19 +1334,22 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           updateMessage(newAssistantMsgId, { streaming: false });
           
           if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
-            // Recursive tool execution - pass FULL accumulated content (base + new)
+            // Recursive tool execution
+            // fullContent = total accumulated for UI display (base + this continuation)
+            // accumulatedContent = just this continuation's content (for API messages)
             const fullContent = baseContent 
               ? baseContent + "\n\n" + accumulatedContent 
               : accumulatedContent;
-            const fullReasoning = baseReasoning
-              ? baseReasoning + "\n" + accumulatedReasoning
-              : accumulatedReasoning;
+            
+            // Pass content from THIS continuation only (accumulatedContent) for API messages
+            // Pass fullContent for UI display (total accumulated across all continuations)
             executeToolsAndContinue(
               newAssistantMsgId,
               newToolCallsMap,
               continuationMessages as any,
-              fullContent,
-              fullReasoning  // Include reasoning for interleaved thinking
+              accumulatedContent,     // Content from THIS continuation only
+              accumulatedReasoning,   // Reasoning from THIS continuation only
+              fullContent             // Total for UI display
             );
           } else {
             setIsLoading(false);
@@ -1726,7 +1734,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           // Check if we need to execute tools
           if (event.state.finishReason === "tool_calls" && toolCallsMap.size > 0) {
             // Execute tools and continue conversation
-            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning);
+            // First call: content for this turn = accumulated content, total for UI = same
+            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
           } else {
             setIsLoading(false);
             setStreamProc(null);
