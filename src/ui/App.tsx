@@ -31,6 +31,25 @@ import { runUpdateCheck, type UpdateState } from "../util/update-check";
 import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
 
 /**
+ * Join content sections with normalized whitespace.
+ * Prevents excessive blank lines (max 2 consecutive newlines).
+ */
+function joinContentSections(base: string, addition: string): string {
+  if (!base) return addition;
+  if (!addition) return base;
+  
+  // Trim trailing whitespace from base, leading whitespace from addition
+  const trimmedBase = base.trimEnd();
+  const trimmedAddition = addition.trimStart();
+  
+  if (!trimmedBase) return trimmedAddition;
+  if (!trimmedAddition) return trimmedBase;
+  
+  // Join with double newline (paragraph break)
+  return trimmedBase + "\n\n" + trimmedAddition;
+}
+
+/**
  * App Component
  * Root OpenTUI component with full-screen layout and context providers
  * 
@@ -1284,9 +1303,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         if (event.type === "content") {
           accumulatedContent += event.delta;
           // Append new content to base content (single message block)
-          const fullContent = baseContent 
-            ? baseContent + "\n\n" + accumulatedContent 
-            : accumulatedContent;
+          // Use joinContentSections to normalize whitespace and prevent excessive blank lines
+          const fullContent = joinContentSections(baseContent, accumulatedContent);
           updateMessage(newAssistantMsgId, {
             content: fullContent,
           });
@@ -1337,9 +1355,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             // Recursive tool execution
             // fullContent = total accumulated for UI display (base + this continuation)
             // accumulatedContent = just this continuation's content (for API messages)
-            const fullContent = baseContent 
-              ? baseContent + "\n\n" + accumulatedContent 
-              : accumulatedContent;
+            // Use joinContentSections to normalize whitespace and prevent excessive blank lines
+            const fullContent = joinContentSections(baseContent, accumulatedContent);
             
             // Pass content from THIS continuation only (accumulatedContent) for API messages
             // Pass fullContent for UI display (total accumulated across all continuations)
