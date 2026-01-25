@@ -165,14 +165,13 @@ function formatRelativeTime(timestampMs: number): string {
 // Format timestamp to UTC datetime string
 function formatDateTimeUTC(timestampMs: number): string {
   return new Date(timestampMs).toLocaleString("en-US", {
-    year: "numeric",
     month: "2-digit", 
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
     timeZone: "UTC",
-  });
+  }) + " UTC";
 }
 
 // Format timestamp to local datetime string with timezone abbreviation
@@ -314,28 +313,35 @@ async function handleUsage(): Promise<{ success: boolean; output?: string; error
       lines.push("");
     }
     
-    // Tokens section  
+    // Tokens section - focus on consumed/allotted and reset time
     if (usage.tokensLimit) {
       const t = usage.tokensLimit;
-      const total = t.usage || 0;
-      const used = t.currentValue || 0;
-      const remaining = t.remaining || 0;
-      const percentage = t.percentage || 0;
+      const allotted = t.usage || 0;
+      const consumed = t.currentValue || 0;
+      const remaining = t.remaining ?? (allotted - consumed);
+      const percentage = t.percentage || Math.round((consumed / allotted) * 100) || 0;
       const resetTs = t.nextResetTime || 0;
       
-      lines.push("TOKENS");
+      lines.push("TOKENS (5-hour window)");
       lines.push("─".repeat(50));
-      lines.push(`Used         ${formatNumber(used).padEnd(16)} ${percentage}% of ${formatNumber(total)}`);
+      
+      // Main display: consumed / allotted with percentage
+      const consumedStr = formatNumber(consumed);
+      const allottedStr = formatNumber(allotted);
+      lines.push(`Consumed     ${consumedStr} / ${allottedStr} (${percentage}%)`);
       lines.push(`Remaining    ${formatNumber(remaining)}`);
       
+      // Reset time - this is the key info
       if (resetTs > 0) {
         // Handle both seconds and milliseconds timestamps
         const tsMs = resetTs > 1e11 ? resetTs : resetTs * 1000;
         const utcStr = formatDateTimeUTC(tsMs);
         const localStr = formatDateTimeLocal(tsMs);
         const relativeStr = formatRelativeTime(tsMs);
-        lines.push(`Next Reset   ${utcStr} UTC`);
-        lines.push(`             ${localStr} (${relativeStr})`);
+        lines.push("");
+        lines.push(`Resets       ${relativeStr}`);
+        lines.push(`             ${utcStr}`);
+        lines.push(`             ${localStr}`);
       }
       lines.push("");
     }
@@ -575,6 +581,16 @@ export function registerInfoCommands(): void {
         return { success: true, output: "__SHOW_START_OVERLAY__" };
       },
       examples: ["/start"],
+    },
+    {
+      name: "todo",
+      category: "info",
+      description: "Show current todo list",
+      handler: async () => {
+        // Handled specially in App.tsx - returns signal to show todo overlay
+        return { success: true, output: "__SHOW_TODO_OVERLAY__" };
+      },
+      examples: ["/todo"],
     },
     {
       name: "usage",
