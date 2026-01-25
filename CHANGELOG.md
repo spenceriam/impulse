@@ -5,6 +5,18 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-01-25
+
+### Added
+
+- **`--check-update` flag** - Debug utility to check for updates without starting TUI
+  - Run `impulse --check-update` to see current version and check npm registry
+  - Useful for troubleshooting auto-update issues
+
+- **Debug logging for update checker** - When running with `--verbose`, logs update check details
+  - Logs version comparison, registry fetch status, install attempts
+  - Writes to stderr with `[UPDATE timestamp]` prefix
+
 ## [0.24.0] - 2026-01-25
 
 ### Added
