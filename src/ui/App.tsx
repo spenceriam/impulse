@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate, type CompactingState } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate, type CompactingState } from "./components";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
@@ -796,7 +796,7 @@ function buildAPIMessages(
 
 // App that decides between welcome screen and session view
 function AppWithSession(props: { showSessionPicker?: boolean }) {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, verboseTools, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
   const { mode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const renderer = useRenderer();
@@ -843,6 +843,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   
   // Start/welcome overlay state
   const [showStartOverlay, setShowStartOverlay] = createSignal(false);
+  
+  // Todo overlay state - shown via /todo command
+  const [showTodoOverlay, setShowTodoOverlay] = createSignal(false);
   
   // Compacting state - shown in ChatView when context is being compacted
   const [compactingState, setCompactingState] = createSignal<CompactingState | null>(null);
@@ -1236,22 +1239,29 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       ...toolResultMessages,
     ];
     
-    // Add new assistant message for continuation (with streaming flag for "Thinking..." dots)
-    addMessage({ role: "assistant", content: "", streaming: true });
-    const newMessages = messages();
-    const newAssistantMsg = newMessages[newMessages.length - 1];
-    if (!newAssistantMsg) {
-      setIsLoading(false);
-      return;
-    }
+    // SINGLE MESSAGE BLOCK PER TURN: Reuse the same message ID
+    // Clear completed tool calls from UI (they're done, hide them)
+    // Keep the same message block and update it with continuation content
+    updateMessage(assistantMsgId, {
+      toolCalls: [], // Hide completed tools
+      streaming: true, // Show "Thinking..." indicator
+    });
     
-    const newAssistantMsgId = newAssistantMsg.id;
+    // Use the same message ID for continuation
+    const newAssistantMsgId = assistantMsgId;
+    
+    // Track the content we already have (to append to)
+    // Base content from before tool execution - we'll append new content to this
+    const baseContent = assistantContent;
+    // Base reasoning from before tool execution
+    const baseReasoning = assistantReasoning;
     
     try {
       // Create new stream processor and store in signal
       const newProcessor = new StreamProcessor();
       setStreamProc(newProcessor);
       
+      // Accumulated content FOR THIS CONTINUATION (will be appended to base)
       let accumulatedContent = "";
       let accumulatedReasoning = "";
       const newToolCallsMap = new Map<number, ToolCallInfo>();
@@ -1259,13 +1269,21 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       newProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
+          // Append new content to base content (single message block)
+          const fullContent = baseContent 
+            ? baseContent + "\n\n" + accumulatedContent 
+            : accumulatedContent;
           updateMessage(newAssistantMsgId, {
-            content: accumulatedContent,
+            content: fullContent,
           });
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
+          // Append reasoning (though typically reasoning is separate per turn)
+          const fullReasoning = baseReasoning
+            ? baseReasoning + "\n" + accumulatedReasoning
+            : accumulatedReasoning;
           updateMessage(newAssistantMsgId, {
-            reasoning: accumulatedReasoning,
+            reasoning: fullReasoning,
           });
         } else if (event.type === "tool_call_start") {
           const toolCallInfo: ToolCallInfo = {
@@ -1302,13 +1320,19 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           updateMessage(newAssistantMsgId, { streaming: false });
           
           if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
-            // Recursive tool execution (pass reasoning for preserved thinking)
+            // Recursive tool execution - pass FULL accumulated content (base + new)
+            const fullContent = baseContent 
+              ? baseContent + "\n\n" + accumulatedContent 
+              : accumulatedContent;
+            const fullReasoning = baseReasoning
+              ? baseReasoning + "\n" + accumulatedReasoning
+              : accumulatedReasoning;
             executeToolsAndContinue(
               newAssistantMsgId,
               newToolCallsMap,
               continuationMessages as any,
-              accumulatedContent,
-              accumulatedReasoning  // Include reasoning for interleaved thinking
+              fullContent,
+              fullReasoning  // Include reasoning for interleaved thinking
             );
           } else {
             setIsLoading(false);
@@ -1453,6 +1477,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       if (parsed && parsed.name === "start") {
         setAutocompleteData(null);
         setShowStartOverlay(true);
+        return;
+      }
+      
+      // Handle /todo specially - show todo list overlay
+      if (parsed && parsed.name === "todo") {
+        setAutocompleteData(null);
+        setShowTodoOverlay(true);
         return;
       }
       
@@ -1754,6 +1785,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
               {/* Chat area - flexGrow={1} takes remaining space */}
               <ChatView 
                 messages={messages()} 
+                isLoading={isLoading()}
                 compactingState={compactingState()} 
                 updateState={updateState()} 
                 onDismissUpdate={() => setUpdateState(null)}
@@ -1870,6 +1902,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       {/* Start/welcome overlay - shown on first launch or via /start */}
       <Show when={showStartOverlay()}>
         <StartOverlay onClose={handleStartOverlayClose} />
+      </Show>
+      
+      {/* Todo overlay - shown via /todo command */}
+      <Show when={showTodoOverlay()}>
+        <TodoOverlay onClose={() => setShowTodoOverlay(false)} />
       </Show>
       
       {/* Command autocomplete overlay - positioned above input area */}
