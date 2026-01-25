@@ -26,6 +26,19 @@ export const Colors = {
     "PLAN-PRD": "#5c8fff", // Blue - Quick PRD
     DEBUG: "#ffaa5c",     // Orange - Systematic debugging
   },
+  
+  /**
+   * Mode-specific dim background colors (for AI message blocks)
+   * These are very dark tinted versions of mode colors for subtle visual distinction
+   */
+  modeBackground: {
+    AUTO: "#1a1a1a",      // Neutral dark gray
+    EXPLORE: "#0d1a0d",   // Dark green tint
+    AGENT: "#0d1a1a",     // Dark cyan tint
+    PLANNER: "#1a0d1a",   // Dark purple tint
+    "PLAN-PRD": "#0d0d1a", // Dark blue tint
+    DEBUG: "#1a0d0d",     // Dark orange/red tint
+  },
 
   /**
    * Status colors (used in tool results, messages)
@@ -233,6 +246,13 @@ export type ToolStatus = keyof typeof Indicators.tool;
  */
 export function getModeColor(mode: Mode): string {
   return Colors.mode[mode];
+}
+
+/**
+ * Get mode background color by mode name (dim tinted background for AI blocks)
+ */
+export function getModeBackground(mode: Mode): string {
+  return Colors.modeBackground[mode];
 }
 
 /**

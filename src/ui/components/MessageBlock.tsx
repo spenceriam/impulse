@@ -1,5 +1,5 @@
 import { For, Show, type JSX } from "solid-js";
-import { Colors, type Mode, getModeColor } from "../design";
+import { Colors, type Mode, getModeColor, getModeBackground } from "../design";
 import type { ToolMetadata } from "../../types/tool-metadata";
 import {
   isBashMetadata,
@@ -18,7 +18,7 @@ import { useSession } from "../context/session";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
-const ASSISTANT_BG = "#141414";       // Darker gray for AI response
+const ASSISTANT_BG_FALLBACK = "#141414"; // Fallback gray for AI when no mode set
 
 /**
  * Tool call display info
@@ -617,12 +617,15 @@ export function MessageBlock(props: MessageBlockProps) {
   
   // User accent color is gray (dim) - distinct from mode-colored AI messages
   const userAccentColor = Colors.ui.dim;
+  
+  // AI message background color - mode-specific dim tint for visual distinction
+  const aiBackground = () => mode() ? getModeBackground(mode()!) : ASSISTANT_BG_FALLBACK;
 
   return (
     <Show
       when={isUser()}
       fallback={
-        // Assistant message with mode-colored thin accent lines
+        // Assistant message with mode-colored thin accent lines and tinted background
         <box 
           flexDirection="column" 
           marginBottom={1}
@@ -635,10 +638,10 @@ export function MessageBlock(props: MessageBlockProps) {
             <text fg={modeColor()}>{THIN_LINE.repeat(200)}</text>
           </box>
           
-          {/* Message content area */}
+          {/* Message content area with mode-tinted background */}
           <box 
             flexDirection="column"
-            backgroundColor={ASSISTANT_BG}
+            backgroundColor={aiBackground()}
             paddingLeft={1}
             paddingRight={1}
             width="100%"
