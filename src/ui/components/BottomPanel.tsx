@@ -1,4 +1,3 @@
-import { Show } from "solid-js";
 import { InputArea, type CommandCandidate } from "./InputArea";
 import { TodoBar, TODO_PANEL_HEIGHT } from "./TodoBar";
 import { useTodo } from "../context";
@@ -8,10 +7,11 @@ import { type Mode } from "../design";
  * BottomPanel Component
  * Vertical stack: optional todo panel ABOVE prompt
  * 
- * Layout (v0.23.0 redesign):
- * - When todos exist: Fixed 7-row todo panel above input (5 tasks + border)
- * - When all complete: Collapsed 3-row "All tasks complete" message
- * - When no todos: just input (panel hidden)
+ * Layout (v0.24.0 update):
+ * - When incomplete todos exist: Todo panel above input
+ *   - Expanded: 7 rows (5 tasks + border)
+ *   - Collapsed: 3 rows (header + 1 task + border)
+ * - When all complete or no todos: HIDDEN (use /todo to view history)
  * 
  * Height Calculation for InputArea (borderless design):
  * - top accent line: 1 row
@@ -20,21 +20,19 @@ import { type Mode } from "../design";
  * - bottom accent line: 1 row
  * - Total: 1 + 1 + 5 + 1 = 8 rows
  * 
- * Total with active todos: 7 (todo panel) + 8 (input) = 15 rows
- * Total with all complete: 3 (collapsed) + 8 (input) = 11 rows
- * Total without todos: 8 rows
- * 
- * Structure:
- * ┌─ Todo ──────────────────────────────────────────────── 2/5 ───┐
- * │ [>] Current task                                              │ <- alternating bg
+ * Structure (expanded):
+ * ┌─ Todo (2/5) ──────────────────────────────────────────── [−] ─┐
+ * │ [>] Current task                                              │
  * │ [ ] Next task                                                 │
  * │ [ ] Another task                                              │
- * │ [x] Completed task                                            │
+ * │ [✓] Completed task                                            │
  * │ [-] Cancelled task                                            │ <- strikethrough
  * └───────────────────────────────────────────────────────────────┘
- * ▄▄▄ AGENT > GLM-4.7 ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
- * > _
- * ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ * 
+ * Structure (collapsed):
+ * ┌─ Todo (2/5) ──────────────────────────────────────────── [+] ─┐
+ * │ [>] Current task                                              │
+ * └───────────────────────────────────────────────────────────────┘
  */
 
 // Height calculation: accent(1) + spacer(1) + textarea(5) + accent(1) = 8
@@ -42,7 +40,6 @@ const TEXTAREA_HEIGHT = 5;
 const ACCENT_HEIGHT = 2;  // Top + bottom accent lines
 const SPACER_HEIGHT = 1;  // Breathing room below top accent
 const INPUT_HEIGHT = TEXTAREA_HEIGHT + ACCENT_HEIGHT + SPACER_HEIGHT;  // 8 rows
-const COLLAPSED_TODO_HEIGHT = 3;  // "All tasks complete" collapsed state
 
 // Export panel height for Gutter calculations (dynamic based on todos)
 export const BOTTOM_PANEL_HEIGHT = INPUT_HEIGHT;  // Base height without todos
@@ -58,21 +55,16 @@ interface BottomPanelProps {
 }
 
 export function BottomPanel(props: BottomPanelProps) {
-  const { todos, incompleteTodos } = useTodo();
+  const { incompleteTodos } = useTodo();
   
-  // Check if we have any todos at all
-  const hasTodos = () => todos().length > 0;
-  
-  // Check if all todos are complete (for collapsed state)
-  const allComplete = () => hasTodos() && incompleteTodos().length === 0;
-  
-  // Dynamic height based on todo state:
-  // - No todos: just input (8 rows)
-  // - All complete: collapsed panel (3 rows) + input (8 rows) = 11 rows
-  // - Active todos: full panel (7 rows) + input (8 rows) = 15 rows
+  // Only show todo panel when there are incomplete todos
+  // (TodoBar handles its own visibility, but we need height calculation)
+  const hasIncompleteTodos = () => incompleteTodos().length > 0;
+
+  // For now, assume expanded state for height calculation
+  // TODO: Could track collapsed state here if needed for precise height
   const panelHeight = () => {
-    if (!hasTodos()) return INPUT_HEIGHT;
-    if (allComplete()) return COLLAPSED_TODO_HEIGHT + INPUT_HEIGHT;
+    if (!hasIncompleteTodos()) return INPUT_HEIGHT;
     return TODO_PANEL_HEIGHT + INPUT_HEIGHT;
   };
 
@@ -84,10 +76,8 @@ export function BottomPanel(props: BottomPanelProps) {
       minWidth={0}
       overflow="hidden"
     >
-      {/* Todo panel - shown when todos exist */}
-      <Show when={hasTodos()}>
-        <TodoBar />
-      </Show>
+      {/* Todo panel - handles its own visibility based on incomplete todos */}
+      <TodoBar />
       
       {/* Input area - full width */}
       <box 

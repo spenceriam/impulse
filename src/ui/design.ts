@@ -111,7 +111,7 @@ export const Indicators = {
   todo: {
     pending: "[ ]",       // Not started
     in_progress: "[>]",   // Currently working
-    completed: "[x]",     // Done
+    completed: "[✓]",     // Done (checkmark)
     cancelled: "[-]",     // No longer needed
   },
 
