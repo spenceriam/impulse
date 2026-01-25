@@ -5,6 +5,7 @@ import { resolve, relative, isAbsolute } from "path";
 import { createPatch } from "diff";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
+import { validateWritePath } from "./mode-state";
 
 const DESCRIPTION = `Performs exact string replacements in files.
 
@@ -58,6 +59,16 @@ export const fileEdit: Tool<EditInput> = Tool.define(
   async (input: EditInput): Promise<ToolResult> => {
     try {
       const safePath = sanitizePath(input.filePath);
+      
+      // Check mode-based path restrictions (PLANNER -> docs/, PLAN-PRD -> PRD.md)
+      const modeError = validateWritePath(safePath);
+      if (modeError) {
+        return {
+          success: false,
+          output: modeError,
+        };
+      }
+      
       const content = readFileSync(safePath, "utf-8");
       
       // Only ask permission for files outside the working directory

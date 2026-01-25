@@ -23,6 +23,7 @@ import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import { Tool } from "../tools/registry";
+import { setCurrentMode } from "../tools/mode-state";
 import { type ToolCallInfo } from "./components/MessageBlock";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
@@ -1060,6 +1061,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
     // Double Esc to cancel current operation
     if (key.name === "escape") {
+      // First check if autocomplete is open - single Esc closes it
+      if (autocompleteData()) {
+        setAutocompleteData(null);
+        return;
+      }
+      
       const processor = streamProc();
       
       // If not loading or no processor, ignore ESC
@@ -1313,10 +1320,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       });
       
       // Continue streaming with thinking config (preserved thinking)
+      // Use mode-aware tool filtering
+      const currentMode = mode() as typeof MODES[number];
+      
+      // Ensure mode is set for tool handlers (may have changed between calls)
+      setCurrentMode(currentMode);
+      
       const stream = GLMClient.stream({
         messages: continuationMessages as any,
         model: model() as any,
-        tools: Tool.getAPIDefinitions(),
+        tools: Tool.getAPIDefinitionsForMode(currentMode),
         signal: newProcessor.getAbortSignal(),
         thinking: {
           type: thinking() ? "enabled" : "disabled",
@@ -1481,17 +1494,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         return;
       }
       
-      // Handle /compact - set "Compacted:" prefix on header
+      // Handle /compact - set "Compacted:" prefix on header (no confirmation overlay)
       if (parsed && parsed.name === "compact") {
-        const result = await CommandRegistry.execute(trimmedContent);
+        await CommandRegistry.execute(trimmedContent);
         setHeaderPrefix("Compacted");
-        setCommandOverlay({
-          title: "/compact",
-          content: result.success 
-            ? result.output || "Session compacted"
-            : result.error || "Compact failed",
-          isError: !result.success,
-        });
+        // No overlay - compacting indicator in ChatView shows progress
+        // The AI will respond with "what next?" prompt after compaction
         return;
       }
       
@@ -1578,6 +1586,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       // Build messages for API call (without the empty assistant message)
       // Generate mode-aware system prompt with MCP discovery instructions
       const currentMode = mode() as typeof MODES[number];
+      
+      // Set the mode for tool handlers (for mode-aware path restrictions)
+      setCurrentMode(currentMode);
+      
       const systemMessage: APIMessage = {
         role: "system",
         content: generateSystemPrompt(currentMode),
@@ -1588,9 +1600,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       const conversationMessages = buildAPIMessages(updatedMessages, assistantMsgId);
       const apiMessages = [systemMessage, ...conversationMessages];
 
-      // Debug log API request
+      // Debug log API request (use mode-filtered tools for accurate logging)
       if (isDebugEnabled()) {
-        await logAPIRequest(model(), apiMessages, Tool.getAPIDefinitions());
+        await logAPIRequest(model(), apiMessages, Tool.getAPIDefinitionsForMode(currentMode));
         await logRawAPIMessages(apiMessages);
       }
 
@@ -1679,10 +1691,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
       // Start streaming with thinking config
       // Z.AI docs: thinking.type controls reasoning, clear_thinking: false enables preserved thinking
+      // Use mode-aware tool filtering (currentMode already defined above)
       const stream = GLMClient.stream({
         messages: apiMessages,
         model: model() as any,
-        tools: Tool.getAPIDefinitions(),
+        tools: Tool.getAPIDefinitionsForMode(currentMode),
         signal: processor.getAbortSignal(),
         thinking: {
           type: thinking() ? "enabled" : "disabled",
@@ -1833,7 +1846,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             height="100%"
             justifyContent="center"
             alignItems="center"
-            backgroundColor="rgba(0, 0, 0, 0.7)"
           >
             <PermissionPrompt
               request={request()}
@@ -1877,39 +1889,67 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
               flexDirection="column"
               backgroundColor="#1a1a1a"
             >
-              <scrollbox height={Math.min(10, data().commands.length + 1)}>
-                <box flexDirection="column">
-                  <For each={data().commands}>
-                    {(cmd, index) => {
-                      const isSelected = () => index() === data().selectedIndex;
-                      return (
-                        <Show
-                          when={isSelected()}
-                          fallback={
-                            <box flexDirection="row" height={1}>
-                              <text fg={Colors.ui.text}>
+              {/* Windowed view of commands - show 10 items max, centered on selection */}
+              {(() => {
+                const maxVisible = 10;
+                const commands = data().commands;
+                const selectedIdx = data().selectedIndex;
+                const total = commands.length;
+                
+                // Calculate window start to keep selection visible and roughly centered
+                let start = 0;
+                if (total > maxVisible) {
+                  // Try to center the selection
+                  start = Math.max(0, selectedIdx - Math.floor(maxVisible / 2));
+                  // Don't go past the end
+                  start = Math.min(start, total - maxVisible);
+                }
+                const end = Math.min(start + maxVisible, total);
+                const visibleCommands = commands.slice(start, end);
+                const showScrollUp = start > 0;
+                const showScrollDown = end < total;
+                
+                return (
+                  <box flexDirection="column">
+                    <Show when={showScrollUp}>
+                      <text fg={Colors.ui.dim} paddingLeft={1}>  ↑ {start} more...</text>
+                    </Show>
+                    <For each={visibleCommands}>
+                      {(cmd, localIndex) => {
+                        const globalIndex = start + localIndex();
+                        const isSelected = globalIndex === selectedIdx;
+                        return (
+                          <Show
+                            when={isSelected}
+                            fallback={
+                              <box flexDirection="row" height={1}>
+                                <text fg={Colors.ui.text}>
+                                  {` /${cmd.name.padEnd(12)}`}
+                                </text>
+                                <text fg={Colors.ui.dim} wrapMode="none">
+                                  {cmd.description}
+                                </text>
+                              </box>
+                            }
+                          >
+                            <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
+                              <text fg="#000000">
                                 {` /${cmd.name.padEnd(12)}`}
                               </text>
-                              <text fg={Colors.ui.dim} wrapMode="none">
+                              <text fg="#000000" wrapMode="none">
                                 {cmd.description}
                               </text>
                             </box>
-                          }
-                        >
-                          <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
-                            <text fg="#000000">
-                              {` /${cmd.name.padEnd(12)}`}
-                            </text>
-                            <text fg="#000000" wrapMode="none">
-                              {cmd.description}
-                            </text>
-                          </box>
-                        </Show>
-                      );
-                    }}
-                  </For>
-                </box>
-              </scrollbox>
+                          </Show>
+                        );
+                      }}
+                    </For>
+                    <Show when={showScrollDown}>
+                      <text fg={Colors.ui.dim} paddingLeft={1}>  ↓ {total - end} more...</text>
+                    </Show>
+                  </box>
+                );
+              })()}
               <box height={1} paddingLeft={1}>
                 <text fg={Colors.ui.dim}>Tab: complete | Enter: select | Esc: close</text>
               </box>

@@ -46,6 +46,7 @@ export interface SessionStats {
   sessionName: string | null;
   tokens: TokenStats;
   tools: ToolStats;
+  lastPromptTokens: number;  // Actual prompt tokens from last API call (for context %)
 }
 
 /**
@@ -214,6 +215,10 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
     failed: 0,
     byName: {},
   });
+  
+  // Track last prompt tokens for accurate context % calculation
+  // This is the actual token count from the most recent API response
+  const [lastPromptTokens, setLastPromptTokens] = createSignal<number>(0);
   
   // Header state
   const [headerTitle, setHeaderTitleSignal] = createSignal<string>("New session");
@@ -406,6 +411,7 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
     setTotalCost(0);
     setTokenStats({ input: 0, output: 0, thinking: 0, cacheRead: 0, cacheWrite: 0 });
     setToolStats({ total: 0, success: 0, failed: 0, byName: {} });
+    setLastPromptTokens(0);  // Reset context tracking
   };
 
   // Load an existing session
@@ -459,6 +465,8 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
   };
 
   // Add token usage
+  // The `input` field here is the prompt_tokens from the API response - this is
+  // the actual context size for the request that just completed
   const addTokenUsage = (usage: Partial<TokenStats>) => {
     setTokenStats((prev) => ({
       input: prev.input + (usage.input ?? 0),
@@ -470,6 +478,12 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
     // Update total tokens
     const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.thinking ?? 0);
     setTotalTokens((prev) => prev + total);
+    
+    // Track last prompt tokens for context % calculation
+    // This is the actual context size from the most recent API call
+    if (usage.input !== undefined && usage.input > 0) {
+      setLastPromptTokens(usage.input);
+    }
   };
 
   // Record tool call
@@ -494,6 +508,7 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
     sessionName: sessionName(),
     tokens: tokenStats(),
     tools: toolStats(),
+    lastPromptTokens: lastPromptTokens(),  // Actual context size from last API call
   });
 
   const contextValue: SessionContextType = {

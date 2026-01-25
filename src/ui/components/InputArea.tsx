@@ -104,6 +104,12 @@ export function InputArea(props: InputAreaProps) {
   const [pastedContent, setPastedContent] = createSignal<PastedContent | null>(null);
   let pasteIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
   
+  // Timing-based paste detection (backup for when onPaste doesn't fire)
+  let lastContentLength = 0;
+  let lastContentChangeTime = 0;
+  const PASTE_THRESHOLD_CHARS = 20;  // Consider paste if >20 chars added at once
+  const PASTE_THRESHOLD_MS = 100;    // ...or >3 chars in <100ms
+  
   let textareaRef: TextareaRenderable | undefined;
 
   // Ghost text: darker (#444444) and italic for subtle appearance
@@ -295,9 +301,49 @@ export function InputArea(props: InputAreaProps) {
 
   // Handle content changes from textarea (following OpenCode pattern)
   // Read from ref, not from callback param
+  // Also includes timing-based paste detection as backup when onPaste doesn't fire
   const handleContentChange = () => {
     if (textareaRef) {
       const newValue = textareaRef.plainText;
+      const now = Date.now();
+      
+      // Detect paste by checking if large amount of text was added quickly
+      const charsAdded = newValue.length - lastContentLength;
+      const timeSinceLastChange = now - lastContentChangeTime;
+      
+      // Likely a paste if:
+      // - More than 20 chars added at once, OR
+      // - More than 3 chars added in less than 100ms
+      const likelyPaste = charsAdded > PASTE_THRESHOLD_CHARS || 
+                          (charsAdded > 3 && timeSinceLastChange < PASTE_THRESHOLD_MS);
+      
+      if (likelyPaste && charsAdded > 0 && !pastedContent()) {
+        // Count lines in the pasted content
+        const lineCount = (newValue.match(/\n/g)?.length ?? 0) + 1;
+        
+        // Only show indicator for substantial pastes (>= 3 lines or > 150 chars)
+        if (lineCount >= 3 || charsAdded > 150) {
+          if (pasteIndicatorTimeout) {
+            clearTimeout(pasteIndicatorTimeout);
+          }
+          
+          setPastedContent({
+            type: "text",
+            indicator: `[Pasted ~${lineCount} lines]`,
+            timestamp: now,
+          });
+          
+          // Clear indicator after 5 seconds
+          pasteIndicatorTimeout = setTimeout(() => {
+            setPastedContent(null);
+          }, 5000);
+        }
+      }
+      
+      // Update tracking variables for next change
+      lastContentLength = newValue.length;
+      lastContentChangeTime = now;
+      
       setValue(newValue);
       // Mark that user has typed (never show ghost text again)
       if (newValue.length > 0) {

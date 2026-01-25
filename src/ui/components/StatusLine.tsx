@@ -50,21 +50,24 @@ function getCurrentDate(): string {
 // Compact thresholds
 const COMPACT_WARNING_THRESHOLD = 70;  // Show "Compacting soon" at 70%
 const COMPACT_TRIGGER_THRESHOLD = 85;  // Auto-compact triggers at 85%
+const CONTEXT_WINDOW = 200000;  // GLM-4.7 context window (200K tokens)
 
-// Calculate context usage percentage from actual token usage
-function calculateContextUsage(inputTokens: number, outputTokens: number): number {
-  const totalTokens = inputTokens + outputTokens;
-  const contextWindow = 200000; // GLM-4.7 context window
-  return Math.min(100, Math.round((totalTokens / contextWindow) * 100));
+// Calculate context usage percentage from actual prompt tokens
+// This uses the prompt_tokens from the last API response, which is the actual
+// number of tokens that were sent in the request (the true context size)
+function calculateContextUsage(lastPromptTokens: number): number {
+  if (lastPromptTokens <= 0) return 0;
+  return Math.min(100, Math.round((lastPromptTokens / CONTEXT_WINDOW) * 100));
 }
 
-// Fallback: Estimate context usage from message content when no token data available
+// Fallback: Estimate context usage from message content when no API call has been made
+// This is a rough estimate until the first API response gives us actual token counts
 function estimateContextUsage(messages: { content: string }[]): number {
   // Rough estimate: ~4 chars per token, 200k context window
+  // Also add ~3000 tokens for system prompt overhead
   const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-  const estimatedTokens = totalChars / 4;
-  const contextWindow = 200000; // GLM-4.7 context window
-  return Math.min(100, Math.round((estimatedTokens / contextWindow) * 100));
+  const estimatedTokens = (totalChars / 4) + 3000;  // Add system prompt estimate
+  return Math.min(100, Math.round((estimatedTokens / CONTEXT_WINDOW) * 100));
 }
 
 // Build progress bar string with optional warning state
@@ -133,14 +136,19 @@ export function StatusLine(props: StatusLineProps) {
   // Reactive memo for express mode
   const isExpress = createMemo(() => expressContext?.express() ?? false);
   
-  // Reactive memo for context usage - uses actual token data when available
+  // Reactive memo for context usage - uses actual prompt tokens from last API call
+  // The prompt_tokens from the API response tells us exactly how many tokens were
+  // in the request, which is the true context size (what matters for the 200K limit)
   const progress = createMemo(() => {
     const stats = sessionContext?.stats();
-    if (stats && stats.tokens && (stats.tokens.input > 0 || stats.tokens.output > 0)) {
-      // Use actual token counts from API responses
-      return calculateContextUsage(stats.tokens.input, stats.tokens.output);
+    
+    // Use lastPromptTokens if available - this is the most accurate measure
+    // It's the actual token count from the most recent API response
+    if (stats && stats.lastPromptTokens > 0) {
+      return calculateContextUsage(stats.lastPromptTokens);
     }
-    // Fallback to estimate from message content
+    
+    // Fallback to estimate from message content (only before first API call)
     const messages = sessionContext?.messages() ?? [];
     return estimateContextUsage(messages);
   });

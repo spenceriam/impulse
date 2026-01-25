@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createEffect, on } from "solid-js";
 import { MessageBlock, type Message } from "./MessageBlock";
 import { CompactingBlock } from "./CompactingBlock";
 import { UpdateState } from "../../util/update-check";
@@ -41,6 +41,21 @@ export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
   const compactingState = () => props.compactingState ?? null;
   const updateState = () => props.updateState ?? null;
+  
+  // Ref to scrollbox for programmatic scrolling
+  // Using 'any' because ScrollBoxRenderable type may not expose scrollToBottom
+  let scrollboxRef: any;
+  
+  // Auto-scroll to bottom when messages change
+  // This ensures the latest content is visible even if user has scrolled up
+  createEffect(on(messages, () => {
+    // Small delay to let the DOM update first
+    setTimeout(() => {
+      if (scrollboxRef && typeof scrollboxRef.scrollToBottom === "function") {
+        scrollboxRef.scrollToBottom();
+      }
+    }, 16); // One frame
+  }, { defer: true }));
 
   // Render update notification based on state
   const renderUpdateNotification = () => {
@@ -113,6 +128,7 @@ export function ChatView(props: ChatViewProps) {
     >
       {/* Scrollable message area */}
       <scrollbox 
+        ref={(r: any) => { scrollboxRef = r; }}
         flexGrow={1}
         stickyScroll={true}
         stickyStart="bottom"

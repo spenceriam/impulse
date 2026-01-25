@@ -71,7 +71,16 @@ Keep the summary under 500 words. Be factual and precise.`,
 
   /**
    * Calculate context usage including tool calls
-   * More accurate than just content length
+   * 
+   * This estimates the token count for what would be sent in the NEXT API request:
+   * - System prompt (~3000-5000 tokens depending on mode)
+   * - All conversation messages (user + assistant)
+   * - Preserved reasoning (thinking content)
+   * - Tool call arguments and results
+   * - Tool definitions JSON (~1500 tokens)
+   * 
+   * Note: This is an estimate. The actual token count is available after each
+   * API call in the prompt_tokens field, which the StatusLine now uses.
    */
   async calculateContextUsage(sessionID: string): Promise<number> {
     const cached = this.usageCache.get(sessionID);
@@ -83,11 +92,17 @@ Keep the summary under 500 words. Be factual and precise.`,
 
     try {
       const session = await SessionStoreInstance.read(sessionID);
-      const totalTokens = session.messages.reduce((sum: number, msg) => {
+      
+      // Base overhead: system prompt + tool definitions
+      // System prompt varies by mode but typically 3000-5000 tokens
+      // Tool definitions are ~1500 tokens for all built-in tools
+      const baseOverhead = 5000;
+      
+      const messageTokens = session.messages.reduce((sum: number, msg) => {
         // Content tokens (estimate ~4 chars per token)
         const contentTokens = Math.ceil((msg.content?.length || 0) / 4);
         
-        // Reasoning/thinking tokens
+        // Reasoning/thinking tokens (preserved thinking is sent back to API)
         const reasoningTokens = msg.reasoning_content
           ? Math.ceil(msg.reasoning_content.length / 4)
           : 0;
@@ -100,19 +115,19 @@ Keep the summary under 500 words. Be factual and precise.`,
             const nameTokens = Math.ceil((tc.tool?.length || 0) / 4);
             const argsStr = tc.arguments ? JSON.stringify(tc.arguments) : "";
             const argsTokens = Math.ceil(argsStr.length / 4);
-            // Result if present
+            // Result tokens (tool results are sent back in continuation)
             const resultTokens = tc.result?.output ? Math.ceil(tc.result.output.length / 4) : 0;
             toolCallTokens += nameTokens + argsTokens + resultTokens + 10; // +10 for JSON overhead
           }
         }
         
-        // System messages with tool results have some overhead
-        const isSystemMsg = msg.role === "system";
-        const toolResultOverhead = isSystemMsg && msg.content.includes("tool") ? 20 : 0;
+        // Message format overhead (role, separators, etc.)
+        const formatOverhead = 5;
         
-        return sum + contentTokens + reasoningTokens + toolCallTokens + toolResultOverhead;
+        return sum + contentTokens + reasoningTokens + toolCallTokens + formatOverhead;
       }, 0);
       
+      const totalTokens = baseOverhead + messageTokens;
       const usage = totalTokens / session.context_window;
 
       this.usageCache.set(sessionID, {
@@ -229,12 +244,28 @@ Keep the summary under 500 words. Be factual and precise.`,
       const todos = session.todos || [];
 
       if (messages.length <= this.config.keepRecentCount) {
-        return {
+        // Nothing to compact - still generate a "what next?" prompt for manual compacts
+        const result: CompactResult = {
           compacted: false,
           summary: "",
           removedCount: 0,
           newMessageCount: messages.length,
         };
+        
+        if (isManual) {
+          result.continuationPrompt = "The conversation is already within size limits - no compaction needed.\n\nWhat would you like to focus on next?";
+          
+          // Still publish event so UI shows the message
+          Bus.publish(SessionEvents.Compacted, {
+            sessionID,
+            summary: "",
+            removedCount: 0,
+            isManual: true,
+            continuationPrompt: result.continuationPrompt,
+          });
+        }
+        
+        return result;
       }
 
       const messagesToCompact = messages.slice(0, -this.config.keepRecentCount);

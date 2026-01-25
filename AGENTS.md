@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.21.0
+- **Version:** v0.22.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -977,6 +977,11 @@ This ensures:
 | 01-23-2026 | Z.AI Cache Tracking | Extract cached_tokens from prompt_tokens_details - shows actual savings |
 | 01-23-2026 | Interleaved Thinking | Include reasoning in tool continuation messages per Z.AI docs |
 | 01-25-2026 | buildAPIMessages helper | Fix duplicate assistant messages - properly serialize tool_calls and tool results in conversation history |
+| 01-25-2026 | lastPromptTokens for context % | Use actual API prompt_tokens instead of cumulative estimates for accurate context usage |
+| 01-25-2026 | Mode-aware tool filtering | getAPIDefinitionsForMode() filters tools based on current mode - PLANNER/PLAN-PRD get restricted access |
+| 01-25-2026 | Global mode state module | mode-state.ts allows tool handlers to access current mode for path validation |
+| 01-25-2026 | Timing-based paste detection | Backup detection when onPaste doesn't fire - checks chars added vs time elapsed |
+| 01-25-2026 | Programmatic scroll on messages | ChatView uses scrollToBottom() effect when messages change - ensures latest visible |
 
 ## Future Work
 

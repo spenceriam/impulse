@@ -4,6 +4,7 @@ import { mkdirSync, statSync, writeFileSync, existsSync } from "fs";
 import { resolve, relative, isAbsolute } from "path";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
+import { validateWritePath } from "./mode-state";
 
 const DESCRIPTION = `Writes a file to the local filesystem.
 
@@ -50,6 +51,16 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
   async (input: WriteInput): Promise<ToolResult> => {
     try {
       const safePath = sanitizePath(input.filePath);
+      
+      // Check mode-based path restrictions (PLANNER -> docs/, PLAN-PRD -> PRD.md)
+      const modeError = validateWritePath(safePath);
+      if (modeError) {
+        return {
+          success: false,
+          output: modeError,
+        };
+      }
+      
       const dir = safePath.substring(0, safePath.lastIndexOf("/"));
       
       // Determine if this is a new file or overwrite

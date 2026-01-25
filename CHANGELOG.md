@@ -5,6 +5,45 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-01-25
+
+### Fixed
+
+- **Context window calculation** - Now uses actual `prompt_tokens` from API responses instead of cumulative token estimates
+  - StatusLine progress bar accurately reflects current context usage
+  - CompactManager estimation includes system prompt overhead (~5000 tokens)
+
+- **PLANNER/PLAN-PRD mode restrictions** - Modes now properly enforce write restrictions
+  - PLANNER mode: Can only write to `docs/` directory
+  - PLAN-PRD mode: Can only write `PRD.md` files
+  - Tool filtering removes write tools from these modes' API calls
+  - Handler-level validation as backup enforcement
+
+- **Permission prompt UI** - Fixed magenta background color issue
+  - Removed rgba background (causes color errors in OpenTUI)
+  - Uses border with warning color instead
+  - Action message now prominent at top
+
+- **Command list escape** - Single Esc now closes command autocomplete before other actions
+
+- **Command menu scrolling** - Keyboard down now properly scrolls through long command lists
+  - Uses windowed view approach (10 items visible)
+  - Shows "X more..." indicators when items are hidden
+
+- **Paste indicator** - Now shows `[Pasted ~N lines]` for substantial pastes
+  - Uses timing-based detection as backup when onPaste doesn't fire
+  - Triggers for >= 3 lines or > 150 characters
+
+- **ChatView auto-scroll** - Scrolls to bottom when user sends message or loads session
+  - Uses programmatic `scrollToBottom()` on message changes
+
+- **`/compact` behavior** - Removed confirmation popup, now runs silently
+  - Shows "what next?" message even when nothing needs compaction
+
+### Changed
+
+- Mode-aware tool filtering - API calls now only include tools appropriate for current mode
+
 ## [0.21.0] - 2026-01-25
 
 ### Added

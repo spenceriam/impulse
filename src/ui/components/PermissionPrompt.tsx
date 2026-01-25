@@ -168,36 +168,40 @@ export function PermissionPrompt(props: PermissionPromptProps) {
     return str.slice(0, max - 3) + "...";
   };
 
-  // Bracket line width
+  // Line width for content
   const lineWidth = 70;
-  const bracketLine = `[[${("━").repeat(lineWidth - 4)}]]`;
   const dividerLine = "─".repeat(lineWidth - 8);
 
   return (
-    <box flexDirection="column" paddingLeft={4} paddingRight={4} backgroundColor="#1a1a1a" width={lineWidth}>
-      {/* Top bracket */}
-      <text fg={Colors.status.warning}>{bracketLine}</text>
-      
+    <box flexDirection="column" paddingLeft={4} paddingRight={4} backgroundColor="#1a1a1a" width={lineWidth} border borderColor={Colors.status.warning}>
       <box height={1} />
       
       {/* Header */}
       <box flexDirection="row" paddingLeft={2}>
         <text fg={Colors.status.warning}>{Indicators.dot} </text>
-        <text fg={Colors.ui.text}>Permission required</text>
+        <text fg={Colors.status.warning}>Permission required</text>
       </box>
       
       <box height={1} />
       
-      {/* Permission type and action */}
+      {/* Action description (from message field) - this tells WHAT is being done */}
+      <Show when={props.request.message}>
+        <box paddingLeft={2}>
+          <text fg={Colors.ui.text}>{props.request.message}</text>
+        </box>
+        <box height={1} />
+      </Show>
+      
+      {/* Permission type and icon */}
       <box flexDirection="row" paddingLeft={2}>
         <text fg={Colors.mode.AGENT}>{getIcon()} </text>
-        <text fg={Colors.ui.text}>{getLabel()}</text>
+        <text fg={Colors.ui.dim}>{getLabel()}</text>
       </box>
       
-      {/* Reason why permission is needed */}
+      {/* Reason why permission is needed (additional context) */}
       <Show when={getReason()}>
         <box paddingLeft={4}>
-          <text fg={Colors.status.warning}>Reason: {getReason()}</text>
+          <text fg={Colors.ui.dim}>Reason: {getReason()}</text>
         </box>
       </Show>
       
@@ -257,23 +261,16 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         {(option, i) => {
           const isFocused = () => i() === selectedIndex();
           const indicator = () => isFocused() ? "(*)" : "( )";
+          // Use different highlight colors for focused state
+          const focusedFg = () => option.key === "reject" ? Colors.status.error : Colors.mode.AGENT;
           
           return (
             <box flexDirection="column" marginBottom={1} paddingLeft={2}>
-              <Show
-                when={isFocused()}
-                fallback={
-                  <box flexDirection="row">
-                    <text fg={Colors.ui.dim}>{indicator()}</text>
-                    <text fg={Colors.ui.text}> {option.label}</text>
-                    <text fg={Colors.ui.dim}> [{option.hotkey}]</text>
-                  </box>
-                }
-              >
-                <box flexDirection="row" backgroundColor={option.key === "reject" ? Colors.status.error : Colors.mode.AGENT}>
-                  <text fg="#000000">{indicator()} {option.label} [{option.hotkey}]</text>
-                </box>
-              </Show>
+              <box flexDirection="row">
+                <text fg={isFocused() ? focusedFg() : Colors.ui.dim}>{indicator()}</text>
+                <text fg={isFocused() ? focusedFg() : Colors.ui.text}> {option.label}</text>
+                <text fg={isFocused() ? focusedFg() : Colors.ui.dim}> [{option.hotkey}]</text>
+              </box>
               <text fg={Colors.ui.dim}>    {option.description}</text>
             </box>
           );
@@ -291,9 +288,6 @@ export function PermissionPrompt(props: PermissionPromptProps) {
       </box>
       
       <box height={1} />
-      
-      {/* Bottom bracket */}
-      <text fg={Colors.status.warning}>{bracketLine}</text>
     </box>
   );
 }
