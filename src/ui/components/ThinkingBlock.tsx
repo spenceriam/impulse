@@ -1,4 +1,4 @@
-import { createSignal, createMemo, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, Show, on } from "solid-js";
 import { Colors } from "../design";
 
 /**
@@ -8,6 +8,10 @@ import { Colors } from "../design";
  * States:
  * - Collapsed (default): 5-row preview with auto-scroll during streaming
  * - Expanded: Full content (max 20 rows), manual scroll
+ * 
+ * Behavior:
+ * - Auto-collapses when streaming ends (turn complete)
+ * - User can expand/collapse manually at any time
  * 
  * Icons:
  * - ● (filled dot) = collapsed (shows preview)
@@ -28,6 +32,18 @@ interface ThinkingBlockProps {
 
 export function ThinkingBlock(props: ThinkingBlockProps) {
   const [expanded, setExpanded] = createSignal(false);
+  
+  // Auto-collapse when streaming ends (turn complete)
+  // This ensures thinking is minimized for completed messages
+  createEffect(on(
+    () => props.streaming,
+    (streaming, prevStreaming) => {
+      // Only collapse when transitioning from streaming to not streaming
+      if (prevStreaming === true && streaming === false) {
+        setExpanded(false);
+      }
+    }
+  ));
 
   const showContent = () => !!props.content && props.content.trim().length > 0;
 
