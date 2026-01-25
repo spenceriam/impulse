@@ -92,23 +92,85 @@ const SessionContext = createContext<SessionContextType>();
  * Convert store message to UI message
  */
 function storeToUiMessage(msg: StoreMessage, index: number): Message {
-  return {
+  // Convert store tool_calls to UI toolCalls format
+  let toolCalls: ToolCallInfo[] | undefined;
+  if (msg.tool_calls && msg.tool_calls.length > 0) {
+    toolCalls = msg.tool_calls.map((tc, i) => {
+      const status: "pending" | "running" | "success" | "error" = tc.result 
+        ? (tc.result.success ? "success" : "error") 
+        : "success";  // If no result recorded, assume success (historical data)
+      
+      const info: ToolCallInfo = {
+        id: `tc-${index}-${i}`,
+        name: tc.tool,
+        arguments: JSON.stringify(tc.arguments, null, 2),
+        status,
+      };
+      
+      // Only add result if it exists
+      const resultText = tc.result?.output || tc.result?.error;
+      if (resultText) {
+        info.result = resultText;
+      }
+      
+      return info;
+    });
+  }
+
+  const result: Message = {
     id: `msg-${index}-${Date.parse(msg.timestamp)}`,
     role: msg.role === "system" ? "assistant" : msg.role,
     content: msg.content,
     timestamp: Date.parse(msg.timestamp),
   };
+  
+  // Only add optional fields if they have values
+  if (msg.reasoning_content) {
+    result.reasoning = msg.reasoning_content;
+  }
+  if (toolCalls) {
+    result.toolCalls = toolCalls;
+  }
+  
+  return result;
 }
 
 /**
  * Convert UI message to store message
  */
 function uiToStoreMessage(msg: Message): StoreMessage {
-  return {
+  const result: StoreMessage = {
     role: msg.role,
     content: msg.content,
     timestamp: new Date(msg.timestamp).toISOString(),
   };
+  
+  // Only add optional fields if they have values
+  if (msg.reasoning) {
+    result.reasoning_content = msg.reasoning;
+  }
+  
+  // Convert UI toolCalls to store tool_calls format
+  if (msg.toolCalls && msg.toolCalls.length > 0) {
+    result.tool_calls = msg.toolCalls.map(tc => {
+      const toolCall: any = {
+        tool: tc.name,
+        arguments: tc.arguments ? JSON.parse(tc.arguments) : {},
+        timestamp: new Date(msg.timestamp).toISOString(),
+      };
+      
+      if (tc.result) {
+        toolCall.result = {
+          success: tc.status === "success",
+          ...(tc.status === "success" ? { output: tc.result } : { error: tc.result }),
+        };
+      }
+      
+      return toolCall;
+    });
+  }
+
+  return result;
 }
 
 /**

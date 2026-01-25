@@ -3,6 +3,7 @@ import { SessionManager } from "../session/manager";
 import { mcpManager } from "../mcp/manager";
 import { MCPDiscovery } from "../mcp/discovery";
 import { MCPServerName } from "../mcp/types";
+import { load as loadConfig } from "../util/config";
 
 async function handleStats() {
   const session = SessionManager.getCurrentSession();
@@ -118,6 +119,244 @@ const MCP_NAME_COL = 14;
 const MCP_TYPE_COL = 8;
 // Wider error column to show full messages (was truncating at 35 chars)
 const MCP_ERROR_MAX = 60;
+
+// ============================================================================
+// /usage command - Check Z.AI Coding Plan quota and usage
+// ============================================================================
+
+interface UsageLimit {
+  type?: string;         // API uses "type" field (TIME_LIMIT, TOKENS_LIMIT)
+  limitType?: string;    // Fallback field name
+  usage?: number;        // Total allocation
+  currentValue?: number; // Currently used
+  remaining?: number;    // Available
+  percentage?: number;   // Usage percentage (0-100)
+  nextResetTime?: number; // Unix timestamp (ms or s)
+  usageDetails?: Array<{ modelCode: string; usage: number }>; // Per-model breakdown
+}
+
+interface UsageData {
+  timeLimit?: UsageLimit;   // TIME_LIMIT - API calls/requests
+  tokensLimit?: UsageLimit; // TOKENS_LIMIT - token usage
+  checkedAt: string;
+}
+
+// Format number with commas: 1234567 -> "1,234,567"
+function formatNumber(num: number): string {
+  return new Intl.NumberFormat("en-US").format(num);
+}
+
+// Format relative time: timestamp -> "in 9h 30m" or "Expired"
+function formatRelativeTime(timestampMs: number): string {
+  const now = Date.now();
+  const diff = timestampMs - now;
+  
+  if (diff <= 0) return "Expired";
+  
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (hours > 0) {
+    return `in ${hours}h ${mins}m`;
+  }
+  return `in ${mins}m`;
+}
+
+// Format timestamp to UTC datetime string
+function formatDateTimeUTC(timestampMs: number): string {
+  return new Date(timestampMs).toLocaleString("en-US", {
+    year: "numeric",
+    month: "2-digit", 
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  });
+}
+
+// Format timestamp to local datetime string with timezone abbreviation
+function formatDateTimeLocal(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  
+  // Get local time string
+  const localTime = date.toLocaleString("en-US", {
+    month: "2-digit", 
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  
+  // Get timezone abbreviation (e.g., "PST", "EST", "CST")
+  const tzAbbr = date.toLocaleString("en-US", { timeZoneName: "short" }).split(" ").pop() || "";
+  
+  return `${localTime} ${tzAbbr}`;
+}
+
+async function fetchUsageData(apiKey: string): Promise<UsageData> {
+  const url = "https://api.z.ai/api/monitor/usage/quota/limit";
+  
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+  
+  const data = await response.json() as Record<string, unknown>;
+  
+  // Check for API error in response body (Z.AI returns 200 with error in body)
+  if (data["success"] === false || data["code"] === 401) {
+    const msg = (data["msg"] as string) || "Authentication failed";
+    throw new Error(msg);
+  }
+  
+  // Flexible discovery of limits array (API may return in different structures)
+  let limits: UsageLimit[] = [];
+  
+  // Check data.data.limits or data.data.Limits (case-insensitive)
+  const inner = data["data"] as Record<string, unknown> | unknown[] | undefined;
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    for (const key of Object.keys(inner)) {
+      if (key.toLowerCase() === "limits" && Array.isArray(inner[key])) {
+        limits = inner[key] as UsageLimit[];
+        break;
+      }
+    }
+  } else if (Array.isArray(inner)) {
+    limits = inner as UsageLimit[];
+  }
+  
+  // Fallback: check data.limits directly
+  if (limits.length === 0 && data && typeof data === "object") {
+    for (const key of Object.keys(data)) {
+      if (key.toLowerCase() === "limits" && Array.isArray(data[key])) {
+        limits = data[key] as UsageLimit[];
+        break;
+      }
+    }
+  }
+  
+  // Parse limits into structured data
+  const result: UsageData = {
+    checkedAt: new Date().toLocaleString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit", 
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }),
+  };
+  
+  for (const item of limits) {
+    // API uses "type" field, fallback to "limitType" for compatibility
+    const limitType = item.type || item.limitType || "";
+    
+    if (limitType === "TIME_LIMIT" || limitType === "PROMPTS_LIMIT") {
+      result.timeLimit = item;
+    } else if (limitType === "TOKENS_LIMIT") {
+      result.tokensLimit = item;
+    }
+  }
+  
+  return result;
+}
+
+async function handleUsage(): Promise<{ success: boolean; output?: string; error?: string }> {
+  try {
+    const config = await loadConfig();
+    
+    if (!config.apiKey) {
+      return {
+        success: false,
+        error: "API key not configured. Set GLM_API_KEY environment variable or configure in ~/.config/impulse/config.json",
+      };
+    }
+    
+    const usage = await fetchUsageData(config.apiKey);
+    
+    const lines: string[] = [
+      `Checked: ${usage.checkedAt}`,
+      "",
+    ];
+    
+    // API Calls / Time Limit section
+    if (usage.timeLimit) {
+      const t = usage.timeLimit;
+      const total = t.usage || 0;
+      const used = t.currentValue || 0;
+      const remaining = t.remaining ?? (total - used);
+      const percentage = t.percentage || 0;
+      
+      lines.push("API CALLS");
+      lines.push("─".repeat(50));
+      lines.push(`Remaining    ${formatNumber(remaining).padEnd(12)} / ${formatNumber(total).padEnd(12)} ${percentage}% used`);
+      
+      // Show per-model breakdown if available
+      if (t.usageDetails && t.usageDetails.length > 0) {
+        const activeModels = t.usageDetails.filter(d => d.usage > 0);
+        if (activeModels.length > 0) {
+          lines.push("");
+          lines.push("  By Model:");
+          for (const detail of activeModels) {
+            lines.push(`    ${detail.modelCode.padEnd(16)} ${formatNumber(detail.usage)}`);
+          }
+        }
+      }
+      lines.push("");
+    }
+    
+    // Tokens section  
+    if (usage.tokensLimit) {
+      const t = usage.tokensLimit;
+      const total = t.usage || 0;
+      const used = t.currentValue || 0;
+      const remaining = t.remaining || 0;
+      const percentage = t.percentage || 0;
+      const resetTs = t.nextResetTime || 0;
+      
+      lines.push("TOKENS");
+      lines.push("─".repeat(50));
+      lines.push(`Used         ${formatNumber(used).padEnd(16)} ${percentage}% of ${formatNumber(total)}`);
+      lines.push(`Remaining    ${formatNumber(remaining)}`);
+      
+      if (resetTs > 0) {
+        // Handle both seconds and milliseconds timestamps
+        const tsMs = resetTs > 1e11 ? resetTs : resetTs * 1000;
+        const utcStr = formatDateTimeUTC(tsMs);
+        const localStr = formatDateTimeLocal(tsMs);
+        const relativeStr = formatRelativeTime(tsMs);
+        lines.push(`Next Reset   ${utcStr} UTC`);
+        lines.push(`             ${localStr} (${relativeStr})`);
+      }
+      lines.push("");
+    }
+    
+    // No data found
+    if (!usage.timeLimit && !usage.tokensLimit) {
+      lines.push("No usage data found.");
+      lines.push("This may indicate a new account or API issue.");
+    }
+    
+    return {
+      success: true,
+      output: lines.join("\n"),
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
 
 
 
@@ -336,6 +575,13 @@ export function registerInfoCommands(): void {
         return { success: true, output: "__SHOW_START_OVERLAY__" };
       },
       examples: ["/start"],
+    },
+    {
+      name: "usage",
+      category: "info",
+      description: "Check Z.AI Coding Plan quota and usage",
+      handler: handleUsage,
+      examples: ["/usage"],
     },
   ];
 

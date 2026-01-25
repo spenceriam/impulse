@@ -1801,10 +1801,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       {/* Session picker overlay */}
       <Show when={showSessionPicker()}>
         <SessionPickerOverlay
-          onSelect={async (session) => {
-            // Load the selected session
+          onSelect={(session) => {
+            // Close picker and mark session started FIRST (sync)
             setShowSessionPicker(false);
-            await loadSession(session.id);
+            setHasStartedSession(true);
+            // Then load session data (async, but UI already transitioned)
+            loadSession(session.id);
           }}
           onCancel={() => setShowSessionPicker(false)}
         />

@@ -5,6 +5,23 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-01-25
+
+### Added
+
+- **`/usage` command** - Check Z.AI Coding Plan quota and usage
+  - Shows API call limits (TIME_LIMIT) with remaining/total
+  - Shows token usage with remaining and percentage
+  - Displays next reset time in both UTC and local timezone with countdown
+  - Per-model usage breakdown when available
+
+### Fixed
+
+- **Session picker (`/load`)** - Overlay now closes immediately after selecting a session
+- **Session message restoration** - Tool calls and reasoning content now properly restored when loading saved sessions
+  - Previously showed empty messages for assistant responses that only contained tool calls
+  - Now displays tool names, arguments, and results correctly
+
 ## [0.20.2] - 2026-01-25
 
 ### Fixed
