@@ -1002,31 +1002,25 @@ This ensures:
 - Some servers require OAuth, others just API keys
 - Consider mcp-launchpad patterns for auth handling
 
-### Tool Display Refactor (Planned)
+### Tool Display Refactor (COMPLETE)
 
-**Goal:** Enhanced tool call display with collapsible output, unified diffs, and retry visibility.
+**Status:** Implemented in v0.15.x - v0.18.x releases
 
-**Documentation:** [docs/Future-ToolDisplayRefactor.md](docs/Future-ToolDisplayRefactor.md)
-
-**Key Features:**
+**Key Features Delivered:**
 - Collapsible tool blocks (click to expand/collapse)
 - Status indicators: ✓ (success), ✗ (error), ~ (running)
 - Bash: Show first 3 lines of output, expandable
 - File edits: Unified diff view with +/- markers
 - File writes: Filename + line count
-- Attempt tracking for retries (Ralph/looper pattern integration)
 - Auto-expand failed tools for visibility
 
-**Design Philosophy:**
-- Inspired by Geoffrey Huntley's "Ralph" pattern (https://ghuntley.com/ralph/)
-- "Watch the loop" - visibility into failures enables tuning
-- Integrates with existing looper skill for retry patterns
+**Implementation Files:**
+- `src/ui/components/CollapsibleToolBlock.tsx` - Collapse/expand logic
+- `src/ui/components/DiffView.tsx` - Unified diff renderer
+- `src/types/tool-metadata.ts` - Tool metadata types
+- `src/ui/components/MessageBlock.tsx` - Integration point
 
-**Why Later:**
-- Current display is functional for MVP
-- Requires metadata infrastructure in all tools
-- ~7 hours of implementation work
-- Better to stabilize core functionality first
+**Archived Documentation:** [docs/archive/feature-tool-display/](docs/archive/feature-tool-display/)
 
 ## How to Run
 
