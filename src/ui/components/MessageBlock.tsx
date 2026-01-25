@@ -543,11 +543,13 @@ function groupToolCalls(toolCalls: ToolCallInfo[]): ToolCallGroup[] {
 }
 
 /**
- * Render a single tool call with collapsible display
- * - Collapsed: shows status indicator + tool title
- * - Expanded: shows tool-specific content (command output, diff, etc.)
- * - Errors auto-expand
- * - Verbose mode: all tools default expanded
+ * Render a single tool call with inline summary display (Option A)
+ * 
+ * Display modes:
+ * - Running/Pending: Shows `~ tool_title` with running indicator
+ * - Success: Shows `✓ tool_title` as compact one-liner (expandable if has content)
+ * - Error: Shows `✗ tool_title` auto-expanded with error details
+ * - Verbose mode: All tools default expanded
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean }): JSX.Element {
   const title = () => getToolTitle(
@@ -562,13 +564,29 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
     props.toolCall.result
   );
 
-  // In verbose mode, default to expanded; otherwise let CollapsibleToolBlock decide
-  const defaultExpanded = () => props.verbose === true;
+  const status = () => props.toolCall.status;
+  const isRunning = () => status() === "pending" || status() === "running";
+  
+  // In verbose mode, default to expanded
+  // For errors, auto-expand
+  // For success, default to collapsed (compact inline summary)
+  const defaultExpanded = () => {
+    if (props.verbose === true) return true;
+    if (status() === "error") return true;
+    return false; // Success = collapsed by default
+  };
+
+  // For successful completions without meaningful expanded content, 
+  // don't show the expand indicator at all (truly inline)
+  const hasExpandableContent = () => {
+    if (isRunning()) return false; // No expand while running
+    return !!expandedContent();
+  };
 
   return (
     <CollapsibleToolBlock
       status={props.toolCall.status}
-      expandedContent={expandedContent()}
+      expandedContent={hasExpandableContent() ? expandedContent() : undefined}
       defaultExpanded={defaultExpanded()}
     >
       <text fg={Colors.ui.dim}>{title()}</text>
@@ -597,8 +615,8 @@ export function MessageBlock(props: MessageBlockProps) {
   const reasoning = () => props.message.reasoning;
   const isStreaming = () => props.message.streaming ?? false;
   
-  // User accent color is cyan (primary)
-  const userAccentColor = Colors.ui.primary;
+  // User accent color is gray (dim) - distinct from mode-colored AI messages
+  const userAccentColor = Colors.ui.dim;
 
   return (
     <Show
