@@ -159,6 +159,20 @@ export function ChatView(props: ChatViewProps) {
     if (!state) return null;
 
     switch (state.status) {
+      case "checking":
+        return (
+          <box 
+            flexDirection="row" 
+            paddingLeft={1}
+            paddingRight={1}
+            height={1}
+            alignItems="center"
+            backgroundColor="#0d0d1a"
+          >
+            <text fg={Colors.ui.dim}>Checking for updates...</text>
+          </box>
+        );
+      
       case "installing":
         return (
           <box 

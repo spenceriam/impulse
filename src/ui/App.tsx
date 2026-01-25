@@ -879,6 +879,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const [updateState, setUpdateState] = createSignal<UpdateState | null>(null);
   
   // Check if user has seen welcome screen on mount
+  // NOTE: Update check is now triggered AFTER Bus subscription is set up (see below)
   onMount(async () => {
     try {
       const cfg = await loadConfig();
@@ -889,10 +890,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       // Config load failed, show welcome anyway for new users
       setShowStartOverlay(true);
     }
-    
-    // Check for updates in background (non-blocking)
-    // Result will come via Bus event "update.available"
-    runUpdateCheck();
   });
   
   // Handle start overlay close - save that user has seen it
@@ -1004,6 +1001,19 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           ...(payload.error ? { error: payload.error } : {}),
         });
       }
+    });
+    
+    // NOW run update check - after subscription is set up
+    // This ensures we catch all update events
+    setUpdateState({ status: "checking" });
+    runUpdateCheck().finally(() => {
+      // If no update event was received, clear the checking state
+      // (happens when already on latest version or check failed silently)
+      setTimeout(() => {
+        setUpdateState(current => 
+          current?.status === "checking" ? null : current
+        );
+      }, 500);
     });
     
     onCleanup(() => {
