@@ -107,10 +107,10 @@ const QuestionOptionSchema = z.object({
   description: z.string().describe("Explanation of choice"),
 });
 
-// Question schema for the question tool
+// Question schema for the question tool (v0.19.0 - topic-based tabs)
 const QuestionSchema = z.object({
+  topic: z.string().max(20).describe("Topic/category name shown as tab (max 20 chars)"),
   question: z.string().describe("Complete question text"),
-  header: z.string().max(12).describe("Very short label (max 12 chars)"),
   options: z.array(QuestionOptionSchema).describe("Available choices"),
   multiple: z.boolean().optional().describe("Allow selecting multiple choices"),
 });
@@ -119,6 +119,7 @@ export const QuestionEvents = {
   Asked: BusEvent.define(
     "question.asked",
     z.object({
+      context: z.string().optional().describe("Brief explanation of why clarification is needed"),
       questions: z.array(QuestionSchema),
     })
   ),

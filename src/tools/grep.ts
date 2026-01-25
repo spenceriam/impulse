@@ -2,13 +2,16 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { sanitizePath } from "../util/path";
 
+const MAX_RESULTS = 100;
+const MAX_CONTENT_LENGTH = 120;
+
 const DESCRIPTION = `Fast content search tool that works with any codebase size.
 
 Usage:
 - Searches file contents using regular expressions
 - Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
 - Filter files by pattern with the include parameter
-- Returns file paths and line numbers with matches, sorted by modification time
+- Returns file paths and line numbers with matches (max ${MAX_RESULTS} results)
 
 Parameters:
 - pattern (required): The regex pattern to search for in file contents
@@ -21,12 +24,14 @@ When to Use:
 - Searching for error messages or log statements
 
 Notes:
-- Use Bash with rg (ripgrep) directly if you need to count matches within files`;
+- Results are limited to ${MAX_RESULTS} matches for efficiency
+- Long lines are truncated to ${MAX_CONTENT_LENGTH} characters
+- Use Bash with rg (ripgrep) directly if you need full output`;
 
 const GrepSchema = z.object({
   pattern: z.string(),
-  path: z.string(),
-  include: z.string(),
+  path: z.string().optional(),
+  include: z.string().optional(),
 });
 
 type GrepInput = z.infer<typeof GrepSchema>;
@@ -37,68 +42,94 @@ interface Match {
   content: string;
 }
 
+function truncateContent(content: string, maxLength: number): string {
+  if (content.length <= maxLength) return content;
+  return content.slice(0, maxLength - 3) + "...";
+}
+
 export const grepTool: Tool<GrepInput> = Tool.define(
   "grep",
   DESCRIPTION,
   GrepSchema,
   async (input: GrepInput): Promise<ToolResult> => {
     try {
-      const matches: Match[] = [];
       const searchPath = sanitizePath(input.path ?? ".");
-      const includeArgs = input.include ? `-g "${input.include}"` : "";
 
-      const spawnOptions = {
-        cmd: ["rg", input.pattern, searchPath, includeArgs],
-        env: process.env,
-      };
+      // Build command args properly as array elements
+      const cmd = [
+        "rg",
+        "--line-number", // Ensure line numbers in output
+        "--no-heading", // One result per line (file:line:content)
+        "--max-count",
+        "10", // Max 10 matches per file to avoid spam
+        "-m",
+        String(MAX_RESULTS), // Global max results
+      ];
 
-      const result = Bun.spawnSync(spawnOptions);
-
-      const stdout = (result.stdout?.toString("utf-8") ?? "") as string;
-      const outputLines = stdout.split("\n");
-      const fileLines = outputLines.filter((line) => line.trim() !== "");
-
-      for (const line of fileLines) {
-        if (input.include && !line.endsWith(input.include)) {
-          continue;
-      // @ts-ignore
-      // @ts-ignore
-        }
-
-        const match = line.match(/^(.*?)(\d+):(.*)$/);
-        if (match && match[1] && match[2] && match[3]) {
-          const file = match[1];
-          const lineNum = match[2];
-          const content = match[3];
-          matches.push({ file, line: parseInt(lineNum, 10), content });
-        }
+      // Add include pattern if specified
+      if (input.include) {
+        cmd.push("-g", input.include);
       }
 
-      const sortedMatches = matches.sort((a, b) => {
-        try {
-          const mtimeA = Bun.file(a.file).lastModified;
-          const mtimeB = Bun.file(b.file).lastModified;
-          return mtimeB - mtimeA;
-        } catch {
-          return 0;
-        }
+      // Add pattern and path
+      cmd.push(input.pattern, searchPath);
+
+      const result = Bun.spawnSync({
+        cmd,
+        env: process.env,
       });
 
-      const grepOutputLines = sortedMatches.map(
+      const stdout = (result.stdout?.toString("utf-8") ?? "") as string;
+      const outputLines = stdout.split("\n").filter((line) => line.trim() !== "");
+
+      const matches: Match[] = [];
+
+      for (const line of outputLines) {
+        // ripgrep output format: file:line:content
+        const colonIndex = line.indexOf(":");
+        if (colonIndex === -1) continue;
+
+        const file = line.slice(0, colonIndex);
+        const rest = line.slice(colonIndex + 1);
+
+        const secondColonIndex = rest.indexOf(":");
+        if (secondColonIndex === -1) continue;
+
+        const lineNum = parseInt(rest.slice(0, secondColonIndex), 10);
+        const content = rest.slice(secondColonIndex + 1);
+
+        if (!isNaN(lineNum)) {
+          matches.push({
+            file,
+            line: lineNum,
+            content: truncateContent(content.trim(), MAX_CONTENT_LENGTH),
+          });
+        }
+
+        // Stop early if we hit the limit
+        if (matches.length >= MAX_RESULTS) break;
+      }
+
+      // Format output with truncated content
+      const grepOutputLines = matches.map(
         (match) => `${match.file}:${match.line}: ${match.content}`
       );
 
+      const totalFound = matches.length;
+      const truncatedNotice =
+        totalFound >= MAX_RESULTS
+          ? `\n\n(Results limited to ${MAX_RESULTS}. Use ripgrep directly for full results.)`
+          : "";
+
       return {
         success: true,
-        output: grepOutputLines.join("\n"),
+        output: grepOutputLines.join("\n") + truncatedNotice,
         metadata: {
-          // Legacy field
-          count: sortedMatches.length,
-          // NEW: GrepMetadata fields
           type: "grep",
           pattern: input.pattern,
           path: input.path,
-          matchCount: sortedMatches.length,
+          matchCount: totalFound,
+          truncated: totalFound >= MAX_RESULTS,
         },
       };
     } catch (error) {

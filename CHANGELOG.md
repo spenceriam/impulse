@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-01-25
+
+### Fixed
+
+- **grep tool** - Fixed critical bugs preventing proper operation
+  - Command args now properly constructed as array elements (was passing string)
+  - Include filter (`-g` flag) now works correctly
+  - Removed broken post-filter logic that never matched
+
+### Changed
+
+- **grep tool** - Performance and token efficiency improvements
+  - Results capped at 100 matches (prevents token overflow)
+  - Line content truncated to 120 characters (saves tokens)
+  - Max 10 matches per file (prevents single file dominating results)
+  - Removed expensive mtime sorting (faster execution)
+
+- **glob tool** - Performance and token efficiency improvements
+  - Results capped at 1000 files (prevents massive outputs)
+  - Removed expensive mtime sorting (faster execution)
+  - Added `nodir: true` to only return files, not directories
+
+- **QuestionEvents schema** - Fixed type mismatch with question tool
+  - Updated to use `topic` instead of `header` (matching v0.19.0 changes)
+  - Added missing `context` field
+
 ## [0.19.0] - 2026-01-25
 
 ### Added
