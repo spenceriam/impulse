@@ -4,6 +4,7 @@ export type CommandCategory = "core" | "utility" | "info";
 
 export interface CommandDefinition {
   name: string
+  aliases?: string[]  // Alternative names for the command (e.g., "details" for "verbose")
   category: CommandCategory
   description: string
   args?: z.ZodSchema
@@ -46,9 +47,29 @@ class CommandRegistryImpl {
     }
 
     this.commands.set(definition.name, definition);
+    
+    // Register aliases pointing to the same definition
+    if (definition.aliases) {
+      for (const alias of definition.aliases) {
+        if (this.commands.has(alias)) {
+          throw new Error(`Command alias already registered: ${alias}`);
+        }
+        this.commands.set(alias, definition);
+      }
+    }
   }
 
   unregister(name: string): boolean {
+    const definition = this.commands.get(name);
+    if (!definition) return false;
+    
+    // Remove aliases too
+    if (definition.aliases) {
+      for (const alias of definition.aliases) {
+        this.commands.delete(alias);
+      }
+    }
+    
     return this.commands.delete(name);
   }
 

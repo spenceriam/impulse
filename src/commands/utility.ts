@@ -324,10 +324,11 @@ export function registerUtilityCommands(): void {
     },
     {
       name: "verbose",
+      aliases: ["details"],
       category: "utility",
       description: "Toggle verbose tool display (shows expanded details)",
       handler: handleVerbose,
-      examples: ["/verbose"],
+      examples: ["/verbose", "/details"],
     },
   ];
 
