@@ -1001,6 +1001,15 @@ This ensures:
 | 01-25-2026 | Global mode state module | mode-state.ts allows tool handlers to access current mode for path validation |
 | 01-25-2026 | Timing-based paste detection | Backup detection when onPaste doesn't fire - checks chars added vs time elapsed |
 | 01-25-2026 | Programmatic scroll on messages | ChatView uses scrollToBottom() effect when messages change - ensures latest visible |
+| 01-25-2026 | Single message block per AI turn | Tool continuations update same message instead of creating new blocks - cleaner UI |
+| 01-25-2026 | Hide tools when complete | Tool calls cleared from UI after execution - only final response visible |
+| 01-25-2026 | Scroll lock during AI processing | isLoading prop locks ChatView to bottom - prevents jumpy scroll behavior |
+| 01-25-2026 | 5x mouse wheel scroll speed | FastScrollAcceleration class for practical scrolling through long conversations |
+| 01-25-2026 | PageUp/PageDown navigation | Scroll 20 lines per keypress - only when AI not processing |
+| 01-25-2026 | Gray accent for user messages | User messages use dim gray lines, AI uses mode colors - visual distinction |
+| 01-25-2026 | /todo command with overlay | Shows all todos when TodoBar hidden (all complete) - review session history |
+| 01-25-2026 | /usage 5-hour window display | Clear consumed/allotted format with reset time in relative + UTC + local |
+| 01-25-2026 | Update failure reason display | Show actual error message (permission, timeout, etc.) not just "failed" |
 
 ## Future Work
 

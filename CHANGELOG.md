@@ -5,6 +5,64 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-01-25
+
+### Added
+
+- **`/todo` command** - View todo list in overlay when TodoBar is hidden
+  - Shows all todos with status indicators and priority markers
+  - Useful for reviewing session accomplishments after all tasks complete
+  - Press Esc to close
+
+- **PageUp/PageDown keyboard shortcuts** - Fast scrolling through chat history
+  - Scrolls 20 lines per keypress
+  - Only active when AI is not processing
+
+- **5x faster mouse wheel scrolling** - Practical scroll speed for long conversations
+  - Uses custom `FastScrollAcceleration` class
+  - Default speed increased from 1 to 5 lines per tick
+
+### Changed
+
+- **Single message block per AI turn** - Tool continuations now update the same message
+  - Previously each tool call + continuation created separate "GLM-4.7" blocks
+  - Now one block per turn that updates in place, appending content
+  - Cleaner, less cluttered conversation view
+
+- **Tools hidden when complete** - Tool calls cleared from UI after execution
+  - Tools visible while running (shows progress)
+  - Disappear after completion - only final text response shown
+  - Reduces visual noise in conversation
+
+- **Scroll behavior overhaul**
+  - Scroll locked to bottom during AI processing (can't scroll up while responding)
+  - Free scrolling when AI is done
+  - Uses `scrollTo(100_000)` for reliable positioning
+
+- **User message accent color** - Changed from cyan to gray
+  - User messages: Gray accent lines (neutral)
+  - AI messages: Mode-colored accent lines (cyan/green/purple/etc.)
+  - Clear visual distinction between user and AI turns
+
+- **`/usage` display improvements**
+  - Header now says "TOKENS (5-hour window)" for clarity
+  - Main line: `Consumed X / Y (Z%)` format
+  - Reset time shown in 3 formats: relative, UTC, and local timezone
+
+- **Todo checkmark indicator** - Changed `[x]` to `[✓]` for completed tasks
+
+- **TodoBar redesign**
+  - Counter on LEFT: `Todo (2/5)`
+  - Collapse button on RIGHT: `[−]`/`[+]`
+  - Panel completely hidden when all tasks complete (no "All complete" message)
+
+### Fixed
+
+- **Update failure messages** - Now shows actual error reason
+  - Displays permission errors, timeouts, and other failure details
+  - Two-line format: error message + manual command
+  - Helps users understand why auto-update failed
+
 ## [0.23.0] - 2026-01-25
 
 ### Added
