@@ -275,20 +275,19 @@ export function StatusLine(props: StatusLineProps) {
   
   // Render based on screen type
   if (props.isInitialScreen) {
-    // Simplified format for welcome screen
-    // Format: [Spinner] Model | [EX] | Dir | Branch | MCP | Date | Version
+    // Simplified format for welcome screen - NO model (already shown in banner + input title)
+    // Format: [Spinner] [EX] | Dir | Branch | MCP | Date | Version
     // NOTE: Always render spinner to maintain element order - use space when not loading
     return (
       <box height={1} justifyContent="center" flexDirection="row">
         {/* Spinner - show animated char when loading, space when idle */}
         <text fg={Colors.ui.primary}>{props.loading ? spinnerChar() : " "}</text>
         <text fg={Colors.ui.dim}>{" "}</text>
-        <text fg={Colors.ui.dim}>{displayModel()}</text>
         <Show when={isExpress()}>
-          <text fg={Colors.ui.dim}> | </text>
           <text fg={Colors.status.warning}>[EXPRESS]</text>
+          <text fg={Colors.ui.dim}> | </text>
         </Show>
-        <text fg={Colors.ui.dim}>{` | ${dir} |  ${gitBranch()} | `}</text>
+        <text fg={Colors.ui.dim}>{`${dir} |  ${gitBranch()} | `}</text>
         <text fg={mcpIndicator().color}>{`${mcpIndicator().label} ${mcpIndicator().dot}`}</text>
         <text fg={Colors.ui.dim}>{` | ${date} | ${version}`}</text>
       </box>
