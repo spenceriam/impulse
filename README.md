@@ -66,6 +66,7 @@ impulse --prompt "explain this codebase"
 | `-e, --express` | Enable Express mode |
 | `-d, --dir <path>` | Set working directory |
 | `--verbose` | Enable verbose logging |
+| `-cl, --changelog` | Show last 10 releases |
 | `-v, --version` | Show version |
 | `-h, --help` | Show help |
 
@@ -97,6 +98,7 @@ Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mo
 | `/express` | Toggle Express mode |
 | `/init` | Analyze project, create AGENTS.md |
 | `/stats` | Session statistics |
+| `/changelog` | View release history |
 | `/help` | Show help |
 | `/quit` | Exit |
 
@@ -111,6 +113,7 @@ Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mo
 | `@` | File autocomplete |
 | `Esc` (2x) | Cancel operation |
 | `Ctrl+C` (2x) | Exit |
+| `Ctrl+Q` | Message queue |
 | `Ctrl+P` | Command palette |
 | `Ctrl+M` | MCP status |
 

@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.27.2
+- **Version:** v0.27.8
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -790,14 +790,14 @@ interface QuestionToolOutput {
 | Key | Action |
 |-----|--------|
 | `Tab` | Cycle modes |
-| `Shift+Tab` | Cycle modes reverse |
+| `Shift+Tab` | Cycle modes reverse (or Allow All Edits in permission prompt) |
 | `Enter` | Submit / Select |
 | `Shift+Enter` | Line break in input |
 | `↑/↓` | Navigate / Scroll |
 | `@` | File/directory autocomplete |
 | `Esc` (2x) | Cancel / Stop operation |
 | `Ctrl+C` (2x) | Exit with summary |
-| `Ctrl+B` | Toggle sidebar |
+| `Ctrl+Q` | Message queue overlay |
 | `Ctrl+M` | MCP status overlay |
 | `Ctrl+P` | Command palette |
 | `Shift+Ctrl+C` | Copy prompt text to clipboard |
