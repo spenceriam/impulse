@@ -3,15 +3,17 @@ import { Colors, type Mode, getModeBackground } from "../design";
 
 /**
  * Thinking Block Component
- * Collapsible thinking display with 5-row preview
+ * Collapsible thinking display with fixed-height preview
  * 
  * States:
- * - Collapsed (default): 5-row preview with auto-scroll during streaming
- * - Expanded: Full content (max 20 rows), manual scroll
+ * - Collapsed (default): Fixed 5-row height with auto-scroll during streaming
+ * - Expanded: Shows FULL content inline (no scrollbox), parent ChatView handles scrolling
  * 
  * Behavior:
  * - Auto-collapses when streaming ends (turn complete)
  * - User can expand/collapse manually at any time
+ * - Fixed height only when collapsed (prevents jitter during streaming)
+ * - Expanded shows all content without internal scroll
  * 
  * Icons:
  * - ● (filled dot) = collapsed (shows preview)
@@ -23,7 +25,8 @@ import { Colors, type Mode, getModeBackground } from "../design";
  */
 
 // Height constants
-const PREVIEW_HEIGHT = 5;      // 5-row preview when collapsed
+const COLLAPSED_HEIGHT = 5;    // Fixed 5-row preview when collapsed
+const EXPANDED_MAX_HEIGHT = 50; // Max height when expanded (scrollable if exceeds)
 
 /**
  * Darken a hex color by reducing its brightness
@@ -74,25 +77,14 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
     setExpanded((e) => !e);
   };
 
-  // Calculate content height based on actual line count
+  // Calculate content lines for determining if expand is useful
   const contentLines = createMemo(() => {
     if (!props.content) return 0;
     return props.content.split("\n").length;
   });
 
-  // Height depends on state:
-  // - Collapsed: min(contentLines, PREVIEW_HEIGHT) - shows up to 5 rows
-  // - Expanded: full content height (no max)
-  const contentHeight = createMemo(() => {
-    const lines = contentLines();
-    if (expanded()) {
-      return lines; // Full height when expanded
-    }
-    return Math.min(lines, PREVIEW_HEIGHT);
-  });
-
-  // Only show expand/collapse if content exceeds preview height
-  const canExpand = () => contentLines() > PREVIEW_HEIGHT;
+  // Only show expand/collapse if content exceeds collapsed height
+  const canExpand = () => contentLines() > COLLAPSED_HEIGHT;
   
   const indicator = () => expanded() ? "○" : "●";
   const label = () => {
@@ -138,24 +130,33 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
           </box>
         </Show>
         
-        {/* Content area - always shown (preview or full) */}
-        <box flexDirection="row" paddingLeft={1}>
+        {/* Content area - scrollbox with different heights based on state */}
+        <box flexDirection="row" paddingLeft={1} paddingRight={1}>
           <box flexShrink={0} width={2}>
             <text fg={Colors.ui.dim}>  </text>
           </box>
-          <scrollbox
-            height={contentHeight()}
-            flexGrow={1}
-            stickyScroll={shouldAutoScroll()}
-            stickyStart="bottom"
-            style={{
-              viewportOptions: {
-                paddingRight: 1,
-              },
-            }}
+          <Show
+            when={expanded()}
+            fallback={
+              // Collapsed: Fixed 5-row height with auto-scroll during streaming
+              <scrollbox
+                height={COLLAPSED_HEIGHT}
+                flexGrow={1}
+                stickyScroll={shouldAutoScroll()}
+                stickyStart="bottom"
+              >
+                <text fg={Colors.ui.dim}><em>{props.content}</em></text>
+              </scrollbox>
+            }
           >
-            <text fg={Colors.ui.dim}><em>{props.content}</em></text>
-          </scrollbox>
+            {/* Expanded: Show up to 50 lines, scrollable if more */}
+            <scrollbox
+              height={Math.min(contentLines(), EXPANDED_MAX_HEIGHT)}
+              flexGrow={1}
+            >
+              <text fg={Colors.ui.dim}><em>{props.content}</em></text>
+            </scrollbox>
+          </Show>
         </box>
       </box>
     </Show>

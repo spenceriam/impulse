@@ -425,20 +425,30 @@ function getExpandedContent(
 /**
  * Activity categories for grouping tool calls
  */
-type ActivityCategory = "reading" | "editing" | "mcp" | "questions" | "other";
+type ActivityCategory = "reading" | "editing" | "executing" | "thinking" | "mcp" | "questions" | "other";
 
 /**
  * Get activity category for a tool call
  */
 function getActivityCategory(name: string): ActivityCategory {
-  // Reading/reviewing tools
-  if (["file_read", "glob", "grep"].includes(name)) {
+  // Reading/exploring tools
+  if (["file_read", "glob", "grep", "todo_read"].includes(name)) {
     return "reading";
   }
   
-  // Editing/writing tools
-  if (["file_write", "file_edit", "bash"].includes(name)) {
+  // Editing/writing file tools
+  if (["file_write", "file_edit"].includes(name)) {
     return "editing";
+  }
+  
+  // Executing/running tools (bash, task/subagent)
+  if (["bash", "task"].includes(name)) {
+    return "executing";
+  }
+  
+  // Planning/thinking tools
+  if (["todo_write", "set_header", "set_mode"].includes(name)) {
+    return "thinking";
   }
   
   // Question tool
@@ -466,13 +476,17 @@ function getActivityLabel(category: ActivityCategory, hasRunning: boolean): stri
   
   switch (category) {
     case "reading":
-      return "Reviewing documents...";
+      return "Reading files...";
     case "editing":
-      return "Editing documents...";
+      return "Editing files...";
+    case "executing":
+      return "Running...";
+    case "thinking":
+      return "Planning...";
     case "mcp":
       return "Using external tools...";
     case "questions":
-      return "Clarifying with questions...";
+      return "Asking questions...";
     default:
       return "";
   }
@@ -515,7 +529,7 @@ interface ToolCallGroup {
 
 function groupToolCalls(toolCalls: ToolCallInfo[]): ToolCallGroup[] {
   const groups = new Map<ActivityCategory, ToolCallGroup>();
-  const categoryOrder: ActivityCategory[] = ["reading", "editing", "mcp", "questions", "other"];
+  const categoryOrder: ActivityCategory[] = ["reading", "editing", "executing", "thinking", "mcp", "questions", "other"];
   
   toolCalls.forEach((toolCall, index) => {
     const category = getActivityCategory(toolCall.name);
@@ -660,9 +674,6 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   );
 }
 
-// Thin accent line character (half-height block)
-const THIN_LINE = "─";
-
 export function MessageBlock(props: MessageBlockProps) {
   // Handle click to copy message content
   const handleCopy = () => {
@@ -707,22 +718,21 @@ export function MessageBlock(props: MessageBlockProps) {
       when={isUser()}
       fallback={
         // Assistant message with mode-colored thin accent lines and tinted background
+        // Background applied to outer container so it encompasses accent lines
         <box 
           flexDirection="column" 
           marginBottom={1}
           width="100%"
           minWidth={0}
           overflow="hidden"
+          backgroundColor={aiBackground()}
         >
-          {/* Top accent line - mode colored */}
-          <box height={1} width="100%" overflow="hidden">
-            <text fg={modeColor()}>{THIN_LINE.repeat(200)}</text>
-          </box>
+          {/* Top accent line - mode colored, uses background color to fill full width */}
+          <box height={1} width="100%" backgroundColor={modeColor()} />
           
-          {/* Message content area with mode-tinted background - clickable to copy */}
+          {/* Message content area - clickable to copy */}
           <box 
             flexDirection="column"
-            backgroundColor={aiBackground()}
             paddingLeft={1}
             paddingRight={1}
             width="100%"
@@ -839,30 +849,27 @@ export function MessageBlock(props: MessageBlockProps) {
             </Show>
           </box>
           
-          {/* Bottom accent line - mode colored */}
-          <box height={1} width="100%" overflow="hidden">
-            <text fg={modeColor()}>{THIN_LINE.repeat(200)}</text>
-          </box>
+          {/* Bottom accent line - mode colored, uses background color to fill full width */}
+          <box height={1} width="100%" backgroundColor={modeColor()} />
         </box>
       }
     >
-      {/* User message with cyan thin accent lines */}
+      {/* User message with gray thin accent lines */}
+      {/* Background applied to outer container so it encompasses accent lines */}
       <box 
         flexDirection="column" 
         marginBottom={1} 
         width="100%" 
         minWidth={0} 
         overflow="hidden"
+        backgroundColor={USER_MESSAGE_BG}
       >
-        {/* Top accent line - cyan */}
-        <box height={1} width="100%" overflow="hidden">
-          <text fg={userAccentColor}>{THIN_LINE.repeat(200)}</text>
-        </box>
+        {/* Top accent line - gray, uses background color to fill full width */}
+        <box height={1} width="100%" backgroundColor={userAccentColor} />
         
         {/* Message content area - clickable to copy */}
         <box 
           flexDirection="column" 
-          backgroundColor={USER_MESSAGE_BG}
           paddingLeft={1}
           paddingRight={1}
           width="100%"
@@ -884,10 +891,8 @@ export function MessageBlock(props: MessageBlockProps) {
           </Show>
         </box>
         
-        {/* Bottom accent line - cyan */}
-        <box height={1} width="100%" overflow="hidden">
-          <text fg={userAccentColor}>{THIN_LINE.repeat(200)}</text>
-        </box>
+        {/* Bottom accent line - gray, uses background color to fill full width */}
+        <box height={1} width="100%" backgroundColor={userAccentColor} />
       </box>
     </Show>
   );

@@ -1243,15 +1243,21 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       return;
     }
 
-    // Tab to cycle modes (only when no overlay is active)
-    if (key.name === "tab" && !key.shift && !key.ctrl && !isOverlayActive()) {
-      cycleMode();
-      return;
-    }
-
-    // Shift+Tab to cycle modes reverse (only when no overlay is active)
-    if (key.name === "tab" && key.shift && !isOverlayActive()) {
-      cycleModeReverse();
+    // Tab/Shift+Tab to cycle modes (only when no overlay is active)
+    // IMPORTANT: Check pendingPermission() explicitly because:
+    // 1. Permission prompt has its own Shift+Tab handler (Allow All Edits)
+    // 2. isOverlayActive() may have reactivity issues inside useKeyboard callbacks
+    if (key.name === "tab" && !key.ctrl) {
+      // Skip mode cycling when any overlay is active OR permission is pending
+      if (isOverlayActive() || pendingPermission()) {
+        return;
+      }
+      
+      if (key.shift) {
+        cycleModeReverse();
+      } else {
+        cycleMode();
+      }
       return;
     }
     

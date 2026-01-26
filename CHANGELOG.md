@@ -5,6 +5,34 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.7] - 2026-01-26
+
+### Fixed
+
+- **Shift+Tab mode cycling conflict** - Fixed Shift+Tab changing modes when permission prompt is visible
+  - Root cause: App.tsx keyboard handler wasn't properly blocking Tab/Shift+Tab when permission prompt was shown
+  - Fix: Added explicit `pendingPermission()` check alongside `isOverlayActive()` to ensure mode cycling is blocked
+  - Shift+Tab in permission prompt now correctly triggers "Allow All Edits" instead of cycling modes
+
+- **Activity status messages** - Fixed incorrect status messages for tool actions
+  - `bash` commands now show "Running..." instead of "Editing documents..."
+  - `task` (subagent) now shows "Running..." 
+  - `todo_write`, `set_header`, `set_mode` now show "Planning..."
+  - `question` now shows "Asking questions..."
+  - File operations (`file_read`, `glob`, `grep`) show "Reading files..."
+  - File edits (`file_write`, `file_edit`) show "Editing files..."
+
+- **ThinkingBlock visual jitter** - Fixed glitchy scrolling during AI thinking
+  - Root cause: Dynamic height calculation during streaming caused layout thrashing
+  - Fix: Collapsed uses fixed 5-row height with auto-scroll; expanded shows actual content height (max 50 rows)
+  - Auto-scroll to bottom still works smoothly during streaming
+
+- **Accent line width mismatch** - Fixed visual inconsistency between accent lines and backgrounds
+  - MessageBlock: Background was extending beyond accent lines on the right
+  - InputArea: Accent lines weren't reaching full width of background
+  - Fix: Use solid background color boxes instead of repeated text characters for accent lines
+  - All accent lines now perfectly match their container widths
+
 ## [0.27.6] - 2026-01-26
 
 ### Fixed

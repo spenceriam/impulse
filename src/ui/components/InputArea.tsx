@@ -496,27 +496,20 @@ export function InputArea(props: InputAreaProps) {
       overflow="hidden"      // Clip content at bounds
       width="100%"
     >
-      {/* Top accent line with mode label embedded */}
-      <box height={1} width="100%" overflow="hidden" flexDirection="row">
-        <box flexShrink={0}>
-          <text fg={modeColor()}>{"▄▄▄"}</text>
-        </box>
-        <box backgroundColor={Colors.input.background} flexShrink={0}>
-          <text fg={modeColor()}>{modeLabel()}</text>
-        </box>
-        <box flexGrow={1} overflow="hidden">
-          <text fg={modeColor()}>{"▄".repeat(200)}</text>
-        </box>
+      {/* Top accent line - uses background color to fill full width */}
+      <box height={1} width="100%" backgroundColor={modeColor()} />
+      
+      {/* Mode label row - separate from accent line for cleaner layout */}
+      <box height={1} paddingLeft={1} flexDirection="row">
+        <text fg={modeColor()}>{modeLabel()}</text>
+        <box flexGrow={1} />
         {/* Copied indicator - shows briefly when message copied to clipboard */}
         <Show when={props.copiedIndicator}>
-          <box backgroundColor={Colors.input.background} flexShrink={0} paddingLeft={1} paddingRight={1}>
-            <text fg={Colors.status.success}> Copied </text>
+          <box flexShrink={0} paddingRight={1}>
+            <text fg={Colors.status.success}>Copied</text>
           </box>
         </Show>
       </box>
-      
-      {/* Spacer line for breathing room */}
-      <box height={1} />
       
       {/* Main content area with padding */}
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
@@ -553,10 +546,8 @@ export function InputArea(props: InputAreaProps) {
         </box>
       </box>
       
-      {/* Bottom accent line - full width */}
-      <box height={1} width="100%" overflow="hidden">
-        <text fg={modeColor()}>{"▀".repeat(200)}</text>
-      </box>
+      {/* Bottom accent line - uses background color to fill full width */}
+      <box height={1} width="100%" backgroundColor={modeColor()} />
     </box>
   );
 }

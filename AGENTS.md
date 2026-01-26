@@ -1057,6 +1057,7 @@ This ensures:
 | 01-26-2026 | Permission sub-choices | "Allow session" as visual header with exact/wildcard radio buttons below |
 | 01-26-2026 | Shift+Tab allow all edits | Session-scoped auto-approve for file_edit/file_write only - not persisted |
 | 01-26-2026 | Status line flash messages | Temporary notifications right of model name, in mode color, 5s auto-dismiss |
+| 01-26-2026 | Explicit pendingPermission check | Added to Tab/Shift+Tab handler - isOverlayActive() alone wasn't blocking mode cycling |
 
 ## Future Work
 
