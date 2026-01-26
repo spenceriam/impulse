@@ -153,26 +153,6 @@ export const UpdateEvents = {
       updateCommand: z.string(),
     })
   ),
-  Installing: BusEvent.define(
-    "update.installing",
-    z.object({
-      latestVersion: z.string(),
-    })
-  ),
-  Installed: BusEvent.define(
-    "update.installed",
-    z.object({
-      latestVersion: z.string(),
-    })
-  ),
-  Failed: BusEvent.define(
-    "update.failed",
-    z.object({
-      latestVersion: z.string(),
-      updateCommand: z.string(),
-      error: z.string().optional(),
-    })
-  ),
 };
 
 // Queue message schema

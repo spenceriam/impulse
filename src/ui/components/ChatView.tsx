@@ -74,6 +74,7 @@ interface ChatViewProps {
   compactingState?: CompactingState | null;
   updateState?: UpdateState | null;
   onDismissUpdate?: () => void;
+  onConfirmUpdate?: () => void;
   onCopyMessage?: (content: string) => void;  // Called when user clicks a message to copy
 }
 
@@ -154,6 +155,22 @@ export function ChatView(props: ChatViewProps) {
     }
   });
 
+  // Handle Y/N keys for update prompt (when visible in session view)
+  useKeyboard((key) => {
+    // Only handle when update is available
+    if (updateState()?.status !== "available") return;
+    
+    if (key.name === "y" || key.name === "Y") {
+      props.onConfirmUpdate?.();
+      return;
+    }
+    
+    if (key.name === "n" || key.name === "N") {
+      props.onDismissUpdate?.();
+      return;
+    }
+  });
+
   // Render update notification based on state
   const renderUpdateNotification = () => {
     const state = updateState();
@@ -174,7 +191,7 @@ export function ChatView(props: ChatViewProps) {
           </box>
         );
       
-      case "installing":
+      case "available":
         return (
           <box 
             flexDirection="row" 
@@ -182,54 +199,22 @@ export function ChatView(props: ChatViewProps) {
             paddingRight={1}
             height={1}
             alignItems="center"
-            backgroundColor="#1a1a00"
+            backgroundColor="#001a1a"
           >
-            <text fg={Colors.status.warning}>Updating to {state.latestVersion}...</text>
-          </box>
-        );
-      
-      case "installed":
-        return (
-          <box 
-            flexDirection="row" 
-            paddingLeft={1}
-            paddingRight={1}
-            height={1}
-            alignItems="center"
-            backgroundColor="#001a00"
-          >
-            <text fg={Colors.status.success}>Updated to {state.latestVersion}! Please restart IMPULSE to apply.</text>
+            <text fg={Colors.ui.primary}>Update available: v{state.latestVersion}</text>
             <box flexGrow={1} />
-            <box onMouseDown={() => props.onDismissUpdate?.()}>
-              <text fg={Colors.ui.dim}>[X]</text>
+            <box 
+              onMouseDown={() => props.onConfirmUpdate?.()}
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              <text fg={Colors.status.success}>[Y] Update</text>
             </box>
-          </box>
-        );
-      
-      case "failed":
-        // Show error reason if available, otherwise show manual command
-        const errorMsg = state.error || "Unknown error";
-        const isPermissionError = errorMsg.toLowerCase().includes("permission") || errorMsg.includes("EACCES");
-        return (
-          <box 
-            flexDirection="column" 
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor="#1a0000"
-          >
-            <box flexDirection="row" height={1} alignItems="center">
-              <text fg={Colors.status.error}>Update failed: </text>
-              <text fg={Colors.ui.text}>{errorMsg.slice(0, 60)}{errorMsg.length > 60 ? "..." : ""}</text>
-              <box flexGrow={1} />
-              <box onMouseDown={() => props.onDismissUpdate?.()}>
-                <text fg={Colors.ui.dim}>[X]</text>
-              </box>
-            </box>
-            <box flexDirection="row" height={1}>
-              <text fg={Colors.ui.dim}>
-                {isPermissionError ? "Try: " : "Manual: "}
-              </text>
-              <text fg={Colors.ui.primary}>{state.updateCommand}</text>
+            <box 
+              onMouseDown={() => props.onDismissUpdate?.()}
+              paddingLeft={1}
+            >
+              <text fg={Colors.ui.dim}>[N] Dismiss</text>
             </box>
           </box>
         );

@@ -1,20 +1,24 @@
 /**
- * Auto-update checker and installer for IMPULSE
- * Checks npm registry for newer versions and auto-installs updates
+ * Update checker for IMPULSE
+ * Checks npm registry for newer versions and prompts user to update.
  * 
- * Handles both global (-g) and local installs by detecting where
- * the current binary is running from.
+ * NEW APPROACH (v0.27.12):
+ * - Check for updates on startup
+ * - If update available, show notification with [Y] to update
+ * - If user confirms, EXIT the app first (so binary can be replaced)
+ * - Run npm install after exit
+ * - Show result in terminal and prompt to restart
  */
 
 import * as semver from "semver";
-import { spawn } from "child_process";
+import { spawnSync } from "child_process";
 import { Bus, UpdateEvents } from "../bus/index";
 import { isDebugEnabled } from "./debug-log";
 import packageJson from "../../package.json";
 
 // Package info
 const PACKAGE_NAME = "@spenceriam/impulse";
-const CURRENT_VERSION = packageJson.version; // Read from package.json
+const CURRENT_VERSION = packageJson.version;
 const REGISTRY_URL = "https://registry.npmjs.org";
 
 /**
@@ -31,61 +35,6 @@ function debugLog(message: string, data?: unknown): void {
   }
 }
 
-/**
- * Detect if running from a global npm install
- * Global installs typically have paths like:
- * - /usr/local/bin/impulse
- * - ~/.nvm/versions/node/vX.X.X/bin/impulse
- * - C:\Users\X\AppData\Roaming\npm\impulse
- * 
- * Local installs would be in node_modules/.bin/ within a project
- */
-function isGlobalInstall(): boolean {
-  const execPath = process.execPath;
-  const argv0 = process.argv[0] || "";
-  
-  // Check if running from node_modules (local install)
-  if (execPath.includes("node_modules") || argv0.includes("node_modules")) {
-    return false;
-  }
-  
-  // Check common global paths
-  const globalIndicators = [
-    "/usr/local/",
-    "/usr/bin/",
-    "/.nvm/",
-    "/AppData/Roaming/npm",
-    "\\AppData\\Roaming\\npm",
-  ];
-  
-  return globalIndicators.some(indicator => 
-    execPath.includes(indicator) || argv0.includes(indicator)
-  );
-}
-
-/**
- * Get the appropriate npm install command based on install location
- */
-function getInstallCommand(): string {
-  if (isGlobalInstall()) {
-    return `npm install -g ${PACKAGE_NAME}`;
-  } else {
-    // Local install - just update in current directory
-    return `npm install ${PACKAGE_NAME}`;
-  }
-}
-
-/**
- * Get npm install args based on install location
- */
-function getNpmInstallArgs(): string[] {
-  if (isGlobalInstall()) {
-    return ["install", "-g", PACKAGE_NAME];
-  } else {
-    return ["install", PACKAGE_NAME];
-  }
-}
-
 export interface UpdateInfo {
   currentVersion: string;
   latestVersion: string;
@@ -94,9 +43,8 @@ export interface UpdateInfo {
 
 export type UpdateState = 
   | { status: "checking" }
-  | { status: "installing"; latestVersion: string }
-  | { status: "installed"; latestVersion: string }
-  | { status: "failed"; latestVersion: string; updateCommand: string; error?: string };
+  | { status: "available"; latestVersion: string; updateCommand: string }
+  | { status: "none" };
 
 /**
  * Check npm registry for newer version
@@ -152,7 +100,7 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
       return {
         currentVersion: CURRENT_VERSION,
         latestVersion,
-        updateCommand: getInstallCommand(),
+        updateCommand: `npm install -g ${PACKAGE_NAME}`,
       };
     }
 
@@ -165,60 +113,9 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
 }
 
 /**
- * Run npm install to update the package
- * Uses global or local install based on where current binary is running from
- * Returns { success: boolean, error?: string }
- */
-async function runNpmInstall(): Promise<{ success: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const args = getNpmInstallArgs();
-    const child = spawn("npm", args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
-    });
-
-    let stderr = "";
-
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ success: true });
-      } else {
-        // Check for common permission errors
-        const installCmd = getInstallCommand();
-        const errorMsg = stderr.includes("EACCES") || stderr.includes("permission")
-          ? `Permission denied - try: sudo ${installCmd}`
-          : stderr.slice(0, 200) || `Exit code ${code}`;
-        resolve({ success: false, error: errorMsg });
-      }
-    });
-
-    child.on("error", (err) => {
-      resolve({ success: false, error: err.message });
-    });
-
-    // Timeout after 60 seconds
-    setTimeout(() => {
-      child.kill();
-      resolve({ success: false, error: "Install timed out" });
-    }, 60000);
-  });
-}
-
-/**
- * Run update check and auto-install if update available
+ * Run update check and notify if update available
  * Called once on app startup
- * 
- * NOTE: We trust npm's exit code (0 = success) without verifying the installed version.
- * Verification was removed because:
- * 1. The current process is still running the old binary
- * 2. PATH caching means `impulse --version` often returns the old version
- * 3. This caused false "update failed" messages when the install actually succeeded
- * 
- * If npm install exits 0, the package was installed. User just needs to restart.
+ * Does NOT auto-install - just notifies via Bus event
  */
 export async function runUpdateCheck(): Promise<void> {
   debugLog("runUpdateCheck started");
@@ -229,33 +126,63 @@ export async function runUpdateCheck(): Promise<void> {
     return;
   }
 
-  debugLog("Update available, starting install", { 
+  debugLog("Update available", { 
     from: update.currentVersion, 
     to: update.latestVersion,
     command: update.updateCommand 
   });
 
-  // Notify that we're installing
-  Bus.publish(UpdateEvents.Installing, { latestVersion: update.latestVersion });
+  // Notify that update is available - UI will show prompt
+  Bus.publish(UpdateEvents.Available, { 
+    currentVersion: update.currentVersion,
+    latestVersion: update.latestVersion,
+    updateCommand: update.updateCommand,
+  });
+}
 
-  // Run the install
-  const installResult = await runNpmInstall();
-  debugLog("Install result", installResult);
+/**
+ * Perform the actual update after app has exited
+ * This is called from index.tsx after renderer.destroy()
+ * 
+ * Runs npm install -g synchronously and prints result to terminal
+ */
+export function performUpdate(latestVersion: string): void {
+  console.log(`\nUpdating IMPULSE to v${latestVersion}...`);
+  console.log(`Running: npm install -g ${PACKAGE_NAME}\n`);
 
-  if (!installResult.success) {
-    debugLog("Install failed", { error: installResult.error });
-    Bus.publish(UpdateEvents.Failed, {
-      latestVersion: update.latestVersion,
-      updateCommand: update.updateCommand,
-      error: installResult.error || "npm install failed",
+  const result = spawnSync("npm", ["install", "-g", PACKAGE_NAME], {
+    stdio: "inherit", // Show npm output directly
+    shell: true,
+  });
+
+  if (result.status === 0) {
+    // Verify the update worked
+    const versionCheck = spawnSync("impulse", ["--version"], {
+      encoding: "utf-8",
+      shell: true,
     });
-    return;
+    
+    const installedVersion = versionCheck.stdout?.match(/(\d+\.\d+\.\d+)/)?.[1];
+    
+    if (installedVersion === latestVersion) {
+      console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`  Update successful! IMPULSE is now v${latestVersion}`);
+      console.log(`  Run 'impulse' to start the new version.`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    } else {
+      console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`  Update completed but version mismatch.`);
+      console.log(`  Expected: v${latestVersion}`);
+      console.log(`  Got: v${installedVersion || "unknown"}`);
+      console.log(`  Try running: npm install -g ${PACKAGE_NAME}`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    }
+  } else {
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`  Update failed (exit code ${result.status})`);
+    console.log(`  Try running manually: npm install -g ${PACKAGE_NAME}`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   }
-
-  // npm install succeeded (exit code 0) - trust that the package was installed
-  // User needs to restart to pick up the new binary
-  debugLog("Install succeeded, publishing Installed event");
-  Bus.publish(UpdateEvents.Installed, { latestVersion: update.latestVersion });
 }
 
 /**

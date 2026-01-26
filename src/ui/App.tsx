@@ -30,7 +30,7 @@ import { setCurrentMode } from "../tools/mode-state";
 import { type ToolCallInfo } from "./components/MessageBlock";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
-import { runUpdateCheck, type UpdateState } from "../util/update-check";
+import { runUpdateCheck, performUpdate, type UpdateState } from "../util/update-check";
 import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
@@ -380,11 +380,28 @@ function WelcomeScreen(props: {
   onAutocompleteChange?: (data: { commands: { name: string; description: string }[]; selectedIndex: number } | null) => void;
   updateState?: UpdateState | null;
   onDismissUpdate?: () => void;
+  onConfirmUpdate?: () => void;
 }) {
   const { mode, thinking } = useMode();
   const { model } = useSession();
   const dimensions = useTerminalDimensions();
   const terminalWidth = () => dimensions().width;
+
+  // Handle Y/N keys for update prompt
+  useKeyboard((key) => {
+    // Only handle when update is available
+    if (props.updateState?.status !== "available") return;
+    
+    if (key.name === "y" || key.name === "Y") {
+      props.onConfirmUpdate?.();
+      return;
+    }
+    
+    if (key.name === "n" || key.name === "N") {
+      props.onDismissUpdate?.();
+      return;
+    }
+  });
 
   // ASCII logo for IMPULSE - centered inside [[ ]] frame
   const logo = [
@@ -469,54 +486,33 @@ function WelcomeScreen(props: {
         </box>
         
         {/* Update notification - show between logo and prompt */}
-        <Show when={props.updateState && props.updateState.status !== "checking"}>
+        <Show when={props.updateState?.status === "available"}>
           <box flexDirection="column" alignItems="center" paddingTop={2}>
             <box width={boxWidth()}>
-              <Show when={props.updateState?.status === "installing"}>
+              <box 
+                flexDirection="row" 
+                paddingLeft={1}
+                paddingRight={1}
+                height={1}
+                alignItems="center"
+                backgroundColor="#001a1a"
+              >
+                <text fg={Colors.ui.primary}>Update available: v{(props.updateState as { latestVersion: string }).latestVersion}</text>
+                <box flexGrow={1} />
                 <box 
-                  flexDirection="row" 
+                  onMouseDown={() => props.onConfirmUpdate?.()}
                   paddingLeft={1}
                   paddingRight={1}
-                  height={1}
-                  alignItems="center"
-                  backgroundColor="#1a1a00"
                 >
-                  <text fg={Colors.status.warning}>Updating to {(props.updateState as { latestVersion: string }).latestVersion}...</text>
+                  <text fg={Colors.status.success}>[Y] Update</text>
                 </box>
-              </Show>
-              <Show when={props.updateState?.status === "installed"}>
                 <box 
-                  flexDirection="row" 
+                  onMouseDown={() => props.onDismissUpdate?.()}
                   paddingLeft={1}
-                  paddingRight={1}
-                  height={1}
-                  alignItems="center"
-                  backgroundColor="#001a00"
                 >
-                  <text fg={Colors.status.success}>Updated to {(props.updateState as { latestVersion: string }).latestVersion}! Please restart IMPULSE to apply.</text>
-                  <box flexGrow={1} />
-                  <box onMouseDown={() => props.onDismissUpdate?.()}>
-                    <text fg={Colors.ui.dim}>[X]</text>
-                  </box>
+                  <text fg={Colors.ui.dim}>[N] Dismiss</text>
                 </box>
-              </Show>
-              <Show when={props.updateState?.status === "failed"}>
-                <box 
-                  flexDirection="row" 
-                  paddingLeft={1}
-                  paddingRight={1}
-                  height={1}
-                  alignItems="center"
-                  backgroundColor="#1a0000"
-                >
-                  <text fg={Colors.status.error}>Update failed. Run: </text>
-                  <text fg={Colors.ui.primary}>{(props.updateState as { updateCommand: string }).updateCommand}</text>
-                  <box flexGrow={1} />
-                  <box onMouseDown={() => props.onDismissUpdate?.()}>
-                    <text fg={Colors.ui.dim}>[X]</text>
-                  </box>
-                </box>
-              </Show>
+              </box>
             </box>
           </box>
         </Show>
@@ -1118,22 +1114,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           setCompactingState(null);
         }, 2000);
       }
-      // Update events - show notification in ChatView
-      if (event.type === "update.installing") {
-        const payload = event.properties as { latestVersion: string };
-        setUpdateState({ status: "installing", latestVersion: payload.latestVersion });
-      }
-      if (event.type === "update.installed") {
-        const payload = event.properties as { latestVersion: string };
-        setUpdateState({ status: "installed", latestVersion: payload.latestVersion });
-      }
-      if (event.type === "update.failed") {
-        const payload = event.properties as { latestVersion: string; updateCommand: string; error?: string };
+      // Update available event - show notification with [Y]/[N] prompt
+      if (event.type === "update.available") {
+        const payload = event.properties as { currentVersion: string; latestVersion: string; updateCommand: string };
         setUpdateState({ 
-          status: "failed", 
+          status: "available", 
           latestVersion: payload.latestVersion, 
           updateCommand: payload.updateCommand,
-          ...(payload.error ? { error: payload.error } : {}),
         });
       }
     });
@@ -1636,6 +1623,23 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     }
   };
 
+  // Handle user confirming update - exit app and run npm install
+  const handleConfirmUpdate = () => {
+    const state = updateState();
+    if (state?.status !== "available") return;
+    
+    const version = state.latestVersion;
+    
+    // Destroy UI first so terminal is freed up for npm output
+    renderer.destroy();
+    
+    // Run the update (synchronous, shows output directly to terminal)
+    performUpdate(version);
+    
+    // Exit cleanly
+    process.exit(0);
+  };
+
   // Handle message submission
   const handleSubmit = async (content: string) => {
     const trimmedContent = content.trim();
@@ -1995,7 +1999,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     <>
       <Show
         when={messages().length > 0 || hasStartedSession()}
-        fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} updateState={updateState()} onDismissUpdate={() => setUpdateState(null)} />}
+        fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} updateState={updateState()} onDismissUpdate={() => setUpdateState(null)} onConfirmUpdate={handleConfirmUpdate} />}
       >
         {/* Session view with symmetric padding */}
         <box 
@@ -2020,6 +2024,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
               compactingState={compactingState()} 
               updateState={updateState()} 
               onDismissUpdate={() => setUpdateState(null)}
+              onConfirmUpdate={handleConfirmUpdate}
               onCopyMessage={handleCopyMessage}
             />
             

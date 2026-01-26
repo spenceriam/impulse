@@ -1068,6 +1068,7 @@ This ensures:
 | 01-26-2026 | /changelog command with overlay | Paginated display (20 per page) with "Load more" button - fetches from GitHub |
 | 01-26-2026 | --changelog CLI flag | Print last 10 releases to stdout - for quick reference without TUI |
 | 01-26-2026 | Ctrl+C session summary | Double Ctrl+C now shows same session summary as /exit command |
+| 01-26-2026 | Auto-updater exit-first approach | npm can't replace running binary - exit app, then install, then show result |
 
 ## Future Work
 

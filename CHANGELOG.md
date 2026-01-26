@@ -5,6 +5,25 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.12] - 2026-01-26
+
+### Fixed
+
+- **Auto-updater actually works now** - Complete redesign of the update flow
+  - Previously: Attempted to update in-place while app was running (binary locked, couldn't be replaced)
+  - Problem: npm install would fail or report success but the old binary remained cached
+  - Solution: Exit the app FIRST, then run npm install, then show result in terminal
+  - New UX: Shows "Update available: v0.X.Y [Y] Update [N] Dismiss"
+  - Press Y or click to update: App exits cleanly, runs npm install with visible output, prompts to restart
+  - Press N or click to dismiss: Notification disappears, continue using current version
+  - Works on both Welcome Screen and during active sessions
+
+### Removed
+
+- **Old update states** - Removed `installing`, `installed`, `failed` states
+  - Simplified to just `checking`, `available`, `none`
+  - No more misleading "Update installed, please restart" messages that weren't actually installed
+
 ## [0.27.11] - 2026-01-26
 
 ### Fixed
