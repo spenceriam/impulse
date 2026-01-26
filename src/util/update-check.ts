@@ -209,52 +209,16 @@ async function runNpmInstall(): Promise<{ success: boolean; error?: string }> {
 }
 
 /**
- * Verify the installed version matches expected version
- * Spawns `impulse --version` to check what's actually installed
- */
-async function verifyInstalledVersion(expectedVersion: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn("impulse", ["--version"], {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
-    });
-
-    let stdout = "";
-
-    child.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    child.on("close", (code) => {
-      if (code !== 0) {
-        resolve(false);
-        return;
-      }
-      
-      // Parse version from output (format: "impulse v0.20.0" or just "0.20.0")
-      const versionMatch = stdout.match(/(\d+\.\d+\.\d+)/);
-      if (versionMatch) {
-        resolve(versionMatch[1] === expectedVersion);
-      } else {
-        resolve(false);
-      }
-    });
-
-    child.on("error", () => {
-      resolve(false);
-    });
-
-    // Timeout after 5 seconds
-    setTimeout(() => {
-      child.kill();
-      resolve(false);
-    }, 5000);
-  });
-}
-
-/**
  * Run update check and auto-install if update available
  * Called once on app startup
+ * 
+ * NOTE: We trust npm's exit code (0 = success) without verifying the installed version.
+ * Verification was removed because:
+ * 1. The current process is still running the old binary
+ * 2. PATH caching means `impulse --version` often returns the old version
+ * 3. This caused false "update failed" messages when the install actually succeeded
+ * 
+ * If npm install exits 0, the package was installed. User just needs to restart.
  */
 export async function runUpdateCheck(): Promise<void> {
   debugLog("runUpdateCheck started");
@@ -288,22 +252,10 @@ export async function runUpdateCheck(): Promise<void> {
     return;
   }
 
-  // Verify installation by checking what version is actually installed
-  debugLog("Verifying installed version");
-  const verified = await verifyInstalledVersion(update.latestVersion);
-  debugLog("Verification result", { verified, expectedVersion: update.latestVersion });
-
-  if (verified) {
-    Bus.publish(UpdateEvents.Installed, { latestVersion: update.latestVersion });
-  } else {
-    // Install command succeeded but version didn't change
-    // This can happen if running from a different location than global npm
-    Bus.publish(UpdateEvents.Failed, {
-      latestVersion: update.latestVersion,
-      updateCommand: update.updateCommand,
-      error: "Update installed but version unchanged. You may need to restart your terminal or run: " + update.updateCommand,
-    });
-  }
+  // npm install succeeded (exit code 0) - trust that the package was installed
+  // User needs to restart to pick up the new binary
+  debugLog("Install succeeded, publishing Installed event");
+  Bus.publish(UpdateEvents.Installed, { latestVersion: update.latestVersion });
 }
 
 /**
