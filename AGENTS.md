@@ -497,29 +497,26 @@ Loading Animation (Braille Wheel):
   └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Session End Summary (Planned):**
+**Session End Summary (via `/exit` or `/quit`):**
 ```
-────────────────────────────────────────────────────────────────────────────────────────
-  IMPULSE SESSION COMPLETE
-────────────────────────────────────────────────────────────────────────────────────────
-
-  Duration        1h 23m 45s
-  Modes           AGENT (primary) → PLANNER (1 switch)
-  
-────────────────────────────────────────────────────────────────────────────────────────
-  TOOLS
-────────────────────────────────────────────────────────────────────────────────────────
-
-  Calls           15 total        12 success      3 failed
-  Code            +142 lines      -38 lines
-
-────────────────────────────────────────────────────────────────────────────────────────
-
-  Until next time!
-
-────────────────────────────────────────────────────────────────────────────────────────
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPULSE SESSION COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Session       Implementing API client
+  Model         glm-4.7
+  Duration      1h 23m
+───────────────────────────────────────────────────────────────────
+  Tools         15 calls       12 success       3 failed
+                file_write: 8  bash: 4  file_read: 2  glob: 1
+  Tokens        45,231 total
+                In: 32,100     Out: 10,500      Think: 2,631
+                Cache read: 28,000              Cache write: 4,100
+───────────────────────────────────────────────────────────────────
+  Continue      impulse -s abc123   or   impulse -c
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
-*Note: This feature is planned but not yet implemented. Currently exits cleanly without summary.*
+
+**Note:** Summary prints to stdout after TUI closes. Shown for `/exit`, `/quit` commands, and `Ctrl+C` (double) exit.
 
 ## OpenTUI Patterns (SolidJS)
 
@@ -1070,6 +1067,7 @@ This ensures:
 | 01-26-2026 | Explicit pendingPermission check | Added to Tab/Shift+Tab handler - isOverlayActive() alone wasn't blocking mode cycling |
 | 01-26-2026 | /changelog command with overlay | Paginated display (20 per page) with "Load more" button - fetches from GitHub |
 | 01-26-2026 | --changelog CLI flag | Print last 10 releases to stdout - for quick reference without TUI |
+| 01-26-2026 | Ctrl+C session summary | Double Ctrl+C now shows same session summary as /exit command |
 
 ## Future Work
 

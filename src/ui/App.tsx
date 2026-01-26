@@ -715,6 +715,85 @@ function formatDuration(ms: number): string {
   return `${mins}m`;
 }
 
+// Session summary stats type
+interface SessionStats {
+  headerTitle: string;
+  model: string;
+  duration: string;
+  sessionId: string | null;
+  tools: {
+    total: number;
+    success: number;
+    failed: number;
+    byName: Record<string, number>;
+  };
+  tokens: {
+    input: number;
+    output: number;
+    thinking: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+}
+
+/**
+ * Generate session end summary string for terminal output
+ * Used by both /exit command and Ctrl+C exit
+ */
+function generateSessionSummary(stats: SessionStats): string {
+  const { headerTitle, model, duration, sessionId, tools, tokens } = stats;
+  
+  // Format tool breakdown (top 4 tools by usage)
+  const toolBreakdown = Object.entries(tools.byName)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([name, count]) => `${name}: ${count}`)
+    .join("  ");
+  
+  // Format token stats
+  const totalTokens = tokens.input + tokens.output + tokens.thinking;
+  
+  // Column alignment helpers
+  const COL1 = 14; // Label column width
+  const COL2 = 15; // First value column width
+  const COL3 = 17; // Second value column width
+  const pad = (s: string, w: number) => s.padEnd(w);
+  
+  const summaryLines = [
+    "━".repeat(66),
+    "IMPULSE SESSION COMPLETE",
+    "━".repeat(66),
+    `  ${pad("Session", COL1)}${headerTitle}`,
+    `  ${pad("Model", COL1)}${model}`,
+    `  ${pad("Duration", COL1)}${duration}`,
+    "───────────────────────────────────────────────────────────────────",
+    `  ${pad("Tools", COL1)}${pad(tools.total + " calls", COL2)}${pad(tools.success + " success", COL3)}${tools.failed} failed`,
+  ];
+  
+  // Add tool breakdown if there are any tool calls
+  if (toolBreakdown) {
+    summaryLines.push(`  ${pad("", COL1)}${toolBreakdown}`);
+  }
+  
+  summaryLines.push(
+    `  ${pad("Tokens", COL1)}${pad(totalTokens.toLocaleString() + " total", COL2)}`,
+    `  ${pad("", COL1)}${pad("In: " + tokens.input.toLocaleString(), COL2)}${pad("Out: " + tokens.output.toLocaleString(), COL3)}Think: ${tokens.thinking.toLocaleString()}`,
+    `  ${pad("", COL1)}${pad("Cache read: " + tokens.cacheRead.toLocaleString(), COL2 + COL3)}Cache write: ${tokens.cacheWrite.toLocaleString()}`,
+  );
+  
+  // Add continuation hint if session was saved
+  if (sessionId) {
+    summaryLines.push(
+      "───────────────────────────────────────────────────────────────────",
+      `  ${pad("Continue", COL1)}impulse -s ${sessionId}   or   impulse -c`,
+    );
+  }
+  
+  summaryLines.push("━".repeat(66));
+  
+  return summaryLines.join("\n");
+}
+
 /**
  * API Message types for proper conversation serialization
  * OpenAI-compatible format requires:
@@ -1184,8 +1263,42 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       }
       
       if (ctrlCCount >= 2) {
-        // Second Ctrl+C - exit without saving
-        renderer.destroy();
+        // Second Ctrl+C - exit with session summary (like /exit)
+        // Save session before exit
+        saveOnExit().then(() => {
+          // Generate summary from UI context (source of truth)
+          const currentStats = stats();
+          const currentModel = model();
+          const currentHeaderTitle = headerTitle();
+          
+          // Calculate approximate duration from first message
+          const firstMsg = messages()[0];
+          const duration = firstMsg 
+            ? formatDuration(Date.now() - firstMsg.timestamp)
+            : "0m";
+          
+          const summary = generateSessionSummary({
+            headerTitle: currentHeaderTitle,
+            model: currentModel,
+            duration,
+            sessionId: currentStats.sessionId,
+            tools: currentStats.tools,
+            tokens: currentStats.tokens,
+          });
+          
+          // Destroy renderer first
+          renderer.destroy();
+          
+          // Print summary to stdout after app closes
+          process.stdout.write("\n" + summary + "\n");
+          
+          // Exit cleanly
+          process.exit(0);
+        }).catch(() => {
+          // If save fails, still exit
+          renderer.destroy();
+        });
+        return;
       }
       
       setTimeout(() => {
@@ -1556,59 +1669,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           ? formatDuration(Date.now() - firstMsg.timestamp)
           : "0m";
         
-        // Format tool breakdown (top 4 tools by usage)
-        const toolBreakdown = Object.entries(currentStats.tools.byName)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 4)
-          .map(([name, count]) => `${name}: ${count}`)
-          .join("  ");
-        
-        // Format token stats
-        const tokens = currentStats.tokens;
-        const totalTokens = tokens.input + tokens.output + tokens.thinking;
-        
-        // Get session ID for continuation hint
-        const currentSessionId = currentStats.sessionId;
-        
-        // Column alignment helpers
-        const COL1 = 14; // Label column width
-        const COL2 = 15; // First value column width
-        const COL3 = 17; // Second value column width
-        const pad = (s: string, w: number) => s.padEnd(w);
-        
-        const summaryLines = [
-          "━".repeat(66),
-          "IMPULSE SESSION COMPLETE",
-          "━".repeat(66),
-          `  ${pad("Session", COL1)}${currentHeaderTitle}`,
-          `  ${pad("Model", COL1)}${currentModel}`,
-          `  ${pad("Duration", COL1)}${duration}`,
-          "───────────────────────────────────────────────────────────────────",
-          `  ${pad("Tools", COL1)}${pad(currentStats.tools.total + " calls", COL2)}${pad(currentStats.tools.success + " success", COL3)}${currentStats.tools.failed} failed`,
-        ];
-        
-        // Add tool breakdown if there are any tool calls
-        if (toolBreakdown) {
-          summaryLines.push(`  ${pad("", COL1)}${toolBreakdown}`);
-        }
-        
-        summaryLines.push(
-          `  ${pad("Tokens", COL1)}${pad(totalTokens.toLocaleString() + " total", COL2)}`,
-          `  ${pad("", COL1)}${pad("In: " + tokens.input.toLocaleString(), COL2)}${pad("Out: " + tokens.output.toLocaleString(), COL3)}Think: ${tokens.thinking.toLocaleString()}`,
-          `  ${pad("", COL1)}${pad("Cache read: " + tokens.cacheRead.toLocaleString(), COL2 + COL3)}Cache write: ${tokens.cacheWrite.toLocaleString()}`,
-        );
-        
-        // Add continuation hint if session was saved
-        if (currentSessionId) {
-          summaryLines.push(
-            "───────────────────────────────────────────────────────────────────",
-            `  ${pad("Continue", COL1)}impulse -s ${currentSessionId}   or   impulse -c`,
-          );
-        }
-        
-        summaryLines.push("━".repeat(66));
-        
-        const summary = summaryLines.join("\n");
+        const summary = generateSessionSummary({
+          headerTitle: currentHeaderTitle,
+          model: currentModel,
+          duration,
+          sessionId: currentStats.sessionId,
+          tools: currentStats.tools,
+          tokens: currentStats.tokens,
+        });
         
         // Destroy renderer first
         renderer.destroy();
