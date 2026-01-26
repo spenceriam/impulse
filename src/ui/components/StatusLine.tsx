@@ -276,12 +276,12 @@ export function StatusLine(props: StatusLineProps) {
   if (props.isInitialScreen) {
     // Simplified format for welcome screen
     // Format: [Spinner] Model | [EX] | Dir | Branch | MCP | Date | Version
+    // NOTE: Always render spinner to maintain element order - use space when not loading
     return (
       <box height={1} justifyContent="center" flexDirection="row">
-        <Show when={props.loading}>
-          <text fg={Colors.ui.primary}>{spinnerChar()}</text>
-          <text fg={Colors.ui.dim}>{" "}</text>
-        </Show>
+        {/* Spinner - show animated char when loading, space when idle */}
+        <text fg={Colors.ui.primary}>{props.loading ? spinnerChar() : " "}</text>
+        <text fg={Colors.ui.dim}>{" "}</text>
         <text fg={Colors.ui.dim}>{displayModel()}</text>
         <Show when={isExpress()}>
           <text fg={Colors.ui.dim}> | </text>
@@ -302,14 +302,12 @@ export function StatusLine(props: StatusLineProps) {
   // Full format for session view
   // Format: [Spinner] Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Queue | Date | Version
   // Spinner appears LEFT of model when loading, [EX] comes right after Model
-  // Use flexGrow to push version to the right edge
+  // NOTE: Always render spinner to maintain element order - use space when not loading
   return (
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
-      {/* Left side: Spinner + Model + Mode info */}
-      <Show when={props.loading}>
-        <text fg={Colors.ui.primary}>{spinnerChar()}</text>
-        <text fg={Colors.ui.dim}>{" "}</text>
-      </Show>
+      {/* Spinner - show animated char when loading, space when idle */}
+      <text fg={Colors.ui.primary}>{props.loading ? spinnerChar() : " "}</text>
+      <text fg={Colors.ui.dim}>{" "}</text>
       <text fg={Colors.ui.dim}>{displayModel()}</text>
       <Show when={isExpress()}>
         <text fg={Colors.ui.dim}>{" | "}</text>
@@ -328,12 +326,7 @@ export function StatusLine(props: StatusLineProps) {
         <text fg={Colors.ui.dim}>{" | "}</text>
         <text fg={Colors.ui.primary}>{`Queue: ${queueCount()}`}</text>
       </Show>
-      
-      {/* Spacer to push right side */}
-      <box flexGrow={1} />
-      
-      {/* Right side: Date and Version */}
-      <text fg={Colors.ui.dim}>{`${date} | ${version}`}</text>
+      <text fg={Colors.ui.dim}>{` | ${date} | ${version}`}</text>
     </box>
   );
 }
