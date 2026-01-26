@@ -40,6 +40,7 @@ USAGE:
 OPTIONS:
     -h, --help              Print help and exit
     -v, --version           Print version and exit
+    -cl, --changelog        Fetch and display changelog from repository
     -e, --express           Enable express mode (auto-approve all actions)
 
     -p, --prompt <text>     Run prompt in headless mode, output to stdout, exit
@@ -102,6 +103,48 @@ if (hasFlag("", "--check-update")) {
   await new Promise(() => {});
 }
 
+// --changelog, -cl: Fetch and display changelog from repo (last 10 versions)
+if (hasFlag("-cl", "--changelog")) {
+  import("./util/changelog").then(async ({ fetchChangelog, parseChangelog }) => {
+    console.log(`IMPULSE v${packageJson.version} - Changelog (last 10 releases)\n`);
+    console.log("Fetching changelog from repository...\n");
+    
+    try {
+      const markdown = await fetchChangelog();
+      const entries = parseChangelog(markdown).slice(0, 10);
+      
+      for (const entry of entries) {
+        // Version header with type
+        const typeLabel = entry.type.toUpperCase();
+        console.log(`v${entry.version} - ${entry.date} [${typeLabel}]`);
+        
+        // Title if present
+        if (entry.title) {
+          console.log(`  ${entry.title}`);
+        }
+        
+        // Changes
+        for (const change of entry.changes) {
+          console.log(`  - ${change}`);
+        }
+        
+        console.log(); // Empty line between entries
+      }
+      
+      console.log("View full changelog: https://github.com/spenceriam/impulse/blob/main/CHANGELOG.md");
+    } catch (error) {
+      console.error(`Failed to fetch changelog: ${(error as Error).message}`);
+      console.error("\nYou can view the changelog directly at:");
+      console.error("https://github.com/spenceriam/impulse/blob/main/CHANGELOG.md");
+      process.exit(1);
+    }
+    
+    process.exit(0);
+  });
+  // Prevent further execution while async import runs
+  await new Promise(() => {});
+}
+
 // =============================================================================
 // Parse CLI Options (before TTY check, as headless mode doesn't need TTY)
 // =============================================================================
@@ -131,6 +174,7 @@ const knownFlags = new Set([
   "-d", "--dir",
   "--verbose",
   "--check-update",
+  "-cl", "--changelog",
 ]);
 
 // Check for unknown flags (anything starting with - that's not in our known set)

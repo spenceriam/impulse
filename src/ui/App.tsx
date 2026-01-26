@@ -2,6 +2,7 @@ import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
 import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, type CommandCandidate, type CompactingState } from "./components";
+import { ChangelogOverlay } from "./components/ChangelogOverlay";
 import { QueueOverlay } from "./components/QueueOverlay";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
@@ -873,6 +874,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   // Todo overlay state - shown via /todo command
   const [showTodoOverlay, setShowTodoOverlay] = createSignal(false);
   
+  // Changelog overlay state - shown via /changelog command
+  const [showChangelogOverlay, setShowChangelogOverlay] = createSignal(false);
+  
   // Queue overlay state - shown via Ctrl+Q
   const [showQueueOverlay, setShowQueueOverlay] = createSignal(false);
   
@@ -961,6 +965,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     (!!pendingPermission() && !express()) ||
     showWarning() ||
     showStartOverlay() ||
+    showTodoOverlay() ||
+    showChangelogOverlay() ||
     showQueueOverlay();
   
   // Subscribe to question, permission, header, and compact events from the bus
@@ -1639,6 +1645,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         return;
       }
       
+      // Handle /changelog specially - show changelog overlay
+      if (parsed && parsed.name === "changelog") {
+        setAutocompleteData(null);
+        setShowChangelogOverlay(true);
+        return;
+      }
+      
       // Handle /model specially - show interactive selection popup
       // Only if no model name provided (just "/model")
       if (parsed && parsed.name === "model") {
@@ -2064,6 +2077,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       {/* Todo overlay - shown via /todo command */}
       <Show when={showTodoOverlay()}>
         <TodoOverlay onClose={() => setShowTodoOverlay(false)} />
+      </Show>
+      
+      {/* Changelog overlay - shown via /changelog command */}
+      <Show when={showChangelogOverlay()}>
+        <ChangelogOverlay onClose={() => setShowChangelogOverlay(false)} />
       </Show>
       
       {/* Queue overlay - shown via Ctrl+Q */}

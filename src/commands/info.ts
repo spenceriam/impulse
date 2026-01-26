@@ -651,6 +651,16 @@ export function registerInfoCommands(): void {
       examples: ["/todo"],
     },
     {
+      name: "changelog",
+      category: "info",
+      description: "View release changelog",
+      handler: async () => {
+        // Handled specially in App.tsx - returns signal to show changelog overlay
+        return { success: true, output: "__SHOW_CHANGELOG_OVERLAY__" };
+      },
+      examples: ["/changelog"],
+    },
+    {
       name: "usage",
       category: "info",
       description: "Check Z.AI Coding Plan quota and usage",

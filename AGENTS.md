@@ -781,6 +781,7 @@ interface QuestionToolOutput {
 | `/stats` | Session statistics |
 | `/help` | Categorized help overlay |
 | `/think` | Toggle thinking mode |
+| `/changelog` | View release changelog |
 | `/quit` | Exit with summary |
 | `/exit` | Exit with summary |
 
@@ -1058,6 +1059,8 @@ This ensures:
 | 01-26-2026 | Shift+Tab allow all edits | Session-scoped auto-approve for file_edit/file_write only - not persisted |
 | 01-26-2026 | Status line flash messages | Temporary notifications right of model name, in mode color, 5s auto-dismiss |
 | 01-26-2026 | Explicit pendingPermission check | Added to Tab/Shift+Tab handler - isOverlayActive() alone wasn't blocking mode cycling |
+| 01-26-2026 | /changelog command with overlay | Paginated display (20 per page) with "Load more" button - fetches from GitHub |
+| 01-26-2026 | --changelog CLI flag | Print last 10 releases to stdout - for quick reference without TUI |
 
 ## Future Work
 
