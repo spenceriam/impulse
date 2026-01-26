@@ -407,11 +407,10 @@ Progress Bar:
   █  Filled block
   ░  Empty block
 
-Loading Animation (DNA Helix):
+Loading Animation (Braille Wheel):
   ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷  (rotating braille pattern)
-  6 rows stacked vertically with gradient colors (cyan to dim)
-  Fixed position LEFT of input box (3-char reserved space)
-  Centered vertically against 7-line prompt box
+  Single character in status line, left of model name
+  80ms per frame (640ms full rotation)
   Animates during AI processing (responding, tool calls, edits, etc.)
 ```
 
@@ -419,62 +418,71 @@ Loading Animation (DNA Helix):
 
 **Main Session View:**
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ [IMPULSE] | Implementing API client                                                                        │
-│────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│                                                                 │ ▼ Todo (2)                               │
-│  You                                              12:34 PM      │   [ ] Set up project structure           │
-│  Can you help me implement the API client?                      │   [>] Implement API client               │
-│                                                                 │                                          │
-│  GLM-4.7                                          12:34 PM      │                                          │
-│  I'll help you implement the API client.                        │                                          │
-│                                                                 │                                          │
-│  ▶ file_write src/api/types.ts                          [OK]    │                                          │
-│  ▶ file_write src/api/client.ts                         [OK]    │                                          │
-│                                                                 │                                          │
-├─────────────────────────────────────────────────────────────────┤                                          │
-│ ┌─ AGENT (Thinking) ────────────────────────────────────────┐   │                                          │
-│ │  > _                                                      │   │                                          │
-│ └───────────────────────────────────────────────────────────┘   │                                          │
-├─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
-│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCP: ● │ 01-20-2026                              │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    [IMPULSE] | Implementing API client
+    ─────────────────────────────────────────────────────────────────────────────
+    
+    ┃ You                                                           12:34 PM
+    ┃ Can you help me implement the API client?
+    
+    ┃ GLM-4.7                                              AGENT    12:34 PM
+    ┃ I'll help you implement the API client.
+    ┃
+    ┃ ▶ file_write src/api/types.ts                              [OK]
+    ┃ ▶ file_write src/api/client.ts                             [OK]
+    
+    ─────────────────────────────────────────────────────────────────────────────
+    ┌─ Todo ─────────────────────────────────────────────────────────── 1/2 ────┐
+    │ [>] Implement API client                                                  │
+    │ [ ] Set up project structure                                              │
+    └───────────────────────────────────────────────────────────────────────────┘
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃  > _                                                                      ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    ⣾ GLM 4.7 | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.8
 ```
+
+**Notes:**
+- Sidebar removed - todos now in BottomPanel above input
+- Messages have accent lines (mode-colored for AI, gray for user)
+- Input area has mode-colored accent lines (no full border)
+- Status line includes spinner, version, optional [EXPRESS] and Queue indicators
 
 **Welcome Screen:**
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                            │
-│     ██████╗ ██╗     ███╗   ███╗       ██████╗██╗     ██╗                                                   │
-│    ██╔════╝ ██║     ████╗ ████║      ██╔════╝██║     ██║                                                   │
-│    ██║  ███╗██║     ██╔████╔██║█████╗██║     ██║     ██║                                                   │
-│    ██║   ██║██║     ██║╚██╔╝██║╚════╝██║     ██║     ██║                                                   │
-│    ╚██████╔╝███████╗██║ ╚═╝ ██║      ╚██████╗███████╗██║                                                   │
-│     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
-│                                                                                                            │
-│    v0.1.0                                                              built 01-20-2026                    │
-│    Model: GLM-4.7                                                      Dir: ~/impulse                      │
-│                                                                                                            │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+[[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
 
-┌─ AUTO (Thinking) ──────────────────────────────────────────────────────────────────────────────────────────┐
-│  > _                                                                                                       │
-│    What are we building, breaking, or making better?                                                       │
-└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
+  ██╗███╗   ███╗██████╗ ██╗   ██╗██╗     ███████╗███████╗     <- cyan gradient
+  ██║████╗ ████║██╔══██╗██║   ██║██║     ██╔════╝██╔════╝        (bright to dim
+  ██║██╔████╔██║██████╔╝██║   ██║██║     ███████╗█████╗           top to bottom)
+  ██║██║╚██╔╝██║██╔═══╝ ██║   ██║██║     ╚════██║██╔══╝  
+  ██║██║ ╚═╝ ██║██║     ╚██████╔╝███████╗███████║███████╗
+  ╚═╝╚═╝     ╚═╝╚═╝      ╚═════╝ ╚══════╝╚══════╝╚══════╝
+
+  v0.27.8                                               GLM 4.7
+  built 01-26-2026                                      ~/impulse
+
+[[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  > _                                                                      ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+  GLM 4.7 | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.8
 ```
 
 **Status Line Format:**
 ```
-GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
-   │        │            │              │           │          │          │
-   │        │            │              │           │          │          └── Date
-   │        │            │              │           │          └── MCP connection status
-   │        │            │              │           └── Git branch
-   │        │            │              └── Working directory (truncated)
-   │        │            └── Context usage progress bar
-   │        └── Mode (color-coded)
-   └── Model name
+⣾ GLM 4.7 | [EXPRESS] | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.8
+│     │         │         │            │              │           │         │        │          │
+│     │         │         │            │              │           │         │        │          └── Version
+│     │         │         │            │              │           │         │        └── Date
+│     │         │         │            │              │           │         └── Queued messages (if any)
+│     │         │         │            │              │           └── MCP connection status
+│     │         │         │            │              └── Git branch
+│     │         │         │            └── Working directory (truncated)
+│     │         │         └── Context usage progress bar
+│     │         └── Mode (color-coded)
+│     └── Express mode indicator (if enabled)
+└── Spinner (braille wheel animation when loading)
 ```
 
 **Tool Block (Collapsed/Expanded):**
@@ -489,7 +497,7 @@ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  ma
   └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Session End Summary:**
+**Session End Summary (Planned):**
 ```
 ────────────────────────────────────────────────────────────────────────────────────────
   IMPULSE SESSION COMPLETE
@@ -511,6 +519,7 @@ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  ma
 
 ────────────────────────────────────────────────────────────────────────────────────────
 ```
+*Note: This feature is planned but not yet implemented. Currently exits cleanly without summary.*
 
 ## OpenTUI Patterns (SolidJS)
 
@@ -1427,28 +1436,15 @@ impulse/
 │   ├── session/            # Session management
 │   ├── storage/            # File-based storage
 │   ├── tools/              # Built-in tools
+│   ├── format/             # Auto-formatter system
+│   ├── permission/         # Permission management
+│   ├── pty/                # PTY service for interactive commands
 │   ├── ui/                 # OpenTUI components
-│   │   ├── components/     # Reusable UI components
-│   │   │   ├── ProgressBar.tsx
-│   │   │   ├── StatusLine.tsx
-│   │   │   ├── InputArea.tsx
-│   │   │   ├── ChatView.tsx
-│   │   │   ├── MessageBlock.tsx
-│   │   │   ├── ThinkingBlock.tsx
-│   │   │   ├── ToolBlock.tsx
-│   │   │   ├── Sidebar.tsx
-│   │   │   ├── TodoItem.tsx
-│   │   │   └── Overlay.tsx
-│   │   ├── context/        # SolidJS contexts
-│   │   │   ├── mode.tsx
-│   │   │   ├── session.tsx
-│   │   │   └── todo.tsx
+│   │   ├── App.tsx         # Main application
+│   │   ├── components/     # 30+ UI components (see src/ui/components/)
+│   │   ├── context/        # SolidJS contexts (mode, session, todo, queue, express)
 │   │   └── design.ts       # Design constants (colors, indicators)
-│   ├── input/              # Input handling (paste, @refs)
-│   │   ├── shortcuts.ts     # Global keyboard handler
-│   │   └── index.ts
 │   ├── commands/           # Slash commands
-│   ├── modes/              # Mode-specific logic
 │   └── util/               # Utilities
 ├── AGENTS.md               # This file (project brain)
 ├── PRINCIPLES.md           # Non-negotiable rules
