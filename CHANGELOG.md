@@ -5,6 +5,31 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.6] - 2026-01-26
+
+### Added
+
+- **Click-to-copy on messages** - Click any message block to copy its content to clipboard
+  - Works for both user and AI messages
+  - Uses OSC 52 for SSH compatibility with native clipboard fallbacks
+  - Shows "Copied" indicator in the input area for 2 seconds
+
+- **`/clipboard` command** - View copy history within session
+  - Shows up to 20 most recent copied items with timestamps
+  - `/clipboard clear` to clear history
+  - History is cleared when session resets
+
+### Changed
+
+- **PermissionPrompt redesigned** - Now matches ModelSelectOverlay styling
+  - Centered overlay with table layout
+  - Cyan highlight for allow options, red for reject
+  - Shows contextual info (file paths, commands, diffs)
+
+### Fixed
+
+- **Model name consistency** - Turn footer now shows uppercase model names (GLM-4.7 not glm-4.7)
+
 ## [0.24.5] - 2026-01-26
 
 ### Fixed

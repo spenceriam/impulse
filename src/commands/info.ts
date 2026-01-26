@@ -4,6 +4,7 @@ import { mcpManager } from "../mcp/manager";
 import { MCPDiscovery } from "../mcp/discovery";
 import { MCPServerName } from "../mcp/types";
 import { load as loadConfig } from "../util/config";
+import { getClipboardHistory, clearClipboardHistory } from "../util/clipboard-history";
 
 async function handleStats() {
   const session = SessionManager.getCurrentSession();
@@ -517,6 +518,63 @@ async function handleMcpTools(args: string[]) {
   return { success: true, output: lines.join("\n") };
 }
 
+async function handleClipboard(args: Record<string, unknown>): Promise<{ success: boolean; output?: string; error?: string }> {
+  const _ = args["_"] as string[] | undefined;
+  const action = _?.[0];
+  
+  // /clipboard clear - clear history
+  if (action === "clear") {
+    clearClipboardHistory();
+    return {
+      success: true,
+      output: "Clipboard history cleared.",
+    };
+  }
+  
+  const history = getClipboardHistory();
+  
+  if (history.length === 0) {
+    return {
+      success: true,
+      output: "Clipboard history is empty.\n\nTip: Click on a message to copy its content.",
+    };
+  }
+  
+  // Format the history
+  const lines: string[] = [
+    `Clipboard History (${history.length} items)`,
+    "",
+  ];
+  
+  for (let i = 0; i < history.length; i++) {
+    const entry = history[i];
+    if (!entry) continue;
+    
+    // Format timestamp
+    const date = new Date(entry.timestamp);
+    const time = date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    
+    // Truncate content for display
+    const preview = entry.content.length > 60 
+      ? entry.content.slice(0, 57).replace(/\n/g, " ") + "..."
+      : entry.content.replace(/\n/g, " ");
+    
+    lines.push(`[${i + 1}] ${time} - ${preview}`);
+  }
+  
+  lines.push("");
+  lines.push("Usage: /clipboard clear  - Clear history");
+  
+  return {
+    success: true,
+    output: lines.join("\n"),
+  };
+}
+
 export function registerInfoCommands(): void {
   const commands: CommandDefinition[] = [
     {
@@ -598,6 +656,13 @@ export function registerInfoCommands(): void {
       description: "Check Z.AI Coding Plan quota and usage",
       handler: handleUsage,
       examples: ["/usage"],
+    },
+    {
+      name: "clipboard",
+      category: "info",
+      description: "Show clipboard history (click messages to copy)",
+      handler: handleClipboard,
+      examples: ["/clipboard", "/clipboard clear"],
     },
   ];
 

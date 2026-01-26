@@ -79,6 +79,7 @@ interface InputAreaProps {
   loading?: boolean;
   overlayActive?: boolean;  // When true, unfocus input (overlay is showing)
   fixedHeight?: number;  // Fixed height for textarea content (overrides Layout.input.minHeight)
+  copiedIndicator?: boolean;  // Show "Copied" indicator in upper-right
   onSubmit?: (value: string) => void;
   onAutocompleteChange?: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
@@ -485,6 +486,12 @@ export function InputArea(props: InputAreaProps) {
         <box flexGrow={1} overflow="hidden">
           <text fg={modeColor()}>{"▄".repeat(200)}</text>
         </box>
+        {/* Copied indicator - shows briefly when message copied to clipboard */}
+        <Show when={props.copiedIndicator}>
+          <box backgroundColor={Colors.input.background} flexShrink={0} paddingLeft={1} paddingRight={1}>
+            <text fg={Colors.status.success}> Copied </text>
+          </box>
+        </Show>
       </box>
       
       {/* Spacer line for breathing room */}

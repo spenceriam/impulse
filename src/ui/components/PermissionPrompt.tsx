@@ -21,46 +21,37 @@ interface PermissionPromptProps {
   onRespond: (response: PermissionResponse, message?: string) => void;
 }
 
+// Column widths for alignment
+const CHECKBOX_COL_WIDTH = 5;  // "[ ] "
+const LABEL_COL_WIDTH = 18;    // "Allow session  "
+const HOTKEY_COL_WIDTH = 5;    // "[1] "
+
 /**
  * PermissionPrompt Component
  * 
- * Styled to match QuestionOverlay - vertical radio list with descriptions.
+ * Styled to match ModelSelectOverlay - table layout with highlight row.
  * 
  * Layout:
- * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
- *
- *   ● Permission required
- *
- *   $ Execute command
- *   Reason: Destructive command: rm
- *
- *   Target:
- *     rm -rf node_modules
- *
- *   ─────────────────────────────────────────────────────────────────
- *
- *   (*) Allow once
- *       Permit this specific action only
- *
- *   ( ) Allow session
- *       Auto-approve this pattern for current session
- *
- *   ( ) Allow always
- *       Save to project config, applies to all future sessions
- *
- *   ( ) Reject
- *       Deny this action
- *
- *   ─────────────────────────────────────────────────────────────────
- *   ↑/↓: Navigate  Enter: Confirm  1/2/3/4: Quick select  Esc: Reject
- *
- * [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
+ * ┌─ Permission Required ────────────────────────────────────────────────┐
+ * │                                                                      │
+ * │  $ Execute command                                                   │
+ * │  rm -rf node_modules                                                 │
+ * │                                                                      │
+ * │       RESPONSE          KEY   DESCRIPTION                            │
+ * │                                                                      │
+ * │  [x]  Allow once        [1]   Permit this specific action only       │  <- highlighted
+ * │  [ ]  Allow session     [2]   Auto-approve pattern for session       │
+ * │  [ ]  Allow always      [3]   Save to project config                 │
+ * │  [ ]  Reject            [4]   Deny this action                       │
+ * │                                                                      │
+ * │  ↑/↓: Navigate  Enter: Confirm  1-4: Quick select  Esc: Reject       │
+ * └──────────────────────────────────────────────────────────────────────┘
  */
 export function PermissionPrompt(props: PermissionPromptProps) {
   const options: PermissionOption[] = [
     { key: "once", label: "Allow once", description: "Permit this specific action only", hotkey: "1" },
-    { key: "session", label: "Allow session", description: "Auto-approve this pattern for current session", hotkey: "2" },
-    { key: "always", label: "Allow always", description: "Save to project config, applies to all future sessions", hotkey: "3" },
+    { key: "session", label: "Allow session", description: "Auto-approve pattern for session", hotkey: "2" },
+    { key: "always", label: "Allow always", description: "Save to project config", hotkey: "3" },
     { key: "reject", label: "Reject", description: "Deny this action", hotkey: "4" },
   ];
   
@@ -169,125 +160,139 @@ export function PermissionPrompt(props: PermissionPromptProps) {
   };
 
   // Line width for content
-  const lineWidth = 70;
-  const dividerLine = "─".repeat(lineWidth - 8);
+  const lineWidth = 76;
 
   return (
-    <box flexDirection="column" paddingLeft={4} paddingRight={4} backgroundColor="#1a1a1a" width={lineWidth} border borderColor={Colors.status.warning}>
-      <box height={1} />
-      
-      {/* Header */}
-      <box flexDirection="row" paddingLeft={2}>
-        <text fg={Colors.status.warning}>{Indicators.dot} </text>
-        <text fg={Colors.status.warning}>Permission required</text>
-      </box>
-      
-      <box height={1} />
-      
-      {/* Action description (from message field) - this tells WHAT is being done */}
-      <Show when={props.request.message}>
-        <box paddingLeft={2}>
-          <text fg={Colors.ui.text}>{props.request.message}</text>
-        </box>
-        <box height={1} />
-      </Show>
-      
-      {/* Permission type and icon */}
-      <box flexDirection="row" paddingLeft={2}>
-        <text fg={Colors.mode.AGENT}>{getIcon()} </text>
-        <text fg={Colors.ui.dim}>{getLabel()}</text>
-      </box>
-      
-      {/* Reason why permission is needed (additional context) */}
-      <Show when={getReason()}>
-        <box paddingLeft={4}>
-          <text fg={Colors.ui.dim}>Reason: {getReason()}</text>
-        </box>
-      </Show>
-      
-      <box height={1} />
-      
-      {/* Show patterns (file paths, commands) */}
-      <Show when={props.request.patterns && props.request.patterns.length > 0}>
-        <box flexDirection="column" paddingLeft={2}>
-          <text fg={Colors.ui.dim}>Target:</text>
-          <For each={props.request.patterns}>
-            {(pattern) => (
-              <box paddingLeft={2}>
-                <text fg={Colors.ui.text}>{truncate(pattern, lineWidth - 12)}</text>
-              </box>
-            )}
-          </For>
-        </box>
-      </Show>
-      
-      {/* Show working directory for bash */}
-      <Show when={props.request.permission === "bash" && props.request.metadata?.["workdir"]}>
-        <box paddingLeft={2}>
-          <text fg={Colors.ui.dim}>Directory: {String(props.request.metadata?.["workdir"])}</text>
-        </box>
-      </Show>
-      
-      {/* Show old/new strings for edit operations */}
-      <Show when={props.request.permission === "edit" && props.request.metadata?.["oldString"]}>
-        <box height={1} />
-        <box flexDirection="column" paddingLeft={2}>
-          <text fg={Colors.ui.dim}>Change:</text>
-          <box paddingLeft={2} flexDirection="column">
-            <text fg={Colors.status.error}>- {truncate(String(props.request.metadata?.["oldString"]), lineWidth - 14)}</text>
-            <text fg={Colors.status.success}>+ {truncate(String(props.request.metadata?.["newString"] || ""), lineWidth - 14)}</text>
+    <box
+      position="absolute"
+      width="100%"
+      height="100%"
+      justifyContent="center"
+      alignItems="center"
+    >
+      <box
+        border
+        title="Permission Required"
+        borderColor={Colors.status.warning}
+        flexDirection="column"
+        padding={1}
+        width={lineWidth}
+        backgroundColor="#1a1a1a"
+      >
+        {/* Action info section */}
+        <box flexDirection="column" marginBottom={1}>
+          {/* Permission type with icon */}
+          <box flexDirection="row">
+            <text fg={Colors.status.warning}>{getIcon()} </text>
+            <text fg={Colors.ui.text}>{getLabel()}</text>
           </box>
-        </box>
-      </Show>
-      
-      {/* Show content length for write operations */}
-      <Show when={props.request.permission === "write" && props.request.metadata?.["contentLength"]}>
-        <box paddingLeft={2}>
-          <text fg={Colors.ui.dim}>Content: {String(props.request.metadata?.["contentLength"])} bytes</text>
-        </box>
-      </Show>
-      
-      <box height={1} />
-      
-      {/* Divider */}
-      <box paddingLeft={2}>
-        <text fg={Colors.ui.dim}>{dividerLine}</text>
-      </box>
-      
-      <box height={1} />
-      
-      {/* Options list - radio style like QuestionOverlay */}
-      <For each={options}>
-        {(option, i) => {
-          const isFocused = () => i() === selectedIndex();
-          const indicator = () => isFocused() ? "(*)" : "( )";
-          // Use different highlight colors for focused state
-          const focusedFg = () => option.key === "reject" ? Colors.status.error : Colors.mode.AGENT;
           
-          return (
-            <box flexDirection="column" marginBottom={1} paddingLeft={2}>
-              <box flexDirection="row">
-                <text fg={isFocused() ? focusedFg() : Colors.ui.dim}>{indicator()}</text>
-                <text fg={isFocused() ? focusedFg() : Colors.ui.text}> {option.label}</text>
-                <text fg={isFocused() ? focusedFg() : Colors.ui.dim}> [{option.hotkey}]</text>
-              </box>
-              <text fg={Colors.ui.dim}>    {option.description}</text>
+          {/* Action description (from message field) */}
+          <Show when={props.request.message}>
+            <box paddingLeft={2}>
+              <text fg={Colors.ui.dim}>{props.request.message}</text>
             </box>
-          );
-        }}
-      </For>
-      
-      {/* Divider */}
-      <box paddingLeft={2}>
-        <text fg={Colors.ui.dim}>{dividerLine}</text>
-      </box>
-      
-      {/* Hints */}
-      <box paddingLeft={2}>
+          </Show>
+          
+          {/* Reason why permission is needed */}
+          <Show when={getReason()}>
+            <box paddingLeft={2}>
+              <text fg={Colors.ui.dim}>Reason: {getReason()}</text>
+            </box>
+          </Show>
+        </box>
+        
+        {/* Show patterns (file paths, commands) */}
+        <Show when={props.request.patterns && props.request.patterns.length > 0}>
+          <box flexDirection="column" marginBottom={1}>
+            <text fg={Colors.ui.dim}>Target:</text>
+            <For each={props.request.patterns}>
+              {(pattern) => (
+                <box paddingLeft={2}>
+                  <text fg={Colors.ui.text}>{truncate(pattern, lineWidth - 8)}</text>
+                </box>
+              )}
+            </For>
+          </box>
+        </Show>
+        
+        {/* Show working directory for bash */}
+        <Show when={props.request.permission === "bash" && props.request.metadata?.["workdir"]}>
+          <box marginBottom={1}>
+            <text fg={Colors.ui.dim}>Directory: {String(props.request.metadata?.["workdir"])}</text>
+          </box>
+        </Show>
+        
+        {/* Show old/new strings for edit operations */}
+        <Show when={props.request.permission === "edit" && props.request.metadata?.["oldString"]}>
+          <box flexDirection="column" marginBottom={1}>
+            <text fg={Colors.ui.dim}>Change:</text>
+            <box paddingLeft={2} flexDirection="column">
+              <text fg={Colors.diff.deletion}>- {truncate(String(props.request.metadata?.["oldString"]), lineWidth - 8)}</text>
+              <text fg={Colors.diff.addition}>+ {truncate(String(props.request.metadata?.["newString"] || ""), lineWidth - 8)}</text>
+            </box>
+          </box>
+        </Show>
+        
+        {/* Show content length for write operations */}
+        <Show when={props.request.permission === "write" && props.request.metadata?.["contentLength"]}>
+          <box marginBottom={1}>
+            <text fg={Colors.ui.dim}>Content: {String(props.request.metadata?.["contentLength"])} bytes</text>
+          </box>
+        </Show>
+        
+        <box height={1} />
+        
+        {/* Header row */}
+        <box flexDirection="row">
+          <text fg={Colors.ui.dim}>{" ".repeat(CHECKBOX_COL_WIDTH)}</text>
+          <text fg={Colors.ui.dim}>{"RESPONSE".padEnd(LABEL_COL_WIDTH)}</text>
+          <text fg={Colors.ui.dim}>{"KEY".padEnd(HOTKEY_COL_WIDTH)}</text>
+          <text fg={Colors.ui.dim}>DESCRIPTION</text>
+        </box>
+        
+        <box height={1} />
+        
+        {/* Options rows - table style like ModelSelectOverlay */}
+        <For each={options}>
+          {(option, i) => {
+            const isSelected = () => i() === selectedIndex();
+            const checkbox = isSelected() ? "[x] " : "[ ] ";
+            const labelCol = option.label.padEnd(LABEL_COL_WIDTH);
+            const hotkeyCol = `[${option.hotkey}]`.padEnd(HOTKEY_COL_WIDTH);
+            const isReject = option.key === "reject";
+            
+            // Highlight color: cyan for normal options, red for reject
+            const highlightBg = isReject ? Colors.status.error : Colors.mode.AGENT;
+            
+            return (
+              <Show
+                when={isSelected()}
+                fallback={
+                  <box flexDirection="row">
+                    <text fg={Colors.ui.dim}>{checkbox}</text>
+                    <text fg={Colors.ui.text}>{labelCol}</text>
+                    <text fg={Colors.ui.dim}>{hotkeyCol}</text>
+                    <text fg={Colors.ui.dim}>{option.description}</text>
+                  </box>
+                }
+              >
+                <box flexDirection="row" backgroundColor={highlightBg}>
+                  <text fg="#000000">{checkbox}</text>
+                  <text fg="#000000">{labelCol}</text>
+                  <text fg="#000000">{hotkeyCol}</text>
+                  <text fg="#000000">{option.description}</text>
+                </box>
+              </Show>
+            );
+          }}
+        </For>
+        
+        <box height={1} />
+        
+        {/* Hints */}
         <text fg={Colors.ui.dim}>↑/↓: Navigate  Enter: Confirm  1-4: Quick select  Esc: Reject</text>
       </box>
-      
-      <box height={1} />
     </box>
   );
 }

@@ -74,6 +74,7 @@ interface ChatViewProps {
   compactingState?: CompactingState | null;
   updateState?: UpdateState | null;
   onDismissUpdate?: () => void;
+  onCopyMessage?: (content: string) => void;  // Called when user clicks a message to copy
 }
 
 export function ChatView(props: ChatViewProps) {
@@ -266,7 +267,12 @@ export function ChatView(props: ChatViewProps) {
       >
         <box flexDirection="column" minWidth={0} overflow="hidden">
           <For each={messages()}>
-            {(message) => <MessageBlock message={message} />}
+            {(message) => (
+              <MessageBlock 
+                message={message} 
+                {...(props.onCopyMessage ? { onCopy: props.onCopyMessage } : {})}
+              />
+            )}
           </For>
           {/* Show compacting indicator when active */}
           <Show when={compactingState()}>

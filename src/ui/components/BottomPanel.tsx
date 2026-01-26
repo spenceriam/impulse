@@ -50,6 +50,7 @@ interface BottomPanelProps {
   thinking: boolean;
   loading: boolean;
   overlayActive?: boolean;  // When true, unfocus input (overlay is showing)
+  copiedIndicator?: boolean;  // Show "Copied" indicator
   onSubmit: (value: string) => void;
   onAutocompleteChange: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
 }
@@ -92,6 +93,7 @@ export function BottomPanel(props: BottomPanelProps) {
           thinking={props.thinking}
           loading={props.loading}
           overlayActive={props.overlayActive ?? false}
+          copiedIndicator={props.copiedIndicator ?? false}
           onSubmit={props.onSubmit}
           onAutocompleteChange={props.onAutocompleteChange}
           fixedHeight={TEXTAREA_HEIGHT}  // 5 rows of textarea content

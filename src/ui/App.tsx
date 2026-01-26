@@ -29,6 +29,8 @@ import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 import { runUpdateCheck, type UpdateState } from "../util/update-check";
 import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
+import { copy as copyToClipboard } from "../util/clipboard";
+import { addToClipboardHistory } from "../util/clipboard-history";
 
 /**
  * Join content sections with normalized whitespace.
@@ -878,6 +880,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   // Update notification - checked on startup
   const [updateState, setUpdateState] = createSignal<UpdateState | null>(null);
   
+  // Copied indicator - briefly shows "Copied" in input area
+  const [copiedIndicator, setCopiedIndicator] = createSignal(false);
+  let copiedIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
+  
   // Check if user has seen welcome screen on mount
   // NOTE: Update check is now triggered AFTER Bus subscription is set up (see below)
   onMount(async () => {
@@ -902,6 +908,26 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     } catch {
       // Ignore save errors
     }
+  };
+  
+  // Handle message copy - copies to clipboard and shows indicator
+  const handleCopyMessage = async (content: string) => {
+    if (!content.trim()) return;
+    
+    // Copy to system clipboard
+    await copyToClipboard(content);
+    
+    // Add to clipboard history (for /clipboard command)
+    addToClipboardHistory(content);
+    
+    // Show indicator briefly
+    if (copiedIndicatorTimeout) {
+      clearTimeout(copiedIndicatorTimeout);
+    }
+    setCopiedIndicator(true);
+    copiedIndicatorTimeout = setTimeout(() => {
+      setCopiedIndicator(false);
+    }, 2000);
   };
   
   // Computed: any overlay is active (unfocus input when true)
@@ -1843,6 +1869,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
                 compactingState={compactingState()} 
                 updateState={updateState()} 
                 onDismissUpdate={() => setUpdateState(null)}
+                onCopyMessage={handleCopyMessage}
               />
               
               {/* Bottom section - flexShrink={0} prevents compression by chat content */}
@@ -1864,6 +1891,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
                   thinking={thinking()}
                   loading={isLoading()}
                   overlayActive={isOverlayActive()}
+                  copiedIndicator={copiedIndicator()}
                   onSubmit={handleSubmit}
                   onAutocompleteChange={setAutocompleteData}
                 />

@@ -48,6 +48,14 @@ export interface Message {
 }
 
 /**
+ * Props for MessageBlock component
+ */
+interface MessageBlockProps {
+  message: Message;
+  onCopy?: (content: string) => void;  // Called when user clicks to copy message
+}
+
+/**
  * Markdown node types
  */
 type MarkdownNode =
@@ -602,6 +610,12 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
 const THIN_LINE = "─";
 
 export function MessageBlock(props: MessageBlockProps) {
+  // Handle click to copy message content
+  const handleCopy = () => {
+    if (props.message.content && props.onCopy) {
+      props.onCopy(props.message.content);
+    }
+  };
   // Access session context for verbose setting
   const { verboseTools } = useSession();
   
@@ -651,7 +665,7 @@ export function MessageBlock(props: MessageBlockProps) {
             <text fg={modeColor()}>{THIN_LINE.repeat(200)}</text>
           </box>
           
-          {/* Message content area with mode-tinted background */}
+          {/* Message content area with mode-tinted background - clickable to copy */}
           <box 
             flexDirection="column"
             backgroundColor={aiBackground()}
@@ -660,6 +674,7 @@ export function MessageBlock(props: MessageBlockProps) {
             width="100%"
             minWidth={0}
             overflow="hidden"
+            onMouseDown={handleCopy}
           >
             {/* Header: Model [MODE] */}
             <box flexDirection="row">
@@ -758,7 +773,7 @@ export function MessageBlock(props: MessageBlockProps) {
                 marginTop={1}
                 paddingRight={1}
               >
-                <text fg={Colors.ui.dim}>{model()}</text>
+                <text fg={Colors.ui.dim}>{model().toUpperCase()}</text>
                 <Show when={mode()}>
                   <text fg={Colors.ui.dim}>{" | "}</text>
                   <text fg={modeColor()}>{mode()}</text>
@@ -790,7 +805,7 @@ export function MessageBlock(props: MessageBlockProps) {
           <text fg={userAccentColor}>{THIN_LINE.repeat(200)}</text>
         </box>
         
-        {/* Message content area */}
+        {/* Message content area - clickable to copy */}
         <box 
           flexDirection="column" 
           backgroundColor={USER_MESSAGE_BG}
@@ -799,6 +814,7 @@ export function MessageBlock(props: MessageBlockProps) {
           width="100%"
           minWidth={0}
           overflow="hidden"
+          onMouseDown={handleCopy}
         >
           <box flexDirection="row">
             <text>
