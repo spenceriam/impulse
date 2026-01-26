@@ -200,7 +200,7 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         
         <box height={1} />
         
-        {/* Options rows */}
+        {/* Options rows - clickable */}
         <For each={options()}>
           {(option, i) => {
             const isSelected = () => i() === selectedIndex();
@@ -211,18 +211,23 @@ export function PermissionPrompt(props: PermissionPromptProps) {
             // Highlight color: cyan for normal options, red for reject
             const highlightBg = isReject ? Colors.status.error : Colors.mode.AGENT;
             
+            // Click handler - select and confirm this option
+            const handleClick = () => {
+              props.onRespond(option.key, undefined, option.isWildcard);
+            };
+            
             return (
               <Show
                 when={isSelected()}
                 fallback={
-                  <box flexDirection="row" height={1}>
+                  <box flexDirection="row" height={1} onMouseDown={handleClick}>
                     <text fg={Colors.ui.dim}>{checkbox}</text>
                     <text fg={Colors.ui.text}>{labelCol}</text>
                     <text fg={Colors.ui.dim}>{option.description}</text>
                   </box>
                 }
               >
-                <box flexDirection="row" height={1} backgroundColor={highlightBg}>
+                <box flexDirection="row" height={1} backgroundColor={highlightBg} onMouseDown={handleClick}>
                   <text fg="#000000">{checkbox}</text>
                   <text fg="#000000">{labelCol}</text>
                   <text fg="#000000">{option.description}</text>
@@ -234,8 +239,8 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         
         <box height={1} />
         
-        {/* Hints - simplified, no number keys */}
-        <text fg={Colors.ui.dim}>Up/Down: Navigate  Enter: Confirm  Esc: Reject</text>
+        {/* Hints - added click option */}
+        <text fg={Colors.ui.dim}>Up/Down: Navigate  Enter/Click: Confirm  Esc: Reject</text>
       </box>
     </box>
   );

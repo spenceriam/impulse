@@ -1051,6 +1051,7 @@ This ensures:
 | 01-26-2026 | Permission UI redesign | Shows tool name, command/path, wildcard option, arrow-only navigation |
 | 01-26-2026 | Permission wildcard option | "Allow session (tool/*)" approves all actions of that type for session |
 | 01-26-2026 | InputArea overlay blocking | Skip keyboard handling when overlayActive - prevents history interference |
+| 01-26-2026 | Permission click support | Mouse click on options to select and confirm (uses onMouseDown) |
 
 ## Future Work
 
