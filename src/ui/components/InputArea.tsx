@@ -510,8 +510,10 @@ export function InputArea(props: InputAreaProps) {
       overflow="hidden"      // Clip content at bounds
       width="100%"
     >
-      {/* Top accent line - uses background color to fill full width */}
-      <box height={1} width="100%" backgroundColor={modeColor()} />
+      {/* Top accent line - thin line using lower half block character */}
+      <box height={1} width="100%" overflow="hidden">
+        <text fg={modeColor()}>{"▄".repeat(300)}</text>
+      </box>
       
       {/* Mode label row - separate from accent line for cleaner layout */}
       <box height={1} paddingLeft={1} flexDirection="row">
@@ -560,8 +562,10 @@ export function InputArea(props: InputAreaProps) {
         </box>
       </box>
       
-      {/* Bottom accent line - uses background color to fill full width */}
-      <box height={1} width="100%" backgroundColor={modeColor()} />
+      {/* Bottom accent line - thin line using upper half block character */}
+      <box height={1} width="100%" overflow="hidden">
+        <text fg={modeColor()}>{"▀".repeat(300)}</text>
+      </box>
     </box>
   );
 }

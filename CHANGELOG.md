@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.15] - 2026-01-26
+
+### Fixed
+
+- **Thin accent lines restored on input area** - Visual regression fix
+  - Previously: v0.27.7 changed accent lines from thin half-block characters to solid background colors
+  - Problem: Full-height `backgroundColor` boxes created thick, heavy accent lines
+  - Now: Restored `▄` (lower half block) and `▀` (upper half block) characters for thin accent lines
+  - Matches original v0.25.0 visual style as intended
+
 ## [0.27.14] - 2026-01-26
 
 ### Fixed
