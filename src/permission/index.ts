@@ -83,6 +83,12 @@ let expressMode = false;
 let expressAcknowledged = false;
 
 /**
+ * "Allow All Edits" mode - auto-approves file_edit and file_write only
+ * Session-scoped, cleared when session ends (NOT persisted on /save + /load)
+ */
+let allowAllEditsMode = false;
+
+/**
  * Load project permissions from .impulse/permissions.json
  */
 function loadProjectPermissions(): Map<string, Set<string>> {
@@ -217,6 +223,28 @@ export function toggleExpress(): { enabled: boolean; needsWarning: boolean } {
 }
 
 /**
+ * Check if "Allow All Edits" mode is enabled
+ */
+export function isAllowAllEdits(): boolean {
+  return allowAllEditsMode;
+}
+
+/**
+ * Enable "Allow All Edits" mode (session-scoped)
+ * Only auto-approves file_edit and file_write permissions
+ */
+export function enableAllowAllEdits(): void {
+  allowAllEditsMode = true;
+}
+
+/**
+ * Disable "Allow All Edits" mode
+ */
+export function disableAllowAllEdits(): void {
+  allowAllEditsMode = false;
+}
+
+/**
  * Check if a pattern is approved (session or project level)
  */
 function isApproved(sessionID: string, permission: string, pattern: string): boolean {
@@ -267,6 +295,11 @@ export async function ask(input: {
 }): Promise<void> {
   // Express mode - auto-approve everything
   if (expressMode) {
+    return;
+  }
+  
+  // "Allow All Edits" mode - auto-approve file_edit and file_write only
+  if (allowAllEditsMode && (input.permission === "edit" || input.permission === "write")) {
     return;
   }
   
@@ -356,10 +389,27 @@ export function respond(input: {
       break;
       
     case "reject":
-      // Reject with error
+      // Reject with instructive error message for AI
+      const toolName = pending.request.permission;
+      const actionDesc = pending.request.patterns.slice(0, 3).join(", ") + 
+        (pending.request.patterns.length > 3 ? "..." : "");
+      
       const errorMsg = input.message
-        ? `Permission denied: ${input.message}`
-        : "Permission denied by user";
+        ? `[USER DECISION] Permission denied: ${input.message}`
+        : `[USER DECISION] Permission denied for ${toolName}: "${actionDesc}"
+
+The user reviewed this request and chose NOT to allow it. This is a deliberate user decision, not an error.
+
+DO NOT:
+- Retry this action or similar variations
+- Suggest workarounds to achieve the same goal
+- Apologize for "failing"
+
+DO:
+- Acknowledge the user's decision
+- Ask how they would like to proceed
+- Wait for their guidance`;
+      
       pending.reject(new PermissionDeniedError(errorMsg));
       break;
   }
@@ -381,9 +431,11 @@ export function getPermissionLabel(permission: string): string {
 
 /**
  * Clear all approvals for a session (e.g., when session ends)
+ * Also clears "Allow All Edits" mode since it's session-scoped
  */
 export function clearSessionApprovals(sessionID: string): void {
   sessionApprovals.delete(sessionID);
+  allowAllEditsMode = false;
 }
 
 /**

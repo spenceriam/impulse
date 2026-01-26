@@ -1052,6 +1052,11 @@ This ensures:
 | 01-26-2026 | Permission wildcard option | "Allow session (tool/*)" approves all actions of that type for session |
 | 01-26-2026 | InputArea overlay blocking | Skip keyboard handling when overlayActive - prevents history interference |
 | 01-26-2026 | Permission click support | Mouse click on options to select and confirm (uses onMouseDown) |
+| 01-26-2026 | Permission Show operand fix | `!express() && pendingPermission()` returns object, not boolean - fixes empty fields bug |
+| 01-26-2026 | Permission rejection message | AI-friendly rejection with `[USER DECISION]` prefix and behavioral guidance |
+| 01-26-2026 | Permission sub-choices | "Allow session" as visual header with exact/wildcard radio buttons below |
+| 01-26-2026 | Shift+Tab allow all edits | Session-scoped auto-approve for file_edit/file_write only - not persisted |
+| 01-26-2026 | Status line flash messages | Temporary notifications right of model name, in mode color, 5s auto-dismiss |
 
 ## Future Work
 

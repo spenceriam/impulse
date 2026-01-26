@@ -33,6 +33,7 @@ const SPINNER_INTERVAL = 80; // ms per frame (640ms full rotation)
 interface StatusLineProps {
   isInitialScreen?: boolean;
   loading?: boolean;  // Show spinner when AI is processing
+  flashMessage?: string | null;  // Flash notification (5 second auto-dismiss)
 }
 
 // Get truncated working directory
@@ -310,6 +311,11 @@ export function StatusLine(props: StatusLineProps) {
       <text fg={Colors.ui.primary}>{props.loading ? spinnerChar() : " "}</text>
       <text fg={Colors.ui.dim}>{" "}</text>
       <text fg={Colors.ui.dim}>{displayModel()}</text>
+      {/* Flash notification - right of model, in mode color */}
+      <Show when={props.flashMessage}>
+        <text fg={Colors.ui.dim}>{" | "}</text>
+        <text fg={modeColor()}>{props.flashMessage}</text>
+      </Show>
       <Show when={isExpress()}>
         <text fg={Colors.ui.dim}>{" | "}</text>
         <text fg={Colors.status.warning}>{"[EXPRESS]"}</text>

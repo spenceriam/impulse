@@ -5,6 +5,40 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.6] - 2026-01-26
+
+### Fixed
+
+- **Permission UI empty fields bug** - Tool and Action fields now display correctly
+  - Root cause: SolidJS Show component's `when` clause used `pendingPermission() && !express()` which returns boolean `true` instead of the PermissionRequest object due to JavaScript's `&&` operator behavior
+  - Fix: Swapped operand order to `!express() && pendingPermission()` so the object is returned
+
+- **AI rejection behavior** - AI now correctly handles user permission rejection
+  - Previous: AI interpreted rejection as tool failure, tried to retry or apologize
+  - Now: Error message includes `[USER DECISION]` prefix with clear behavioral guidance
+  - AI instructed to acknowledge decision and wait for user guidance, not retry
+
+### Changed
+
+- **Permission UI "Allow session" layout** - Sub-choices always visible
+  - "Allow session" is now a non-selectable visual header
+  - Two sub-options displayed beneath: "This exact command" and "All [tool] commands"
+  - Uses radio buttons `( )` for sub-options vs checkboxes `[ ]` for main options
+  - 5 selectable items total: Allow once, exact, wildcard, Allow always, Reject
+
+### Added
+
+- **Shift+Tab "Allow All Edits"** - Quick approve file operations for session
+  - Only auto-approves `file_edit` and `file_write` (NOT bash, task, etc.)
+  - Session-scoped only (NOT persisted on /save + /load)
+  - Only works in AUTO, AGENT, DEBUG modes
+  - In read-only modes (EXPLORE, PLANNER, PLAN-PRD): shows flash notification for 5 seconds
+  - Hint text updated to show Shift+Tab option
+
+- **Status line flash notifications** - Temporary messages right of model name
+  - Displays in mode color, auto-dismisses after 5 seconds
+  - Used for read-only mode warnings and other brief notifications
+
 ## [0.27.5] - 2026-01-26
 
 ### Added

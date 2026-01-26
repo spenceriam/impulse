@@ -9,7 +9,7 @@ import { TodoProvider } from "./context/todo";
 import { QueueProvider, useQueue } from "./context/queue";
 // Sidebar removed - todos now in BottomPanel
 import { ExpressProvider, useExpress } from "./context/express";
-import { respond as respondPermission, type PermissionRequest, type PermissionResponse } from "../permission";
+import { respond as respondPermission, enableAllowAllEdits, type PermissionRequest, type PermissionResponse } from "../permission";
 import { load as loadConfig, save as saveConfig } from "../util/config";
 import { GLMClient } from "../api/client";
 import { StreamProcessor, StreamEvent } from "../api/stream";
@@ -892,6 +892,20 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const [copiedIndicator, setCopiedIndicator] = createSignal(false);
   let copiedIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
   
+  // Flash notification for status line (5 second auto-dismiss)
+  const [statusFlash, setStatusFlash] = createSignal<string | null>(null);
+  let statusFlashTimeout: ReturnType<typeof setTimeout> | null = null;
+  
+  const showStatusFlash = (message: string) => {
+    if (statusFlashTimeout) {
+      clearTimeout(statusFlashTimeout);
+    }
+    setStatusFlash(message);
+    statusFlashTimeout = setTimeout(() => {
+      setStatusFlash(null);
+    }, 5000);
+  };
+  
   // Check if user has seen welcome screen on mount
   // NOTE: Update check is now triggered AFTER Bus subscription is set up (see below)
   onMount(async () => {
@@ -1121,6 +1135,27 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         wildcard,
       });
     }
+  };
+  
+  // Handle "Allow All Edits" from permission prompt (Shift+Tab)
+  const handleAllowAllEdits = () => {
+    const request = pendingPermission();
+    if (!request) return;
+    
+    // Enable session-level edit approval (file_edit and file_write only)
+    enableAllowAllEdits();
+    
+    // Clear pending permission and approve this request
+    setPendingPermission(null);
+    respondPermission({
+      permissionID: request.id,
+      response: "once",
+    });
+  };
+  
+  // Handle read-only mode notification for Shift+Tab
+  const handleReadOnlyNotification = () => {
+    showStatusFlash("Read-only mode - use AUTO or AGENT to allow all edits");
   };
 
   let ctrlCCount = 0;
@@ -1932,7 +1967,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           
           {/* Status line at very bottom - aligned with content above */}
           <box flexShrink={0} height={1}>
-            <StatusLine loading={isLoading()} />
+            <StatusLine loading={isLoading()} flashMessage={statusFlash()} />
           </box>
         </box>
       </Show>
@@ -1990,7 +2025,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       </Show>
       
       {/* Permission prompt - shown when a tool needs user approval */}
-      <Show when={pendingPermission() && !express()}>
+      {/* NOTE: Order matters! !express() && pendingPermission() returns the object, not boolean */}
+      <Show when={!express() && pendingPermission()}>
         {(request: () => PermissionRequest) => (
           <box
             position="absolute"
@@ -2002,6 +2038,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             <PermissionPrompt
               request={request()}
               onRespond={handlePermissionRespond}
+              onAllowAllEdits={handleAllowAllEdits}
+              onReadOnlyNotification={handleReadOnlyNotification}
             />
           </box>
         )}
