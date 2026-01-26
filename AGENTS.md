@@ -1069,6 +1069,7 @@ This ensures:
 | 01-26-2026 | --changelog CLI flag | Print last 10 releases to stdout - for quick reference without TUI |
 | 01-26-2026 | Ctrl+C session summary | Double Ctrl+C now shows same session summary as /exit command |
 | 01-26-2026 | Auto-updater exit-first approach | npm can't replace running binary - exit app, then install, then show result |
+| 01-26-2026 | Autocomplete bottom position fix | WelcomeScreen uses bottom=10 (not 4) to position above InputArea |
 
 ## Future Work
 

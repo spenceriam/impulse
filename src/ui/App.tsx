@@ -2180,8 +2180,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           const leftPos = () => isOnWelcomeScreen() 
             ? Math.max(4, Math.floor((dimensions().width - menuWidth) / 2))
             : 4;
-          // WelcomeScreen: position above the centered input. Session view: above bottom panel
-          const bottomPos = () => isOnWelcomeScreen() ? 4 : 12;
+          // WelcomeScreen: position above InputArea(~8) + StatusLine(1) + padding(1) = 10
+          // Session view: above BottomPanel(8-15) + StatusLine(1) + padding(2) = 12
+          const bottomPos = () => isOnWelcomeScreen() ? 10 : 12;
           
           return (
             <box

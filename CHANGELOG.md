@@ -5,6 +5,15 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.13] - 2026-01-26
+
+### Fixed
+
+- **Command autocomplete position on Welcome Screen** - Dropdown now appears above input
+  - Previously: Autocomplete rendered at very bottom of terminal (`bottom=4`)
+  - Now: Properly positioned above the input area (`bottom=10`)
+  - Overlays the ASCII logo as intended when typing `/` commands
+
 ## [0.27.12] - 2026-01-26
 
 ### Fixed
