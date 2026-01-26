@@ -29,15 +29,16 @@ export const Colors = {
   
   /**
    * Mode-specific dim background colors (for AI message blocks)
-   * These are very dark tinted versions of mode colors for subtle visual distinction
+   * These are very dark, muted tinted versions of mode colors
+   * Added gray to soften the tint for a more subtle, muted appearance
    */
   modeBackground: {
-    AUTO: "#1a1a1a",      // Neutral dark gray
-    EXPLORE: "#0d1a0d",   // Dark green tint
-    AGENT: "#0d1a1a",     // Dark cyan tint
-    PLANNER: "#1a0d1a",   // Dark purple tint
-    "PLAN-PRD": "#0d0d1a", // Dark blue tint
-    DEBUG: "#1a0d0d",     // Dark orange/red tint
+    AUTO: "#161618",      // Neutral dark gray (slightly muted)
+    EXPLORE: "#121812",   // Muted dark green tint
+    AGENT: "#121818",     // Muted dark cyan tint
+    PLANNER: "#181218",   // Muted dark purple tint
+    "PLAN-PRD": "#121218", // Muted dark blue tint
+    DEBUG: "#181212",     // Muted dark orange/red tint
   },
 
   /**

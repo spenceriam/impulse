@@ -291,13 +291,21 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
       return;
     }
     
-    // Up/Down: also navigate fields
+    // Up/Down: navigate between fields
     if (key.name === "up") {
       setReviewFocusIndex(i => Math.max(0, i - 1));
       return;
     }
     if (key.name === "down") {
       setReviewFocusIndex(i => Math.min(totalTopics() - 1, i + 1));
+      return;
+    }
+    
+    // PageUp/PageDown: scroll within focused field (if content overflows)
+    // This allows viewing long answers without leaving the field
+    if (key.name === "pageup" || key.name === "pagedown") {
+      // Scrolling is handled by the scrollbox component automatically
+      // when focused - no additional handling needed here
       return;
     }
     
@@ -322,9 +330,9 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
       return;
     }
     
-    // Escape: cancel overlay
+    // Escape: go back to answering mode (not cancel entirely)
     if (key.name === "escape") {
-      props.onCancel();
+      setUIState("answering");
       return;
     }
     
@@ -437,12 +445,30 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
             </text>
           </box>
           
-          {/* Expanded custom input */}
+          {/* Expanded custom input - scrollable text area */}
           <Show when={customExpanded()}>
-            <box flexDirection="row" paddingLeft={6} height={1}>
-              <text fg={Colors.ui.dim}>{">"} </text>
-              <text fg={Colors.ui.text}>{customText || ""}</text>
-              <text fg={Colors.ui.dim}>_</text>
+            <box 
+              flexDirection="row" 
+              paddingLeft={6} 
+              marginTop={1}
+              border
+              borderColor={Colors.ui.primary}
+              backgroundColor="#252530"
+              width={60}
+            >
+              <box width={2} flexShrink={0}>
+                <text fg={Colors.ui.dim}>{">"} </text>
+              </box>
+              <scrollbox 
+                height={3} 
+                flexGrow={1}
+                stickyScroll
+                stickyStart="bottom"
+              >
+                <box width={54}>
+                  <text fg={Colors.ui.text}>{customText || ""}<text fg={Colors.ui.dim}>_</text></text>
+                </box>
+              </scrollbox>
             </box>
           </Show>
         </box>
@@ -477,13 +503,23 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                     borderColor={isFocused() ? Colors.ui.primary : Colors.ui.dim}
                     backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
                     paddingLeft={1}
-                    height={3}
-                    flexDirection="row"
+                    width={68}
                   >
-                    <text fg={Colors.ui.text}>{answer() || "(no answer)"}</text>
-                    <Show when={isFocused()}>
-                      <text fg={Colors.ui.dim}>_</text>
-                    </Show>
+                    <scrollbox 
+                      height={3}
+                      flexGrow={1}
+                      stickyScroll
+                      stickyStart="bottom"
+                    >
+                      <box width={64}>
+                        <text fg={Colors.ui.text}>
+                          {answer() || "(no answer)"}
+                          <Show when={isFocused()}>
+                            <text fg={Colors.ui.dim}>_</text>
+                          </Show>
+                        </text>
+                      </box>
+                    </scrollbox>
                   </box>
                 </box>
               );
@@ -497,7 +533,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
   // Footer hints
   const footerHints = () => {
     if (uiState() === "review") {
-      return "Tab: Next field  ↑↓: Navigate  Enter: Submit all  Esc: Back";
+      return "Tab/↑↓: Navigate  Scroll: View content  Enter: Submit  Esc: Back to edit";
     }
     
     if (customExpanded()) {
