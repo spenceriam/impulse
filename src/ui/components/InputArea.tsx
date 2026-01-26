@@ -4,6 +4,7 @@ import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { t, italic, fg } from "@opentui/core";
 import { Colors, Mode, Layout, getModeColor } from "../design";
 import { CommandRegistry } from "../../commands/registry";
+import { copy as copyToClipboard } from "../../util/clipboard";
 
 /**
  * Pasted content tracking
@@ -82,6 +83,7 @@ interface InputAreaProps {
   copiedIndicator?: boolean;  // Show "Copied" indicator in upper-right
   onSubmit?: (value: string) => void;
   onAutocompleteChange?: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
+  onCopy?: ((text: string) => void) | undefined;  // Called when user copies prompt text via Shift+Ctrl+C
 }
 
 // Maximum history entries to keep
@@ -295,6 +297,18 @@ export function InputArea(props: InputAreaProps) {
     if (key.ctrl && key.shift && key.name === "y") {
       if (textareaRef) {
         textareaRef.redo();
+      }
+      return;
+    }
+    
+    // Copy prompt text: Shift+Ctrl+C
+    // Only copy if there's text in the prompt box
+    if (key.ctrl && key.shift && key.name === "c") {
+      const text = value().trim();
+      if (text) {
+        copyToClipboard(text);
+        // Notify parent so it can show "Copied" indicator
+        props.onCopy?.(text);
       }
       return;
     }

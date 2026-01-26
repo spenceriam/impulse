@@ -6,6 +6,8 @@ import { createPatch } from "diff";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
+import { Bus } from "../bus";
+import { FileEvents } from "../format/events";
 
 const DESCRIPTION = `Performs exact string replacements in files.
 
@@ -132,6 +134,12 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       const linesRemoved = diffLines.filter(l => l.startsWith("-") && !l.startsWith("---")).length;
 
       writeFileSync(safePath, newContent, "utf-8");
+
+      // Emit file edited event for formatters
+      Bus.publish(FileEvents.Edited, { 
+        file: safePath, 
+        isNew: false 
+      });
 
       return {
         success: true,

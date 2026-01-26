@@ -5,6 +5,34 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-01-26
+
+### Added
+
+- **Auto-formatter system** - Automatically formats files after write/edit operations
+  - Detects project formatters (Prettier, Biome, gofmt, rustfmt, ruff, etc.)
+  - 20+ formatters supported based on OpenCode's formatter system
+  - Runs silently after file_write and file_edit tool executions
+  - Uses Bus events for clean decoupling from tool execution
+
+- **Prompt copy shortcut** - Shift+Ctrl+C copies prompt text to clipboard
+  - Only copies if prompt box has text
+  - Shows "Copied" indicator in input area
+  - Uses same clipboard infrastructure as message copy
+
+### Changed
+
+- **Read-only tool display** - file_read, glob, grep now show as minimal one-liners
+  - No expand option, just dim status indicator + title
+  - Reduces visual noise for common read operations
+  - Verbose mode (`/verbose`) still shows full details
+
+### Documentation
+
+- **Terminal Focus Mode** planned for future release
+  - Ctrl+F to focus into expanded terminal output
+  - Keyboard scrolling within terminal (documented in AGENTS.md)
+
 ## [0.25.0] - 2026-01-26
 
 ### Added

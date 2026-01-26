@@ -53,6 +53,7 @@ interface BottomPanelProps {
   copiedIndicator?: boolean;  // Show "Copied" indicator
   onSubmit: (value: string) => void;
   onAutocompleteChange: (data: { commands: CommandCandidate[]; selectedIndex: number } | null) => void;
+  onCopy?: (text: string) => void;  // Called when user copies prompt text via Shift+Ctrl+C
 }
 
 export function BottomPanel(props: BottomPanelProps) {
@@ -96,6 +97,7 @@ export function BottomPanel(props: BottomPanelProps) {
           copiedIndicator={props.copiedIndicator ?? false}
           onSubmit={props.onSubmit}
           onAutocompleteChange={props.onAutocompleteChange}
+          onCopy={props.onCopy}
           fixedHeight={TEXTAREA_HEIGHT}  // 5 rows of textarea content
         />
       </box>

@@ -542,15 +542,78 @@ function groupToolCalls(toolCalls: ToolCallInfo[]): ToolCallGroup[] {
 }
 
 /**
+ * Check if a tool is read-only (should be shown as minimal one-liner)
+ */
+function isReadOnlyTool(name: string): boolean {
+  return ["file_read", "glob", "grep"].includes(name);
+}
+
+/**
+ * Minimal one-liner display for read-only tools (file_read, glob, grep)
+ * Shows dim status indicator + title, no expand option
+ */
+function ReadOnlyToolDisplay(props: { toolCall: ToolCallInfo }): JSX.Element {
+  const title = () => getToolTitle(
+    props.toolCall.name,
+    props.toolCall.arguments,
+    props.toolCall.metadata
+  );
+  
+  const status = () => props.toolCall.status;
+  
+  // Status indicator: ~ running, checkmark success, x error
+  const statusIndicator = () => {
+    switch (status()) {
+      case "pending":
+      case "running":
+        return "~";
+      case "success":
+        return "\u2713"; // checkmark
+      case "error":
+        return "\u2717"; // x mark
+      default:
+        return " ";
+    }
+  };
+  
+  const statusColor = () => {
+    switch (status()) {
+      case "pending":
+      case "running":
+        return Colors.ui.primary;
+      case "success":
+        return Colors.ui.dim;
+      case "error":
+        return Colors.status.error;
+      default:
+        return Colors.ui.dim;
+    }
+  };
+  
+  return (
+    <box flexDirection="row" height={1}>
+      <text fg={statusColor()}>{statusIndicator()} </text>
+      <text fg={Colors.ui.dim}>{title()}</text>
+    </box>
+  );
+}
+
+/**
  * Render a single tool call with inline summary display (Option A)
  * 
  * Display modes:
+ * - Read-only tools (file_read, glob, grep): Minimal one-liner, no expand
  * - Running/Pending: Shows `~ tool_title` with running indicator
  * - Success: Shows `✓ tool_title` as compact one-liner (expandable if has content)
  * - Error: Shows `✗ tool_title` auto-expanded with error details
  * - Verbose mode: All tools default expanded
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean }): JSX.Element {
+  // Read-only tools get minimal display (unless in verbose mode)
+  if (isReadOnlyTool(props.toolCall.name) && !props.verbose) {
+    return <ReadOnlyToolDisplay toolCall={props.toolCall} />;
+  }
+  
   const title = () => getToolTitle(
     props.toolCall.name,
     props.toolCall.arguments,

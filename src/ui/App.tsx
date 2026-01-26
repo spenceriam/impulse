@@ -1894,6 +1894,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
                   copiedIndicator={copiedIndicator()}
                   onSubmit={handleSubmit}
                   onAutocompleteChange={setAutocompleteData}
+                  onCopy={handleCopyMessage}
                 />
               </box>
             </box>

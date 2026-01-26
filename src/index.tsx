@@ -300,6 +300,10 @@ You can also set the GLM_API_KEY environment variable to skip this prompt.
     
     // Initialize tools (must be imported early to register with Tool registry)
     await import("./tools/init");
+    
+    // Initialize formatter system (auto-formats files after write/edit)
+    const { Format } = await import("./format");
+    Format.init();
 
     // Build initial props from CLI flags - only include defined values (exactOptionalPropertyTypes)
     const initialProps = {

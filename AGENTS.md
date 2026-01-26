@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.25.0
+- **Version:** v0.26.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -799,6 +799,7 @@ interface QuestionToolOutput {
 | `Ctrl+B` | Toggle sidebar |
 | `Ctrl+M` | MCP status overlay |
 | `Ctrl+P` | Command palette |
+| `Shift+Ctrl+C` | Copy prompt text to clipboard |
 
 ## Project Conventions
 
@@ -1030,6 +1031,12 @@ This ensures:
 | 01-26-2026 | DiffView line numbers | Dual column for edits (old->new), single column for new files |
 | 01-26-2026 | TerminalOutput component | Dedicated terminal-style display for bash with expand/collapse |
 | 01-26-2026 | file_write generates diffs | Shows changes for overwrites, all lines as additions for new files |
+| 01-26-2026 | Auto-formatter system | Based on OpenCode's pattern - auto-formats after file_write/file_edit via Bus events |
+| 01-26-2026 | 20+ formatters supported | Full OpenCode formatter set (Prettier, Biome, gofmt, rustfmt, ruff, etc.) |
+| 01-26-2026 | Formatter auto-detection | Checks package.json, biome.json, etc. to enable formatters |
+| 01-26-2026 | Read-only tools minimal display | file_read/glob/grep show as dim one-liner, reduces visual noise |
+| 01-26-2026 | Shift+Ctrl+C for prompt copy | Explicit shortcut to avoid conflict with terminal Ctrl+C |
+| 01-26-2026 | Terminal focus mode deferred | Complex state management - click-to-expand works for now |
 
 ## Future Work
 
@@ -1098,6 +1105,60 @@ This ensures:
 3. Git-based heuristic (doc unchanged in N commits but referenced code changed)
 
 **Current Decision:** Deferred. Complexity-to-value ratio not justified for MVP. Convention-based approach (AI updates docs when explicitly asked) works well enough.
+
+### Terminal Focus Mode (Planned)
+
+**Goal:** Allow keyboard-driven scrolling within expanded terminal output (bash commands).
+
+**Trigger:** Ctrl+F while a terminal output is visible
+
+**Behavior:**
+1. **Enter focus mode:** Ctrl+F highlights the most recent/visible TerminalOutput
+2. **In focus mode:**
+   - Arrow Up/Down: Scroll line by line
+   - PageUp/PageDown: Scroll by page
+   - Home/End: Jump to start/end
+   - Esc or Ctrl+F again: Exit focus mode and return to prompt
+3. **Visual indicator:** Border color change or highlight on focused terminal
+4. **Multi-terminal:** Tab to cycle between expanded terminals (if multiple)
+
+**Implementation Approach:**
+
+```typescript
+// Global state in App.tsx
+const [terminalFocusMode, setTerminalFocusMode] = createSignal(false);
+const [focusedTerminalId, setFocusedTerminalId] = createSignal<string | null>(null);
+
+// Keyboard handler
+if (key.ctrl && key.name === "f") {
+  if (terminalFocusMode()) {
+    // Exit focus mode
+    setTerminalFocusMode(false);
+    setFocusedTerminalId(null);
+  } else {
+    // Find first expanded terminal and focus it
+    const expandedTerminals = getExpandedTerminals();
+    if (expandedTerminals.length > 0) {
+      setTerminalFocusMode(true);
+      setFocusedTerminalId(expandedTerminals[0].id);
+    }
+  }
+}
+
+// Pass focus state to TerminalOutput
+<TerminalOutput 
+  focused={focusedTerminalId() === terminal.id}
+  onScroll={(direction) => handleTerminalScroll(terminal.id, direction)}
+/>
+```
+
+**Challenges:**
+- Need to assign unique IDs to each TerminalOutput instance
+- Scrollbox ref access for programmatic scrolling
+- State propagation through MessageBlock -> ToolCallDisplay -> TerminalOutput
+- OpenTUI scrollbox may not expose scroll control API
+
+**Current Decision:** Deferred to later release. The click-to-expand pattern with mouse scrolling works for now. Priority is formatter system and core features.
 
 ### MCP Node.js Version Check (Consideration)
 
