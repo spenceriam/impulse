@@ -3,13 +3,10 @@ import { Colors, Indicators } from "../design";
 import { useMode } from "../context/mode";
 import { useSession } from "../context/session";
 import { useExpress } from "../context/express";
+import { useQueue } from "../context/queue";
 import { mcpManager } from "../../mcp/manager";
 import packageJson from "../../../package.json";
-
-// Format model name for display (glm-4.7 -> GLM-4.7)
-function formatModelName(model: string): string {
-  return model.toUpperCase().replace("GLM-", "GLM-");
-}
+import { getModelDisplayName } from "../../constants";
 
 // Spinner frames for loading animation (Option G: fill progression)
 // 1 character wide, cycles through block fill levels
@@ -144,11 +141,13 @@ export function StatusLine(props: StatusLineProps) {
   let modeContext: ReturnType<typeof useMode> | null = null;
   let sessionContext: ReturnType<typeof useSession> | null = null;
   let expressContext: ReturnType<typeof useExpress> | null = null;
+  let queueContext: ReturnType<typeof useQueue> | null = null;
 
   try {
     modeContext = useMode();
     sessionContext = useSession();
     expressContext = useExpress();
+    queueContext = useQueue();
   } catch {
     // Contexts not available, will use defaults
   }
@@ -161,6 +160,9 @@ export function StatusLine(props: StatusLineProps) {
   
   // Reactive memo for express mode
   const isExpress = createMemo(() => expressContext?.express() ?? false);
+  
+  // Reactive memo for queue count
+  const queueCount = createMemo(() => queueContext?.count() ?? 0);
   
   // Reactive memo for context usage - uses actual prompt tokens from last API call
   // The prompt_tokens from the API response tells us exactly how many tokens were
@@ -216,7 +218,7 @@ export function StatusLine(props: StatusLineProps) {
   });
 
   // Reactive memo for formatted model name
-  const displayModel = createMemo(() => formatModelName(model()));
+  const displayModel = createMemo(() => getModelDisplayName(model()));
 
   // Static values (don't change during session)
   const dir = getWorkDir();
@@ -320,6 +322,10 @@ export function StatusLine(props: StatusLineProps) {
       </Show>
       <text fg={Colors.ui.dim}>{` | ${dir} |  ${gitBranch()} | `}</text>
       <text fg={mcpIndicator().color}>{`${mcpIndicator().label} ${mcpIndicator().dot}`}</text>
+      <Show when={queueCount() > 0}>
+        <text fg={Colors.ui.dim}>{" | "}</text>
+        <text fg={Colors.ui.primary}>{`Queue: ${queueCount()}`}</text>
+      </Show>
       <text fg={Colors.ui.dim}>{` | ${date} | ${version}`}</text>
     </box>
   );

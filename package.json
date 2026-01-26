@@ -1,6 +1,6 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "private": false,
   "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders",
   "type": "module",
@@ -12,8 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.3",
     "@opentui/core": "^0.1.74",
     "@opentui/solid": "^0.1.74",
+    "@xterm/headless": "^6.0.0",
     "diff": "^8.0.3",
     "openai": "^4.73.0",
     "semver": "^7.7.3",

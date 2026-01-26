@@ -3,7 +3,7 @@ import { CommandRegistry, CommandDefinition } from "./registry";
 import { SessionManager } from "../session/manager";
 import { CheckpointManager } from "../session/checkpoint";
 import { CompactManager } from "../session/compact";
-import { GLM_MODELS, MODES } from "../constants";
+import { GLM_MODELS, MODES, getModelDisplayName } from "../constants";
 
 const UndoArgsSchema = z.object({
   index: z.number().optional(),
@@ -182,7 +182,7 @@ async function handleModel(args: Record<string, unknown>) {
   if (!GLM_MODELS.includes(normalizedModel as (typeof GLM_MODELS)[number])) {
     return {
       success: false,
-      error: `Invalid model: ${modelArg}\nValid models: ${GLM_MODELS.map(m => m.toUpperCase().replace("GLM-", "GLM-")).join(", ")}`,
+      error: `Invalid model: ${modelArg}\nValid models: ${GLM_MODELS.map(m => getModelDisplayName(m)).join(", ")}`,
     };
   }
 
@@ -190,7 +190,7 @@ async function handleModel(args: Record<string, unknown>) {
 
   return {
     success: true,
-    output: `Model changed to ${normalizedModel.toUpperCase().replace("GLM-", "GLM-")}`,
+    output: `Model changed to ${getModelDisplayName(normalizedModel)}`,
   };
 }
 

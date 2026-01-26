@@ -27,7 +27,7 @@ class BusImpl {
     return () => this.listeners.delete(listener);
   }
 
-  publish<T extends BusEvent.Definition<any>>(
+  publish<T extends BusEvent.Definition<z.ZodType>>(
     event: T,
     properties: z.infer<T["schema"]>
   ): void {
@@ -35,6 +35,16 @@ class BusImpl {
 
     for (const listener of this.listeners) {
       listener({ type: event.name, properties });
+    }
+  }
+
+  /**
+   * Simple event emission without schema validation
+   * Useful for dynamic event names like PTY events
+   */
+  emit(type: string, properties: unknown = {}): void {
+    for (const listener of this.listeners) {
+      listener({ type, properties });
     }
   }
 }

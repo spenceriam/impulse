@@ -2,9 +2,11 @@ import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
 import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate, type CompactingState } from "./components";
+import { QueueOverlay } from "./components/QueueOverlay";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
+import { QueueProvider, useQueue } from "./context/queue";
 // Sidebar removed - todos now in BottomPanel
 import { ExpressProvider, useExpress } from "./context/express";
 import { respond as respondPermission, type PermissionRequest, type PermissionResponse } from "../permission";
@@ -18,7 +20,7 @@ import { registerCoreCommands } from "../commands/core";
 import { registerUtilityCommands } from "../commands/utility";
 import { registerInfoCommands } from "../commands/info";
 import { registerInitCommand } from "../commands/init";
-import { GLM_MODELS, MODES } from "../constants";
+import { GLM_MODELS, MODES, getModelDisplayName } from "../constants";
 import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
@@ -325,7 +327,7 @@ function ModelSelectOverlay(props: {
             const isSelected = () => index() === selectedIndex();
             const isCurrent = model === props.currentModel;
             const info = MODEL_INFO[model] || { description: "", input: "text" };
-            const displayName = model.toUpperCase();
+            const displayName = getModelDisplayName(model);
             
             // Build the row content with proper alignment
             const checkbox = isCurrent ? "[x] " : "[ ] ";
@@ -448,7 +450,7 @@ function WelcomeScreen(props: {
           <box flexDirection="row" justifyContent="center">
             <box flexDirection="row" justifyContent="space-between" width={LOGO_WIDTH}>
               <text fg={Colors.ui.dim}>{version}</text>
-              <text fg={Colors.ui.dim}>GLM-4.7</text>
+              <text fg={Colors.ui.dim}>{getModelDisplayName(model())}</text>
             </box>
           </box>
           <box flexDirection="row" justifyContent="center">
@@ -673,25 +675,27 @@ export function App(props: AppProps) {
     <ModeProvider {...modeProviderProps}>
       <SessionProvider {...sessionProviderProps}>
         <TodoProvider>
-          <ExpressProvider initialExpress={props.initialExpress ?? false}>
-            {/* Use explicit dimensions from terminal, not "100%" strings */}
-            <box 
-              width={dimensions().width} 
-              height={dimensions().height} 
-              padding={1}
-            >
-              <Show when={hasApiKey()}>
-                <AppWithSession {...appWithSessionProps} />
-              </Show>
-              <Show when={!hasApiKey() && !showApiKeyOverlay()}>
-                {/* Brief moment before overlay shows */}
-                <WelcomeScreen onSubmit={() => {}} />
-              </Show>
-              <Show when={showApiKeyOverlay()}>
-                <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
-              </Show>
-            </box>
-          </ExpressProvider>
+          <QueueProvider>
+            <ExpressProvider initialExpress={props.initialExpress ?? false}>
+              {/* Use explicit dimensions from terminal, not "100%" strings */}
+              <box 
+                width={dimensions().width} 
+                height={dimensions().height} 
+                padding={1}
+              >
+                <Show when={hasApiKey()}>
+                  <AppWithSession {...appWithSessionProps} />
+                </Show>
+                <Show when={!hasApiKey() && !showApiKeyOverlay()}>
+                  {/* Brief moment before overlay shows */}
+                  <WelcomeScreen onSubmit={() => {}} />
+                </Show>
+                <Show when={showApiKeyOverlay()}>
+                  <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
+                </Show>
+              </box>
+            </ExpressProvider>
+          </QueueProvider>
         </TodoProvider>
       </SessionProvider>
     </ModeProvider>
@@ -820,6 +824,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
   const { mode, setMode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
+  const queue = useQueue();
   const renderer = useRenderer();
   const dimensions = useTerminalDimensions();
 
@@ -867,6 +872,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   
   // Todo overlay state - shown via /todo command
   const [showTodoOverlay, setShowTodoOverlay] = createSignal(false);
+  
+  // Queue overlay state - shown via Ctrl+Q
+  const [showQueueOverlay, setShowQueueOverlay] = createSignal(false);
   
   // Compacting state - shown in ChatView when context is being compacted
   const [compactingState, setCompactingState] = createSignal<CompactingState | null>(null);
@@ -938,7 +946,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     !!pendingQuestions() || 
     (!!pendingPermission() && !express()) ||
     showWarning() ||
-    showStartOverlay();
+    showStartOverlay() ||
+    showQueueOverlay();
   
   // Subscribe to question, permission, header, and compact events from the bus
   onMount(() => {
@@ -1070,6 +1079,24 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     }
   });
   
+  // Auto-send queued messages when AI finishes processing
+  // Only if queue overlay is not open (user might be reviewing/editing)
+  createEffect(() => {
+    // Track isLoading state - when it becomes false, check queue
+    if (!isLoading() && queue.hasMessages() && !showQueueOverlay()) {
+      // Small delay to let UI update and prevent race conditions
+      setTimeout(() => {
+        // Double-check conditions in case they changed
+        if (!isLoading() && queue.hasMessages() && !showQueueOverlay()) {
+          const nextMessage = queue.dequeue();
+          if (nextMessage) {
+            handleSubmit(nextMessage.content);
+          }
+        }
+      }, 100);
+    }
+  });
+  
   // Handle question submission
   const handleQuestionSubmit = (answers: string[][]) => {
     setPendingQuestions(null);
@@ -1196,6 +1223,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     // Shift+Tab to cycle modes reverse (only when no overlay is active)
     if (key.name === "tab" && key.shift && !isOverlayActive()) {
       cycleModeReverse();
+      return;
+    }
+    
+    // Ctrl+Q to toggle queue overlay
+    if (key.ctrl && key.name === "q") {
+      setShowQueueOverlay((prev) => !prev);
       return;
     }
   });
@@ -1450,10 +1483,17 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
   // Handle message submission
   const handleSubmit = async (content: string) => {
-    if (isLoading()) return;
-
     const trimmedContent = content.trim();
     if (!trimmedContent) return;
+    
+    // If AI is processing, enqueue the message instead of blocking
+    if (isLoading()) {
+      // Don't queue commands - they should wait for AI to finish
+      if (!trimmedContent.startsWith("/")) {
+        queue.enqueue(trimmedContent);
+      }
+      return;
+    }
 
     // Check if this is a command (starts with /)
     if (trimmedContent.startsWith("/")) {
@@ -1990,6 +2030,18 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       {/* Todo overlay - shown via /todo command */}
       <Show when={showTodoOverlay()}>
         <TodoOverlay onClose={() => setShowTodoOverlay(false)} />
+      </Show>
+      
+      {/* Queue overlay - shown via Ctrl+Q */}
+      <Show when={showQueueOverlay()}>
+        <QueueOverlay 
+          onClose={() => setShowQueueOverlay(false)}
+          onSendNow={(msg) => {
+            // Send the message immediately
+            setShowQueueOverlay(false);
+            handleSubmit(msg.content);
+          }}
+        />
       </Show>
       
       {/* Command autocomplete overlay - positioned above input area */}

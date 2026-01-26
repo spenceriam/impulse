@@ -5,6 +5,43 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-01-26
+
+### Added
+
+- **Message queue system** - Type messages while AI is processing
+  - Messages are queued and automatically sent when AI finishes
+  - Queue indicator in status line shows "Queue: N" when messages waiting
+  - Auto-send pauses if queue overlay is open (user reviewing)
+
+- **Queue overlay (Ctrl+Q)** - Manage queued messages
+  - View all queued messages with timestamps
+  - Edit message content (press 'e')
+  - Delete individual messages (press 'd')
+  - Reorder queue (Ctrl+K/J to move up/down)
+  - Send message immediately (Enter)
+  - Clear entire queue (Ctrl+C)
+
+- **PTY infrastructure** - Foundation for interactive terminal commands
+  - node-pty + @xterm/headless for pseudo-terminal support
+  - Bash tool supports `interactive=true` parameter
+  - Automatic prompt detection (y/n, password, sudo, continue)
+  - Bus events for PTY lifecycle (Started, Output, PromptDetected, Exited)
+
+### Changed
+
+- **Consistent model display names** - Uniform format across all UI
+  - "GLM 4.7-Flash" instead of inconsistent "GLM-4.7-FLASH" or "glm-4.7-flash"
+  - Updated: WelcomeScreen, StatusLine, MessageBlock, InputArea, ModelSelectOverlay
+  - Centralized in `getModelDisplayName()` function
+
+### Documentation
+
+- **Interactive PTY UI** planned for future release
+  - Live terminal output display component
+  - AI-suggested responses for interactive prompts
+  - Documented in AGENTS.md Future Work section
+
 ## [0.26.0] - 2026-01-26
 
 ### Added

@@ -5,8 +5,10 @@
     "": {
       "name": "glm-cli",
       "dependencies": {
+        "@lydell/node-pty": "^1.2.0-beta.3",
         "@opentui/core": "^0.1.74",
         "@opentui/solid": "^0.1.74",
+        "@xterm/headless": "^6.0.0",
         "diff": "^8.0.3",
         "openai": "^4.73.0",
         "semver": "^7.7.3",
@@ -148,6 +150,20 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
+    "@lydell/node-pty": ["@lydell/node-pty@1.2.0-beta.3", "", { "optionalDependencies": { "@lydell/node-pty-darwin-arm64": "1.2.0-beta.3", "@lydell/node-pty-darwin-x64": "1.2.0-beta.3", "@lydell/node-pty-linux-arm64": "1.2.0-beta.3", "@lydell/node-pty-linux-x64": "1.2.0-beta.3", "@lydell/node-pty-win32-arm64": "1.2.0-beta.3", "@lydell/node-pty-win32-x64": "1.2.0-beta.3" } }, "sha512-ngGAItlRhmJXrhspxt8kX13n1dVFqzETOq0m/+gqSkO8NJBvNMwP7FZckMwps2UFySdr4yxCXNGu/bumg5at6A=="],
+
+    "@lydell/node-pty-darwin-arm64": ["@lydell/node-pty-darwin-arm64@1.2.0-beta.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-owcv+e1/OSu3bf9ZBdUQqJsQF888KyuSIiPYFNn0fLhgkhm9F3Pvha76Kj5mCPnodf7hh3suDe7upw7GPRXftQ=="],
+
+    "@lydell/node-pty-darwin-x64": ["@lydell/node-pty-darwin-x64@1.2.0-beta.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-k38O+UviWrWdxtqZBBc/D8NJU11Rey8Y2YMwSWNxLv3eXZZdF5IVpbBkI/2RmLsV5nCcciqLPbukxeZnEfPlwA=="],
+
+    "@lydell/node-pty-linux-arm64": ["@lydell/node-pty-linux-arm64@1.2.0-beta.3", "", { "os": "linux", "cpu": "arm64" }, "sha512-HUwRpGu3O+4sv9DAQFKnyW5LYhyYu2SDUa/bdFO/t4dIFCM4uDJEq47wfRM7+aYtJTi1b3lakN8SlWeuFQqJQQ=="],
+
+    "@lydell/node-pty-linux-x64": ["@lydell/node-pty-linux-x64@1.2.0-beta.3", "", { "os": "linux", "cpu": "x64" }, "sha512-+RRY0PoCUeQaCvPR7/UnkGbxulwbFtoTWJfe+o4T1RcNtngrgaI55I9nl8CD8uqhGrB3smKuyvPM5UtwGhASUw=="],
+
+    "@lydell/node-pty-win32-arm64": ["@lydell/node-pty-win32-arm64@1.2.0-beta.3", "", { "os": "win32", "cpu": "arm64" }, "sha512-UEDd9ASp2M3iIYpIzfmfBlpyn4+K1G4CAjYcHWStptCkefoSVXWTiUBIa1KjBjZi3/xmsHIDpBEYTkGWuvLt2Q=="],
+
+    "@lydell/node-pty-win32-x64": ["@lydell/node-pty-win32-x64@1.2.0-beta.3", "", { "os": "win32", "cpu": "x64" }, "sha512-TpdqSFYx7/Rj+68tuP6F/lkRYrHCYAIJgaS1bx3SctTkb5QAQCFwOKHd4xlsivmEOMT2LdhkJggPxwX9PAO5pQ=="],
+
     "@opentui/core": ["@opentui/core@0.1.74", "", { "dependencies": { "bun-ffi-structs": "0.1.2", "diff": "8.0.2", "jimp": "1.6.0", "yoga-layout": "3.2.1" }, "optionalDependencies": { "@dimforge/rapier2d-simd-compat": "^0.17.3", "@opentui/core-darwin-arm64": "0.1.74", "@opentui/core-darwin-x64": "0.1.74", "@opentui/core-linux-arm64": "0.1.74", "@opentui/core-linux-x64": "0.1.74", "@opentui/core-win32-arm64": "0.1.74", "@opentui/core-win32-x64": "0.1.74", "bun-webgpu": "0.1.4", "planck": "^1.4.2", "three": "0.177.0" }, "peerDependencies": { "web-tree-sitter": "0.25.10" } }, "sha512-g4W16ymv12JdgZ+9B4t7mpIICvzWy2+eHERfmDf80ALduOQCUedKQdULcBFhVCYUXIkDRtIy6CID5thMAah3FA=="],
 
     "@opentui/core-darwin-arm64": ["@opentui/core-darwin-arm64@0.1.74", "", { "os": "darwin", "cpu": "arm64" }, "sha512-rfmlDLtm/u17CnuhJgCxPeYMvOST+A2MOdVOk46IurtHO849bdYqK6iudKNlFRs1FOrymgSKF9GlWBHAOKeRjg=="],
@@ -177,6 +193,8 @@
     "@types/semver": ["@types/semver@7.7.1", "", {}, "sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA=="],
 
     "@webgpu/types": ["@webgpu/types@0.1.69", "", {}, "sha512-RPmm6kgRbI8e98zSD3RVACvnuktIja5+yLgDAkTmxLr90BEwdTXRQWNLF3ETTTyH/8mKhznZuN5AveXYFEsMGQ=="],
+
+    "@xterm/headless": ["@xterm/headless@6.0.0", "", {}, "sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw=="],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 

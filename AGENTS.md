@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.26.0
+- **Version:** v0.27.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -1037,6 +1037,15 @@ This ensures:
 | 01-26-2026 | Read-only tools minimal display | file_read/glob/grep show as dim one-liner, reduces visual noise |
 | 01-26-2026 | Shift+Ctrl+C for prompt copy | Explicit shortcut to avoid conflict with terminal Ctrl+C |
 | 01-26-2026 | Terminal focus mode deferred | Complex state management - click-to-expand works for now |
+| 01-26-2026 | Message queue system | Type while AI processing, messages queued and auto-sent when complete |
+| 01-26-2026 | Ctrl+Q queue overlay | View, edit, reorder, delete queued messages before sending |
+| 01-26-2026 | Queue auto-send on completion | Queued messages automatically sent when AI finishes (unless overlay open) |
+| 01-26-2026 | Queue indicator in status line | Shows "Queue: N" when messages are waiting |
+| 01-26-2026 | Consistent model display names | "GLM 4.7-Flash" format everywhere (was inconsistent toUpperCase) |
+| 01-26-2026 | PTY infrastructure complete | node-pty + @xterm/headless for interactive commands |
+| 01-26-2026 | Interactive bash mode | `interactive=true` parameter enables PTY execution |
+| 01-26-2026 | Prompt detection in PTY | Detects y/n, password, sudo, continue prompts automatically |
+| 01-26-2026 | Interactive PTY UI deferred | Backend works, UI for live terminal output can be added later |
 
 ## Future Work
 
@@ -1159,6 +1168,46 @@ if (key.ctrl && key.name === "f") {
 - OpenTUI scrollbox may not expose scroll control API
 
 **Current Decision:** Deferred to later release. The click-to-expand pattern with mouse scrolling works for now. Priority is formatter system and core features.
+
+### Interactive PTY UI (Planned)
+
+**Goal:** Visual component for displaying live PTY output and accepting user input for interactive commands.
+
+**Background:** PTY infrastructure is complete (`src/pty/service.ts`), bash tool supports `interactive=true` mode, and prompt detection works. Missing piece is the UI to show live terminal output.
+
+**Components Needed:**
+1. **InteractiveTerminal.tsx** - Live terminal display component
+   - Shows PTY output in real-time via Bus events
+   - Scrollable output area
+   - Visual indicator when prompt is detected
+   - Input field for user responses
+
+2. **Integration with TerminalOutput.tsx**
+   - Either extend existing component or create new
+   - Need to distinguish between completed vs. live output
+
+**Bus Events (Already Defined):**
+- `PtyEvents.Started` - PTY process started
+- `PtyEvents.Output` - New output received
+- `PtyEvents.PromptDetected` - Interactive prompt detected
+- `PtyEvents.Exited` - Process completed
+
+**Current Decision:** Deferred. PTY backend works, bash tool supports interactive mode. UI can be added when users need interactive commands frequently.
+
+### AI-Suggested Prompt Responses (Planned)
+
+**Goal:** When PTY detects an interactive prompt (y/n, password, etc.), show AI-suggested response via QuestionOverlay.
+
+**Flow:**
+1. Bash tool runs with `interactive=true`
+2. PTY service detects prompt (e.g., "Continue? [y/n]")
+3. Bus event triggers QuestionOverlay with:
+   - Detected prompt type
+   - AI-suggested response (if available)
+   - Option to type custom response
+4. User confirms → response sent to PTY
+
+**Current Decision:** Deferred. Prompt detection infrastructure exists in `src/pty/service.ts`. Can be wired to QuestionOverlay when interactive commands become common use case.
 
 ### MCP Node.js Version Check (Consideration)
 

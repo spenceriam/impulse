@@ -5,6 +5,7 @@ import { t, italic, fg } from "@opentui/core";
 import { Colors, Mode, Layout, getModeColor } from "../design";
 import { CommandRegistry } from "../../commands/registry";
 import { copy as copyToClipboard } from "../../util/clipboard";
+import { getModelDisplayName } from "../../constants";
 
 /**
  * Pasted content tracking
@@ -477,7 +478,7 @@ export function InputArea(props: InputAreaProps) {
   // Mode label text: MODE > MODEL (thinking indicator)
   const modeLabel = () => {
     const thinkingSuffix = props.thinking ? " (Thinking)" : "";
-    const modelName = props.model.toUpperCase();
+    const modelName = getModelDisplayName(props.model);
     return ` ${props.mode} > ${modelName}${thinkingSuffix} `;
   };
 

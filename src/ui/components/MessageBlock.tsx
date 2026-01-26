@@ -16,6 +16,7 @@ import { TerminalOutput } from "./TerminalOutput";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { BouncingDots } from "./BouncingDots";
 import { useSession } from "../context/session";
+import { getModelDisplayName } from "../../constants";
 
 // Background colors for message types (per design spec)
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
@@ -732,7 +733,7 @@ export function MessageBlock(props: MessageBlockProps) {
             {/* Header: Model [MODE] */}
             <box flexDirection="row">
               <text>
-                <strong>{model().toUpperCase()}</strong>
+                <strong>{getModelDisplayName(model())}</strong>
               </text>
               <Show when={mode()}>
                 <text fg={Colors.ui.dim}> [</text>
@@ -826,7 +827,7 @@ export function MessageBlock(props: MessageBlockProps) {
                 marginTop={1}
                 paddingRight={1}
               >
-                <text fg={Colors.ui.dim}>{model().toUpperCase()}</text>
+                <text fg={Colors.ui.dim}>{getModelDisplayName(model())}</text>
                 <Show when={mode()}>
                   <text fg={Colors.ui.dim}>{" | "}</text>
                   <text fg={modeColor()}>{mode()}</text>

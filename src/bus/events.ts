@@ -174,3 +174,43 @@ export const UpdateEvents = {
     })
   ),
 };
+
+// Queue message schema
+const QueueMessageSchema = z.object({
+  id: z.string().describe("Unique identifier for the queued message"),
+  content: z.string().describe("The message content"),
+  timestamp: z.number().describe("Unix timestamp when message was queued"),
+});
+
+export const QueueEvents = {
+  Added: BusEvent.define(
+    "queue.added",
+    z.object({
+      message: QueueMessageSchema,
+    })
+  ),
+  Removed: BusEvent.define(
+    "queue.removed",
+    z.object({
+      id: z.string(),
+    })
+  ),
+  Updated: BusEvent.define(
+    "queue.updated",
+    z.object({
+      messages: z.array(QueueMessageSchema),
+    })
+  ),
+  Sending: BusEvent.define(
+    "queue.sending",
+    z.object({
+      id: z.string(),
+    })
+  ),
+  Sent: BusEvent.define(
+    "queue.sent",
+    z.object({
+      id: z.string(),
+    })
+  ),
+};
