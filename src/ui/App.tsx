@@ -1110,22 +1110,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   };
   
   // Handle permission response
-  const handlePermissionRespond = (response: PermissionResponse, message?: string) => {
+  const handlePermissionRespond = (response: PermissionResponse, message?: string, wildcard?: boolean) => {
     const request = pendingPermission();
     if (request) {
       setPendingPermission(null);
-      if (message) {
-        respondPermission({
-          permissionID: request.id,
-          response,
-          message,
-        });
-      } else {
-        respondPermission({
-          permissionID: request.id,
-          response,
-        });
-      }
+      respondPermission({
+        permissionID: request.id,
+        response,
+        message,
+        wildcard,
+      });
     }
   };
 

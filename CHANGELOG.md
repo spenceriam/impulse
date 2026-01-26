@@ -5,6 +5,21 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.4] - 2026-01-26
+
+### Fixed
+
+- **Permission UI redesign** - Clearer, more usable permission prompts
+  - Shows tool name prominently at top (e.g., "Tool: bash")
+  - Displays actual command/file path being requested
+  - Added "Allow session (tool/*)" wildcard option to approve all actions of a type
+  - Removed number key shortcuts (1-4) - must use arrow keys + Enter
+  - Fixed input interference - arrow keys no longer trigger history navigation
+
+### Changed
+
+- **Input disabled during overlays** - Keyboard events properly blocked when permission prompt or other overlays are active
+
 ## [0.27.3] - 2026-01-26
 
 ### Changed

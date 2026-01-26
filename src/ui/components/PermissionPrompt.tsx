@@ -1,6 +1,6 @@
 import { createSignal, Show, For } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
-import { Colors, Indicators } from "../design";
+import { Colors } from "../design";
 import type { PermissionRequest, PermissionResponse } from "../../permission";
 
 /**
@@ -10,7 +10,7 @@ interface PermissionOption {
   key: PermissionResponse;
   label: string;
   description: string;
-  hotkey: string;
+  isWildcard?: boolean;  // For "Allow session (tool/*)" option
 }
 
 /**
@@ -18,94 +18,70 @@ interface PermissionOption {
  */
 interface PermissionPromptProps {
   request: PermissionRequest;
-  onRespond: (response: PermissionResponse, message?: string) => void;
+  onRespond: (response: PermissionResponse, message?: string, wildcard?: boolean) => void;
 }
-
-// Column widths for alignment
-const CHECKBOX_COL_WIDTH = 5;  // "[ ] "
-const LABEL_COL_WIDTH = 18;    // "Allow session  "
-const HOTKEY_COL_WIDTH = 5;    // "[1] "
 
 /**
  * PermissionPrompt Component
  * 
- * Styled to match ModelSelectOverlay - table layout with highlight row.
+ * Clean, focused permission dialog showing:
+ * - Tool name prominently
+ * - What action is being requested
+ * - Clear response options (navigate with arrows, confirm with Enter)
  * 
  * Layout:
  * ┌─ Permission Required ────────────────────────────────────────────────┐
  * │                                                                      │
- * │  $ Execute command                                                   │
- * │  rm -rf node_modules                                                 │
+ * │  Tool: bash                                                          │
  * │                                                                      │
- * │       RESPONSE          KEY   DESCRIPTION                            │
+ * │  Command:                                                            │
+ * │    rm -rf node_modules                                               │
  * │                                                                      │
- * │  [x]  Allow once        [1]   Permit this specific action only       │  <- highlighted
- * │  [ ]  Allow session     [2]   Auto-approve pattern for session       │
- * │  [ ]  Allow always      [3]   Save to project config                 │
- * │  [ ]  Reject            [4]   Deny this action                       │
+ * │       RESPONSE                  DESCRIPTION                          │
  * │                                                                      │
- * │  ↑/↓: Navigate  Enter: Confirm  1-4: Quick select  Esc: Reject       │
+ * │  [x]  Allow once                Permit this specific action only     │
+ * │  [ ]  Allow session             Auto-approve this exact pattern      │
+ * │  [ ]  Allow session (bash/*)    Auto-approve all bash commands       │
+ * │  [ ]  Allow always              Save to project config               │
+ * │  [ ]  Reject                    Deny this action                     │
+ * │                                                                      │
+ * │  Up/Down: Navigate  Enter: Confirm  Esc: Reject                      │
  * └──────────────────────────────────────────────────────────────────────┘
  */
 export function PermissionPrompt(props: PermissionPromptProps) {
-  const options: PermissionOption[] = [
-    { key: "once", label: "Allow once", description: "Permit this specific action only", hotkey: "1" },
-    { key: "session", label: "Allow session", description: "Auto-approve pattern for session", hotkey: "2" },
-    { key: "always", label: "Allow always", description: "Save to project config", hotkey: "3" },
-    { key: "reject", label: "Reject", description: "Deny this action", hotkey: "4" },
-  ];
+  // Build options dynamically based on permission type
+  const getOptions = (): PermissionOption[] => {
+    const toolName = props.request.permission;
+    return [
+      { key: "once", label: "Allow once", description: "Permit this specific action only" },
+      { key: "session", label: "Allow session", description: "Auto-approve this exact pattern" },
+      { key: "session", label: `Allow session (${toolName}/*)`, description: `Auto-approve all ${toolName} actions`, isWildcard: true },
+      { key: "always", label: "Allow always", description: "Save to project config" },
+      { key: "reject", label: "Reject", description: "Deny this action" },
+    ];
+  };
   
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   
-  const selected = () => options[selectedIndex()]!;
+  const options = () => getOptions();
+  const selected = () => options()[selectedIndex()]!;
   
-  // Handle keyboard navigation
+  // Handle keyboard navigation - ONLY arrow keys and Enter
   useKeyboard((key) => {
-    // Number hotkeys for quick selection
-    if (key.name === "1") {
-      props.onRespond("once");
-      return;
-    }
-    if (key.name === "2") {
-      props.onRespond("session");
-      return;
-    }
-    if (key.name === "3") {
-      props.onRespond("always");
-      return;
-    }
-    if (key.name === "4" || key.name === "n") {
-      props.onRespond("reject");
-      return;
-    }
-    
-    // Letter hotkeys (y for once, s for session, a for always)
-    if (key.name === "y") {
-      props.onRespond("once");
-      return;
-    }
-    if (key.name === "s") {
-      props.onRespond("session");
-      return;
-    }
-    if (key.name === "a") {
-      props.onRespond("always");
-      return;
-    }
-    
     // Up/down to navigate options
     if (key.name === "up" || key.name === "k") {
       setSelectedIndex((i) => Math.max(0, i - 1));
       return;
     }
     if (key.name === "down" || key.name === "j") {
-      setSelectedIndex((i) => Math.min(options.length - 1, i + 1));
+      setSelectedIndex((i) => Math.min(options().length - 1, i + 1));
       return;
     }
     
     // Enter to confirm selection
     if (key.name === "return") {
-      props.onRespond(selected().key);
+      const opt = selected();
+      props.onRespond(opt.key, undefined, opt.isWildcard);
       return;
     }
     
@@ -114,43 +90,29 @@ export function PermissionPrompt(props: PermissionPromptProps) {
       props.onRespond("reject");
       return;
     }
+    
+    // Block all other keys - don't let them propagate
   });
 
-  // Get icon based on permission type
-  const getIcon = () => {
-    switch (props.request.permission) {
-      case "edit":
-        return Indicators.collapsed; // ▶
-      case "write":
-        return "+";
-      case "bash":
-        return "$";
-      case "task":
-        return "*";
-      default:
-        return Indicators.dot; // ●
-    }
+  // Get tool display name
+  const getToolName = () => {
+    return props.request.permission;
   };
 
-  // Get permission type label
-  const getLabel = () => {
+  // Get action type label
+  const getActionLabel = () => {
     switch (props.request.permission) {
       case "edit":
         return "Edit file";
       case "write":
         return "Create file";
       case "bash":
-        return "Execute command";
+        return "Command";
       case "task":
-        return "Launch subagent";
+        return "Subagent";
       default:
-        return props.request.permission || "Action";
+        return "Action";
     }
-  };
-
-  // Get reason for permission request
-  const getReason = () => {
-    return props.request.metadata?.["reason"] as string | undefined;
   };
 
   // Truncate long strings for display
@@ -161,6 +123,7 @@ export function PermissionPrompt(props: PermissionPromptProps) {
 
   // Line width for content
   const lineWidth = 76;
+  const contentWidth = lineWidth - 6; // Account for padding and borders
 
   return (
     <box
@@ -179,47 +142,32 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         width={lineWidth}
         backgroundColor="#1a1a1a"
       >
-        {/* Action info section */}
-        <box flexDirection="column" marginBottom={1}>
-          {/* Permission type with icon */}
-          <box flexDirection="row">
-            <text fg={Colors.status.warning}>{getIcon()} </text>
-            <text fg={Colors.ui.text}>{getLabel()}</text>
-          </box>
-          
-          {/* Action description (from message field) */}
-          <Show when={props.request.message}>
-            <box paddingLeft={2}>
-              <text fg={Colors.ui.dim}>{props.request.message}</text>
-            </box>
-          </Show>
-          
-          {/* Reason why permission is needed */}
-          <Show when={getReason()}>
-            <box paddingLeft={2}>
-              <text fg={Colors.ui.dim}>Reason: {getReason()}</text>
-            </box>
-          </Show>
+        {/* Tool name - prominently displayed */}
+        <box flexDirection="row" marginBottom={1}>
+          <text fg={Colors.ui.dim}>Tool: </text>
+          <text fg={Colors.status.warning}>{getToolName()}</text>
         </box>
         
-        {/* Show patterns (file paths, commands) */}
-        <Show when={props.request.patterns && props.request.patterns.length > 0}>
-          <box flexDirection="column" marginBottom={1}>
-            <text fg={Colors.ui.dim}>Target:</text>
-            <For each={props.request.patterns}>
-              {(pattern) => (
-                <box paddingLeft={2}>
-                  <text fg={Colors.ui.text}>{truncate(pattern, lineWidth - 8)}</text>
-                </box>
-              )}
-            </For>
-          </box>
-        </Show>
+        {/* Action details section */}
+        <box flexDirection="column" marginBottom={1}>
+          {/* Action type label */}
+          <text fg={Colors.ui.dim}>{getActionLabel()}:</text>
+          
+          {/* Patterns (file paths, commands, etc.) */}
+          <For each={props.request.patterns}>
+            {(pattern) => (
+              <box paddingLeft={2}>
+                <text fg={Colors.ui.text}>{truncate(pattern, contentWidth - 2)}</text>
+              </box>
+            )}
+          </For>
+        </box>
         
         {/* Show working directory for bash */}
         <Show when={props.request.permission === "bash" && props.request.metadata?.["workdir"]}>
           <box marginBottom={1}>
-            <text fg={Colors.ui.dim}>Directory: {String(props.request.metadata?.["workdir"])}</text>
+            <text fg={Colors.ui.dim}>Directory: </text>
+            <text fg={Colors.ui.text}>{truncate(String(props.request.metadata?.["workdir"]), contentWidth - 12)}</text>
           </box>
         </Show>
         
@@ -228,8 +176,8 @@ export function PermissionPrompt(props: PermissionPromptProps) {
           <box flexDirection="column" marginBottom={1}>
             <text fg={Colors.ui.dim}>Change:</text>
             <box paddingLeft={2} flexDirection="column">
-              <text fg={Colors.diff.deletion}>- {truncate(String(props.request.metadata?.["oldString"]), lineWidth - 8)}</text>
-              <text fg={Colors.diff.addition}>+ {truncate(String(props.request.metadata?.["newString"] || ""), lineWidth - 8)}</text>
+              <text fg={Colors.diff.deletion}>- {truncate(String(props.request.metadata?.["oldString"]), contentWidth - 4)}</text>
+              <text fg={Colors.diff.addition}>+ {truncate(String(props.request.metadata?.["newString"] || ""), contentWidth - 4)}</text>
             </box>
           </box>
         </Show>
@@ -237,7 +185,8 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         {/* Show content length for write operations */}
         <Show when={props.request.permission === "write" && props.request.metadata?.["contentLength"]}>
           <box marginBottom={1}>
-            <text fg={Colors.ui.dim}>Content: {String(props.request.metadata?.["contentLength"])} bytes</text>
+            <text fg={Colors.ui.dim}>Content: </text>
+            <text fg={Colors.ui.text}>{String(props.request.metadata?.["contentLength"])} bytes</text>
           </box>
         </Show>
         
@@ -245,21 +194,18 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         
         {/* Header row */}
         <box flexDirection="row">
-          <text fg={Colors.ui.dim}>{" ".repeat(CHECKBOX_COL_WIDTH)}</text>
-          <text fg={Colors.ui.dim}>{"RESPONSE".padEnd(LABEL_COL_WIDTH)}</text>
-          <text fg={Colors.ui.dim}>{"KEY".padEnd(HOTKEY_COL_WIDTH)}</text>
+          <text fg={Colors.ui.dim}>{"     RESPONSE".padEnd(30)}</text>
           <text fg={Colors.ui.dim}>DESCRIPTION</text>
         </box>
         
         <box height={1} />
         
-        {/* Options rows - table style like ModelSelectOverlay */}
-        <For each={options}>
+        {/* Options rows */}
+        <For each={options()}>
           {(option, i) => {
             const isSelected = () => i() === selectedIndex();
             const checkbox = isSelected() ? "[x] " : "[ ] ";
-            const labelCol = option.label.padEnd(LABEL_COL_WIDTH);
-            const hotkeyCol = `[${option.hotkey}]`.padEnd(HOTKEY_COL_WIDTH);
+            const labelCol = option.label.padEnd(26);
             const isReject = option.key === "reject";
             
             // Highlight color: cyan for normal options, red for reject
@@ -269,18 +215,16 @@ export function PermissionPrompt(props: PermissionPromptProps) {
               <Show
                 when={isSelected()}
                 fallback={
-                  <box flexDirection="row">
+                  <box flexDirection="row" height={1}>
                     <text fg={Colors.ui.dim}>{checkbox}</text>
                     <text fg={Colors.ui.text}>{labelCol}</text>
-                    <text fg={Colors.ui.dim}>{hotkeyCol}</text>
                     <text fg={Colors.ui.dim}>{option.description}</text>
                   </box>
                 }
               >
-                <box flexDirection="row" backgroundColor={highlightBg}>
+                <box flexDirection="row" height={1} backgroundColor={highlightBg}>
                   <text fg="#000000">{checkbox}</text>
                   <text fg="#000000">{labelCol}</text>
-                  <text fg="#000000">{hotkeyCol}</text>
                   <text fg="#000000">{option.description}</text>
                 </box>
               </Show>
@@ -290,8 +234,8 @@ export function PermissionPrompt(props: PermissionPromptProps) {
         
         <box height={1} />
         
-        {/* Hints */}
-        <text fg={Colors.ui.dim}>↑/↓: Navigate  Enter: Confirm  1-4: Quick select  Esc: Reject</text>
+        {/* Hints - simplified, no number keys */}
+        <text fg={Colors.ui.dim}>Up/Down: Navigate  Enter: Confirm  Esc: Reject</text>
       </box>
     </box>
   );

@@ -1,6 +1,6 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "0.27.3",
+  "version": "0.27.4",
   "private": false,
   "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders",
   "type": "module",

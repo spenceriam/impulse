@@ -308,7 +308,8 @@ export async function ask(input: {
 export function respond(input: {
   permissionID: string;
   response: PermissionResponse;
-  message?: string;
+  message?: string | undefined;
+  wildcard?: boolean | undefined;  // For "Allow session (tool/*)" - approves all actions of this type
 }): void {
   const pending = pendingPermissions.get(input.permissionID);
   if (!pending) {
@@ -334,8 +335,14 @@ export function respond(input: {
       
     case "session":
       // Add patterns to session-level approvals (in-memory)
-      for (const pattern of pending.request.patterns) {
-        addSessionApproval(pending.request.sessionID, pending.request.permission, pattern);
+      if (input.wildcard) {
+        // Wildcard: approve all actions of this permission type for the session
+        addSessionApproval(pending.request.sessionID, pending.request.permission, "*");
+      } else {
+        // Specific: approve only these exact patterns
+        for (const pattern of pending.request.patterns) {
+          addSessionApproval(pending.request.sessionID, pending.request.permission, pattern);
+        }
       }
       pending.resolve();
       break;

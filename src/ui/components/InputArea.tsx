@@ -169,6 +169,12 @@ export function InputArea(props: InputAreaProps) {
   });
 
   useKeyboard((key) => {
+    // Skip all keyboard handling when overlay is active
+    // This prevents history navigation from interfering with overlay navigation
+    if (props.overlayActive) {
+      return;
+    }
+    
     // Handle autocomplete navigation (takes priority)
     if (showAutocomplete()) {
       const commands = filteredCommands();

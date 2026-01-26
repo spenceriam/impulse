@@ -1048,6 +1048,9 @@ This ensures:
 | 01-26-2026 | Interactive PTY UI deferred | Backend works, UI for live terminal output can be added later |
 | 01-26-2026 | Remove Gutter component | Simpler layout with symmetric padding (4 chars left/right) - no more vertical line |
 | 01-26-2026 | Braille wheel spinner | Smoother animation (⣾⣽⣻⢿⡿⣟⣯⣷) at 80ms/frame vs fill blocks at 150ms |
+| 01-26-2026 | Permission UI redesign | Shows tool name, command/path, wildcard option, arrow-only navigation |
+| 01-26-2026 | Permission wildcard option | "Allow session (tool/*)" approves all actions of that type for session |
+| 01-26-2026 | InputArea overlay blocking | Skip keyboard handling when overlayActive - prevents history interference |
 
 ## Future Work
 
