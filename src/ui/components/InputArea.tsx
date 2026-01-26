@@ -167,6 +167,20 @@ export function InputArea(props: InputAreaProps) {
       props.onAutocompleteChange?.(null);
     }
   });
+  
+  // Track previous overlayActive state to detect when overlay closes
+  let prevOverlayActive = props.overlayActive ?? false;
+  createEffect(() => {
+    const currentOverlayActive = props.overlayActive ?? false;
+    // When overlay just closed (was active, now not), force focus
+    if (prevOverlayActive && !currentOverlayActive && textareaRef) {
+      // Use setTimeout to ensure DOM has updated
+      setTimeout(() => {
+        textareaRef?.focus?.();
+      }, 0);
+    }
+    prevOverlayActive = currentOverlayActive;
+  });
 
   useKeyboard((key) => {
     // Skip all keyboard handling when overlay is active

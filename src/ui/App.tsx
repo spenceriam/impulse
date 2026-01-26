@@ -898,7 +898,7 @@ function buildAPIMessages(
 
 // App that decides between welcome screen and session view
 function AppWithSession(props: { showSessionPicker?: boolean }) {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit, isDirty } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit } = useSession();
   const { mode, setMode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const queue = useQueue();
@@ -1236,12 +1236,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
   // Handle keyboard shortcuts
   useKeyboard((key) => {
-    // Double Ctrl+C to exit (with warning for unsaved changes)
+    // Double Ctrl+C to exit (with warning)
     if (key.ctrl && key.name === "c") {
       ctrlCCount++;
       
-      if (ctrlCCount === 1 && isDirty()) {
-        // First Ctrl+C with unsaved changes - show warning
+      if (ctrlCCount === 1) {
+        // First Ctrl+C - show warning
         setCtrlCWarning(true);
         setTimeout(() => {
           ctrlCCount = 0;

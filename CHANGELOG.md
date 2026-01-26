@@ -5,6 +5,19 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.14] - 2026-01-26
+
+### Fixed
+
+- **Ctrl+C exit now always shows warning** - First Ctrl+C always shows "Exit without saving?" 
+  - Previously: Warning only appeared when session had unsaved changes (`isDirty`)
+  - Problem: With no visible feedback, users didn't know to press Ctrl+C again within timeout
+  - Now: First Ctrl+C always shows warning, second Ctrl+C exits with session summary
+
+- **Input focus after closing changelog overlay** - Textarea now regains focus properly
+  - Previously: After closing `/changelog` overlay with Esc, input was unresponsive
+  - Fix: Added effect to explicitly refocus textarea when overlay closes
+
 ## [0.27.13] - 2026-01-26
 
 ### Fixed
