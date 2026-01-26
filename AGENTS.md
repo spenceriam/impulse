@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.24.5
+- **Version:** v0.24.6
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -1022,6 +1022,9 @@ This ensures:
 | 01-26-2026 | QuestionOverlay text wrapping | Custom input and review boxes now wrap/scroll (was overflow hidden) |
 | 01-26-2026 | Review screen Esc goes back | Esc returns to answering mode instead of canceling entirely |
 | 01-26-2026 | Muted mode backgrounds | Added gray to mode tints for softer, less intense appearance |
+| 01-26-2026 | Click-to-copy on messages | Click message block to copy content - uses OSC 52 + native fallbacks |
+| 01-26-2026 | Clipboard history module | Session-scoped copy history (max 20 items) for /clipboard command |
+| 01-26-2026 | PermissionPrompt restyle | Centered overlay with table layout, cyan/red highlights, matches ModelSelectOverlay |
 
 ## Future Work
 
