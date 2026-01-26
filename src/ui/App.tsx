@@ -1855,9 +1855,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           {/* Main content row: Gutter + Content column */}
           {/* flexGrow={1} + flexShrink={1} allows this to fill remaining space */}
           <box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={0} minHeight={0} overflow="hidden">
-            {/* Left gutter - fills height of this row */}
+            {/* Left gutter - fills height of this row (static, no animation) */}
             <box paddingLeft={1} flexShrink={0}>
-              <Gutter loading={isLoading()} />
+              <Gutter />
             </box>
             
             {/* Content column */}
@@ -1901,7 +1901,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           
           {/* Status line at very bottom - full width, outside gutter area */}
           <box flexShrink={0} height={1} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
-            <StatusLine />
+            <StatusLine loading={isLoading()} />
           </box>
         </box>
       </Show>

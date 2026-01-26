@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.24.6
+- **Version:** v0.25.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -1025,6 +1025,11 @@ This ensures:
 | 01-26-2026 | Click-to-copy on messages | Click message block to copy content - uses OSC 52 + native fallbacks |
 | 01-26-2026 | Clipboard history module | Session-scoped copy history (max 20 items) for /clipboard command |
 | 01-26-2026 | PermissionPrompt restyle | Centered overlay with table layout, cyan/red highlights, matches ModelSelectOverlay |
+| 01-26-2026 | Status line spinner | Fill progression animation (░▒▓█▓▒) left of model name - cleaner than gutter animation |
+| 01-26-2026 | Static gutter | Removed color-cycling animation from gutter - spinner moved to status line |
+| 01-26-2026 | DiffView line numbers | Dual column for edits (old->new), single column for new files |
+| 01-26-2026 | TerminalOutput component | Dedicated terminal-style display for bash with expand/collapse |
+| 01-26-2026 | file_write generates diffs | Shows changes for overwrites, all lines as additions for new files |
 
 ## Future Work
 

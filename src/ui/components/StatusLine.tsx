@@ -1,4 +1,4 @@
-import { createSignal, createMemo, onCleanup, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, onCleanup, Show } from "solid-js";
 import { Colors, Indicators } from "../design";
 import { useMode } from "../context/mode";
 import { useSession } from "../context/session";
@@ -10,6 +10,11 @@ import packageJson from "../../../package.json";
 function formatModelName(model: string): string {
   return model.toUpperCase().replace("GLM-", "GLM-");
 }
+
+// Spinner frames for loading animation (Option G: fill progression)
+// 1 character wide, cycles through block fill levels
+const SPINNER_FRAMES = ["░", "▒", "▓", "█", "▓", "▒"];
+const SPINNER_INTERVAL = 150; // ms per frame
 
 /**
  * Status Line Component
@@ -30,6 +35,7 @@ function formatModelName(model: string): string {
 
 interface StatusLineProps {
   isInitialScreen?: boolean;
+  loading?: boolean;  // Show spinner when AI is processing
 }
 
 // Get truncated working directory
@@ -106,6 +112,25 @@ async function getGitBranch(): Promise<string> {
 }
 
 export function StatusLine(props: StatusLineProps) {
+  // Spinner state for loading animation
+  const [spinnerFrame, setSpinnerFrame] = createSignal(0);
+  let spinnerIntervalId: ReturnType<typeof setInterval> | undefined;
+  
+  // Start/stop spinner based on loading state
+  createEffect(() => {
+    if (props.loading) {
+      spinnerIntervalId = setInterval(() => {
+        setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+      }, SPINNER_INTERVAL);
+    } else {
+      if (spinnerIntervalId) {
+        clearInterval(spinnerIntervalId);
+        spinnerIntervalId = undefined;
+      }
+      setSpinnerFrame(0);
+    }
+  });
+  
   // Reactive signals for polled values
   const [mcpStatus, setMcpStatus] = createSignal<{ connected: number; failed: number; total: number; waitingForApiKey?: boolean }>({
     connected: 0,
@@ -234,17 +259,27 @@ export function StatusLine(props: StatusLineProps) {
   onCleanup(() => {
     clearInterval(mcpIntervalId);
     clearInterval(gitIntervalId);
+    if (spinnerIntervalId) {
+      clearInterval(spinnerIntervalId);
+    }
   });
 
   // Version from package.json
   const version = `v${packageJson.version}`;
 
+  // Get current spinner character
+  const spinnerChar = () => SPINNER_FRAMES[spinnerFrame()] ?? "░";
+  
   // Render based on screen type
   if (props.isInitialScreen) {
     // Simplified format for welcome screen
-    // Format: Model | [EX] | Dir | Branch | MCP | Date | Version
+    // Format: [Spinner] Model | [EX] | Dir | Branch | MCP | Date | Version
     return (
       <box height={1} justifyContent="center" flexDirection="row">
+        <Show when={props.loading}>
+          <text fg={Colors.ui.primary}>{spinnerChar()}</text>
+          <text fg={Colors.ui.dim}>{" "}</text>
+        </Show>
         <text fg={Colors.ui.dim}>{displayModel()}</text>
         <Show when={isExpress()}>
           <text fg={Colors.ui.dim}> | </text>
@@ -263,10 +298,14 @@ export function StatusLine(props: StatusLineProps) {
   );
 
   // Full format for session view
-  // Format: Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Date
-  // [EX] comes right after Model (same position as welcome screen)
+  // Format: [Spinner] Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Date
+  // Spinner appears LEFT of model when loading, [EX] comes right after Model
   return (
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
+      <Show when={props.loading}>
+        <text fg={Colors.ui.primary}>{spinnerChar()}</text>
+        <text fg={Colors.ui.dim}>{" "}</text>
+      </Show>
       <text fg={Colors.ui.dim}>{displayModel()}</text>
       <Show when={isExpress()}>
         <text fg={Colors.ui.dim}>{" | "}</text>

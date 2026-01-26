@@ -12,6 +12,7 @@ export { TodoBar } from "./TodoBar";
 export { BottomPanel, BOTTOM_PANEL_HEIGHT } from "./BottomPanel";
 export { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 export { DiffView } from "./DiffView";
+export { TerminalOutput } from "./TerminalOutput";
 export { Overlay, type OverlayMode, type CommandOption } from "./Overlay";
 export { Autocomplete } from "./Autocomplete";
 export { QuestionOverlay } from "./QuestionOverlay";

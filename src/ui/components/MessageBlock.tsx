@@ -12,6 +12,7 @@ import {
 } from "../../types/tool-metadata";
 import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 import { DiffView } from "./DiffView";
+import { TerminalOutput } from "./TerminalOutput";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { BouncingDots } from "./BouncingDots";
 import { useSession } from "../context/session";
@@ -364,47 +365,36 @@ function getExpandedContent(
 ): JSX.Element | null {
   if (!metadata) return null;
 
-  // Bash: show command and output with truncation safety
+  // Bash: use TerminalOutput component for proper terminal-style display
   if (isBashMetadata(metadata)) {
-    // Hard limits to prevent UI crash
-    const MAX_LINES = 50;
-    const MAX_CHARS = 5000;
-
-    let output = metadata.output;
-    let charTruncated = false;
-
-    // Truncate by characters first
-    if (output.length > MAX_CHARS) {
-      output = output.slice(0, MAX_CHARS);
-      charTruncated = true;
-    }
-
-    const outputLines = output.split("\n");
-    const previewLines = outputLines.slice(0, 3);
-    const hasMore = outputLines.length > 3 || charTruncated;
-    const moreCount = Math.min(outputLines.length - 3, MAX_LINES - 3);
-
-    return (
-      <box flexDirection="column">
-        <text fg={Colors.ui.text}>$ {metadata.command}</text>
-        <For each={previewLines}>
-          {(line) => <text fg={Colors.ui.dim}>{line}</text>}
-        </For>
-        <Show when={hasMore}>
-          <text fg={Colors.ui.dim}>
-            ... ({charTruncated ? "output truncated" : `${moreCount} more lines`})
-          </text>
-        </Show>
-        <Show when={metadata.exitCode !== 0}>
-          <text fg={Colors.status.error}>Exit code: {metadata.exitCode}</text>
-        </Show>
-      </box>
-    );
+    // Build props conditionally to avoid passing undefined
+    const terminalProps: {
+      command: string;
+      output: string;
+      exitCode: number;
+      maxPreviewLines: number;
+      workdir?: string;
+      description?: string;
+    } = {
+      command: metadata.command,
+      output: metadata.output,
+      exitCode: metadata.exitCode,
+      maxPreviewLines: 5,
+    };
+    if (metadata.workdir) terminalProps.workdir = metadata.workdir;
+    if (metadata.description) terminalProps.description = metadata.description;
+    
+    return <TerminalOutput {...terminalProps} />;
   }
 
   // File Edit: show diff
   if (isFileEditMetadata(metadata) && metadata.diff) {
     return <DiffView diff={metadata.diff} maxLines={30} />;
+  }
+  
+  // File Write: show diff (for new files, shows all lines as additions)
+  if (isFileWriteMetadata(metadata) && metadata.diff) {
+    return <DiffView diff={metadata.diff} maxLines={30} isNewFile={metadata.created} />;
   }
 
   // Task: show action summaries

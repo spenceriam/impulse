@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { mkdirSync, statSync, writeFileSync, existsSync } from "fs";
-import { resolve, relative, isAbsolute } from "path";
+import { mkdirSync, statSync, writeFileSync, existsSync, readFileSync } from "fs";
+import { resolve, relative, isAbsolute, basename } from "path";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
+import { createPatch } from "diff";
 
 const DESCRIPTION = `Writes a file to the local filesystem.
 
@@ -67,6 +68,16 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       const isNewFile = !existsSync(safePath);
       const permissionType = isNewFile ? "write" : "edit";
       
+      // Read existing content for diff generation (if overwriting)
+      let existingContent = "";
+      if (!isNewFile) {
+        try {
+          existingContent = readFileSync(safePath, "utf-8");
+        } catch {
+          // If we can't read it, treat as new file for diff purposes
+        }
+      }
+      
       // Only ask permission for files outside the working directory
       if (!isWithinCwd(safePath)) {
         await askPermission({
@@ -102,6 +113,17 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
 
       // Count lines written
       const linesWritten = input.content.split("\n").length;
+      
+      // Generate diff for display
+      const fileName = basename(safePath);
+      let diff: string;
+      if (isNewFile) {
+        // For new files, create a diff showing all lines as additions
+        diff = createPatch(fileName, "", input.content, "", "");
+      } else {
+        // For overwrites, create a proper diff
+        diff = createPatch(fileName, existingContent, input.content, "", "");
+      }
 
       return {
         success: true,
@@ -111,6 +133,7 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           filePath: input.filePath,
           linesWritten,
           created: isNewFile,
+          diff,
         },
       };
     } catch (error) {

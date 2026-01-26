@@ -27,6 +27,7 @@ export interface FileWriteMetadata {
   filePath: string;          // Absolute or relative path
   linesWritten: number;      // Number of lines in content
   created: boolean;          // True if file was created (vs overwritten)
+  diff?: string;             // Unified diff (for overwrite) or content preview (for new file)
 }
 
 // ============================================

@@ -5,6 +5,36 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-01-26
+
+### Added
+
+- **Status line spinner** - Visual processing indicator in status bar
+  - Fill progression animation: `░ ▒ ▓ █ ▓ ▒` (150ms per frame)
+  - Appears left of model name when AI is processing
+  - Stops during overlays (QuestionOverlay, PermissionPrompt)
+
+- **Terminal output component** - Proper terminal-style display for bash commands
+  - Shows command with `$` prompt and working directory
+  - Click to expand/collapse output (5 lines collapsed, 15 lines expanded)
+  - Shows exit code in red for failed commands
+  - Scrollable when expanded
+
+- **File write diffs** - file_write tool now generates and displays diffs
+  - New files show all lines as additions
+  - Overwrites show before/after changes
+
+### Changed
+
+- **DiffView enhanced with line numbers** - Proper line number display
+  - For edits: dual column showing old line -> new line mapping
+  - For new files: single column with sequential line numbers
+  - Context lines show both line numbers, additions/deletions show relevant one
+
+- **Gutter simplified** - Removed color-cycling animation
+  - Now displays static dim line (cleaner, less distracting)
+  - Spinner moved to status line for better visibility
+
 ## [0.24.6] - 2026-01-26
 
 ### Added
