@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.22.0
+- **Version:** v0.24.5
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -1010,6 +1010,18 @@ This ensures:
 | 01-25-2026 | /todo command with overlay | Shows all todos when TodoBar hidden (all complete) - review session history |
 | 01-25-2026 | /usage 5-hour window display | Clear consumed/allotted format with reset time in relative + UTC + local |
 | 01-25-2026 | Update failure reason display | Show actual error message (permission, timeout, etc.) not just "failed" |
+| 01-25-2026 | Command alias support | Commands can have multiple names (e.g., /details alias for /verbose) |
+| 01-25-2026 | set_mode tool for AI | AI can programmatically switch modes mid-conversation - emits Bus event |
+| 01-25-2026 | Content looping fix | Track "content this turn" vs "total for UI" separately in tool continuations |
+| 01-25-2026 | Mode-tinted message backgrounds | Each mode has subtle tinted background color for AI message blocks |
+| 01-25-2026 | Turn footer on AI messages | Shows model, mode, timestamp after streaming completes |
+| 01-25-2026 | ThinkingBlock auto-collapse | Automatically collapse when streaming ends (turn complete) |
+| 01-25-2026 | joinContentSections helper | Normalize whitespace when joining content - prevents excessive blank lines |
+| 01-26-2026 | Bus subscription before update check | Fix race condition - ensure subscription ready before runUpdateCheck() |
+| 01-26-2026 | "Checking for updates" indicator | Visual feedback during startup update check |
+| 01-26-2026 | QuestionOverlay text wrapping | Custom input and review boxes now wrap/scroll (was overflow hidden) |
+| 01-26-2026 | Review screen Esc goes back | Esc returns to answering mode instead of canceling entirely |
+| 01-26-2026 | Muted mode backgrounds | Added gray to mode tints for softer, less intense appearance |
 
 ## Future Work
 
