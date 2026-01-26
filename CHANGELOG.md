@@ -5,6 +5,26 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.5] - 2026-01-26
+
+### Fixed
+
+- **QuestionOverlay text wrapping** - Long custom answers now wrap and scroll properly
+  - "Type your own answer" input is now a 3-line scrollable box (was single line that overflowed)
+  - Review screen answer boxes wrap text at 64 chars with vertical scroll
+  - No more text disappearing past the visible area
+
+- **Review screen navigation** - Improved flow for editing answers
+  - `Esc` now goes back to answering mode (was canceling entirely)
+  - `Tab`/`↑`/`↓` navigate between fields
+  - Mouse scroll and PageUp/PageDown scroll within focused field
+
+### Changed
+
+- **Muted mode background colors** - Added gray to mode tints for softer appearance
+  - AI message blocks now have more subtle, muted background colors
+  - Reduces visual intensity while maintaining mode distinction
+
 ## [0.24.4] - 2026-01-25
 
 ### Fixed
