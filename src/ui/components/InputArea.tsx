@@ -540,7 +540,7 @@ export function InputArea(props: InputAreaProps) {
               placeholder={showGhostText() ? ghostText : null}
               width={-1}
               height={props.fixedHeight ?? Layout.input.minHeight}
-              focused={!props.loading && !props.overlayActive}
+              focused={!props.overlayActive}
               cursorColor={Colors.ui.primary}
             />
           </box>

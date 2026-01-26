@@ -752,7 +752,7 @@ export function MessageBlock(props: MessageBlockProps) {
             
             {/* Thinking/Reasoning content - collapsible block */}
             <Show when={reasoning()}>
-              <ThinkingBlock content={reasoning()!} streaming={isStreaming()} />
+              <ThinkingBlock content={reasoning()!} streaming={isStreaming()} mode={mode()} />
             </Show>
             
             {/* Message content */}

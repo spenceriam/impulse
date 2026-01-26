@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect, Show, on } from "solid-js";
-import { Colors } from "../design";
+import { Colors, type Mode, getModeBackground } from "../design";
 
 /**
  * Thinking Block Component
@@ -25,9 +25,32 @@ import { Colors } from "../design";
 // Height constants
 const PREVIEW_HEIGHT = 5;      // 5-row preview when collapsed
 
+/**
+ * Darken a hex color by reducing its brightness
+ * Used to create thinking block background that's darker than mode background
+ */
+function darkenColor(hex: string, factor: number = 0.6): string {
+  // Remove # if present
+  const color = hex.replace("#", "");
+  
+  // Parse RGB components
+  const r = parseInt(color.substring(0, 2), 16);
+  const g = parseInt(color.substring(2, 4), 16);
+  const b = parseInt(color.substring(4, 6), 16);
+  
+  // Darken each component
+  const dr = Math.round(r * factor);
+  const dg = Math.round(g * factor);
+  const db = Math.round(b * factor);
+  
+  // Convert back to hex
+  return `#${dr.toString(16).padStart(2, "0")}${dg.toString(16).padStart(2, "0")}${db.toString(16).padStart(2, "0")}`;
+}
+
 interface ThinkingBlockProps {
   content?: string;
   streaming?: boolean;
+  mode?: Mode | undefined;
 }
 
 export function ThinkingBlock(props: ThinkingBlockProps) {
@@ -88,7 +111,7 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
         flexDirection="column" 
         marginTop={1}
         marginBottom={1}
-        backgroundColor={Colors.message.thinking}
+        backgroundColor={props.mode ? darkenColor(getModeBackground(props.mode), 0.7) : Colors.message.thinking}
         overflow="hidden"
         flexShrink={0}
       >

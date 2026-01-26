@@ -300,10 +300,12 @@ export function StatusLine(props: StatusLineProps) {
   );
 
   // Full format for session view
-  // Format: [Spinner] Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Date
+  // Format: [Spinner] Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Queue | Date | Version
   // Spinner appears LEFT of model when loading, [EX] comes right after Model
+  // Use flexGrow to push version to the right edge
   return (
     <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
+      {/* Left side: Spinner + Model + Mode info */}
       <Show when={props.loading}>
         <text fg={Colors.ui.primary}>{spinnerChar()}</text>
         <text fg={Colors.ui.dim}>{" "}</text>
@@ -326,7 +328,12 @@ export function StatusLine(props: StatusLineProps) {
         <text fg={Colors.ui.dim}>{" | "}</text>
         <text fg={Colors.ui.primary}>{`Queue: ${queueCount()}`}</text>
       </Show>
-      <text fg={Colors.ui.dim}>{` | ${date} | ${version}`}</text>
+      
+      {/* Spacer to push right side */}
+      <box flexGrow={1} />
+      
+      {/* Right side: Date and Version */}
+      <text fg={Colors.ui.dim}>{`${date} | ${version}`}</text>
     </box>
   );
 }

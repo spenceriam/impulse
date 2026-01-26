@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-01-26
+
+### Fixed
+
+- **Input disabled during AI processing** - Can now type while AI is processing (enables queue system)
+- **StatusLine spinner overlap** - Spinner no longer overlaps version number on right edge
+- **QuestionOverlay crash** - Fixed TextNodeRenderable error from nested text elements
+- **QuestionOverlay title quote** - Strip stray quotes from AI-generated context
+- **QuestionOverlay width** - Increased from 76 to 90 chars for better readability
+
+### Changed
+
+- **ThinkingBlock background** - Now uses mode's background color (darkened) instead of hardcoded purple
+
 ## [0.27.0] - 2026-01-26
 
 ### Added

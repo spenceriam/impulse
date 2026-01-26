@@ -454,7 +454,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
               border
               borderColor={Colors.ui.primary}
               backgroundColor="#252530"
-              width={60}
+              width={74}
             >
               <box width={2} flexShrink={0}>
                 <text fg={Colors.ui.dim}>{">"} </text>
@@ -465,8 +465,9 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                 stickyScroll
                 stickyStart="bottom"
               >
-                <box width={54}>
-                  <text fg={Colors.ui.text}>{customText || ""}<text fg={Colors.ui.dim}>_</text></text>
+                <box width={68} flexDirection="row">
+                  <text fg={Colors.ui.text}>{customText || ""}</text>
+                  <text fg={Colors.ui.dim}>_</text>
                 </box>
               </scrollbox>
             </box>
@@ -503,7 +504,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                     borderColor={isFocused() ? Colors.ui.primary : Colors.ui.dim}
                     backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
                     paddingLeft={1}
-                    width={68}
+                    width={82}
                   >
                     <scrollbox 
                       height={3}
@@ -511,13 +512,13 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                       stickyScroll
                       stickyStart="bottom"
                     >
-                      <box width={64}>
+                      <box width={78} flexDirection="row">
                         <text fg={Colors.ui.text}>
                           {answer() || "(no answer)"}
-                          <Show when={isFocused()}>
-                            <text fg={Colors.ui.dim}>_</text>
-                          </Show>
                         </text>
+                        <Show when={isFocused()}>
+                          <text fg={Colors.ui.dim}>_</text>
+                        </Show>
                       </box>
                     </scrollbox>
                   </box>
@@ -555,7 +556,9 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
     if (uiState() === "review") {
       return "REVIEW ANSWERS";
     }
-    return props.context ? `CLARIFYING: ${props.context}` : "CLARIFYING";
+    // Strip any stray quotes from context (AI sometimes includes them)
+    const cleanContext = props.context?.replace(/^["']|["']$/g, "").trim();
+    return cleanContext ? `CLARIFYING: ${cleanContext}` : "CLARIFYING";
   };
 
   return (
@@ -571,7 +574,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
         title={headerTitle()}
         flexDirection="column"
         padding={1}
-        width={76}
+        width={90}
         backgroundColor="#1a1a1a"
       >
         <Show when={uiState() === "answering" && currentQuestion()}>
