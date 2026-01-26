@@ -8,10 +8,10 @@ import { mcpManager } from "../../mcp/manager";
 import packageJson from "../../../package.json";
 import { getModelDisplayName } from "../../constants";
 
-// Spinner frames for loading animation (Option G: fill progression)
-// 1 character wide, cycles through block fill levels
-const SPINNER_FRAMES = ["░", "▒", "▓", "█", "▓", "▒"];
-const SPINNER_INTERVAL = 150; // ms per frame
+// Spinner frames for loading animation (braille wheel)
+// 1 character wide, smooth clockwise rotation
+const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+const SPINNER_INTERVAL = 80; // ms per frame (640ms full rotation)
 
 /**
  * Status Line Component
@@ -303,8 +303,9 @@ export function StatusLine(props: StatusLineProps) {
   // Format: [Spinner] Model | [EX] | Mode | Progress [Compacting soon] | Dir | Branch | MCP | Queue | Date | Version
   // Spinner appears LEFT of model when loading, [EX] comes right after Model
   // NOTE: Always render spinner to maintain element order - use space when not loading
+  // NOTE: No paddingLeft - parent container handles alignment with prompt box
   return (
-    <box height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
+    <box height={1} flexDirection="row">
       {/* Spinner - show animated char when loading, space when idle */}
       <text fg={Colors.ui.primary}>{props.loading ? spinnerChar() : " "}</text>
       <text fg={Colors.ui.dim}>{" "}</text>

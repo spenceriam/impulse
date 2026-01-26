@@ -1,7 +1,7 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
-import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, Gutter, GUTTER_WIDTH, type CommandCandidate, type CompactingState } from "./components";
+import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, type CommandCandidate, type CompactingState } from "./components";
 import { QueueOverlay } from "./components/QueueOverlay";
 import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
@@ -1880,68 +1880,64 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         when={messages().length > 0 || hasStartedSession()}
         fallback={<WelcomeScreen onSubmit={handleSubmit} onAutocompleteChange={setAutocompleteData} updateState={updateState()} onDismissUpdate={() => setUpdateState(null)} />}
       >
-        {/* Session view with unified gutter layout */}
+        {/* Session view with symmetric padding */}
         <box 
           flexDirection="column" 
           width="100%" 
           height="100%"
           paddingTop={1}
+          paddingLeft={4}
+          paddingRight={4}
         >
-          {/* Header line at top - full width (2 rows: title + spacing) */}
-          <box flexShrink={0} height={2} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
+          {/* Header line at top (2 rows: title + spacing) */}
+          <box flexShrink={0} height={2}>
             <HeaderLine title={headerTitle()} prefix={headerPrefix()} />
           </box>
           
-          {/* Main content row: Gutter + Content column */}
-          {/* flexGrow={1} + flexShrink={1} allows this to fill remaining space */}
-          <box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={0} minHeight={0} overflow="hidden">
-            {/* Left gutter - fills height of this row (static, no animation) */}
-            <box paddingLeft={1} flexShrink={0}>
-              <Gutter />
-            </box>
+          {/* Main content column */}
+          <box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0} minHeight={0} overflow="hidden">
+            {/* Chat area - flexGrow={1} takes remaining space */}
+            <ChatView 
+              messages={messages()} 
+              isLoading={isLoading()}
+              compactingState={compactingState()} 
+              updateState={updateState()} 
+              onDismissUpdate={() => setUpdateState(null)}
+              onCopyMessage={handleCopyMessage}
+            />
             
-            {/* Content column */}
-            <box flexDirection="column" flexGrow={1} minWidth={0} paddingRight={4}>
-              {/* Chat area - flexGrow={1} takes remaining space */}
-              <ChatView 
-                messages={messages()} 
-                isLoading={isLoading()}
-                compactingState={compactingState()} 
-                updateState={updateState()} 
-                onDismissUpdate={() => setUpdateState(null)}
-                onCopyMessage={handleCopyMessage}
-              />
-              
-              {/* Bottom section - flexShrink={0} prevents compression by chat content */}
-              <box flexDirection="column" flexShrink={0}>
-                {/* Warning lines (ESC and Ctrl+C) */}
-                <box height={1} justifyContent="center">
-                  <Show when={escWarning()}>
-                    <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
-                  </Show>
-                  <Show when={ctrlCWarning() && !escWarning()}>
-                    <text fg={Colors.status.warning}>Exit without saving? Ctrl+C again to confirm</text>
-                  </Show>
-                </box>
-                
-                {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
-                <BottomPanel
-                  mode={mode()}
-                  model={model()}
-                  thinking={thinking()}
-                  loading={isLoading()}
-                  overlayActive={isOverlayActive()}
-                  copiedIndicator={copiedIndicator()}
-                  onSubmit={handleSubmit}
-                  onAutocompleteChange={setAutocompleteData}
-                  onCopy={handleCopyMessage}
-                />
+            {/* Bottom section - flexShrink={0} prevents compression by chat content */}
+            <box flexDirection="column" flexShrink={0}>
+              {/* Warning lines (ESC and Ctrl+C) */}
+              <box height={1} justifyContent="center">
+                <Show when={escWarning()}>
+                  <text fg={Colors.status.warning}>Hit ESC again to stop generation</text>
+                </Show>
+                <Show when={ctrlCWarning() && !escWarning()}>
+                  <text fg={Colors.status.warning}>Exit without saving? Ctrl+C again to confirm</text>
+                </Show>
               </box>
+              
+              {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
+              <BottomPanel
+                mode={mode()}
+                model={model()}
+                thinking={thinking()}
+                loading={isLoading()}
+                overlayActive={isOverlayActive()}
+                copiedIndicator={copiedIndicator()}
+                onSubmit={handleSubmit}
+                onAutocompleteChange={setAutocompleteData}
+                onCopy={handleCopyMessage}
+              />
             </box>
           </box>
           
-          {/* Status line at very bottom - full width, outside gutter area */}
-          <box flexShrink={0} height={1} paddingLeft={GUTTER_WIDTH + 4} paddingRight={4}>
+          {/* 1 row padding above status line */}
+          <box flexShrink={0} height={1} />
+          
+          {/* Status line at very bottom - aligned with content above */}
+          <box flexShrink={0} height={1}>
             <StatusLine loading={isLoading()} />
           </box>
         </box>
@@ -2045,15 +2041,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       </Show>
       
       {/* Command autocomplete overlay - positioned above input area */}
-      {/* On WelcomeScreen: centered. On session view: left-aligned with gutter offset */}
+      {/* On WelcomeScreen: centered. On session view: left-aligned with content */}
       <Show when={autocompleteData()}>
         {(data: () => { commands: CommandCandidate[]; selectedIndex: number }) => {
           const isOnWelcomeScreen = () => messages().length === 0 && !hasStartedSession();
           const menuWidth = 70;
-          // WelcomeScreen: center the menu. Session view: offset from gutter
+          // WelcomeScreen: center the menu. Session view: align with content (paddingLeft=4)
           const leftPos = () => isOnWelcomeScreen() 
             ? Math.max(4, Math.floor((dimensions().width - menuWidth) / 2))
-            : GUTTER_WIDTH + 4;
+            : 4;
           // WelcomeScreen: position above the centered input. Session view: above bottom panel
           const bottomPos = () => isOnWelcomeScreen() ? 4 : 12;
           

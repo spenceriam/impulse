@@ -23,5 +23,5 @@ export { BouncingDots } from "./BouncingDots";
 export { SessionPickerOverlay } from "./SessionPicker";
 export { StartOverlay } from "./StartOverlay";
 export { TodoOverlay } from "./TodoOverlay";
-export { Gutter, GUTTER_WIDTH } from "./Gutter";
+
 export { CompactingBlock } from "./CompactingBlock";

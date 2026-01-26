@@ -1046,6 +1046,8 @@ This ensures:
 | 01-26-2026 | Interactive bash mode | `interactive=true` parameter enables PTY execution |
 | 01-26-2026 | Prompt detection in PTY | Detects y/n, password, sudo, continue prompts automatically |
 | 01-26-2026 | Interactive PTY UI deferred | Backend works, UI for live terminal output can be added later |
+| 01-26-2026 | Remove Gutter component | Simpler layout with symmetric padding (4 chars left/right) - no more vertical line |
+| 01-26-2026 | Braille wheel spinner | Smoother animation (⣾⣽⣻⢿⡿⣟⣯⣷) at 80ms/frame vs fill blocks at 150ms |
 
 ## Future Work
 

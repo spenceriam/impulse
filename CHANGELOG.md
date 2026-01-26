@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.3] - 2026-01-26
+
+### Changed
+
+- **Remove Gutter component** - Simpler, cleaner layout
+  - Removed vertical line on left side of chat area
+  - Symmetric padding (4 chars left/right) throughout session view
+  - Header, chat, prompt, and status line all aligned consistently
+
+- **Braille wheel spinner** - Smoother loading animation
+  - Changed from fill blocks (░▒▓█▓▒) to braille wheel (⣾⣽⣻⢿⡿⣟⣯⣷)
+  - Faster animation: 80ms/frame (was 150ms) for smoother appearance
+  - Full rotation in 640ms
+
 ## [0.27.2] - 2026-01-26
 
 ### Fixed
