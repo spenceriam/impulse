@@ -5,6 +5,15 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.11] - 2026-01-26
+
+### Fixed
+
+- **Welcome screen layout jump** - Fixed extra empty rows appearing after startup
+  - The gap between logo and input would shrink then expand during update check
+  - Root cause: Gap height was based on `updateState` being truthy, but notification only shows when status !== "checking"
+  - Now: Gap only shrinks when there's an actual visible notification (installed/failed)
+
 ## [0.27.10] - 2026-01-26
 
 ### Fixed

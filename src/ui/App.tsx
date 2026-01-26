@@ -522,7 +522,8 @@ function WelcomeScreen(props: {
         </Show>
         
         {/* Gap between logo box (or update notification) and prompt */}
-        <box height={props.updateState ? 2 : 5} />
+        {/* Only shrink gap when there's a visible notification (not during "checking" state) */}
+        <box height={props.updateState && props.updateState.status !== "checking" ? 2 : 5} />
         
         {/* Input area positioned after the gap - responsive width to match logo box */}
         <box width={boxWidth()}>
