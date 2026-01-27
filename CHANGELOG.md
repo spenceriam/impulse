@@ -5,6 +5,17 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.23] - 2026-01-27
+
+### Fixed
+
+- **Diagrams now explicitly forbidden in system prompt** - AI behavior fix
+  - Mermaid diagrams cannot render in TUI and were showing as raw syntax
+  - ASCII art architecture diagrams were breaking terminal rendering
+  - Changed from "AVOID" guidance to "NEVER" prohibition - non-negotiable
+  - AI now uses bullet points, numbered lists, and prose for architecture
+  - Fixes recurring issue where AI would output unrenderable diagrams
+
 ## [0.27.22] - 2026-01-27
 
 ### Fixed
