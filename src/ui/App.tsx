@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, onMount, onCleanup, For } from "solid-js";
+import { createSignal, createEffect, Show, onMount, onCleanup, For, batch } from "solid-js";
 import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
 import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, type CommandCandidate, type CompactingState } from "./components";
@@ -340,7 +340,10 @@ function ModelSelectOverlay(props: {
               <Show
                 when={isSelected()}
                 fallback={
-                  <box flexDirection="row">
+                  <box 
+                    flexDirection="row"
+                    onMouseDown={() => props.onSelect(model)}
+                  >
                     <text fg={isCurrent ? Colors.status.success : Colors.ui.dim}>{checkbox}</text>
                     <text fg={Colors.ui.text}>{nameCol}</text>
                     <text fg={Colors.ui.dim}>{inputCol}</text>
@@ -348,7 +351,11 @@ function ModelSelectOverlay(props: {
                   </box>
                 }
               >
-                <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
+                <box 
+                  flexDirection="row" 
+                  backgroundColor={Colors.mode.AGENT}
+                  onMouseDown={() => props.onSelect(model)}
+                >
                   <text fg={isCurrent ? "#006600" : "#333333"}>{checkbox}</text>
                   <text fg="#000000">{nameCol}</text>
                   <text fg="#000000">{inputCol}</text>
@@ -2082,10 +2089,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         <ModelSelectOverlay
           currentModel={model()}
           onSelect={(newModel) => {
-            // Update the session model and close overlay immediately
-            setModel(newModel);
-            setShowModelSelect(false);
-            // No confirmation dialog - just select and close
+            // Use batch to ensure both updates happen atomically
+            // This prevents any intermediate render where overlay is open with new model
+            batch(() => {
+              setShowModelSelect(false);
+              setModel(newModel);
+            });
           }}
           onCancel={() => setShowModelSelect(false)}
         />

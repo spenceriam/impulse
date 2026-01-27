@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.17] - 2026-01-27
+
+### Fixed
+
+- **Model select overlay now closes on Enter** - Improved UX
+  - Previously: Pressing Enter marked the checkbox but overlay stayed open
+  - Now: Enter immediately applies model AND closes overlay
+  - Added click support: Click any row to select and close
+  - Used `batch()` to ensure atomic state updates
+
 ## [0.27.16] - 2026-01-26
 
 ### Changed
