@@ -1,5 +1,6 @@
-import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter } from "solid-js";
+import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onMount, onCleanup } from "solid-js";
 import { Mode } from "../design";
+import { Bus, ModeEvents } from "../../bus";
 
 /**
  * Mode Context Type
@@ -55,6 +56,20 @@ export const ModeProvider: ParentComponent<ModeProviderProps> = (props) => {
       return modes[prevIndex] as Mode;
     });
   };
+
+  // Subscribe to mode changes from the AI (via set_mode tool)
+  onMount(() => {
+    const unsubscribe = Bus.subscribe((event) => {
+      if (event.type === ModeEvents.Changed.name) {
+        const payload = event.properties as { mode: Mode; reason?: string };
+        setModeRaw(payload.mode);
+      }
+    });
+
+    onCleanup(() => {
+      unsubscribe();
+    });
+  });
 
   const contextValue = {
     mode,

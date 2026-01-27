@@ -5,6 +5,24 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.24] - 2026-01-27
+
+### Fixed
+
+- **Mode switch now updates UI when AI calls set_mode tool** - UX bug fix
+  - When AI suggested switching modes (e.g., EXPLORE -> PLAN-PRD) and user agreed, UI wasn't updating
+  - ModeContext now subscribes to ModeEvents.Changed from Bus
+  - Visual mode indicator, colors, and message styling now update immediately on mode switch
+
+### Changed
+
+- **Refined diagram guidance in system prompt** - More nuanced approach
+  - Simple ASCII diagrams ARE now allowed (arrows ->, pipes |, dashes -)
+  - Example OK: "Client -> API -> Database" or indented hierarchies
+  - Complex Unicode box-drawing diagrams still forbidden in chat
+  - Mermaid diagrams now explicitly ALLOWED in PLANNER mode when writing to docs/*.md
+  - PLANNER mode instructions updated with Mermaid example for documentation files
+
 ## [0.27.23] - 2026-01-27
 
 ### Fixed
