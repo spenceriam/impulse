@@ -82,13 +82,23 @@ export function DiffView(props: DiffViewProps) {
   // New file: show plain code with line numbers (no diff shading)
   if (props.isNewFile) {
     return (
-      <box flexDirection="column">
-        <box flexDirection="column" backgroundColor="#141414" paddingLeft={1} paddingRight={1}>
+      <box flexDirection="column" width="100%" minWidth={0} overflow="hidden">
+        <box 
+          flexDirection="column" 
+          backgroundColor="#141414" 
+          paddingLeft={1} 
+          paddingRight={1}
+          width="100%"
+          minWidth={0}
+          overflow="hidden"
+        >
           <For each={contentLines()}>
             {(line, index) => (
-              <box flexDirection="row">
-                <text fg={Colors.ui.dim} width={4}>{String(index() + 1).padStart(3, " ")} </text>
-                <text fg={Colors.ui.text}>{line}</text>
+              <box flexDirection="row" width="100%" minWidth={0} overflow="hidden">
+                <text fg={Colors.ui.dim}>{String(index() + 1).padStart(3, " ")} </text>
+                <box flexGrow={1} minWidth={0} overflow="hidden">
+                  <text fg={Colors.ui.text}>{line}</text>
+                </box>
               </box>
             )}
           </For>
@@ -106,24 +116,27 @@ export function DiffView(props: DiffViewProps) {
   }
 
   // File edit: show full diff with shading
+  // Wrap in container with overflow hidden to prevent content from affecting layout
   return (
-    <box flexDirection="column">
-      <diff
-        diff={props.diff}
-        view="split"
-        showLineNumbers={true}
-        wrapMode="word"
-        fg={Colors.ui.text}
-        addedBg="#1a2f1a"
-        removedBg="#2f1a1a"
-        contextBg="#141414"
-        addedSignColor={Colors.diff.addition}
-        removedSignColor={Colors.diff.deletion}
-        lineNumberFg={Colors.ui.dim}
-        lineNumberBg="#0a0a0a"
-        addedLineNumberBg="#1a2f1a"
-        removedLineNumberBg="#2f1a1a"
-      />
+    <box flexDirection="column" width="100%" minWidth={0} overflow="hidden">
+      <box width="100%" minWidth={0} overflow="hidden">
+        <diff
+          diff={props.diff}
+          view="split"
+          showLineNumbers={true}
+          wrapMode="char"
+          fg={Colors.ui.text}
+          addedBg="#1a2f1a"
+          removedBg="#2f1a1a"
+          contextBg="#141414"
+          addedSignColor={Colors.diff.addition}
+          removedSignColor={Colors.diff.deletion}
+          lineNumberFg={Colors.ui.dim}
+          lineNumberBg="#0a0a0a"
+          addedLineNumberBg="#1a2f1a"
+          removedLineNumberBg="#2f1a1a"
+        />
+      </box>
       
       {/* Summary footer: +X / -Y */}
       <box flexDirection="row" justifyContent="flex-end" marginTop={1}>
