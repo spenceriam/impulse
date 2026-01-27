@@ -649,11 +649,16 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   
   // In verbose mode, default to expanded
   // For errors, auto-expand
-  // For success, default to collapsed (compact inline summary)
+  // For file modifications (write/edit), auto-expand to show diff
+  // For other success cases, default to collapsed (compact inline summary)
   const defaultExpanded = () => {
     if (props.verbose === true) return true;
     if (status() === "error") return true;
-    return false; // Success = collapsed by default
+    // Auto-expand file modifications to show DiffView
+    if (status() === "success" && ["file_write", "file_edit"].includes(props.toolCall.name)) {
+      return true;
+    }
+    return false; // Other success cases = collapsed by default
   };
 
   // For successful completions without meaningful expanded content, 

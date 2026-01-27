@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.25] - 2026-01-27
+
+### Changed
+
+- **DiffView now auto-expands for file_write and file_edit** - UX improvement
+  - Previously file modifications were collapsed by default, requiring click to see diff
+  - Now file_write and file_edit auto-expand to show DiffView immediately
+  - Makes it easy to see what changes the AI is making to files
+  - Other tool types remain collapsed by default (can still expand via click)
+
 ## [0.27.24] - 2026-01-27
 
 ### Fixed
