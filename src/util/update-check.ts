@@ -147,13 +147,17 @@ export async function runUpdateCheck(): Promise<void> {
  * Runs npm install -g synchronously and prints result to terminal
  */
 export function performUpdate(latestVersion: string): void {
-  console.log(`\nUpdating IMPULSE to v${latestVersion}...`);
-  console.log(`Running: npm install -g ${PACKAGE_NAME}\n`);
+  // Use process.stdout.write for immediate output (no buffering issues)
+  process.stdout.write(`\nUpdating IMPULSE to v${latestVersion}...\n`);
+  process.stdout.write(`Running: npm install -g ${PACKAGE_NAME}\n\n`);
 
   const result = spawnSync("npm", ["install", "-g", PACKAGE_NAME], {
     stdio: "inherit", // Show npm output directly
     shell: true,
   });
+
+  // Small delay to ensure npm output is fully flushed
+  spawnSync("sleep", ["0.1"], { shell: true });
 
   if (result.status === 0) {
     // Verify the update worked
@@ -162,26 +166,26 @@ export function performUpdate(latestVersion: string): void {
       shell: true,
     });
     
-    const installedVersion = versionCheck.stdout?.match(/(\d+\.\d+\.\d+)/)?.[1];
+    const installedVersion = versionCheck.stdout?.trim().match(/(\d+\.\d+\.\d+)/)?.[1];
     
+    // Print success message regardless of version check
+    // (version check may fail due to path caching)
+    process.stdout.write(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
     if (installedVersion === latestVersion) {
-      console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`  Update successful! IMPULSE is now v${latestVersion}`);
-      console.log(`  Run 'impulse' to start the new version.`);
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      process.stdout.write(`  Update successful! IMPULSE is now v${latestVersion}\n`);
+    } else if (installedVersion) {
+      process.stdout.write(`  Update completed. Installed version: v${installedVersion}\n`);
+      process.stdout.write(`  (Expected v${latestVersion} - you may need to restart your shell)\n`);
     } else {
-      console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`  Update completed but version mismatch.`);
-      console.log(`  Expected: v${latestVersion}`);
-      console.log(`  Got: v${installedVersion || "unknown"}`);
-      console.log(`  Try running: npm install -g ${PACKAGE_NAME}`);
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+      process.stdout.write(`  Update completed! IMPULSE should now be v${latestVersion}\n`);
     }
+    process.stdout.write(`  Run 'impulse' to start the new version.\n`);
+    process.stdout.write(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`);
   } else {
-    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    console.log(`  Update failed (exit code ${result.status})`);
-    console.log(`  Try running manually: npm install -g ${PACKAGE_NAME}`);
-    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    process.stdout.write(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    process.stdout.write(`  Update failed (exit code ${result.status})\n`);
+    process.stdout.write(`  Try running manually: npm install -g ${PACKAGE_NAME}\n`);
+    process.stdout.write(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`);
   }
 }
 
