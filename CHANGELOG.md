@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.29] - 2026-01-27
+
+### Changed
+
+- **New files show plain content, not diff format** - UX improvement
+  - `file_write` (new files): Shows plain code with line numbers, no +/- markers or diff shading
+  - `file_edit` (existing files): Shows side-by-side diff with green/red shading as before
+  - New file footer shows "X lines" instead of "+X / -0"
+  - Cleaner display that matches user expectations
+
 ## [0.27.28] - 2026-01-27
 
 ### Fixed

@@ -1,10 +1,10 @@
-import { createMemo } from "solid-js";
+import { createMemo, Show, For } from "solid-js";
 import { Colors } from "../design";
 
 interface DiffViewProps {
   diff: string;           // Unified diff string from createPatch
-  maxLines?: number;      // Max changed lines to show (default: 30) - not used with native diff
-  isNewFile?: boolean;    // True for new file creations (all lines are additions)
+  maxLines?: number;      // Max lines to show (default: 30)
+  isNewFile?: boolean;    // True for new file creations (shows plain content, no diff)
 }
 
 /**
@@ -32,54 +32,84 @@ function countChanges(diff: string): { additions: number; deletions: number } {
 }
 
 /**
- * DiffView Component
- * 
- * Uses OpenTUI's native <diff> component for side-by-side diff display.
- * 
- * For file_write (new files): Shows content on LEFT side (new file), RIGHT empty
- * For file_edit: Shows original on LEFT, modified on RIGHT
- * 
- * Props:
- * - diff: Unified diff string from createPatch()
- * - isNewFile: If true, shows as new file creation
+ * Extract plain content lines from a unified diff (strips +/- markers and headers)
  */
-export function DiffView(props: DiffViewProps) {
-  const changes = createMemo(() => countChanges(props.diff));
-  
-  // For new files, we want content on the LEFT (original side is empty)
-  // The diff library creates patches with all lines as additions (+)
-  // which normally shows on the right. We need to invert for new files.
-  const displayDiff = createMemo(() => {
-    if (!props.isNewFile) {
-      return props.diff;
-    }
-    
-    // For new files, invert the diff so content appears on LEFT
-    // Change +lines to -lines (so they appear in the "old" column which is left)
-    const lines = props.diff.split("\n");
-    const inverted = lines.map(line => {
-      // Swap file headers
-      if (line.startsWith("--- ")) return line.replace("--- ", "+++ ");
-      if (line.startsWith("+++ ")) return line.replace("+++ ", "--- ");
-      // Swap hunk header numbers (invert old/new positions)
-      if (line.startsWith("@@")) {
-        // @@ -0,0 +1,5 @@ becomes @@ -1,5 +0,0 @@
-        return line.replace(/@@ -(\d+),(\d+) \+(\d+),(\d+) @@/, "@@ -$3,$4 +$1,$2 @@");
+function extractContentLines(diff: string): string[] {
+  return diff.split("\n")
+    .filter(line => 
+      !line.startsWith("---") && 
+      !line.startsWith("+++") && 
+      !line.startsWith("@@") &&
+      !line.startsWith("\\ No newline")
+    )
+    .map(line => {
+      // Strip the leading +/- marker
+      if (line.startsWith("+") || line.startsWith("-")) {
+        return line.slice(1);
       }
-      // Swap + to - (so additions show on left "removed" side)
-      if (line.startsWith("+") && !line.startsWith("+++")) {
-        return "-" + line.slice(1);
+      // Context lines (space prefix)
+      if (line.startsWith(" ")) {
+        return line.slice(1);
       }
       return line;
     });
-    return inverted.join("\n");
-  });
+}
 
+/**
+ * DiffView Component
+ * 
+ * For file_write (new files): Shows plain content with line numbers (no diff shading)
+ * For file_edit: Shows side-by-side diff with +/- shading
+ * 
+ * Props:
+ * - diff: Unified diff string from createPatch()
+ * - isNewFile: If true, shows plain content (no diff formatting)
+ * - maxLines: Max lines to display (default: 30)
+ */
+export function DiffView(props: DiffViewProps) {
+  const changes = createMemo(() => countChanges(props.diff));
+  const maxLines = () => props.maxLines ?? 30;
+  
+  // For new files, extract plain content (no diff markers)
+  const contentLines = createMemo(() => {
+    const lines = extractContentLines(props.diff);
+    return lines.slice(0, maxLines());
+  });
+  
+  const totalLines = createMemo(() => extractContentLines(props.diff).length);
+  const isTruncated = createMemo(() => totalLines() > maxLines());
+
+  // New file: show plain code with line numbers (no diff shading)
+  if (props.isNewFile) {
+    return (
+      <box flexDirection="column">
+        <box flexDirection="column" backgroundColor="#141414" paddingLeft={1} paddingRight={1}>
+          <For each={contentLines()}>
+            {(line, index) => (
+              <box flexDirection="row">
+                <text fg={Colors.ui.dim} width={4}>{String(index() + 1).padStart(3, " ")} </text>
+                <text fg={Colors.ui.text}>{line}</text>
+              </box>
+            )}
+          </For>
+        </box>
+        
+        {/* Footer: line count */}
+        <box flexDirection="row" justifyContent="flex-end" marginTop={1}>
+          <text fg={Colors.ui.dim}>{totalLines()} lines</text>
+          <Show when={isTruncated()}>
+            <text fg={Colors.ui.dim}> (showing {maxLines()})</text>
+          </Show>
+        </box>
+      </box>
+    );
+  }
+
+  // File edit: show full diff with shading
   return (
     <box flexDirection="column">
-      {/* Diff view using native OpenTUI component */}
       <diff
-        diff={displayDiff()}
+        diff={props.diff}
         view="split"
         showLineNumbers={true}
         wrapMode="word"
