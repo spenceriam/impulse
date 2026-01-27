@@ -1637,14 +1637,24 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     
     const version = state.latestVersion;
     
+    // Disable stdout interception before destroy (OpenTUI captures stdout for console)
+    // This ensures our post-update messages actually reach the terminal
+    if (typeof (renderer as any).disableStdoutInterception === "function") {
+      (renderer as any).disableStdoutInterception();
+    }
+    
     // Destroy UI first so terminal is freed up for npm output
     renderer.destroy();
     
-    // Run the update (synchronous, shows output directly to terminal)
-    performUpdate(version);
-    
-    // Exit cleanly
-    process.exit(0);
+    // Give terminal time to fully restore from alternate screen buffer
+    // before we start printing output
+    setTimeout(() => {
+      // Run the update (synchronous, shows output directly to terminal)
+      performUpdate(version);
+      
+      // Exit cleanly
+      process.exit(0);
+    }, 100);
   };
 
   // Handle message submission

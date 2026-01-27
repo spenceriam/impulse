@@ -12,6 +12,7 @@
 
 import * as semver from "semver";
 import { spawnSync } from "child_process";
+import { writeSync } from "fs";
 import { Bus, UpdateEvents } from "../bus/index";
 import { isDebugEnabled } from "./debug-log";
 import packageJson from "../../package.json";
@@ -147,17 +148,23 @@ export async function runUpdateCheck(): Promise<void> {
  * Runs npm install -g synchronously and prints result to terminal
  */
 export function performUpdate(latestVersion: string): void {
-  // Use process.stdout.write for immediate output (no buffering issues)
-  process.stdout.write(`\nUpdating IMPULSE to v${latestVersion}...\n`);
-  process.stdout.write(`Running: npm install -g ${PACKAGE_NAME}\n\n`);
+  // Helper function that writes directly to file descriptor 1 (stdout)
+  // This bypasses any Node.js/Bun buffering or stream interception
+  const rawPrint = (msg: string) => {
+    writeSync(1, msg + "\n");
+  };
+  
+  rawPrint(`\nUpdating IMPULSE to v${latestVersion}...`);
+  rawPrint(`Running: npm install -g ${PACKAGE_NAME}\n`);
 
   const result = spawnSync("npm", ["install", "-g", PACKAGE_NAME], {
     stdio: "inherit", // Show npm output directly
     shell: true,
   });
 
-  // Small delay to ensure npm output is fully flushed
-  spawnSync("sleep", ["0.1"], { shell: true });
+  // After stdio: "inherit" returns, the terminal should be back to normal
+  // Use a no-op spawnSync to give the terminal time to settle
+  spawnSync("true", [], { shell: true });
 
   if (result.status === 0) {
     // Verify the update worked
@@ -168,24 +175,23 @@ export function performUpdate(latestVersion: string): void {
     
     const installedVersion = versionCheck.stdout?.trim().match(/(\d+\.\d+\.\d+)/)?.[1];
     
-    // Print success message regardless of version check
-    // (version check may fail due to path caching)
-    process.stdout.write(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    // Print success message using raw file descriptor write
+    rawPrint(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     if (installedVersion === latestVersion) {
-      process.stdout.write(`  Update successful! IMPULSE is now v${latestVersion}\n`);
+      rawPrint(`  Update successful! IMPULSE is now v${latestVersion}`);
     } else if (installedVersion) {
-      process.stdout.write(`  Update completed. Installed version: v${installedVersion}\n`);
-      process.stdout.write(`  (Expected v${latestVersion} - you may need to restart your shell)\n`);
+      rawPrint(`  Update completed. Installed version: v${installedVersion}`);
+      rawPrint(`  (Expected v${latestVersion} - you may need to restart your shell)`);
     } else {
-      process.stdout.write(`  Update completed! IMPULSE should now be v${latestVersion}\n`);
+      rawPrint(`  Update completed! IMPULSE should now be v${latestVersion}`);
     }
-    process.stdout.write(`  Run 'impulse' to start the new version.\n`);
-    process.stdout.write(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`);
+    rawPrint(`  Run 'impulse' to start the new version.`);
+    rawPrint(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   } else {
-    process.stdout.write(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-    process.stdout.write(`  Update failed (exit code ${result.status})\n`);
-    process.stdout.write(`  Try running manually: npm install -g ${PACKAGE_NAME}\n`);
-    process.stdout.write(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`);
+    rawPrint(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    rawPrint(`  Update failed (exit code ${result.status})`);
+    rawPrint(`  Try running manually: npm install -g ${PACKAGE_NAME}`);
+    rawPrint(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
   }
 }
 

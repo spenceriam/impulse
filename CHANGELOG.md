@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.19] - 2026-01-27
+
+### Fixed
+
+- **Update completion message now displays (v2)** - More aggressive fix for stdout issues
+  - Use `writeSync(1, ...)` for direct file descriptor writes (bypasses all buffering)
+  - Call `disableStdoutInterception()` before renderer destroy (releases OpenTUI stdout capture)
+  - Add 100ms delay after `renderer.destroy()` to let terminal restore from alternate screen
+  - Previous fix (v0.27.18) was insufficient - console.log still captured by OpenTUI
+
 ## [0.27.18] - 2026-01-27
 
 ### Fixed
