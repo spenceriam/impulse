@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.22] - 2026-01-27
+
+### Fixed
+
+- **MessageBlock accent lines restored to thin horizontal lines** - Visual fix
+  - v0.27.20 incorrectly used half-block characters (`▄`/`▀`) which are too thick
+  - Restored original v0.25.0 style using thin horizontal line (`─`) character
+  - Half-blocks are only for InputArea, message blocks use thin lines
+  - Provides more visual breathing room for message content
+
 ## [0.27.21] - 2026-01-27
 
 ### Fixed

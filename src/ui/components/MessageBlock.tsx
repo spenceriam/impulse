@@ -22,6 +22,9 @@ import { getModelDisplayName } from "../../constants";
 const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
 const ASSISTANT_BG_FALLBACK = "#141414"; // Fallback gray for AI when no mode set
 
+// Thin horizontal line character for accent lines (NOT half-blocks)
+const THIN_LINE = "─";
+
 /**
  * Tool call display info
  */
@@ -727,9 +730,9 @@ export function MessageBlock(props: MessageBlockProps) {
           overflow="hidden"
           backgroundColor={aiBackground()}
         >
-          {/* Top accent line - mode colored, thin line using lower half block */}
-          <box height={1} width="100%">
-            <text fg={modeColor()}>{"▄".repeat(500)}</text>
+          {/* Top accent line - mode colored, thin horizontal line */}
+          <box height={1} width="100%" overflow="hidden">
+            <text fg={modeColor()}>{THIN_LINE.repeat(500)}</text>
           </box>
           
           {/* Message content area - clickable to copy */}
@@ -851,9 +854,9 @@ export function MessageBlock(props: MessageBlockProps) {
             </Show>
           </box>
           
-          {/* Bottom accent line - mode colored, thin line using upper half block */}
-          <box height={1} width="100%">
-            <text fg={modeColor()}>{"▀".repeat(500)}</text>
+          {/* Bottom accent line - mode colored, thin horizontal line */}
+          <box height={1} width="100%" overflow="hidden">
+            <text fg={modeColor()}>{THIN_LINE.repeat(500)}</text>
           </box>
         </box>
       }
@@ -868,9 +871,9 @@ export function MessageBlock(props: MessageBlockProps) {
         overflow="hidden"
         backgroundColor={USER_MESSAGE_BG}
       >
-        {/* Top accent line - gray, thin line using lower half block */}
-        <box height={1} width="100%">
-          <text fg={userAccentColor}>{"▄".repeat(500)}</text>
+        {/* Top accent line - gray, thin horizontal line */}
+        <box height={1} width="100%" overflow="hidden">
+          <text fg={userAccentColor}>{THIN_LINE.repeat(500)}</text>
         </box>
         
         {/* Message content area - clickable to copy */}
@@ -897,9 +900,9 @@ export function MessageBlock(props: MessageBlockProps) {
           </Show>
         </box>
         
-        {/* Bottom accent line - gray, thin line using upper half block */}
-        <box height={1} width="100%">
-          <text fg={userAccentColor}>{"▀".repeat(500)}</text>
+        {/* Bottom accent line - gray, thin horizontal line */}
+        <box height={1} width="100%" overflow="hidden">
+          <text fg={userAccentColor}>{THIN_LINE.repeat(500)}</text>
         </box>
       </box>
     </Show>
