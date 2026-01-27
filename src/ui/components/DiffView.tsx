@@ -1,16 +1,11 @@
-import { createMemo, createSignal, onMount, onCleanup } from "solid-js";
+import { createMemo } from "solid-js";
 import { Colors } from "../design";
 
 interface DiffViewProps {
   diff: string;           // Unified diff string from createPatch
   maxLines?: number;      // Max changed lines to show (default: 30) - not used with native diff
   isNewFile?: boolean;    // True for new file creations (all lines are additions)
-  animate?: boolean;      // Enable typewriter animation (default: true)
 }
-
-// Animation settings
-const LINES_PER_FRAME = 3;      // Lines to reveal per animation frame
-const FRAME_INTERVAL_MS = 16;   // ~60fps animation
 
 /**
  * Count additions and deletions from a unified diff string
@@ -40,7 +35,6 @@ function countChanges(diff: string): { additions: number; deletions: number } {
  * DiffView Component
  * 
  * Uses OpenTUI's native <diff> component for side-by-side diff display.
- * Includes typewriter animation for smooth reveal of diff content.
  * 
  * For file_write (new files): Shows content on LEFT side (new file), RIGHT empty
  * For file_edit: Shows original on LEFT, modified on RIGHT
@@ -48,16 +42,14 @@ function countChanges(diff: string): { additions: number; deletions: number } {
  * Props:
  * - diff: Unified diff string from createPatch()
  * - isNewFile: If true, shows as new file creation
- * - animate: Enable typewriter animation (default: true)
  */
 export function DiffView(props: DiffViewProps) {
   const changes = createMemo(() => countChanges(props.diff));
-  const shouldAnimate = () => props.animate !== false;
   
   // For new files, we want content on the LEFT (original side is empty)
   // The diff library creates patches with all lines as additions (+)
   // which normally shows on the right. We need to invert for new files.
-  const fullDiff = createMemo(() => {
+  const displayDiff = createMemo(() => {
     if (!props.isNewFile) {
       return props.diff;
     }
@@ -83,42 +75,6 @@ export function DiffView(props: DiffViewProps) {
     return inverted.join("\n");
   });
 
-  // Animation state - number of lines currently visible
-  const [visibleLines, setVisibleLines] = createSignal(shouldAnimate() ? 0 : Infinity);
-  
-  // Get the diff lines for animation
-  const diffLines = createMemo(() => fullDiff().split("\n"));
-  const totalLines = createMemo(() => diffLines().length);
-  
-  // Animated diff - show only visible lines
-  const displayDiff = createMemo(() => {
-    if (!shouldAnimate() || visibleLines() >= totalLines()) {
-      return fullDiff();
-    }
-    return diffLines().slice(0, visibleLines()).join("\n");
-  });
-  
-  // Animation complete flag
-  const animationComplete = createMemo(() => visibleLines() >= totalLines());
-
-  // Run animation on mount
-  onMount(() => {
-    if (!shouldAnimate()) return;
-    
-    const interval = setInterval(() => {
-      setVisibleLines(prev => {
-        const next = prev + LINES_PER_FRAME;
-        if (next >= totalLines()) {
-          clearInterval(interval);
-          return totalLines();
-        }
-        return next;
-      });
-    }, FRAME_INTERVAL_MS);
-    
-    onCleanup(() => clearInterval(interval));
-  });
-
   return (
     <box flexDirection="column">
       {/* Diff view using native OpenTUI component */}
@@ -139,17 +95,11 @@ export function DiffView(props: DiffViewProps) {
         removedLineNumberBg="#2f1a1a"
       />
       
-      {/* Summary footer: +X / -Y (only show when animation complete) */}
+      {/* Summary footer: +X / -Y */}
       <box flexDirection="row" justifyContent="flex-end" marginTop={1}>
-        {animationComplete() ? (
-          <>
-            <text fg={Colors.diff.addition}>+{changes().additions}</text>
-            <text fg={Colors.ui.dim}> / </text>
-            <text fg={Colors.diff.deletion}>-{changes().deletions}</text>
-          </>
-        ) : (
-          <text fg={Colors.ui.dim}>...</text>
-        )}
+        <text fg={Colors.diff.addition}>+{changes().additions}</text>
+        <text fg={Colors.ui.dim}> / </text>
+        <text fg={Colors.diff.deletion}>-{changes().deletions}</text>
       </box>
     </box>
   );

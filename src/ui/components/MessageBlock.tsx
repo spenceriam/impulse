@@ -770,9 +770,9 @@ export function MessageBlock(props: MessageBlockProps) {
               <ThinkingBlock content={reasoning()!} streaming={isStreaming()} mode={mode()} />
             </Show>
             
-            {/* Message content */}
+            {/* Message content - custom markdown parser */}
             <Show when={props.message.content}>
-              <box flexDirection="column">
+              <box flexDirection="column" marginTop={1}>
                 <For each={parsed()}>
                   {(node: MarkdownNode) => renderMarkdownNode(node)}
                 </For>

@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.28] - 2026-01-27
+
+### Fixed
+
+- **DiffView no longer broken** - Removed broken animation
+  - Animation was dumping all content at once instead of smooth reveal
+  - Native `<diff>` component requires complete diff string (partial diffs are invalid)
+  - Now renders instantly without animation (cleaner, more reliable)
+
+- **Message content rendering restored** - Reverted to working markdown parser
+  - The `<code streaming={true}>` approach was missing required `syntaxStyle` prop
+  - Custom markdown parser (`parseMarkdown` + `renderMarkdownNode`) works correctly
+  - AI message content now displays properly during streaming
+
 ## [0.27.27] - 2026-01-27
 
 ### Added
