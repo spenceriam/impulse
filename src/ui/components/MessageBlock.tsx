@@ -727,8 +727,10 @@ export function MessageBlock(props: MessageBlockProps) {
           overflow="hidden"
           backgroundColor={aiBackground()}
         >
-          {/* Top accent line - mode colored, uses background color to fill full width */}
-          <box height={1} width="100%" backgroundColor={modeColor()} />
+          {/* Top accent line - mode colored, thin line using lower half block */}
+          <box height={1} width="100%">
+            <text fg={modeColor()}>{"▄".repeat(500)}</text>
+          </box>
           
           {/* Message content area - clickable to copy */}
           <box 
@@ -849,8 +851,10 @@ export function MessageBlock(props: MessageBlockProps) {
             </Show>
           </box>
           
-          {/* Bottom accent line - mode colored, uses background color to fill full width */}
-          <box height={1} width="100%" backgroundColor={modeColor()} />
+          {/* Bottom accent line - mode colored, thin line using upper half block */}
+          <box height={1} width="100%">
+            <text fg={modeColor()}>{"▀".repeat(500)}</text>
+          </box>
         </box>
       }
     >
@@ -864,8 +868,10 @@ export function MessageBlock(props: MessageBlockProps) {
         overflow="hidden"
         backgroundColor={USER_MESSAGE_BG}
       >
-        {/* Top accent line - gray, uses background color to fill full width */}
-        <box height={1} width="100%" backgroundColor={userAccentColor} />
+        {/* Top accent line - gray, thin line using lower half block */}
+        <box height={1} width="100%">
+          <text fg={userAccentColor}>{"▄".repeat(500)}</text>
+        </box>
         
         {/* Message content area - clickable to copy */}
         <box 
@@ -891,8 +897,10 @@ export function MessageBlock(props: MessageBlockProps) {
           </Show>
         </box>
         
-        {/* Bottom accent line - gray, uses background color to fill full width */}
-        <box height={1} width="100%" backgroundColor={userAccentColor} />
+        {/* Bottom accent line - gray, thin line using upper half block */}
+        <box height={1} width="100%">
+          <text fg={userAccentColor}>{"▀".repeat(500)}</text>
+        </box>
       </box>
     </Show>
   );

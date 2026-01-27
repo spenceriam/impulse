@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.20] - 2026-01-27
+
+### Fixed
+
+- **Thin accent lines restored on message blocks** - Visual consistency fix
+  - MessageBlock accent lines were using solid `backgroundColor` (full row height)
+  - Now uses half-block characters (`▄`/`▀`) like InputArea for thin accent lines
+  - Affects both AI messages (mode-colored) and user messages (gray)
+  - Matches the visual style restored in v0.27.15
+
 ## [0.27.19] - 2026-01-27
 
 ### Fixed
