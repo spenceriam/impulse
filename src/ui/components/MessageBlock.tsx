@@ -19,7 +19,7 @@ import { useSession } from "../context/session";
 import { getModelDisplayName } from "../../constants";
 
 // Background colors for message types (per design spec)
-const USER_MESSAGE_BG = "#1a2a2a";    // Dark cyan tint for user messages
+const USER_MESSAGE_BG = "#222222";    // Subtle gray tint for user messages
 const ASSISTANT_BG_FALLBACK = "#141414"; // Fallback gray for AI when no mode set
 
 // Thin horizontal line character for accent lines (NOT half-blocks)

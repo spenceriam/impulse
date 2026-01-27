@@ -1,225 +1,106 @@
-import { For, Show } from "solid-js";
+import { createMemo } from "solid-js";
 import { Colors } from "../design";
 
 interface DiffViewProps {
   diff: string;           // Unified diff string from createPatch
-  maxLines?: number;      // Max changed lines to show (default: 30)
+  maxLines?: number;      // Max changed lines to show (default: 30) - not used with native diff
   isNewFile?: boolean;    // True for new file creations (all lines are additions)
 }
 
-interface DiffLine {
-  type: "add" | "remove" | "context" | "header";
-  content: string;        // Content without the +/- prefix
-  rawContent: string;     // Original line with prefix
-  oldLineNum?: number;    // Line number in old file (undefined for additions)
-  newLineNum?: number;    // Line number in new file (undefined for deletions)
-}
-
 /**
- * Parse hunk header to extract line numbers
- * Format: @@ -oldStart,oldCount +newStart,newCount @@
- * Example: @@ -10,5 +10,7 @@ function name
+ * Count additions and deletions from a unified diff string
  */
-function parseHunkHeader(line: string): { oldStart: number; newStart: number } | null {
-  const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-  if (match && match[1] && match[2]) {
-    return {
-      oldStart: parseInt(match[1], 10),
-      newStart: parseInt(match[2], 10),
-    };
-  }
-  return null;
-}
-
-/**
- * Parse unified diff into typed lines with line numbers
- * 
- * Unified diff format:
- * - Lines starting with "---" or "+++" are file headers (skipped)
- * - Lines starting with "@@" are hunk headers (line range info)
- * - Lines starting with "+" are additions (green)
- * - Lines starting with "-" are deletions (red)
- * - Lines starting with " " or other content are context (unchanged)
- */
-function parseDiff(diff: string): DiffLine[] {
+function countChanges(diff: string): { additions: number; deletions: number } {
   const lines = diff.split("\n");
-  const result: DiffLine[] = [];
+  let additions = 0;
+  let deletions = 0;
   
-  let oldLine = 1;
-  let newLine = 1;
-
   for (const line of lines) {
-    // Skip file header lines (--- a/file, +++ b/file)
-    if (line.startsWith("---") || line.startsWith("+++")) {
-      continue;
-    }
-
-    // Hunk header (@@) - extract starting line numbers
-    if (line.startsWith("@@")) {
-      const parsed = parseHunkHeader(line);
-      if (parsed) {
-        oldLine = parsed.oldStart;
-        newLine = parsed.newStart;
-      }
-      result.push({ type: "header", content: line, rawContent: line });
-      continue;
-    }
-
-    // Added line - only has new line number
+    // Skip file headers
+    if (line.startsWith("---") || line.startsWith("+++")) continue;
+    // Skip hunk headers
+    if (line.startsWith("@@")) continue;
+    
     if (line.startsWith("+")) {
-      result.push({ 
-        type: "add", 
-        content: line.slice(1),  // Remove + prefix
-        rawContent: line,
-        newLineNum: newLine,
-      });
-      newLine++;
-      continue;
-    }
-
-    // Removed line - only has old line number
-    if (line.startsWith("-")) {
-      result.push({ 
-        type: "remove", 
-        content: line.slice(1),  // Remove - prefix
-        rawContent: line,
-        oldLineNum: oldLine,
-      });
-      oldLine++;
-      continue;
-    }
-
-    // Context line (unchanged) - has both line numbers
-    if (line.startsWith(" ") || line.length > 0) {
-      result.push({ 
-        type: "context", 
-        content: line.startsWith(" ") ? line.slice(1) : line,  // Remove leading space if present
-        rawContent: line,
-        oldLineNum: oldLine,
-        newLineNum: newLine,
-      });
-      oldLine++;
-      newLine++;
+      additions++;
+    } else if (line.startsWith("-")) {
+      deletions++;
     }
   }
-
-  return result;
-}
-
-/**
- * Format line number with padding
- * Returns empty string for undefined (no line number for that side)
- */
-function formatLineNum(num: number | undefined, width: number): string {
-  if (num === undefined) return " ".repeat(width);
-  return String(num).padStart(width, " ");
-}
-
-/**
- * Get the width needed for line numbers based on max line
- */
-function getLineNumWidth(lines: DiffLine[]): number {
-  let maxLine = 1;
-  for (const line of lines) {
-    if (line.oldLineNum && line.oldLineNum > maxLine) maxLine = line.oldLineNum;
-    if (line.newLineNum && line.newLineNum > maxLine) maxLine = line.newLineNum;
-  }
-  return Math.max(3, String(maxLine).length);  // Minimum 3 chars
-}
-
-function getLineColor(type: DiffLine["type"]): string {
-  switch (type) {
-    case "add": return Colors.diff.addition;
-    case "remove": return Colors.diff.deletion;
-    case "header": return Colors.ui.dim;
-    case "context": return Colors.ui.text;
-    default: return Colors.ui.text;
-  }
-}
-
-function getIndicator(type: DiffLine["type"]): string {
-  switch (type) {
-    case "add": return "+";
-    case "remove": return "-";
-    case "context": return " ";
-    case "header": return " ";
-    default: return " ";
-  }
-}
-
-export function DiffView(props: DiffViewProps) {
-  const maxLines = () => props.maxLines ?? 30;
-  const parsedLines = () => parseDiff(props.diff);
-
-  // Only count actual changes (not headers or context)
-  const changeLines = () => parsedLines().filter(l => l.type === "add" || l.type === "remove");
-  const isTruncated = () => changeLines().length > maxLines();
   
-  const displayLines = () => {
-    const lines = parsedLines();
-    if (!isTruncated()) return lines;
+  return { additions, deletions };
+}
 
-    // Take first N changed lines, but include all headers and context around them
-    let changeCount = 0;
-    const result: DiffLine[] = [];
-
-    for (const line of lines) {
-      if (line.type === "add" || line.type === "remove") {
-        changeCount++;
-        if (changeCount > maxLines()) break;
-      }
-      result.push(line);
+/**
+ * DiffView Component
+ * 
+ * Uses OpenTUI's native <diff> component for side-by-side diff display.
+ * 
+ * For file_write (new files): Shows content on LEFT side (new file), RIGHT empty
+ * For file_edit: Shows original on LEFT, modified on RIGHT
+ * 
+ * Props:
+ * - diff: Unified diff string from createPatch()
+ * - isNewFile: If true, shows as new file creation
+ */
+export function DiffView(props: DiffViewProps) {
+  const changes = createMemo(() => countChanges(props.diff));
+  
+  // For new files, we want content on the LEFT (original side is empty)
+  // The diff library creates patches with all lines as additions (+)
+  // which normally shows on the right. We need to invert for new files.
+  const displayDiff = createMemo(() => {
+    if (!props.isNewFile) {
+      return props.diff;
     }
-
-    return result;
-  };
-
-  const lineNumWidth = () => getLineNumWidth(displayLines());
-  const remainingChanges = () => changeLines().length - maxLines();
-
-  // For new files, simplified display (only new line numbers)
-  const isNewFile = () => props.isNewFile ?? false;
+    
+    // For new files, invert the diff so content appears on LEFT
+    // Change +lines to -lines (so they appear in the "old" column which is left)
+    const lines = props.diff.split("\n");
+    const inverted = lines.map(line => {
+      // Swap file headers
+      if (line.startsWith("--- ")) return line.replace("--- ", "+++ ");
+      if (line.startsWith("+++ ")) return line.replace("+++ ", "--- ");
+      // Swap hunk header numbers (invert old/new positions)
+      if (line.startsWith("@@")) {
+        // @@ -0,0 +1,5 @@ becomes @@ -1,5 +0,0 @@
+        return line.replace(/@@ -(\d+),(\d+) \+(\d+),(\d+) @@/, "@@ -$3,$4 +$1,$2 @@");
+      }
+      // Swap + to - (so additions show on left "removed" side)
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        return "-" + line.slice(1);
+      }
+      return line;
+    });
+    return inverted.join("\n");
+  });
 
   return (
     <box flexDirection="column">
-      <For each={displayLines()}>
-        {(line) => {
-          // Skip rendering header lines with line numbers (they're metadata)
-          if (line.type === "header") {
-            return <text fg={Colors.ui.dim}>{line.rawContent}</text>;
-          }
-          
-          const width = lineNumWidth();
-          const oldNum = formatLineNum(line.oldLineNum, width);
-          const newNum = formatLineNum(line.newLineNum, width);
-          const indicator = getIndicator(line.type);
-          const color = getLineColor(line.type);
-          
-          // Format: "oldNum | newNum | indicator content"
-          // For new files: "   | newNum | + content"
-          if (isNewFile()) {
-            return (
-              <box flexDirection="row">
-                <text fg={Colors.ui.dim}>{`${newNum} `}</text>
-                <text fg={color}>{indicator}</text>
-                <text fg={color}>{` ${line.content}`}</text>
-              </box>
-            );
-          }
-          
-          return (
-            <box flexDirection="row">
-              <text fg={Colors.ui.dim}>{`${oldNum} `}</text>
-              <text fg={Colors.ui.dim}>{`${newNum} `}</text>
-              <text fg={color}>{indicator}</text>
-              <text fg={color}>{` ${line.content}`}</text>
-            </box>
-          );
-        }}
-      </For>
-      <Show when={isTruncated()}>
-        <text fg={Colors.ui.dim}>... ({remainingChanges()} more changes)</text>
-      </Show>
+      {/* Diff view using native OpenTUI component */}
+      <diff
+        diff={displayDiff()}
+        view="split"
+        showLineNumbers={true}
+        wrapMode="word"
+        fg={Colors.ui.text}
+        addedBg="#1a2f1a"
+        removedBg="#2f1a1a"
+        contextBg="#141414"
+        addedSignColor={Colors.diff.addition}
+        removedSignColor={Colors.diff.deletion}
+        lineNumberFg={Colors.ui.dim}
+        lineNumberBg="#0a0a0a"
+        addedLineNumberBg="#1a2f1a"
+        removedLineNumberBg="#2f1a1a"
+      />
+      
+      {/* Summary footer: +X / -Y */}
+      <box flexDirection="row" justifyContent="flex-end" marginTop={1}>
+        <text fg={Colors.diff.addition}>+{changes().additions}</text>
+        <text fg={Colors.ui.dim}> / </text>
+        <text fg={Colors.diff.deletion}>-{changes().deletions}</text>
+      </box>
     </box>
   );
 }

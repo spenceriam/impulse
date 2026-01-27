@@ -5,6 +5,41 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.26] - 2026-01-27
+
+### Fixed
+
+- **Mode and model now persist across session save/load** - Critical UI fix
+  - Mode colors were showing white and mode labels missing after `/load` or `-c`
+  - Added `mode` and `model` fields to session store Message interface
+  - Messages now save and restore mode/model for proper display coloring
+  - This was a recurring issue (4+ times) - now properly addressed at storage layer
+
+- **AI no longer hallucinates file paths** - System prompt fix
+  - AI was guessing paths like "/Users/Daniel/Documents/..." instead of using project directory
+  - System prompt now explicitly includes working directory context
+  - AI instructed to use relative paths within the project, never guess external paths
+
+- **DiffView now shows for file_write and file_edit** - Tool metadata fix
+  - Tool result metadata wasn't being passed through to UI components
+  - Added `toolCall.metadata = result.metadata` in executeToolsAndContinue()
+  - DiffView now renders properly for both file creation and editing
+
+- **User message block styling improved** - Visual consistency fix
+  - Changed background color from cyan tint (`#1a2a2a`) to subtle gray (`#222222`)
+  - Now visually consistent with AI message block styling
+
+### Changed
+
+- **DiffView redesigned as side-by-side layout** - Major UI improvement
+  - Replaced custom unified diff component with native OpenTUI `<diff>` component
+  - Now shows side-by-side view: LEFT = original, RIGHT = modified
+  - For `file_write` (new files): content on LEFT, RIGHT empty
+  - For `file_edit`: original on LEFT, modified on RIGHT
+  - Line numbers displayed on both sides
+  - Green/red tinted backgrounds for added/removed lines
+  - Summary footer shows `+X / -Y` (additions/deletions count)
+
 ## [0.27.25] - 2026-01-27
 
 ### Changed

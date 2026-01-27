@@ -28,6 +28,7 @@ import { resolveQuestion, rejectQuestion, type Question } from "../tools/questio
 import { Tool } from "../tools/registry";
 import { setCurrentMode } from "../tools/mode-state";
 import { type ToolCallInfo } from "./components/MessageBlock";
+import { type ToolMetadata } from "../types/tool-metadata";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 import { runUpdateCheck, performUpdate, type UpdateState } from "../util/update-check";
@@ -1428,9 +1429,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           await logToolExecution(toolCall.name, args, result);
         }
         
-        // Update with result
+        // Update with result (including metadata for DiffView, TerminalOutput, etc.)
         toolCall.status = result.success ? "success" : "error";
         toolCall.result = result.output;
+        if (result.metadata) {
+          // Cast to ToolMetadata - tools return typed metadata with discriminated 'type' field
+          toolCall.metadata = result.metadata as unknown as ToolMetadata;
+        }
         updateMessage(assistantMsgId, {
           toolCalls: [...toolCalls],
         });

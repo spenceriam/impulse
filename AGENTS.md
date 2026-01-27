@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.27.25
+- **Version:** v0.27.26
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
@@ -1072,6 +1072,11 @@ This ensures:
 | 01-26-2026 | Autocomplete bottom position fix | WelcomeScreen uses bottom=10 (not 4) to position above InputArea |
 | 01-26-2026 | Ctrl+C always shows warning | Removed isDirty check - always show warning on first Ctrl+C for discoverability |
 | 01-26-2026 | Overlay focus restoration | Added effect in InputArea to explicitly refocus textarea when overlay closes |
+| 01-27-2026 | Mode/model persistence in sessions | Added mode and model fields to store Message interface - fixes recurring mode color issue |
+| 01-27-2026 | Working directory in system prompt | AI now knows cwd - prevents path hallucinations like "/Users/Daniel/..." |
+| 01-27-2026 | Tool metadata passthrough | result.metadata now passed to toolCall.metadata - enables DiffView rendering |
+| 01-27-2026 | Native OpenTUI diff component | Replaced custom DiffView with `<diff view="split">` for side-by-side display |
+| 01-27-2026 | User message background color | Changed from cyan tint (#1a2a2a) to subtle gray (#222222) for consistency |
 
 ## Future Work
 

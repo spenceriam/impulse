@@ -392,9 +392,25 @@ Systematic debugging mode. Follow the 7-step debugging process:
 
 /**
  * Generate a system prompt for the given mode
+ * @param mode - The current operating mode
+ * @param cwd - The current working directory (optional, defaults to process.cwd())
  */
-export function generateSystemPrompt(mode: Mode): string {
-  const parts: string[] = [BASE_PROMPT];
+export function generateSystemPrompt(mode: Mode, cwd?: string): string {
+  const workingDir = cwd || process.cwd();
+  
+  // Add working directory context at the start
+  const cwdContext = `
+## Working Directory
+
+You are working in: ${workingDir}
+
+IMPORTANT: When creating or editing files, ALWAYS use paths relative to or within this directory.
+- For new files, use relative paths like "src/foo.ts" or "docs/design.md"
+- NEVER guess or hallucinate paths like "/Users/SomeUser/Documents/..."
+- If you need to create a file, the path should be within ${workingDir}
+`;
+
+  const parts: string[] = [BASE_PROMPT, cwdContext];
   
   // Add mode-specific content
   const modeAddition = MODE_ADDITIONS[mode];

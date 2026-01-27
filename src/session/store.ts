@@ -40,6 +40,8 @@ export interface Message {
   reasoning_content?: string
   timestamp: string
   tool_calls?: ToolCall[]
+  mode?: string       // Mode used when generating (for assistant messages)
+  model?: string      // Model used (e.g., "glm-4.7")
 }
 
 export interface ToolCall {

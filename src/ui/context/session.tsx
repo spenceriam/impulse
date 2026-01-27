@@ -3,6 +3,7 @@ import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
 import { type HeaderPrefix } from "../components/HeaderLine";
 import { type Message as MessageBlockMessage, type ToolCallInfo } from "../components/MessageBlock";
+import { type Mode } from "../design";
 
 /**
  * Message type (UI-friendly version, extends MessageBlock's Message)
@@ -135,6 +136,13 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
   if (toolCalls) {
     result.toolCalls = toolCalls;
   }
+  // Restore mode and model for proper display coloring
+  if (msg.mode) {
+    result.mode = msg.mode as Mode;
+  }
+  if (msg.model) {
+    result.model = msg.model;
+  }
   
   return result;
 }
@@ -172,6 +180,14 @@ function uiToStoreMessage(msg: Message): StoreMessage {
       
       return toolCall;
     });
+  }
+  
+  // Save mode and model for proper display coloring on load
+  if (msg.mode) {
+    result.mode = msg.mode;
+  }
+  if (msg.model) {
+    result.model = msg.model;
   }
 
   return result;
