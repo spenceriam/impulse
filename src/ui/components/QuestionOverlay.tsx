@@ -486,31 +486,31 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
         <text fg={Colors.ui.text}>Please confirm your answers:</text>
         <box height={1} />
         
-        <scrollbox height={Math.min(totalTopics() * 5 + 2, 16)}>
-          <For each={props.questions}>
-            {(q, idx) => {
-              const isFocused = () => reviewFocusIndex() === idx();
-              const answer = () => answers[idx()] || "";
-              const topic = q?.topic || `Q${idx() + 1}`;
-              const question = q?.question || "";
-              
-              return (
-                <box flexDirection="column" marginBottom={1}>
-                  <text fg={Colors.ui.dim}>
-                    {`[${idx() + 1}] ${topic}: ${question}`}
-                  </text>
-                  <box 
-                    border 
-                    borderColor={isFocused() ? Colors.ui.primary : Colors.ui.dim}
-                    backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
-                    paddingLeft={1}
-                    width={82}
-                  >
-                    <scrollbox 
-                      height={3}
-                      flexGrow={1}
-                      stickyScroll
-                      stickyStart="bottom"
+        {/* Scrollable container for all questions - enough height for 3+ questions */}
+        <scrollbox height={20} stickyScroll>
+          <box flexDirection="column">
+            <For each={props.questions}>
+              {(q, idx) => {
+                const isFocused = () => reviewFocusIndex() === idx();
+                const answer = () => answers[idx()] || "";
+                const topic = q?.topic || `Q${idx() + 1}`;
+                const question = q?.question || "";
+                
+                // Calculate height based on answer length (min 1 line, scales with content)
+                const answerLines = () => Math.max(1, Math.ceil((answer().length || 12) / 76));
+                
+                return (
+                  <box flexDirection="column" marginBottom={1}>
+                    <text fg={Colors.ui.dim}>
+                      {`[${idx() + 1}] ${topic}: ${question}`}
+                    </text>
+                    <box 
+                      border 
+                      borderColor={isFocused() ? Colors.ui.primary : Colors.ui.dim}
+                      backgroundColor={isFocused() ? "#252530" : "#1a1a1a"}
+                      paddingLeft={1}
+                      width={82}
+                      height={answerLines() + 2}
                     >
                       <box width={78} flexDirection="row">
                         <text fg={Colors.ui.text}>
@@ -520,12 +520,12 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
                           <text fg={Colors.ui.dim}>_</text>
                         </Show>
                       </box>
-                    </scrollbox>
+                    </box>
                   </box>
-                </box>
-              );
-            }}
-          </For>
+                );
+              }}
+            </For>
+          </box>
         </scrollbox>
       </box>
     );
@@ -585,8 +585,12 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
           <text fg={Colors.ui.text}>{currentQuestion()?.question || ""}</text>
           <box height={1} />
           
-          {/* Options */}
-          {renderOptions()}
+          {/* Options - scrollable to handle many options */}
+          <scrollbox height={16} stickyScroll>
+            <box flexDirection="column">
+              {renderOptions()}
+            </box>
+          </scrollbox>
         </Show>
         
         <Show when={uiState() === "review"}>

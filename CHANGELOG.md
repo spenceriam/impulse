@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.21] - 2026-01-27
+
+### Fixed
+
+- **QuestionOverlay scrolling and sizing** - UI regression fix
+  - Review screen answer boxes now size dynamically based on content length
+  - Added scrollbox around options list to handle many options
+  - Increased review scrollbox height to 20 rows (was capped at 16)
+  - All 3 questions now visible and scrollable
+
 ## [0.27.20] - 2026-01-27
 
 ### Fixed
