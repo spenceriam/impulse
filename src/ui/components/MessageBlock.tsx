@@ -428,71 +428,88 @@ function getExpandedContent(
 /**
  * Activity categories for grouping tool calls
  */
-type ActivityCategory = "reading" | "editing" | "executing" | "thinking" | "mcp" | "questions" | "other";
-
 /**
- * Get activity category for a tool call
+ * Get activity status label for a specific tool
+ * Returns singular form - caller can pluralize if needed
  */
-function getActivityCategory(name: string): ActivityCategory {
-  // Reading/exploring tools
-  if (["file_read", "glob", "grep", "todo_read"].includes(name)) {
-    return "reading";
+function getToolActivityLabel(name: string): string {
+  switch (name) {
+    // File operations
+    case "file_read":
+      return "Reading file...";
+    case "file_write":
+      return "Writing file...";
+    case "file_edit":
+      return "Editing file...";
+    
+    // Search operations
+    case "glob":
+      return "Finding files...";
+    case "grep":
+      return "Searching...";
+    
+    // Execution
+    case "bash":
+      return "Running command...";
+    case "task":
+      return "Running subagent...";
+    
+    // Todo operations
+    case "todo_write":
+      return "Planning...";
+    case "todo_read":
+      return "Reading todos...";
+    
+    // UI/session tools
+    case "set_header":
+      return "Updating header...";
+    case "set_mode":
+      return "Switching mode...";
+    
+    // Question tool
+    case "question":
+      return "Asking question...";
+    
+    // MCP tools
+    case "webSearchPrime":
+      return "Searching web...";
+    case "webReader":
+      return "Reading webpage...";
+    case "search_doc":
+    case "get_repo_structure":
+    case "read_file":
+      return "Querying docs...";
+    case "ui_to_artifact":
+    case "extract_text_from_screenshot":
+    case "diagnose_error_screenshot":
+    case "understand_technical_diagram":
+    case "analyze_data_visualization":
+    case "ui_diff_check":
+    case "image_analysis":
+    case "video_analysis":
+      return "Analyzing image...";
+    case "resolve-library-id":
+    case "query-docs":
+      return "Querying Context7...";
+    
+    default:
+      // Generic MCP tool
+      if (name.startsWith("mcp_")) {
+        return "Using external tool...";
+      }
+      return "Working...";
   }
-  
-  // Editing/writing file tools
-  if (["file_write", "file_edit"].includes(name)) {
-    return "editing";
-  }
-  
-  // Executing/running tools (bash, task/subagent)
-  if (["bash", "task"].includes(name)) {
-    return "executing";
-  }
-  
-  // Planning/thinking tools
-  if (["todo_write", "set_header", "set_mode"].includes(name)) {
-    return "thinking";
-  }
-  
-  // Question tool
-  if (name === "question") {
-    return "questions";
-  }
-  
-  // MCP tools (start with mcp_ or are known MCP tool names)
-  if (name.startsWith("mcp_") || 
-      ["webSearchPrime", "webReader", "search_doc", "get_repo_structure", "read_file",
-       "ui_to_artifact", "extract_text_from_screenshot", "diagnose_error_screenshot",
-       "understand_technical_diagram", "analyze_data_visualization", "ui_diff_check",
-       "image_analysis", "video_analysis", "resolve-library-id", "query-docs"].includes(name)) {
-    return "mcp";
-  }
-  
-  return "other";
 }
 
 /**
- * Get activity status label based on category and status
+ * Check if a tool is an MCP tool
  */
-function getActivityLabel(category: ActivityCategory, hasRunning: boolean): string {
-  if (!hasRunning) return ""; // No label when all done
-  
-  switch (category) {
-    case "reading":
-      return "Reading files...";
-    case "editing":
-      return "Editing files...";
-    case "executing":
-      return "Running...";
-    case "thinking":
-      return "Planning...";
-    case "mcp":
-      return "Using external tools...";
-    case "questions":
-      return "Asking questions...";
-    default:
-      return "";
-  }
+function isMCPTool(name: string): boolean {
+  return name.startsWith("mcp_") || 
+    ["webSearchPrime", "webReader", "search_doc", "get_repo_structure", "read_file",
+     "ui_to_artifact", "extract_text_from_screenshot", "diagnose_error_screenshot",
+     "understand_technical_diagram", "analyze_data_visualization", "ui_diff_check",
+     "image_analysis", "video_analysis", "resolve-library-id", "query-docs"].includes(name);
 }
 
 /**
@@ -522,41 +539,19 @@ function getMCPServerName(toolName: string): string {
 }
 
 /**
- * Group tool calls by activity category
+ * Get the current activity label for running tool calls
+ * Returns the label for the first running/pending tool, or empty if none
  */
-interface ToolCallGroup {
-  category: ActivityCategory;
-  toolCalls: Array<{ toolCall: ToolCallInfo; index: number }>;
-  hasRunning: boolean;
-}
-
-function groupToolCalls(toolCalls: ToolCallInfo[]): ToolCallGroup[] {
-  const groups = new Map<ActivityCategory, ToolCallGroup>();
-  const categoryOrder: ActivityCategory[] = ["reading", "editing", "executing", "thinking", "mcp", "questions", "other"];
+function getCurrentActivityLabel(toolCalls: ToolCallInfo[]): string {
+  const runningTool = toolCalls.find(tc => tc.status === "pending" || tc.status === "running");
+  if (!runningTool) return "";
   
-  toolCalls.forEach((toolCall, index) => {
-    const category = getActivityCategory(toolCall.name);
-    
-    if (!groups.has(category)) {
-      groups.set(category, {
-        category,
-        toolCalls: [],
-        hasRunning: false,
-      });
-    }
-    
-    const group = groups.get(category)!;
-    group.toolCalls.push({ toolCall, index });
-    
-    if (toolCall.status === "pending" || toolCall.status === "running") {
-      group.hasRunning = true;
-    }
-  });
+  // For MCP tools, show server name
+  if (isMCPTool(runningTool.name)) {
+    return `Using ${getMCPServerName(runningTool.name)} (MCP)...`;
+  }
   
-  // Return groups in consistent order
-  return categoryOrder
-    .filter(cat => groups.has(cat))
-    .map(cat => groups.get(cat)!);
+  return getToolActivityLabel(runningTool.name);
 }
 
 /**
@@ -784,57 +779,49 @@ export function MessageBlock(props: MessageBlockProps) {
               </box>
             </Show>
             
-            {/* Tool calls - grouped by activity type */}
+            {/* Tool calls with activity label */}
             <Show when={toolCalls().length > 0}>
-              <box flexDirection="column">
-                <For each={groupToolCalls(toolCalls())}>
-                  {(group) => (
-                    <box flexDirection="column" marginTop={1}>
-                      {/* Activity status label (only when running) */}
-                      <Show when={group.hasRunning && getActivityLabel(group.category, group.hasRunning)}>
-                        <box flexDirection="row" marginBottom={1}>
-                          <text fg={Colors.ui.primary}>
-                            {group.category === "mcp" 
-                              ? `Using ${getMCPServerName(group.toolCalls[0]?.toolCall.name || "")} (MCP)...`
-                              : getActivityLabel(group.category, group.hasRunning)}
-                          </text>
-                        </box>
-                      </Show>
-                      
-                      {/* Tool calls in this group */}
-                      <For each={group.toolCalls}>
-                        {({ toolCall, index }) => {
-                          const attempt = (() => {
-                            const allToolCalls = toolCalls();
-                            const current = allToolCalls[index];
-                            if (!current || current.status !== "error") return undefined;
+              <box flexDirection="column" marginTop={1}>
+                {/* Activity status label (only when a tool is running) */}
+                <Show when={getCurrentActivityLabel(toolCalls())}>
+                  <box flexDirection="row" marginBottom={1}>
+                    <text fg={Colors.ui.primary}>
+                      {getCurrentActivityLabel(toolCalls())}
+                    </text>
+                  </box>
+                </Show>
+                
+                {/* Tool calls list */}
+                <For each={toolCalls()}>
+                  {(toolCall, index) => {
+                    const attempt = (() => {
+                      const allToolCalls = toolCalls();
+                      const current = allToolCalls[index()];
+                      if (!current || current.status !== "error") return undefined;
 
-                            let attempts = 1;
-                            for (let i = index - 1; i >= 0; i--) {
-                              const prev = allToolCalls[i];
-                              if (prev?.name === current.name && prev?.status === "error") {
-                                attempts++;
-                              } else {
-                                break;
-                              }
-                            }
+                      let attempts = 1;
+                      for (let i = index() - 1; i >= 0; i--) {
+                        const prev = allToolCalls[i];
+                        if (prev?.name === current.name && prev?.status === "error") {
+                          attempts++;
+                        } else {
+                          break;
+                        }
+                      }
 
-                            return attempts > 1 ? attempts : undefined;
-                          })();
+                      return attempts > 1 ? attempts : undefined;
+                    })();
 
-                          const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = { 
-                            toolCall,
-                            verbose: verboseTools(),
-                          };
-                          if (attempt !== undefined) {
-                            displayProps.attemptNumber = attempt;
-                          }
+                    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = { 
+                      toolCall,
+                      verbose: verboseTools(),
+                    };
+                    if (attempt !== undefined) {
+                      displayProps.attemptNumber = attempt;
+                    }
 
-                          return <ToolCallDisplay {...displayProps} />;
-                        }}
-                      </For>
-                    </box>
-                  )}
+                    return <ToolCallDisplay {...displayProps} />;
+                  }}
                 </For>
               </box>
             </Show>

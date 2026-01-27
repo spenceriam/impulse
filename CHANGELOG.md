@@ -5,6 +5,29 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.27] - 2026-01-27
+
+### Added
+
+- **DiffView typewriter animation** - Smooth visual reveal
+  - Diff content now animates in line-by-line at ~60fps
+  - 3 lines revealed per frame for fast but smooth effect
+  - Summary footer (+X / -Y) appears after animation completes
+  - Can be disabled with `animate={false}` prop if needed
+
+### Changed
+
+- **Tool activity labels now more accurate per tool** - UX improvement
+  - `file_write`: "Writing file..." (was "Editing file...")
+  - `glob`: "Finding files..." (was "Reading file...")
+  - `grep`: "Searching..." (was "Reading file...")
+  - `bash`: "Running command..." (was "Running...")
+  - `task`: "Running subagent..." (was "Running...")
+  - `todo_read`: "Reading todos..." (was "Reading file...")
+  - `set_header`: "Updating header..." (was "Planning...")
+  - `set_mode`: "Switching mode..." (was "Planning...")
+  - MCP tools now show specific labels (e.g., "Searching web...", "Querying Context7...")
+
 ## [0.27.26] - 2026-01-27
 
 ### Fixed
