@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@spenceriam/impulse.svg)](https://www.npmjs.com/package/@spenceriam/impulse)
 [![build](https://img.shields.io/github/actions/workflow/status/spenceriam/impulse/release.yml?label=build)](https://github.com/spenceriam/impulse/actions/workflows/release.yml)
 [![Bun](https://img.shields.io/badge/Bun-%3E%3D1.0-f9f1e1?logo=bun)](https://bun.sh)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 > Terminal-based AI coding agent powered by Z.ai's Coding Plan
 
@@ -169,4 +169,19 @@ IMPULSE wouldn't exist without these amazing projects:
 
 ## License
 
-[MIT](LICENSE)
+[GNU AGPL-3.0](LICENSE)
+
+**Important Notice:** This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+**What this means:**
+
+- You are free to use, study, modify, and distribute this software
+- Any modifications you make must also be released under AGPL-3.0
+- **If you run a modified version of this software as a network service (SaaS, web app, API, etc.), you must make your complete source code available to all users of that service**
+- You must provide access to the Corresponding Source under the terms of this License
+
+**Source Code Sharing Requirement:**
+
+Anyone who uses any part of this codebase to build a service or application that users interact with over a network must share their complete modified source code (including all modifications) with those users, under the same AGPL-3.0 license.
+
+For more details, see [LICENSE](LICENSE) or [https://www.gnu.org/licenses/agpl-3.0](https://www.gnu.org/licenses/agpl-3.0)

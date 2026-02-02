@@ -51,7 +51,7 @@
     "coding-plan"
   ],
   "author": "Spencer Francisco",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spenceriam/impulse.git"

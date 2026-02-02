@@ -12,7 +12,7 @@
 - **Version:** v0.28.3
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
-- **License:** MIT
+- **License:** AGPL-3.0
 
 ## Current State
 
