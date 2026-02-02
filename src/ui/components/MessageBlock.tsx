@@ -32,7 +32,7 @@ export interface ToolCallInfo {
   id: string;
   name: string;
   arguments: string;
-  status: "pending" | "running" | "success" | "error";
+  status: "pending" | "running" | "success" | "error" | "cancelled";
   result?: string;
   metadata?: ToolMetadata;  // Structured metadata for enhanced display
 }
@@ -288,6 +288,12 @@ interface MessageBlockProps {
  * Generate title text for a tool call based on its metadata
  */
 function getToolTitle(name: string, args: string, metadata?: ToolMetadata): string {
+  const truncate = (value: string, max: number = 60) =>
+    value.length > max ? value.slice(0, max - 3) + "..." : value;
+
+  const formatKeyValue = (key: string, value: string) =>
+    `${key}="${truncate(value)}"`;
+
   // Use metadata if available
   if (metadata) {
     if (isBashMetadata(metadata)) {
@@ -334,25 +340,68 @@ function getToolTitle(name: string, args: string, metadata?: ToolMetadata): stri
     }
 
     // Common path-based tools
-    const pathKeys = ["path", "filePath", "file"];
+    const pathKeys = ["filePath", "path", "file", "filepath", "filename"];
     for (const key of pathKeys) {
       if (parsed[key]) {
         const val = String(parsed[key]);
-        return `${name} ${val.length > 40 ? val.slice(0, 37) + "..." : val}`;
+        return `${name} ${truncate(val)}`;
       }
     }
 
     // Pattern-based tools
     if (parsed.pattern) {
-      return `${name} "${parsed.pattern}"`;
+      return `${name} "${truncate(String(parsed.pattern))}"`;
+    }
+
+    // Query/search-like tools
+    const labeledKeys: Array<{ key: string; label: string }> = [
+      { key: "query", label: "q" },
+      { key: "q", label: "q" },
+      { key: "url", label: "url" },
+      { key: "command", label: "cmd" },
+      { key: "expression", label: "expr" },
+      { key: "location", label: "location" },
+      { key: "ticker", label: "ticker" },
+      { key: "team", label: "team" },
+      { key: "opponent", label: "opponent" },
+      { key: "model", label: "model" },
+    ];
+
+    for (const { key, label } of labeledKeys) {
+      if (parsed[key]) {
+        return `${name} ${formatKeyValue(label, String(parsed[key]))}`;
+      }
     }
 
     // Task tool
     if (name === "task" && parsed.subagent_type) {
       return `task [${parsed.subagent_type}] "${parsed.description || ""}"`;
     }
+
+    // Generic: first string-like field
+    const firstStringEntry = Object.entries(parsed).find(([, value]) => typeof value === "string" && value.length > 0);
+    if (firstStringEntry) {
+      const [key, value] = firstStringEntry;
+      return `${name} ${formatKeyValue(key, String(value))}`;
+    }
   } catch {
-    // Ignore parse errors
+    // Attempt a loose parse for partially-streamed JSON
+    const extractArg = (key: string): string | null => {
+      const match = args.match(new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`));
+      return match?.[1] ?? null;
+    };
+
+    const looseKeys = ["filePath", "path", "file", "pattern", "query", "q", "url", "command", "expression", "location"];
+    for (const key of looseKeys) {
+      const val = extractArg(key);
+      if (val) {
+        if (["filePath", "path", "file"].includes(key)) {
+          return `${name} ${truncate(val)}`;
+        }
+        const label = key === "query" ? "q" : key;
+        return `${name} ${formatKeyValue(label, val)}`;
+      }
+    }
   }
 
   return name;
@@ -366,7 +415,7 @@ function getExpandedContent(
   _name: string,
   metadata?: ToolMetadata,
   _result?: string,
-  status?: "pending" | "running" | "success" | "error"
+  status?: "pending" | "running" | "success" | "error" | "cancelled"
 ): JSX.Element | null {
   if (!metadata) return null;
 
@@ -615,7 +664,9 @@ function ReadOnlyToolDisplay(props: { toolCall: ToolCallInfo }): JSX.Element {
       case "success":
         return "\u2713"; // checkmark
       case "error":
-        return "\u2717"; // x mark
+        return "!";
+      case "cancelled":
+        return "X";
       default:
         return " ";
     }
@@ -627,8 +678,9 @@ function ReadOnlyToolDisplay(props: { toolCall: ToolCallInfo }): JSX.Element {
       case "running":
         return Colors.ui.primary;
       case "success":
-        return Colors.ui.dim;
+        return Colors.status.success;
       case "error":
+      case "cancelled":
         return Colors.status.error;
       default:
         return Colors.ui.dim;
@@ -682,7 +734,6 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   const defaultExpanded = () => {
     if (props.verbose === true) return true;
     if (isRunning() && props.toolCall.name === "task") return true;
-    if (status() === "error") return true;
     // Auto-expand file modifications to show DiffView
     if (status() === "success" && ["file_write", "file_edit"].includes(props.toolCall.name)) {
       return true;
@@ -702,7 +753,7 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
     >
       <text fg={Colors.ui.dim}>{title()}</text>
       <Show when={props.attemptNumber}>
-        <text fg={Colors.status.warning}> (attempt {props.attemptNumber})</text>
+        <text fg={Colors.ui.dim}> (attempt {props.attemptNumber})</text>
       </Show>
     </CollapsibleToolBlock>
   );
@@ -728,12 +779,9 @@ export function MessageBlock(props: MessageBlockProps) {
   const toolCalls = () => props.message.toolCalls ?? [];
   const reasoning = () => props.message.reasoning;
   const isStreaming = () => props.message.streaming ?? false;
+  const showThinking = () => !!reasoning() && isStreaming();
 
   const toolEntries = () => toolCalls().map((toolCall, index) => ({ toolCall, index }));
-  const activeToolEntries = () =>
-    toolEntries().filter(({ toolCall }) => toolCall.status === "pending" || toolCall.status === "running");
-  const errorToolEntries = () =>
-    toolEntries().filter(({ toolCall }) => toolCall.status === "error");
   const getAttemptNumber = (index: number) => {
     const allToolCalls = toolCalls();
     const current = allToolCalls[index];
@@ -820,7 +868,7 @@ export function MessageBlock(props: MessageBlockProps) {
             </Show>
             
             {/* Thinking/Reasoning content - collapsible block */}
-            <Show when={reasoning()}>
+            <Show when={showThinking()}>
               <ThinkingBlock content={reasoning()!} streaming={isStreaming()} mode={mode()} />
             </Show>
             
@@ -865,19 +913,8 @@ export function MessageBlock(props: MessageBlockProps) {
                     </For>
                   }
                 >
-                  {/* Active tool calls (pending/running) */}
-                  <For each={activeToolEntries()}>
-                    {(entry) => {
-                      const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
-                        toolCall: entry.toolCall,
-                        verbose: false,
-                      };
-                      return <ToolCallDisplay {...displayProps} />;
-                    }}
-                  </For>
-
-                  {/* Error tool calls (always visible) */}
-                  <For each={errorToolEntries()}>
+                  {/* Show all tool calls in non-verbose mode (ghosted titles, colored status) */}
+                  <For each={toolEntries()}>
                     {(entry) => {
                       const attempt = getAttemptNumber(entry.index);
                       const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
@@ -951,6 +988,8 @@ export function MessageBlock(props: MessageBlockProps) {
               <strong>You</strong>
             </text>
           </box>
+          {/* Empty row above user content */}
+          <box height={1} />
           <Show when={props.message.content}>
             <box flexDirection="column">
               <For each={parsed()}>
@@ -958,6 +997,8 @@ export function MessageBlock(props: MessageBlockProps) {
               </For>
             </box>
           </Show>
+          {/* Empty row below user content */}
+          <box height={1} />
         </box>
         
         {/* Bottom accent line - gray, thin horizontal line */}

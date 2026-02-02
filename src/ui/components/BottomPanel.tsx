@@ -15,10 +15,12 @@ import { type Mode } from "../design";
  * 
  * Height Calculation for InputArea (borderless design):
  * - top accent line: 1 row
- * - spacer: 1 row (breathing room)
+ * - mode label row: 1 row
+ * - empty row above prompt: 1 row
  * - textarea content: 5 rows
+ * - empty row below prompt: 1 row
  * - bottom accent line: 1 row
- * - Total: 1 + 1 + 5 + 1 = 8 rows
+ * - Total: 1 + 1 + 1 + 5 + 1 + 1 = 10 rows
  * 
  * Structure (expanded):
  * ┌─ Todo (2/5) ──────────────────────────────────────────── [−] ─┐
@@ -35,11 +37,12 @@ import { type Mode } from "../design";
  * └───────────────────────────────────────────────────────────────┘
  */
 
-// Height calculation: accent(1) + spacer(1) + textarea(5) + accent(1) = 8
+// Height calculation: accent(1) + header(1) + padding(2) + textarea(5) + accent(1) = 10
 const TEXTAREA_HEIGHT = 5;
 const ACCENT_HEIGHT = 2;  // Top + bottom accent lines
-const SPACER_HEIGHT = 1;  // Breathing room below top accent
-const INPUT_HEIGHT = TEXTAREA_HEIGHT + ACCENT_HEIGHT + SPACER_HEIGHT;  // 8 rows
+const HEADER_HEIGHT = 1;  // Mode label row
+const PADDING_HEIGHT = 2; // Empty rows above and below prompt
+const INPUT_HEIGHT = TEXTAREA_HEIGHT + ACCENT_HEIGHT + HEADER_HEIGHT + PADDING_HEIGHT;  // 10 rows
 
 // Export panel height for Gutter calculations (dynamic based on todos)
 export const BOTTOM_PANEL_HEIGHT = INPUT_HEIGHT;  // Base height without todos

@@ -15,14 +15,20 @@ function getStatusConfig(status: string): StatusConfig {
     case "success":
       return {
         indicator: Indicators.toolStatus.success,
-        color: Colors.ui.dim,
+        color: Colors.status.success,
         autoExpand: false
       };
     case "error":
       return {
         indicator: Indicators.toolStatus.error,
         color: Colors.status.error,
-        autoExpand: true
+        autoExpand: false
+      };
+    case "cancelled":
+      return {
+        indicator: Indicators.toolStatus.cancelled,
+        color: Colors.status.error,
+        autoExpand: false
       };
     case "running":
       return {
@@ -41,7 +47,7 @@ function getStatusConfig(status: string): StatusConfig {
 }
 
 interface CollapsibleToolBlockProps {
-  status: "pending" | "running" | "success" | "error";
+  status: "pending" | "running" | "success" | "error" | "cancelled";
   children: JSX.Element;              // Title content (always visible)
   expandedContent?: JSX.Element;      // Content shown when expanded
   defaultExpanded?: boolean;          // Override auto-expand behavior

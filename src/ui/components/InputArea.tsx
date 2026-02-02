@@ -538,6 +538,9 @@ export function InputArea(props: InputAreaProps) {
           )}
         </Show>
         
+        {/* Empty row above prompt text */}
+        <box height={1} />
+
         {/* Row container with minWidth={0} for proper flex shrinking */}
         <box flexDirection="row" alignItems="flex-start" minWidth={0}>
           {/* Fixed-width prompt indicator */}
@@ -560,6 +563,9 @@ export function InputArea(props: InputAreaProps) {
             />
           </box>
         </box>
+
+        {/* Empty row below prompt text */}
+        <box height={1} />
       </box>
       
       {/* Bottom accent line - thin line using upper half block character */}

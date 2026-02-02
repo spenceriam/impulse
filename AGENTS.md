@@ -9,14 +9,14 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.28.2
+- **Version:** v0.28.3
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** MIT
 
 ## Current State
 
-**Status:** Phase 8 COMPLETE - Integration Wiring (discovered during testing)
+**Status:** Phase 9 COMPLETE - QoL Polish
 
 ### Phase 1 Completed Tasks
 - [x] Task 1.1: Initialize Project
@@ -105,6 +105,14 @@
 - [x] Task 8.3: Input Submission to GLMClient
 - [x] Task 8.4: Session Manager Integration
 - [x] Task 8.5: Final Integration Testing
+
+### Phase 9: QoL Polish (COMPLETE)
+
+- [x] Task 9.1: Tool call status visibility (success/error/cancelled)
+- [x] Task 9.2: Prompt + user message padding
+- [x] Task 9.3: Thinking block visibility (current only)
+- [x] Task 9.4: Tool call context titles
+- [x] Task 9.5: File write DiffView visibility
 
 ## Version Bumping Protocol
 
