@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors, Indicators } from "../design";
 import { useTodo, type Todo } from "../context/todo";
 
@@ -49,7 +49,7 @@ export function TodoOverlay(props: TodoOverlayProps) {
   const { todos } = useTodo();
   
   // Close on Escape
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape") {
       props.onClose();
     }

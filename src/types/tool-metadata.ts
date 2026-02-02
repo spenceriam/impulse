@@ -28,6 +28,8 @@ export interface FileWriteMetadata {
   linesWritten: number;      // Number of lines in content
   created: boolean;          // True if file was created (vs overwritten)
   diff?: string;             // Unified diff (for overwrite) or content preview (for new file)
+  diffSkipped?: boolean;     // True if diff was skipped due to size
+  diffReason?: string;       // Reason diff was skipped
 }
 
 // ============================================
@@ -39,6 +41,8 @@ export interface FileEditMetadata {
   diff: string;              // Unified diff format string
   linesAdded: number;        // Count of lines with + prefix
   linesRemoved: number;      // Count of lines with - prefix
+  diffSkipped?: boolean;     // True if diff was skipped due to size
+  diffReason?: string;       // Reason diff was skipped
 }
 
 // ============================================

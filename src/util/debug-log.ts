@@ -150,6 +150,17 @@ export async function logAPIResponse(
 }
 
 /**
+ * Log event-loop lag samples
+ */
+export async function logEventLoopLag(data: { lagMs: number; intervalMs: number }): Promise<void> {
+  await appendLog({
+    type: "event_loop_lag",
+    timestamp: new Date().toISOString(),
+    ...data,
+  });
+}
+
+/**
  * Log an error
  */
 export async function logError(

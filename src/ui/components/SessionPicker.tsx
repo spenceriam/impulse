@@ -1,5 +1,5 @@
 import { createSignal, Show, For, createMemo, onMount } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 import { Session } from "../../session/store";
 import { SessionManager } from "../../session/manager";
@@ -126,7 +126,7 @@ export function SessionPickerOverlay(props: SessionPickerOverlayProps) {
   });
 
   // Keyboard navigation
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape") {
       props.onCancel();
       return;

@@ -1,4 +1,4 @@
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 
 /**
@@ -40,7 +40,7 @@ interface ExpressWarningProps {
  */
 export function ExpressWarning(props: ExpressWarningProps) {
   // Handle keyboard - Enter to acknowledge
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "return") {
       props.onAcknowledge();
     }

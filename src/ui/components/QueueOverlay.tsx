@@ -1,5 +1,5 @@
 import { createSignal, Show, For, createEffect } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 import { useQueue, type QueuedMessage } from "../context/queue";
 
@@ -75,7 +75,7 @@ export function QueueOverlay(props: QueueOverlayProps) {
     return messages[selectedIndex()];
   };
 
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // If editing, only handle Escape and Enter
     if (editingId()) {
       if (key.name === "escape") {

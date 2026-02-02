@@ -1,5 +1,5 @@
 import { createSignal, Show, For } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 import type { Question } from "../../tools/question";
 
@@ -354,7 +354,7 @@ export function QuestionOverlay(props: QuestionOverlayProps) {
   };
   
   // Keyboard handler
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (uiState() === "answering") {
       handleAnsweringKeys(key);
     } else {

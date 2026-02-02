@@ -1,4 +1,4 @@
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 
 /**
@@ -24,7 +24,7 @@ const MCP_SERVERS = [
 ];
 
 export function StartOverlay(props: StartOverlayProps) {
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape" || key.name === "return") {
       props.onClose();
     }

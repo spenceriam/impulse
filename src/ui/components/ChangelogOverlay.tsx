@@ -1,5 +1,5 @@
 import { createSignal, onMount, For, Show } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 import { fetchChangelog, parseChangelog, type ChangelogEntry } from "../../util/changelog";
 
@@ -67,7 +67,7 @@ export function ChangelogOverlay(props: ChangelogOverlayProps) {
   };
   
   // Close on Escape or Enter (but not if we're on "Load more")
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape") {
       props.onClose();
     }

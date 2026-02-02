@@ -1,5 +1,5 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, For, batch } from "solid-js";
-import { useRenderer, useKeyboard, useTerminalDimensions } from "@opentui/solid";
+import { useRenderer, useTerminalDimensions } from "@opentui/solid";
 import type { PasteEvent } from "@opentui/core";
 import { StatusLine, HeaderLine, InputArea, ChatView, BottomPanel, QuestionOverlay, PermissionPrompt, ExpressWarning, SessionPickerOverlay, StartOverlay, TodoOverlay, type CommandCandidate, type CompactingState } from "./components";
 import { ChangelogOverlay } from "./components/ChangelogOverlay";
@@ -8,6 +8,7 @@ import { ModeProvider, useMode } from "./context/mode";
 import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
 import { QueueProvider, useQueue } from "./context/queue";
+import { KeyboardProvider, useAppKeyboard } from "./context/keyboard";
 // Sidebar removed - todos now in BottomPanel
 import { ExpressProvider, useExpress } from "./context/express";
 import { respond as respondPermission, enableAllowAllEdits, type PermissionRequest, type PermissionResponse } from "../permission";
@@ -32,6 +33,7 @@ import { type ToolMetadata } from "../types/tool-metadata";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 import { runUpdateCheck, performUpdate, type UpdateState } from "../util/update-check";
+import { startEventLoopLagMonitor } from "../util/lag-monitor";
 import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
@@ -72,7 +74,7 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
   const [error, setError] = createSignal("");
 
   // Handle Escape to cancel (global keyboard since input captures most keys)
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape") {
       props.onCancel();
     }
@@ -177,7 +179,7 @@ function CommandResultOverlay(props: {
   isError?: boolean;
   onClose: () => void;
 }) {
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape" || key.name === "return") {
       props.onClose();
     }
@@ -274,7 +276,7 @@ function ModelSelectOverlay(props: {
     Math.max(0, GLM_MODELS.indexOf(props.currentModel as typeof GLM_MODELS[number]))
   );
 
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape") {
       props.onCancel();
       return;
@@ -396,7 +398,7 @@ function WelcomeScreen(props: {
   const terminalWidth = () => dimensions().width;
 
   // Handle Y/N keys for update prompt
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // Only handle when update is available
     if (props.updateState?.status !== "available") return;
     
@@ -592,9 +594,18 @@ interface AppProps {
 // Main app wrapper
 export function App(props: AppProps) {
   const renderer = useRenderer();
+  let stopLagMonitor: (() => void) | null = null;
   
   // Register commands and MCP tools on mount
   onMount(async () => {
+    // Avoid EventEmitter warnings from many keyboard listeners
+    const keyHandler = (renderer as any)?.keyInput;
+    if (keyHandler && typeof keyHandler.setMaxListeners === "function") {
+      keyHandler.setMaxListeners(50);
+    }
+
+    stopLagMonitor = startEventLoopLagMonitor();
+
     initializeCommands();
     // MCP tools registered async in background (don't block UI)
     initializeMCPTools();
@@ -604,6 +615,11 @@ export function App(props: AppProps) {
       const logPath = await enableDebugLog();
       console.log(`Debug logging enabled: ${logPath}`);
     }
+  });
+
+  onCleanup(() => {
+    stopLagMonitor?.();
+    stopLagMonitor = null;
   });
   
   // Check for API key - env var first, then we'll check config
@@ -679,31 +695,33 @@ export function App(props: AppProps) {
   // Show API key overlay if needed, otherwise show main app
   return (
     <ModeProvider {...modeProviderProps}>
-      <SessionProvider {...sessionProviderProps}>
-        <TodoProvider>
-          <QueueProvider>
-            <ExpressProvider initialExpress={props.initialExpress ?? false}>
-              {/* Use explicit dimensions from terminal, not "100%" strings */}
-              <box 
-                width={dimensions().width} 
-                height={dimensions().height} 
-                padding={1}
-              >
-                <Show when={hasApiKey()}>
-                  <AppWithSession {...appWithSessionProps} />
-                </Show>
-                <Show when={!hasApiKey() && !showApiKeyOverlay()}>
-                  {/* Brief moment before overlay shows */}
-                  <WelcomeScreen onSubmit={() => {}} />
-                </Show>
-                <Show when={showApiKeyOverlay()}>
-                  <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
-                </Show>
-              </box>
-            </ExpressProvider>
-          </QueueProvider>
-        </TodoProvider>
-      </SessionProvider>
+      <KeyboardProvider>
+        <SessionProvider {...sessionProviderProps}>
+          <TodoProvider>
+            <QueueProvider>
+              <ExpressProvider initialExpress={props.initialExpress ?? false}>
+                {/* Use explicit dimensions from terminal, not "100%" strings */}
+                <box 
+                  width={dimensions().width} 
+                  height={dimensions().height} 
+                  padding={1}
+                >
+                  <Show when={hasApiKey()}>
+                    <AppWithSession {...appWithSessionProps} />
+                  </Show>
+                  <Show when={!hasApiKey() && !showApiKeyOverlay()}>
+                    {/* Brief moment before overlay shows */}
+                    <WelcomeScreen onSubmit={() => {}} />
+                  </Show>
+                  <Show when={showApiKeyOverlay()}>
+                    <ApiKeyOverlay onSave={handleApiKeySave} onCancel={handleApiKeyCancel} />
+                  </Show>
+                </box>
+              </ExpressProvider>
+            </QueueProvider>
+          </TodoProvider>
+        </SessionProvider>
+      </KeyboardProvider>
     </ModeProvider>
   );
 }
@@ -1243,7 +1261,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   let escCount = 0;
 
   // Handle keyboard shortcuts
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // Double Ctrl+C to exit (with warning)
     if (key.ctrl && key.name === "c") {
       ctrlCCount++;
@@ -1361,7 +1379,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     // Tab/Shift+Tab to cycle modes (only when no overlay is active)
     // IMPORTANT: Check pendingPermission() explicitly because:
     // 1. Permission prompt has its own Shift+Tab handler (Allow All Edits)
-    // 2. isOverlayActive() may have reactivity issues inside useKeyboard callbacks
+    // 2. isOverlayActive() may have reactivity issues inside useAppKeyboard callbacks
     if (key.name === "tab" && !key.ctrl) {
       // Skip mode cycling when any overlay is active OR permission is pending
       if (isOverlayActive() || pendingPermission()) {
@@ -1395,6 +1413,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     totalContentForUI: string = ""   // Total accumulated for UI display
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
+    // Ensure tool handlers see the current mode
+    setCurrentMode(mode() as typeof MODES[number]);
     
     // Execute each tool and update UI
     for (const toolCall of toolCalls) {

@@ -1,6 +1,5 @@
 import { onMount, onCleanup } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
-import { useMode, useSession, useSidebar } from "../ui/context";
+import { useMode, useSession, useSidebar, useAppKeyboard } from "../ui/context";
 
 /**
  * Keyboard Shortcut Definitions
@@ -30,7 +29,7 @@ export function useKeyboardHandler() {
   let escTimeout: ReturnType<typeof setTimeout> | null = null;
 
   onMount(() => {
-    useKeyboard((key) => {
+    useAppKeyboard((key) => {
       // Mode cycling
       if (key.name === SHORTCUTS.TAB) {
         if (key.shift) {

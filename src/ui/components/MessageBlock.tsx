@@ -392,14 +392,32 @@ function getExpandedContent(
     return <TerminalOutput {...terminalProps} />;
   }
 
-  // File Edit: show diff
-  if (isFileEditMetadata(metadata) && metadata.diff) {
-    return <DiffView diff={metadata.diff} maxLines={30} />;
+  // File Edit: show diff or fallback
+  if (isFileEditMetadata(metadata)) {
+    if (metadata.diff && metadata.diff.length > 0) {
+      return <DiffView diff={metadata.diff} maxLines={30} />;
+    }
+    if (metadata.diffSkipped) {
+      return (
+        <text fg={Colors.ui.dim}>
+          Diff omitted ({metadata.diffReason ?? "file too large"}).
+        </text>
+      );
+    }
   }
   
   // File Write: show diff (for new files, shows all lines as additions)
-  if (isFileWriteMetadata(metadata) && metadata.diff) {
-    return <DiffView diff={metadata.diff} maxLines={30} isNewFile={metadata.created} />;
+  if (isFileWriteMetadata(metadata)) {
+    if (metadata.diff && metadata.diff.length > 0) {
+      return <DiffView diff={metadata.diff} maxLines={30} isNewFile={metadata.created} />;
+    }
+    if (metadata.diffSkipped) {
+      return (
+        <text fg={Colors.ui.dim}>
+          Diff omitted ({metadata.diffReason ?? "file too large"}).
+        </text>
+      );
+    }
   }
 
   // Task: show action summaries (or in-progress placeholder)

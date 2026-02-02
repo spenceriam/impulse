@@ -1,5 +1,5 @@
 import { createSignal, Show, For } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 import { useMode } from "../context/mode";
 import type { PermissionRequest, PermissionResponse } from "../../permission";
@@ -93,7 +93,7 @@ export function PermissionPrompt(props: PermissionPromptProps) {
   const selected = () => options()[selectedIndex()]!;
   
   // Handle keyboard navigation
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // Shift+Tab to allow all edits (session-scoped, file operations only)
     if (key.shift && key.name === "tab") {
       if (READ_ONLY_MODES.includes(mode())) {

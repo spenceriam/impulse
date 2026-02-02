@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect, Show } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import type { TextareaRenderable, PasteEvent } from "@opentui/core";
 import { t, italic, fg } from "@opentui/core";
 import { Colors, Mode, Layout, getModeColor } from "../design";
@@ -182,7 +182,7 @@ export function InputArea(props: InputAreaProps) {
     prevOverlayActive = currentOverlayActive;
   });
 
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // Skip all keyboard handling when overlay is active
     // This prevents history navigation from interfering with overlay navigation
     if (props.overlayActive) {
