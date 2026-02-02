@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.2] - 2026-02-02
+
+**Type:** patch  
+**Title:** Input consolidation and lag telemetry
+
+### Added
+
+- **Keyboard dispatcher** - Centralized key handling reduces global listeners.
+- **Event-loop lag monitor** - Logs lag spikes when debug logging is enabled.
+
+### Changed
+
+- **UI components now use shared keyboard hook** - Prevents listener buildup across overlays.
+
 ## [0.28.1] - 2026-02-02
 
 **Type:** patch  

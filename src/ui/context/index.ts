@@ -3,3 +3,4 @@ export { SessionProvider, useSession, type Message, type SessionStats } from "./
 export { TodoProvider, useTodo, type Todo } from "./todo";
 export { SidebarProvider, useSidebar } from "./sidebar";
 export { ExpressProvider, useExpress } from "./express";
+export { KeyboardProvider, useAppKeyboard } from "./keyboard";

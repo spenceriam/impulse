@@ -1,5 +1,5 @@
 import { createSignal, Show, For, JSX } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 
 /**
@@ -39,7 +39,7 @@ interface OverlayProps {
 export function Overlay(props: OverlayProps) {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
 
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "escape") {
       props.onClose();
     }

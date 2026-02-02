@@ -1,5 +1,5 @@
 import { createSignal, Show, For, JSX } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors, Indicators } from "../design";
 
 /**
@@ -57,7 +57,7 @@ export function ToolBlock(props: ToolBlockProps) {
     ? Colors.status.success
     : Colors.status.error;
 
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (key.name === "enter" || key.name === "return") {
       setExpanded((e) => !e);
     }

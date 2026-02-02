@@ -1,5 +1,5 @@
 import { createSignal, Show, For, createEffect } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import { Colors } from "../design";
 
 /**
@@ -26,7 +26,7 @@ export interface AtCandidate {
 export function Autocomplete(props: AutocompleteProps) {
   const [selectedIndex, setSelectedIndex] = createSignal(0);
 
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     if (!props.show) return;
 
     switch (key.name) {

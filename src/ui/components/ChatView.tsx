@@ -1,5 +1,5 @@
 import { For, Show, createEffect, on, onCleanup, ErrorBoundary } from "solid-js";
-import { useKeyboard } from "@opentui/solid";
+import { useAppKeyboard } from "../context/keyboard";
 import type { ScrollAcceleration } from "@opentui/core";
 import { MessageBlock, type Message } from "./MessageBlock";
 import { CompactingBlock } from "./CompactingBlock";
@@ -160,7 +160,7 @@ export function ChatView(props: ChatViewProps) {
   });
   
   // Keyboard handler for PageUp/PageDown scrolling (only when not loading)
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // Don't handle if AI is processing - stay locked to bottom
     if (isLoading()) return;
     
@@ -172,7 +172,7 @@ export function ChatView(props: ChatViewProps) {
   });
 
   // Handle Y/N keys for update prompt (when visible in session view)
-  useKeyboard((key) => {
+  useAppKeyboard((key) => {
     // Only handle when update is available
     if (updateState()?.status !== "available") return;
     
