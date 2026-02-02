@@ -595,6 +595,12 @@ export function App(props: AppProps) {
   
   // Register commands and MCP tools on mount
   onMount(async () => {
+    // Avoid EventEmitter warnings from many keyboard listeners
+    const keyHandler = (renderer as any)?.keyInput;
+    if (keyHandler && typeof keyHandler.setMaxListeners === "function") {
+      keyHandler.setMaxListeners(50);
+    }
+
     initializeCommands();
     // MCP tools registered async in background (don't block UI)
     initializeMCPTools();
@@ -1395,6 +1401,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     totalContentForUI: string = ""   // Total accumulated for UI display
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
+    // Ensure tool handlers see the current mode
+    setCurrentMode(mode() as typeof MODES[number]);
     
     // Execute each tool and update UI
     for (const toolCall of toolCalls) {

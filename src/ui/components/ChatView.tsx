@@ -1,4 +1,4 @@
-import { For, Show, createEffect, on } from "solid-js";
+import { For, Show, createEffect, on, onCleanup, ErrorBoundary } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { ScrollAcceleration } from "@opentui/core";
 import { MessageBlock, type Message } from "./MessageBlock";
@@ -87,6 +87,7 @@ export function ChatView(props: ChatViewProps) {
   // Ref to scrollbox for programmatic scrolling
   // Using 'any' because ScrollBoxRenderable type may not expose scrollToBottom
   let scrollboxRef: any;
+  let scrollTimer: NodeJS.Timeout | null = null;
   
   // Scroll to bottom helper - uses scrollTo for reliable positioning
   const scrollToBottom = () => {
@@ -107,18 +108,26 @@ export function ChatView(props: ChatViewProps) {
       scrollboxRef.scrollBy(lines);
     }
   };
+
+  const scheduleScroll = (delay: number = 16) => {
+    if (scrollTimer) return;
+    scrollTimer = setTimeout(() => {
+      scrollTimer = null;
+      scrollToBottom();
+    }, delay);
+  };
   
   // Auto-scroll when messages change (new message added)
   createEffect(on(() => messages().length, () => {
     // Scroll after DOM updates
-    setTimeout(scrollToBottom, 50);
+    scheduleScroll(50);
   }, { defer: true }));
   
   // Auto-scroll during loading - keep pinned to bottom
   createEffect(() => {
     if (isLoading()) {
       // While loading, continuously scroll to bottom
-      setTimeout(scrollToBottom, 16);
+      scheduleScroll(16);
     }
   });
   
@@ -140,7 +149,14 @@ export function ChatView(props: ChatViewProps) {
     last.toolCalls;
     
     // Scroll when streaming content changes
-    setTimeout(scrollToBottom, 16);
+    scheduleScroll(16);
+  });
+
+  onCleanup(() => {
+    if (scrollTimer) {
+      clearTimeout(scrollTimer);
+      scrollTimer = null;
+    }
   });
   
   // Keyboard handler for PageUp/PageDown scrolling (only when not loading)
@@ -253,10 +269,17 @@ export function ChatView(props: ChatViewProps) {
         <box flexDirection="column" minWidth={0} overflow="hidden">
           <For each={messages()}>
             {(message) => (
-              <MessageBlock 
-                message={message} 
-                {...(props.onCopyMessage ? { onCopy: props.onCopyMessage } : {})}
-              />
+              <ErrorBoundary fallback={(err: unknown) => (
+                <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+                  <text fg={Colors.status.error}>Message render failed.</text>
+                  <text fg={Colors.ui.dim}>{String(err)}</text>
+                </box>
+              )}>
+                <MessageBlock 
+                  message={message} 
+                  {...(props.onCopyMessage ? { onCopy: props.onCopyMessage } : {})}
+                />
+              </ErrorBoundary>
             )}
           </For>
           {/* Show compacting indicator when active */}

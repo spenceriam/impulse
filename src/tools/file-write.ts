@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { mkdirSync, statSync, writeFileSync, existsSync, readFileSync } from "fs";
+import { mkdir, stat, writeFile, readFile, chmod, access } from "fs/promises";
 import { resolve, relative, isAbsolute, basename } from "path";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
@@ -20,6 +20,16 @@ const WriteSchema = z.object({
 });
 
 type WriteInput = z.infer<typeof WriteSchema>;
+const MAX_DIFF_BYTES = 200_000; // 200KB
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Check if a path is within the current working directory
@@ -55,18 +65,11 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       const dir = safePath.substring(0, safePath.lastIndexOf("/"));
       
       // Determine if this is a new file or overwrite
-      const isNewFile = !existsSync(safePath);
+      const isNewFile = !(await fileExists(safePath));
       const permissionType = isNewFile ? "write" : "edit";
       
-      // Read existing content for diff generation (if overwriting)
       let existingContent = "";
-      if (!isNewFile) {
-        try {
-          existingContent = readFileSync(safePath, "utf-8");
-        } catch {
-          // If we can't read it, treat as new file for diff purposes
-        }
-      }
+      let existingSize = 0;
       
       // Only ask permission for files outside the working directory
       if (!isWithinCwd(safePath)) {
@@ -84,21 +87,34 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       }
 
       if (dir && dir.length > 0) {
-        mkdirSync(dir, { recursive: true });
+        await mkdir(dir, { recursive: true });
       }
 
       let existingPermissions: number | undefined;
-      try {
-        const stats = statSync(safePath);
-        existingPermissions = stats.mode;
-      } catch {
+      if (!isNewFile) {
+        try {
+          const stats = await stat(safePath);
+          existingPermissions = stats.mode;
+          existingSize = stats.size;
+        } catch {
+        }
       }
 
-      writeFileSync(safePath, input.content, "utf-8");
+      const newSize = Buffer.byteLength(input.content, "utf-8");
+      const shouldSkipDiff = existingSize + newSize > MAX_DIFF_BYTES;
+
+      if (!isNewFile && !shouldSkipDiff) {
+        try {
+          existingContent = await readFile(safePath, "utf-8");
+        } catch {
+          // If we can't read it, treat as new file for diff purposes
+        }
+      }
+
+      await writeFile(safePath, input.content, "utf-8");
 
       if (existingPermissions !== undefined) {
-        const stats = statSync(safePath);
-        stats.mode = existingPermissions;
+        await chmod(safePath, existingPermissions);
       }
 
       // Count lines written
@@ -106,8 +122,13 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       
       // Generate diff for display
       const fileName = basename(safePath);
-      let diff: string;
-      if (isNewFile) {
+      let diff = "";
+      let diffSkipped = false;
+      let diffReason: string | undefined;
+      if (shouldSkipDiff) {
+        diffSkipped = true;
+        diffReason = "File too large to diff";
+      } else if (isNewFile) {
         // For new files, create a diff showing all lines as additions
         diff = createPatch(fileName, "", input.content, "", "");
       } else {
@@ -130,6 +151,8 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           linesWritten,
           created: isNewFile,
           diff,
+          diffSkipped,
+          diffReason,
         },
       };
     } catch (error) {

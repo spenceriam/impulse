@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { readFileSync, writeFileSync } from "fs";
+import { readFile, writeFile } from "fs/promises";
 import { resolve, relative, isAbsolute } from "path";
 import { createPatch } from "diff";
 import { sanitizePath } from "../util/path";
@@ -22,6 +22,7 @@ const EditSchema = z.object({
 });
 
 type EditInput = z.infer<typeof EditSchema>;
+const MAX_DIFF_BYTES = 200_000; // 200KB
 
 /**
  * Check if a path is within the current working directory
@@ -54,7 +55,7 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         };
       }
       
-      const content = readFileSync(safePath, "utf-8");
+      const content = await readFile(safePath, "utf-8");
       
       // Only ask permission for files outside the working directory
       if (!isWithinCwd(safePath)) {
@@ -102,21 +103,33 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         newContent = content.substring(0, index) + input.newString + content.substring(index + input.oldString.length);
       }
 
-      // Generate unified diff before writing
-      const diff = createPatch(
-        input.filePath,
-        content,      // old content
-        newContent,   // new content
-        "original",
-        "modified"
-      );
+      const shouldSkipDiff = Buffer.byteLength(content, "utf-8") + Buffer.byteLength(newContent, "utf-8") > MAX_DIFF_BYTES;
+      let diff = "";
+      let linesAdded = 0;
+      let linesRemoved = 0;
+      let diffSkipped = false;
+      let diffReason: string | undefined;
 
-      // Count added/removed lines from diff
-      const diffLines = diff.split("\n");
-      const linesAdded = diffLines.filter(l => l.startsWith("+") && !l.startsWith("+++")).length;
-      const linesRemoved = diffLines.filter(l => l.startsWith("-") && !l.startsWith("---")).length;
+      if (shouldSkipDiff) {
+        diffSkipped = true;
+        diffReason = "File too large to diff";
+      } else {
+        // Generate unified diff before writing
+        diff = createPatch(
+          input.filePath,
+          content,      // old content
+          newContent,   // new content
+          "original",
+          "modified"
+        );
 
-      writeFileSync(safePath, newContent, "utf-8");
+        // Count added/removed lines from diff
+        const diffLines = diff.split("\n");
+        linesAdded = diffLines.filter(l => l.startsWith("+") && !l.startsWith("+++")).length;
+        linesRemoved = diffLines.filter(l => l.startsWith("-") && !l.startsWith("---")).length;
+      }
+
+      await writeFile(safePath, newContent, "utf-8");
 
       // Emit file edited event for formatters
       Bus.publish(FileEvents.Edited, { 
@@ -134,6 +147,8 @@ export const fileEdit: Tool<EditInput> = Tool.define(
           linesAdded,
           linesRemoved,
           replacements: input.replaceAll ? occurrences : 1,
+          diffSkipped,
+          diffReason,
         },
       };
     } catch (error) {

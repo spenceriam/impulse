@@ -2,6 +2,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ToolDefinition } from "../api/types";
 import type { MODES } from "../constants";
+import { getCurrentMode } from "./mode-state";
 
 type Mode = typeof MODES[number];
 
@@ -79,6 +80,10 @@ function getToolsForMode(mode: Mode): Set<string> {
   }
   
   return allowed;
+}
+
+export function isToolAllowedForMode(name: string, mode: Mode): boolean {
+  return getToolsForMode(mode).has(name);
 }
 
 const tools = new Map<string, Tool<unknown>>();
@@ -209,6 +214,14 @@ export namespace Tool {
       return {
         success: false,
         output: `Tool not found: ${name}`,
+      };
+    }
+
+    const currentMode = getCurrentMode();
+    if (!isToolAllowedForMode(name, currentMode)) {
+      return {
+        success: false,
+        output: `Tool "${name}" is not allowed in ${currentMode} mode. Switch to AGENT or DEBUG to proceed.`,
       };
     }
 

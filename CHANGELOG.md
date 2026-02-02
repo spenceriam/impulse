@@ -5,6 +5,23 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-02-02
+
+**Type:** patch  
+**Title:** Session stability and mode safety
+
+### Fixed
+
+- **Tool execution now enforces mode rules** - Disallowed tools return a clear error instead of running.
+- **Chat scroll scheduling is coalesced** - Prevents timer buildup during streaming.
+- **Message rendering is guarded** - ErrorBoundary prevents a single render failure from stalling the UI.
+- **Large file operations avoid expensive diffs** - Diff output is skipped with a clear reason when content is too large.
+- **File read/write/edit use async I/O** - Reduces UI blocking on large files.
+
+### Changed
+
+- **Keyboard handler listener limit raised** - Avoids EventEmitter warnings from many global listeners.
+
 ## [0.28.0] - 2026-02-02
 
 **Type:** minor  
