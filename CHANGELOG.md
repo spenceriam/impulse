@@ -5,6 +5,22 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.3] - 2026-02-02
+
+**Type:** patch  
+**Title:** Tool-call clarity and spacing polish
+
+### Changed
+
+- **Tool call rows persist with clear status icons** - Success, error, and cancelled states now display with contextual titles.
+- **Prompt and user messages have extra breathing room** - Empty rows added above and below text blocks.
+- **Thinking blocks only show for the active response** - Past reasoning is hidden to reduce noise.
+
+### Fixed
+
+- **File-write DiffView visibility** - Tool metadata is persisted so file_write diffs render reliably.
+- **Abort cancellations are surfaced** - In-flight tool calls show as cancelled when a response is interrupted.
+
 ## [0.28.2] - 2026-02-02
 
 **Type:** patch  

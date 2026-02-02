@@ -146,7 +146,8 @@ export const Indicators = {
     pending: "·",         // Dot - waiting
     running: "~",         // Tilde - in progress
     success: "✓",         // Checkmark - completed
-    error: "✗",           // X - failed
+    error: "!",           // Exclamation - failed
+    cancelled: "X",       // X - cancelled
   },
 
   /**

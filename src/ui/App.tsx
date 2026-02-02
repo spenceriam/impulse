@@ -1363,13 +1363,26 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         const msgs = messages();
         const lastMsg = msgs[msgs.length - 1];
         if (lastMsg && lastMsg.role === "assistant") {
+          // Mark any in-flight tool calls as cancelled for visibility
+          const cancelledToolCalls = lastMsg.toolCalls?.map((tc) => {
+            if (tc.status === "pending" || tc.status === "running") {
+              return {
+                ...tc,
+                status: "cancelled",
+                result: tc.result ?? "Cancelled",
+              };
+            }
+            return tc;
+          });
+
           // Append interruption notice to the message
           const interruptedContent = lastMsg.content 
             ? lastMsg.content + "\n\n---\n*[Response interrupted by user]*"
             : "*[Response interrupted by user]*";
           updateMessage(lastMsg.id, { 
             content: interruptedContent,
-            streaming: false 
+            streaming: false,
+            ...(cancelledToolCalls ? { toolCalls: cancelledToolCalls } : {}),
           });
         }
       }
@@ -2238,9 +2251,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           const leftPos = () => isOnWelcomeScreen() 
             ? Math.max(4, Math.floor((dimensions().width - menuWidth) / 2))
             : 4;
-          // WelcomeScreen: position above InputArea(~8) + StatusLine(1) + padding(1) = 10
-          // Session view: above BottomPanel(8-15) + StatusLine(1) + padding(2) = 12
-          const bottomPos = () => isOnWelcomeScreen() ? 10 : 12;
+          // WelcomeScreen: position above InputArea(~10) + StatusLine(1) + padding(1) = 12
+          // Session view: above BottomPanel(10-17) + StatusLine(1) + padding(2) = 14
+          const bottomPos = () => isOnWelcomeScreen() ? 12 : 14;
           
           return (
             <box

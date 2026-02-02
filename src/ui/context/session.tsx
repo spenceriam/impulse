@@ -3,6 +3,7 @@ import { SessionManager } from "../../session/manager";
 import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
 import { type HeaderPrefix } from "../components/HeaderLine";
 import { type Message as MessageBlockMessage, type ToolCallInfo } from "../components/MessageBlock";
+import { type ToolMetadata } from "../../types/tool-metadata";
 import { type Mode } from "../design";
 
 /**
@@ -101,8 +102,8 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
   let toolCalls: ToolCallInfo[] | undefined;
   if (msg.tool_calls && msg.tool_calls.length > 0) {
     toolCalls = msg.tool_calls.map((tc, i) => {
-      const status: "pending" | "running" | "success" | "error" = tc.result 
-        ? (tc.result.success ? "success" : "error") 
+      const status: "pending" | "running" | "success" | "error" | "cancelled" = tc.result
+        ? (tc.result.metadata?.cancelled ? "cancelled" : (tc.result.success ? "success" : "error"))
         : "success";  // If no result recorded, assume success (historical data)
       
       const info: ToolCallInfo = {
@@ -116,6 +117,11 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
       const resultText = tc.result?.output || tc.result?.error;
       if (resultText) {
         info.result = resultText;
+      }
+
+      // Restore metadata if present (diffs, tool context)
+      if (tc.result?.metadata && typeof tc.result.metadata === "object" && "type" in tc.result.metadata) {
+        info.metadata = tc.result.metadata as unknown as ToolMetadata;
       }
       
       return info;
@@ -165,17 +171,45 @@ function uiToStoreMessage(msg: Message): StoreMessage {
   // Convert UI toolCalls to store tool_calls format
   if (msg.toolCalls && msg.toolCalls.length > 0) {
     result.tool_calls = msg.toolCalls.map(tc => {
+      let parsedArguments: Record<string, unknown> = {};
+      if (tc.arguments) {
+        try {
+          parsedArguments = JSON.parse(tc.arguments);
+        } catch {
+          parsedArguments = {};
+        }
+      }
+
       const toolCall: any = {
         tool: tc.name,
-        arguments: tc.arguments ? JSON.parse(tc.arguments) : {},
+        arguments: parsedArguments,
         timestamp: new Date(msg.timestamp).toISOString(),
       };
       
-      if (tc.result) {
-        toolCall.result = {
+      const hasMetadata = !!tc.metadata;
+      if (tc.result || hasMetadata || tc.status === "cancelled") {
+        const resultPayload: any = {
           success: tc.status === "success",
-          ...(tc.status === "success" ? { output: tc.result } : { error: tc.result }),
         };
+        if (tc.status === "success") {
+          if (tc.result) resultPayload.output = tc.result;
+        } else {
+          if (tc.result) {
+            resultPayload.error = tc.result;
+          } else if (tc.status === "cancelled") {
+            resultPayload.error = "Cancelled";
+          }
+        }
+        if (hasMetadata) {
+          resultPayload.metadata = tc.metadata as unknown as Record<string, unknown>;
+        }
+        if (tc.status === "cancelled") {
+          resultPayload.metadata = {
+            ...(resultPayload.metadata ?? {}),
+            cancelled: true,
+          };
+        }
+        toolCall.result = resultPayload;
       }
       
       return toolCall;
