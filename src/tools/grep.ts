@@ -5,28 +5,10 @@ import { sanitizePath } from "../util/path";
 const MAX_RESULTS = 100;
 const MAX_CONTENT_LENGTH = 120;
 
-const DESCRIPTION = `Fast content search tool that works with any codebase size.
+const DESCRIPTION = `Search file contents with a regex.
 
-Usage:
-- Searches file contents using regular expressions
-- Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
-- Filter files by pattern with the include parameter
-- Returns file paths and line numbers with matches (max ${MAX_RESULTS} results)
-
-Parameters:
-- pattern (required): The regex pattern to search for in file contents
-- path (optional): The directory to search in (defaults to current working directory)
-- include (optional): File pattern to include (e.g., "*.js", "*.{ts,tsx}")
-
-When to Use:
-- Finding files containing specific patterns
-- Locating function definitions or usages
-- Searching for error messages or log statements
-
-Notes:
-- Results are limited to ${MAX_RESULTS} matches for efficiency
-- Long lines are truncated to ${MAX_CONTENT_LENGTH} characters
-- Use Bash with rg (ripgrep) directly if you need full output`;
+Required: pattern. Optional: path, include.
+See docs/tools/grep.md for details.`;
 
 const GrepSchema = z.object({
   pattern: z.string(),

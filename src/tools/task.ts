@@ -4,50 +4,10 @@ import { GLMClient } from "../api/client";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
 
-const DESCRIPTION = `Launch a subagent for autonomous task execution. PREFER using this tool for codebase exploration and multi-file operations.
+const DESCRIPTION = `Launch a subagent for delegated work.
 
-SUBAGENT TYPES:
-
-explore (READ-ONLY, FAST):
-  Tools: file_read, glob, grep
-  Use for: Finding code, understanding patterns, answering "where/what/how" questions
-  Examples: "Find all API endpoints", "Where is auth handled?", "How does the build work?"
-  
-  Thoroughness levels (optional, for explore only):
-  - "quick": 1-2 searches, return first findings (for simple lookups)
-  - "medium": 3-5 searches, follow promising leads (default)
-  - "thorough": Comprehensive search, check all paths (for complex questions)
-
-general (FULL ACCESS):
-  Tools: file_read, file_write, file_edit, glob, grep, bash
-  Use for: Independent multi-step tasks, refactoring, implementing features
-  Examples: "Add error handling to all API routes", "Run tests and fix failures"
-
-WHEN TO USE (STRONGLY PREFERRED):
-
-- Searching across the codebase (use explore)
-- Questions about code structure or patterns (use explore)
-- Tasks requiring multiple file reads/searches (use explore)
-- Independent work that can run in parallel (use general)
-- Multi-step operations you want to offload (use general)
-
-PARALLEL EXECUTION:
-
-Call multiple task tools in a single response for concurrent execution:
-  task(type: "explore", prompt: "Find all database queries...")
-  task(type: "explore", prompt: "Find all API routes...")
-  // Both run simultaneously
-
-WHEN NOT TO USE:
-
-- Reading ONE specific known file (use file_read)
-- Making ONE simple edit (do it directly)
-- Information already in your context
-
-IMPORTANT:
-- Subagent results return to YOU, not the user - summarize findings
-- Be specific in prompts - subagents don't see conversation history
-- Subagents keep YOUR context clean by doing work externally`;
+Required: prompt, description, subagent_type. Optional: thoroughness (explore only).
+See docs/tools/task.md for guidance and examples.`;
 
 const TaskSchema = z.object({
   prompt: z.string(),
@@ -280,9 +240,10 @@ export const taskTool: Tool<TaskInput> = Tool.define(
         success: result.success,
         output,
         metadata: {
-          agentType: input.subagent_type,
+          type: "task",
+          subagentType: input.subagent_type,
           description: input.description,
-          actionCount: result.summary.length,
+          toolCallCount: result.summary.length,
           actions: result.summary,
         },
       };

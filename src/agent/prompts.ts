@@ -7,8 +7,69 @@
  */
 
 import { MODES } from "../constants";
+import { existsSync, readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
 type Mode = typeof MODES[number];
+
+// ============================================
+// Prompt Library Loader (file-based with fallback)
+// ============================================
+
+const PROMPT_CACHE = new Map<string, string>();
+
+function getPromptsDir(): string {
+  const override = process.env["IMPULSE_PROMPTS_DIR"];
+  if (override && existsSync(override)) return override;
+
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    // Dev: src/agent -> ../../prompts
+    join(here, "..", "..", "prompts"),
+    // Dist: dist -> prompts
+    join(here, "prompts"),
+    // Fallback: src -> ../prompts
+    join(here, "..", "prompts"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0] ?? join(here, "..", "..", "prompts");
+}
+
+function loadPromptFile(category: string, name: string): string | null {
+  const key = `${category}/${name}`;
+  if (PROMPT_CACHE.has(key)) {
+    return PROMPT_CACHE.get(key) ?? null;
+  }
+
+  const promptsDir = getPromptsDir();
+  const promptPath = join(promptsDir, category, `${name}.md`);
+
+  try {
+    if (existsSync(promptPath)) {
+      const content = readFileSync(promptPath, "utf-8");
+      PROMPT_CACHE.set(key, content);
+      return content;
+    }
+  } catch {
+    // Ignore file load errors, fall back to inline prompt.
+  }
+
+  PROMPT_CACHE.set(key, "");
+  return null;
+}
+
+function getPrompt(category: string, name: string, fallback: string): string {
+  const content = loadPromptFile(category, name);
+  const trimmed = content?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : fallback.trim();
+}
 
 /**
  * MCP tool discovery instructions for execution modes
@@ -129,6 +190,15 @@ You help developers with software engineering tasks including:
 
 Be concise, accurate, and practical. Prefer showing code over lengthy explanations.
 
+## Tool Library (REQUIRED)
+
+Detailed tool and skill references live in the library:
+- Tool index: docs/tools/README.md
+- Tool details: docs/tools/<tool-name>.md
+- Skills (if needed): docs/skills/README.md
+
+When you need deeper usage details, use tool_docs to open the relevant doc.
+
 ## Session Header (REQUIRED)
 
 Use the set_header tool to set a descriptive title for the current conversation. This appears at the top of the session screen as "[IMPULSE] | <title>".
@@ -144,26 +214,23 @@ Examples: "Express mode permission system", "Fixing streaming display issue", "R
 
 ## Asking Questions (CRITICAL - MUST USE TOOL)
 
-**NEVER ask questions in plain text.** When you need to:
+NEVER ask questions in plain text. When you need to:
 - Gather information or preferences
 - Clarify requirements
 - Offer choices or options
 - Get user decisions
 
-You MUST use the \`question\` tool. This is NON-NEGOTIABLE.
+You MUST use the question tool. This is NON-NEGOTIABLE.
 
-### BAD (DO NOT DO THIS):
-\`\`\`
+BAD (DO NOT DO THIS):
 "What kind of project would you like to build?
 1. A CLI tool
 2. A dashboard
 3. A game
 
 Let me know which one interests you!"
-\`\`\`
 
-### GOOD (ALWAYS DO THIS):
-\`\`\`
+GOOD (ALWAYS DO THIS):
 question({
   context: "Understanding your project goals",
   questions: [{
@@ -176,16 +243,15 @@ question({
     ]
   }]
 })
-\`\`\`
 
-### Rules:
+Rules:
 - Maximum 3 topics per question() call
 - If you need more questions, wait for answers then make a follow-up call
 - Each topic needs a short name (max 20 chars)
 - Users can always type a custom answer
 - Even for simple yes/no questions, USE THE TOOL
 
-### When to use the question tool:
+When to use the question tool:
 - Brainstorming sessions (like "what should we build?")
 - Clarifying ambiguous requests
 - Offering implementation choices
@@ -390,6 +456,15 @@ Systematic debugging mode. Follow the 7-step debugging process:
 `,
 };
 
+function getModePromptName(mode: Mode): string {
+  switch (mode) {
+    case "PLAN-PRD":
+      return "plan-prd";
+    default:
+      return mode.toLowerCase();
+  }
+}
+
 /**
  * Generate a system prompt for the given mode
  * @param mode - The current operating mode
@@ -410,29 +485,29 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
 - If you need to create a file, the path should be within ${workingDir}
 `;
 
-  const parts: string[] = [BASE_PROMPT, cwdContext];
-  
-  // Add mode-specific content
+  const parts: string[] = [
+    getPrompt("core", "base", BASE_PROMPT),
+    cwdContext,
+  ];
+
   const modeAddition = MODE_ADDITIONS[mode];
   if (modeAddition) {
-    parts.push(modeAddition);
+    parts.push(getPrompt("modes", getModePromptName(mode), modeAddition));
   }
-  
+
   // Add mode switch instructions for all modes (intelligent transitions)
-  parts.push(MODE_SWITCH_INSTRUCTIONS);
-  
+  parts.push(getPrompt("core", "mode-switch", MODE_SWITCH_INSTRUCTIONS));
+
   // Add subagent delegation instructions for execution modes
   if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO") {
-    parts.push(SUBAGENT_DELEGATION);
+    parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
   }
-  
+
   // Add MCP instructions based on mode
   if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO" || mode === "EXPLORE") {
-    // Full discovery workflow for execution and explore modes
-    parts.push(MCP_DISCOVERY_FULL);
+    parts.push(getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL));
   } else if (mode === "PLANNER" || mode === "PLAN-PRD") {
-    // Light awareness for research modes
-    parts.push(MCP_AWARENESS_RESEARCH);
+    parts.push(getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH));
   }
   
   return parts.join("\n").trim();
@@ -443,9 +518,9 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
  */
 export function getMCPInstructions(mode: Mode): string {
   if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO" || mode === "EXPLORE") {
-    return MCP_DISCOVERY_FULL.trim();
+    return getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL).trim();
   } else if (mode === "PLANNER" || mode === "PLAN-PRD") {
-    return MCP_AWARENESS_RESEARCH.trim();
+    return getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH).trim();
   }
   return "";
 }
@@ -517,11 +592,11 @@ Format your response as a brief action summary. The main agent will report this 
 export function getSubagentPrompt(type: "explore" | "general"): string {
   switch (type) {
     case "explore":
-      return EXPLORE_AGENT_PROMPT;
+      return getPrompt("agents", "explore", EXPLORE_AGENT_PROMPT);
     case "general":
-      return GENERAL_AGENT_PROMPT;
+      return getPrompt("agents", "general", GENERAL_AGENT_PROMPT);
     default:
-      return GENERAL_AGENT_PROMPT;
+      return getPrompt("agents", "general", GENERAL_AGENT_PROMPT);
   }
 }
 

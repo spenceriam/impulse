@@ -1421,6 +1421,20 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           args = {};
         }
         
+        // Set task metadata early for in-progress display
+        if (toolCall.name === "task" && (!toolCall.metadata || (toolCall.metadata as any).type !== "task")) {
+          const taskArgs = args as { subagent_type?: string; description?: string };
+          if (taskArgs?.subagent_type) {
+            toolCall.metadata = {
+              type: "task",
+              subagentType: taskArgs.subagent_type,
+              description: taskArgs.description ?? "",
+              actions: [],
+              toolCallCount: 0,
+            } as unknown as ToolMetadata;
+          }
+        }
+
         // Execute the tool
         const result = await Tool.execute(toolCall.name, args);
         

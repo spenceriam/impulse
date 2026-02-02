@@ -365,7 +365,8 @@ function getToolTitle(name: string, args: string, metadata?: ToolMetadata): stri
 function getExpandedContent(
   _name: string,
   metadata?: ToolMetadata,
-  _result?: string
+  _result?: string,
+  status?: "pending" | "running" | "success" | "error"
 ): JSX.Element | null {
   if (!metadata) return null;
 
@@ -401,16 +402,27 @@ function getExpandedContent(
     return <DiffView diff={metadata.diff} maxLines={30} isNewFile={metadata.created} />;
   }
 
-  // Task: show action summaries
-  if (isTaskMetadata(metadata) && metadata.actions.length > 0) {
+  // Task: show action summaries (or in-progress placeholder)
+  if (isTaskMetadata(metadata)) {
+    const isActive = status === "pending" || status === "running";
     return (
       <box flexDirection="column">
         <text fg={Colors.ui.dim}>({metadata.toolCallCount} tool calls)</text>
-        <For each={metadata.actions}>
-          {(action) => (
-            <text fg={Colors.ui.dim}>└─ {action}</text>
-          )}
-        </For>
+        <Show when={metadata.actions.length > 0} fallback={
+          <box flexDirection="row">
+            <text fg={Colors.ui.dim}>└─ </text>
+            <Show when={isActive} fallback={<text fg={Colors.ui.dim}>No actions recorded.</text>}>
+              <text fg={Colors.ui.dim}>In progress </text>
+              <BouncingDots color={Colors.ui.dim} />
+            </Show>
+          </box>
+        }>
+          <For each={metadata.actions}>
+            {(action) => (
+              <text fg={Colors.ui.dim}>└─ {action}</text>
+            )}
+          </For>
+        </Show>
       </box>
     );
   }
@@ -447,6 +459,8 @@ function getToolActivityLabel(name: string): string {
       return "Finding files...";
     case "grep":
       return "Searching...";
+    case "tool_docs":
+      return "Loading tool docs...";
     
     // Execution
     case "bash":
@@ -558,7 +572,7 @@ function getCurrentActivityLabel(toolCalls: ToolCallInfo[]): string {
  * Check if a tool is read-only (should be shown as minimal one-liner)
  */
 function isReadOnlyTool(name: string): boolean {
-  return ["file_read", "glob", "grep"].includes(name);
+  return ["file_read", "glob", "grep", "tool_docs"].includes(name);
 }
 
 /**
@@ -636,7 +650,8 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   const expandedContent = () => getExpandedContent(
     props.toolCall.name,
     props.toolCall.metadata,
-    props.toolCall.result
+    props.toolCall.result,
+    props.toolCall.status
   );
 
   const status = () => props.toolCall.status;
@@ -648,6 +663,7 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   // For other success cases, default to collapsed (compact inline summary)
   const defaultExpanded = () => {
     if (props.verbose === true) return true;
+    if (isRunning() && props.toolCall.name === "task") return true;
     if (status() === "error") return true;
     // Auto-expand file modifications to show DiffView
     if (status() === "success" && ["file_write", "file_edit"].includes(props.toolCall.name)) {
@@ -658,10 +674,7 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
 
   // For successful completions without meaningful expanded content, 
   // don't show the expand indicator at all (truly inline)
-  const hasExpandableContent = () => {
-    if (isRunning()) return false; // No expand while running
-    return !!expandedContent();
-  };
+  const hasExpandableContent = () => !!expandedContent();
 
   return (
     <CollapsibleToolBlock
@@ -697,6 +710,29 @@ export function MessageBlock(props: MessageBlockProps) {
   const toolCalls = () => props.message.toolCalls ?? [];
   const reasoning = () => props.message.reasoning;
   const isStreaming = () => props.message.streaming ?? false;
+
+  const toolEntries = () => toolCalls().map((toolCall, index) => ({ toolCall, index }));
+  const activeToolEntries = () =>
+    toolEntries().filter(({ toolCall }) => toolCall.status === "pending" || toolCall.status === "running");
+  const errorToolEntries = () =>
+    toolEntries().filter(({ toolCall }) => toolCall.status === "error");
+  const getAttemptNumber = (index: number) => {
+    const allToolCalls = toolCalls();
+    const current = allToolCalls[index];
+    if (!current || current.status !== "error") return undefined;
+
+    let attempts = 1;
+    for (let i = index - 1; i >= 0; i--) {
+      const prev = allToolCalls[i];
+      if (prev?.name === current.name && prev?.status === "error") {
+        attempts++;
+      } else {
+        break;
+      }
+    }
+
+    return attempts > 1 ? attempts : undefined;
+  };
   
   // User accent color is gray (dim) - distinct from mode-colored AI messages
   const userAccentColor = Colors.ui.dim;
@@ -790,39 +826,53 @@ export function MessageBlock(props: MessageBlockProps) {
                     </text>
                   </box>
                 </Show>
-                
-                {/* Tool calls list */}
-                <For each={toolCalls()}>
-                  {(toolCall, index) => {
-                    const attempt = (() => {
-                      const allToolCalls = toolCalls();
-                      const current = allToolCalls[index()];
-                      if (!current || current.status !== "error") return undefined;
 
-                      let attempts = 1;
-                      for (let i = index() - 1; i >= 0; i--) {
-                        const prev = allToolCalls[i];
-                        if (prev?.name === current.name && prev?.status === "error") {
-                          attempts++;
-                        } else {
-                          break;
+                <Show
+                  when={!verboseTools()}
+                  fallback={
+                    <For each={toolCalls()}>
+                      {(toolCall, index) => {
+                        const attempt = getAttemptNumber(index());
+
+                        const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
+                          toolCall,
+                          verbose: true,
+                        };
+                        if (attempt !== undefined) {
+                          displayProps.attemptNumber = attempt;
                         }
+
+                        return <ToolCallDisplay {...displayProps} />;
+                      }}
+                    </For>
+                  }
+                >
+                  {/* Active tool calls (pending/running) */}
+                  <For each={activeToolEntries()}>
+                    {(entry) => {
+                      const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
+                        toolCall: entry.toolCall,
+                        verbose: false,
+                      };
+                      return <ToolCallDisplay {...displayProps} />;
+                    }}
+                  </For>
+
+                  {/* Error tool calls (always visible) */}
+                  <For each={errorToolEntries()}>
+                    {(entry) => {
+                      const attempt = getAttemptNumber(entry.index);
+                      const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
+                        toolCall: entry.toolCall,
+                        verbose: false,
+                      };
+                      if (attempt !== undefined) {
+                        displayProps.attemptNumber = attempt;
                       }
-
-                      return attempts > 1 ? attempts : undefined;
-                    })();
-
-                    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = { 
-                      toolCall,
-                      verbose: verboseTools(),
-                    };
-                    if (attempt !== undefined) {
-                      displayProps.attemptNumber = attempt;
-                    }
-
-                    return <ToolCallDisplay {...displayProps} />;
-                  }}
-                </For>
+                      return <ToolCallDisplay {...displayProps} />;
+                    }}
+                  </For>
+                </Show>
               </box>
             </Show>
             

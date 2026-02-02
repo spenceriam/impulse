@@ -29,6 +29,9 @@ import "./question";
 import "./set-header";
 import "./set-mode";
 
+// Tool library
+import "./tool-docs";
+
 // MCP discovery
 import "./mcp-discover";
 

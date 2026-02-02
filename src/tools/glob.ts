@@ -5,29 +5,10 @@ import { sanitizePath } from "../util/path";
 
 const MAX_RESULTS = 1000;
 
-const DESCRIPTION = `Fast file pattern matching tool that works with any codebase size.
+const DESCRIPTION = `Find files by glob pattern.
 
-Usage:
-- Supports glob patterns like "**/*.js" or "src/**/*.ts"
-- Returns matching file paths (max ${MAX_RESULTS} results)
-- Use this tool when you need to find files by name patterns
-
-Parameters:
-- pattern (required): The glob pattern to match files against
-- path (optional): The directory to search in (defaults to current working directory)
-
-When to Use:
-- Finding files by extension or name pattern
-- Locating specific file types in a directory tree
-- Quick file discovery before reading
-
-When NOT to Use:
-- Searching for content inside files (use Grep instead)
-- Finding a specific known file path (use Read instead)
-
-Notes:
-- Results limited to ${MAX_RESULTS} files for efficiency
-- Files are returned in filesystem order (fast)`;
+Required: pattern. Optional: path.
+See docs/tools/glob.md for usage notes.`;
 
 const GlobSchema = z.object({
   pattern: z.string(),

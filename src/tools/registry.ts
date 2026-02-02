@@ -39,6 +39,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   todo_read: "read_only",
   set_header: "utility",
   mcp_discover: "read_only",
+  tool_docs: "read_only",
   
   // Write tools (restricted in PLANNER/PLAN-PRD)
   file_write: "write",

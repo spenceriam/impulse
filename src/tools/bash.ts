@@ -12,41 +12,10 @@ import {
   type PtyHandle,
 } from "../pty";
 
-const DESCRIPTION = `Executes a given bash command in a persistent shell session.
+const DESCRIPTION = `Run a shell command in a persistent session.
 
-Usage:
-- All commands run in the project working directory by default
-- Use the workdir parameter to run in a different directory
-- AVOID using "cd <directory> && <command>" patterns - use workdir instead
-- Set interactive=true for commands that require user input (sudo, vim, etc.)
-
-Parameters:
-- command (required): The command to execute
-- description (required): A clear, concise description of what this command does (5-10 words)
-- workdir (optional): The working directory to run the command in
-- timeout (optional): Timeout in milliseconds (default 120000 = 2 minutes)
-- interactive (optional): Enable interactive mode for commands needing user input
-
-Important Notes:
-- Always quote file paths that contain spaces with double quotes
-- Output exceeding 2000 lines will be truncated
-- Avoid using bash for file operations - use dedicated tools instead:
-  - File search: Use Glob (NOT find or ls)
-  - Content search: Use Grep (NOT grep or rg)
-  - Read files: Use Read (NOT cat/head/tail)
-  - Edit files: Use Edit (NOT sed/awk)
-  - Write files: Use Write (NOT echo)
-
-Git Safety:
-- NEVER update git config
-- NEVER run destructive git commands (push --force, hard reset) without explicit user request
-- NEVER skip hooks (--no-verify) unless explicitly requested
-- NEVER commit changes unless explicitly asked
-
-Interactive Mode:
-- Use interactive=true for commands that need user input
-- Examples: sudo, vim, nano, git rebase -i, npm init
-- User can press Ctrl+F to focus the terminal and type input`;
+Required: command, description. Optional: workdir, timeout, interactive.
+See docs/tools/bash.md for safety rules and usage details.`;
 
 const BashSchema = z.object({
   command: z.string(),
@@ -65,23 +34,55 @@ interface SpawnOptions {
 }
 
 /**
- * Destructive commands that always require permission
+ * Destructive command patterns (always require permission)
  */
-const DESTRUCTIVE_COMMANDS = [
-  // File/directory deletion
-  "rm", "rmdir", "unlink", "shred",
-  // Force/dangerous git operations
-  "git push --force", "git push -f", "git reset --hard", "git clean -fd",
-  // System commands
-  "sudo", "su", "chmod", "chown", "chgrp",
-  // Package managers that modify system
-  "apt", "apt-get", "yum", "dnf", "pacman", "brew install", "brew uninstall",
-  // Process control
-  "kill", "killall", "pkill",
-  // Disk operations
-  "mkfs", "fdisk", "dd",
-  // Network
-  "iptables", "ufw",
+const DESTRUCTIVE_PATTERNS = [
+  // File deletion
+  /\brm\s+(-[rfivI]+\s+)*[^\s]/,
+  /\brmdir\b/,
+  /\bunlink\b/,
+  /\bshred\b/,
+
+  // Git destructive
+  /\bgit\s+reset\s+--hard\b/,
+  /\bgit\s+clean\s+-[fd]+\b/,
+  /\bgit\s+push\s+.*--force\b/,
+  /\bgit\s+push\s+-f\b/,
+  /\bgit\s+checkout\s+\.\s*$/,
+  /\bgit\s+restore\s+\.\s*$/,
+
+  // Process/System
+  /\bkill\s+-9\b/,
+  /\bkillall\b/,
+  /\bpkill\b/,
+  /\bshutdown\b/,
+  /\breboot\b/,
+  /\bhalt\b/,
+  /\bpoweroff\b/,
+
+  // Dangerous file operations
+  />\s*\/dev\/(sd|hd|nvme)/,
+  /\bdd\s+.*of=/,
+  /\bmkfs\b/,
+  /\bfdisk\b/,
+
+  // Database destructive
+  /\bDROP\s+(TABLE|DATABASE|INDEX)\b/i,
+  /\bTRUNCATE\b/i,
+  /\bDELETE\s+FROM\b.*WHERE\s*$/i,
+
+  // Package manager uninstalls
+  /\bnpm\s+uninstall\b/,
+  /\byarn\s+remove\b/,
+  /\bpip\s+uninstall\b/,
+  /\bapt(-get)?\s+(remove|purge)\b/,
+  /\bbrew\s+uninstall\b/,
+
+  // Other dangerous
+  /\bchmod\s+777\b/,
+  /\bchown\s+-R\b.*\//,
+  /\bcurl\s+.*\|\s*(ba)?sh\b/,
+  /\bwget\s+.*\|\s*(ba)?sh\b/,
 ];
 
 /**
@@ -101,29 +102,55 @@ const INTERACTIVE_COMMANDS = [
 ];
 
 /**
- * Safe read-only commands that don't need permission
+ * Safe command patterns (auto-allow)
  */
-const SAFE_COMMANDS = [
-  // Read-only file operations
-  "ls", "cat", "head", "tail", "less", "more", "file", "stat", "wc", "du", "df",
-  "find", "locate", "which", "whereis", "type",
-  // Text processing (read-only)
-  "grep", "rg", "ag", "ack", "sed -n", "awk",
-  // Git read operations
-  "git status", "git log", "git diff", "git show", "git branch", "git remote -v",
-  "git fetch", "git ls-files", "git rev-parse", "git describe", "git tag -l",
-  // Build/test commands
-  "npm run", "npm test", "npm install", "npm ci", "npm ls",
-  "bun run", "bun test", "bun install", "bun build",
-  "yarn", "pnpm",
-  "cargo build", "cargo test", "cargo check", "cargo clippy",
-  "make", "cmake",
-  "go build", "go test", "go mod",
-  "python -m pytest", "pytest", "python -m unittest",
-  "jest", "vitest", "mocha",
-  // Info commands
-  "echo", "printf", "date", "pwd", "whoami", "hostname", "uname", "env", "printenv",
-  "node -v", "npm -v", "bun -v", "python --version", "git --version",
+const SAFE_PATTERNS = [
+  // Read-only git
+  /\bgit\s+(status|log|diff|show|branch|tag|remote|fetch)\b/,
+  /\bgit\s+ls-/,
+
+  // Directory listing
+  /\bls\b/,
+  /\bdir\b/,
+  /\bfind\s+.*-type\s+[fd]\b/,
+  /\bfind\s+.*-name\b/,
+
+  // File viewing
+  /\bcat\b/,
+  /\bhead\b/,
+  /\btail\b/,
+  /\bless\b/,
+  /\bmore\b/,
+  /\bgrep\b/,
+  /\brg\b/,
+  /\bwc\b/,
+
+  // Environment/info
+  /\bpwd\b/,
+  /\bwhoami\b/,
+  /\becho\s/,
+  /\benv\b/,
+  /\bprintenv\b/,
+  /\bwhich\b/,
+  /\btype\b/,
+  /\bfile\b/,
+
+  // Package info (not install/uninstall)
+  /\bnpm\s+(list|ls|info|view|search)\b/,
+  /\byarn\s+(list|info|why)\b/,
+  /\bpip\s+(list|show|search)\b/,
+
+  // Build/test (generally safe)
+  /\bnpm\s+(run|test|start|build)\b/,
+  /\byarn\s+(run|test|start|build)\b/,
+  /\bnpx\b/,
+  /\bpython\s+-c\b/,
+  /\bnode\s+-e\b/,
+
+  // Version checks
+  /--version\b/,
+  /-v\b$/,
+  /\b(node|npm|yarn|python|pip|git|cargo|go)\s+-v\b/,
 ];
 
 /**
@@ -140,27 +167,25 @@ function needsInteractiveMode(command: string): boolean {
 }
 
 /**
- * Check if a command is safe (doesn't need permission)
+ * Classify a command as safe, destructive, or unknown
  */
-function isSafeCommand(command: string): boolean {
-  const trimmed = command.trim().toLowerCase();
-  
-  // Check for destructive commands first (they override safe)
-  for (const destructive of DESTRUCTIVE_COMMANDS) {
-    if (trimmed.startsWith(destructive.toLowerCase())) {
-      return false;
+function classifyCommand(command: string): "safe" | "destructive" | "unknown" {
+  const trimmed = command.trim();
+
+  // Check destructive first (higher priority)
+  for (const pattern of DESTRUCTIVE_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return "destructive";
     }
   }
-  
-  // Check if it's a known safe command
-  for (const safe of SAFE_COMMANDS) {
-    if (trimmed.startsWith(safe.toLowerCase())) {
-      return true;
+
+  for (const pattern of SAFE_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return "safe";
     }
   }
-  
-  // Default: require permission for unknown commands
-  return false;
+
+  return "unknown";
 }
 
 /**
@@ -202,29 +227,25 @@ function extractPaths(command: string): string[] {
  */
 function needsPermission(command: string, workdir?: string): { needed: boolean; reason?: string } {
   const cwd = workdir || process.cwd();
-  
-  // Check if it's a safe command
-  if (isSafeCommand(command)) {
-    return { needed: false };
+
+  const classification = classifyCommand(command);
+  if (classification === "destructive") {
+    return { needed: true, reason: "Destructive command" };
   }
-  
-  // Check for destructive commands
-  const trimmed = command.trim().toLowerCase();
-  for (const destructive of DESTRUCTIVE_COMMANDS) {
-    if (trimmed.startsWith(destructive.toLowerCase())) {
-      return { needed: true, reason: `Destructive command: ${destructive}` };
-    }
-  }
-  
-  // Check for paths outside cwd
+
+  // Check for paths outside cwd (even for safe commands)
   const paths = extractPaths(command);
   for (const path of paths) {
     if (!isWithinCwd(path, cwd)) {
       return { needed: true, reason: `Path outside working directory: ${path}` };
     }
   }
-  
-  // Unknown command within cwd - still ask but could be less strict
+
+  if (classification === "safe") {
+    return { needed: false };
+  }
+
+  // Unknown command within cwd - require permission
   return { needed: true, reason: "Unknown command" };
 }
 

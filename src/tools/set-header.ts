@@ -10,27 +10,10 @@ const MAX_TITLE_LENGTH = 50;
 /**
  * Tool description for AI
  */
-const DESCRIPTION = `Set the session header title to provide context about the current task or conversation.
+const DESCRIPTION = `Set the session header title.
 
-The header appears at the top of the session screen as: "[IMPULSE] | <your title>"
-
-Guidelines:
-- Set at meaningful milestones (initial understanding, phase changes, focus shifts)
-- Do NOT update constantly - only when context meaningfully changes
-- Keep titles concise and descriptive (max ${MAX_TITLE_LENGTH} characters)
-- Let the description naturally indicate the action
-
-Good examples:
-- "Express mode permission system"
-- "React dashboard with authentication"
-- "Fixing streaming display issue"
-- "Code review of payment module"
-- "Chat session"
-
-Bad examples:
-- "Working on stuff" (too vague)
-- "I am currently in the process of helping you build..." (too long/verbose)
-- Updating every few seconds (too frequent)`;
+Required: title (max ${MAX_TITLE_LENGTH} chars).
+See docs/tools/set-header.md for guidelines.`;
 
 const SetHeaderSchema = z.object({
   title: z

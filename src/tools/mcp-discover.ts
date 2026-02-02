@@ -127,7 +127,7 @@ async function execute(args: MCPDiscoverArgs): Promise<ToolResult> {
 // Auto-register on import
 export const mcpDiscoverTool = Tool.define(
   "mcp_discover",
-  "Discover available MCP tools. Use 'search' to find tools by capability, 'list' to see all tools on a server, or 'details' to get full info about a specific tool. Call this before using MCP tools you haven't used before.",
+  "Discover MCP tools. Use search, list, or details. See docs/tools/mcp-discover.md.",
   MCPDiscoverSchema,
   execute
 );
