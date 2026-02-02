@@ -9,22 +9,10 @@ import { createPatch } from "diff";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
 
-const DESCRIPTION = `Writes a file to the local filesystem.
+const DESCRIPTION = `Write a file to disk (create or overwrite).
 
-Usage:
-- This tool will overwrite an existing file if there is one at the provided path
-- If this is an existing file, you MUST use the Read tool first to read the file's contents
-- ALWAYS prefer editing existing files in the codebase over creating new ones
-- NEVER proactively create documentation files (*.md) or README files unless explicitly requested
-- Only use emojis if the user explicitly requests it
-
-Parameters:
-- filePath (required): The absolute path to the file to write (must be absolute, not relative)
-- content (required): The content to write to the file
-
-Notes:
-- Creates parent directories if they don't exist
-- Preserves file permissions when overwriting`;
+Required: filePath, content.
+See docs/tools/file-write.md for usage rules.`;
 
 const WriteSchema = z.object({
   filePath: z.string(),

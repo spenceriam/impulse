@@ -10,28 +10,10 @@ const VALID_MODES = ["AUTO", "EXPLORE", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"]
 /**
  * Tool description for AI
  */
-const DESCRIPTION = `Switch to a different operating mode when the conversation context changes.
+const DESCRIPTION = `Switch to a different operating mode.
 
-Available modes:
-- AUTO: AI decides which mode to use (starts exploratory)
-- EXPLORE: Read-only understanding - for research, questions, learning the codebase
-- AGENT: Full execution - for implementing features, fixing bugs, making changes
-- PLANNER: Research + documentation - for architecture, design docs, planning
-- PLAN-PRD: Quick PRD via Q&A - for creating product requirement documents
-- DEBUG: Systematic 7-step debugging - for finding and fixing bugs
-
-When to switch modes:
-- EXPLORE -> PLAN-PRD: User wants to build something simple, needs requirements
-- EXPLORE -> PLANNER: Complex feature needs architecture/design
-- EXPLORE -> DEBUG: User reports a bug or error
-- PLAN-PRD -> AGENT: Requirements are clear, user approves, ready to implement
-- PLANNER -> AGENT: Design complete, user approves, ready to implement
-- Any -> EXPLORE: User says "wait, explain...", needs clarification
-
-Guidelines:
-- Always explain WHY you're switching modes in your response
-- Don't switch modes too frequently - let conversations flow naturally
-- When switching, the UI will create a new message block with the new mode color`;
+Required: mode. Optional: reason.
+See docs/tools/set-mode.md for guidelines.`;
 
 const SetModeSchema = z.object({
   mode: z

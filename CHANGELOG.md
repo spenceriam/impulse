@@ -5,6 +5,27 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-02-02
+
+**Type:** minor  
+**Title:** Jelico parity improvements
+
+### Added
+
+- **Prompt library loading** - System and mode prompts now load from `prompts/` with a fallback path to keep startup resilient.
+- **On-demand tool docs** - New `tool_docs` tool and `docs/tools` library let the model pull documentation only when needed.
+- **Skills reference doc** - Added `docs/skills/README.md` to guide tool/skill discovery without preloading.
+
+### Changed
+
+- **Tool descriptions shortened** - Less context overhead while preserving tool intent.
+- **Compaction summaries structured** - More consistent carry-over of goals, decisions, errors, and recent tool outputs.
+- **Tool-call UX for subagents** - Completed tool rows are hidden by default; in-progress subagents show purpose with indented actions.
+
+### Fixed
+
+- **Bash permission safety** - Regex-based destructive detection and path checks reduce false approvals.
+
 ## [0.27.30] - 2026-01-27
 
 ### Fixed

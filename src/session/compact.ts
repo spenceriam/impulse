@@ -6,6 +6,7 @@ import type { ChatMessage } from "../api/types";
 // Compact thresholds (exported for StatusLine to use)
 export const COMPACT_WARNING_THRESHOLD = 0.70;  // Show "Compacting soon" at 70%
 export const COMPACT_TRIGGER_THRESHOLD = 0.85;  // Auto-compact triggers at 85%
+const TOOL_OUTPUT_RETENTION = 3;               // Keep outputs for last N tool calls
 
 interface CompactConfig {
   threshold: number
@@ -39,14 +40,7 @@ class CompactManagerImpl {
   private config: CompactConfig = {
     threshold: COMPACT_TRIGGER_THRESHOLD,  // Now 85%
     keepRecentCount: 20,
-    systemPrompt: `You are summarizing a coding session conversation. Create a concise summary that captures:
-1. The main objectives and what was accomplished
-2. Key decisions made and reasoning
-3. Important context about the codebase
-4. Any errors encountered and how they were resolved
-5. Current state of work (what was just being done)
-
-Keep the summary under 500 words. Be factual and precise.`,
+    systemPrompt: "You are a context compaction assistant. Follow the provided summary template precisely.",
   };
   private inProgress: Set<string> = new Set();
   private usageCache: Map<string, CacheEntry> = new Map();
@@ -161,6 +155,145 @@ Keep the summary under 500 words. Be factual and precise.`,
     this.usageCache.delete(sessionID);
   }
 
+  private pruneToolOutputs(messages: Message[]): Message[] {
+    const toolCallIndices: number[] = [];
+
+    messages.forEach((msg, index) => {
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        toolCallIndices.push(index);
+      }
+    });
+
+    const protectedIndices = new Set(toolCallIndices.slice(-TOOL_OUTPUT_RETENTION));
+
+    return messages.map((msg, index) => {
+      if (!msg.tool_calls || protectedIndices.has(index)) {
+        return msg;
+      }
+
+      const prunedToolCalls = msg.tool_calls.map((tc) => {
+        if (!tc.result) return tc;
+        const prunedResult = { ...tc.result };
+        if (prunedResult.output) {
+          prunedResult.output = "[Output pruned for context efficiency]";
+        }
+        if (prunedResult.error) {
+          prunedResult.error = "[Error output pruned for context efficiency]";
+        }
+        return { ...tc, result: prunedResult };
+      });
+
+      return { ...msg, tool_calls: prunedToolCalls };
+    });
+  }
+
+  private buildCompactionPrompt(messages: Message[], todos: TodoItem[]): string {
+    const userMessages: string[] = [];
+    const conversationParts: string[] = [];
+
+    const truncateText = (text: string, max: number) =>
+      text.length > max ? `${text.slice(0, max - 3)}...` : text;
+
+    for (const msg of messages) {
+      let text = `[${msg.role.toUpperCase()}]: ${msg.content}`;
+
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        const toolNames = msg.tool_calls.map(tc => tc.tool).filter(Boolean).join(", ");
+        if (toolNames) {
+          text += `\n  Tools: ${toolNames}`;
+        }
+
+        for (const tc of msg.tool_calls) {
+          const resultText = tc.result?.output || tc.result?.error;
+          if (resultText) {
+            text += `\n  Result (${tc.tool}): ${truncateText(String(resultText), 300)}`;
+          }
+        }
+      }
+
+      conversationParts.push(text);
+
+      if (msg.role === "user" && msg.content) {
+        userMessages.push(truncateText(msg.content, 500));
+      }
+    }
+
+    const conversationText = conversationParts.join("\n\n");
+    const userMessagesList = userMessages.map((m, i) => `${i + 1}. "${m}"`).join("\n");
+
+    const todoLines = todos.map((todo) => `- [${todo.status}] ${todo.content}`);
+    const todoSection = todoLines.length > 0 ? todoLines.join("\n") : "(no todos)";
+
+    return `You are a context compaction assistant. Create a detailed summary that will serve as a handoff to continue the work without losing critical information.
+
+## Conversation to Summarize:
+${conversationText}
+
+## Current Todos:
+${todoSection}
+
+## Create a summary with these sections:
+
+### 1. Primary Request and Intent
+Capture ALL of the user's explicit requests and intents in detail. What did they actually ask for?
+
+### 2. Key Technical Concepts
+List all important technical concepts, technologies, and frameworks discussed.
+- Technology X
+- Framework Y
+- Pattern Z
+
+### 3. Files and Code Sections
+Enumerate specific files examined, modified, or created. Include:
+- File path and why it's important
+- Summary of changes made (if any)
+- Key code snippets that would be needed to continue
+
+Example format:
+- src/components/Auth.tsx
+  - Purpose: Main authentication component
+  - Changes: Added logout button, fixed token refresh
+  - Key snippet: const handleLogout = () => { ... }
+
+### 4. Errors and Fixes
+List ALL errors encountered and how they were fixed:
+- Error: [description]
+  - Cause: [what caused it]
+  - Fix: [how it was resolved]
+  - User feedback: [if user gave specific feedback]
+
+### 5. Problem Solving
+Document problems solved and any ongoing troubleshooting efforts.
+
+### 6. All User Messages (CRITICAL)
+These are all the user's messages (not tool results). Preserve user feedback and intent:
+${userMessagesList || "(no user messages to summarize)"}
+
+### 7. Pending Tasks
+Outline any tasks explicitly requested but NOT yet completed:
+- [ ] Task 1
+- [ ] Task 2
+
+### 8. Current Work
+Describe PRECISELY what was being worked on immediately before this summary.
+- What file/feature was being modified?
+- What was the last action taken?
+- What would the next immediate step be?
+
+### 9. User Preferences and Decisions
+- Coding style preferences
+- Tool/approach preferences
+- Decisions made and their reasoning
+- Constraints mentioned
+
+### 10. Optional Next Step
+If there's an obvious next step directly aligned with the user's most recent request:
+- State it clearly
+- Include any context needed to execute it
+
+IMPORTANT: This summary replaces the entire conversation history. Be thorough and accurate.`;
+  }
+
   /**
    * Generate a continuation prompt based on session context
    * Used after auto-compact to continue work naturally
@@ -271,7 +404,7 @@ Keep the summary under 500 words. Be factual and precise.`,
       const messagesToCompact = messages.slice(0, -this.config.keepRecentCount);
       const recentMessages = messages.slice(-this.config.keepRecentCount);
 
-      const summary = await this.summarizeMessages(messagesToCompact);
+      const summary = await this.summarizeMessages(messagesToCompact, todos);
 
       const systemMessage: Message = {
         role: "system",
@@ -320,31 +453,14 @@ Keep the summary under 500 words. Be factual and precise.`,
     }
   }
 
-  private async summarizeMessages(messages: Message[]): Promise<string> {
-    const conversation = messages
-      .map((m) => {
-        let content = `${m.role.toUpperCase()}: ${m.content}`;
-        // Include tool call info in summary
-        if (m.tool_calls && Array.isArray(m.tool_calls)) {
-          const toolNames = m.tool_calls.map(tc => tc.tool).filter(Boolean);
-          if (toolNames.length > 0) {
-            content += `\n[Called tools: ${toolNames.join(", ")}]`;
-          }
-        }
-        return content;
-      })
-      .join("\n\n");
+  private async summarizeMessages(messages: Message[], todos: TodoItem[]): Promise<string> {
+    const prunedMessages = this.pruneToolOutputs(messages);
+    const prompt = this.buildCompactionPrompt(prunedMessages, todos);
 
     try {
       const apiMessages: ChatMessage[] = [
-        {
-          role: "system",
-          content: this.config.systemPrompt,
-        },
-        {
-          role: "user",
-          content: conversation,
-        },
+        { role: "system", content: this.config.systemPrompt },
+        { role: "user", content: prompt },
       ];
 
       const response = await GLMClient.complete({

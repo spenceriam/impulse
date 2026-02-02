@@ -1,5 +1,5 @@
 import solidTransformPlugin from "@opentui/solid/bun-plugin";
-import { cpSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 // Copy tool description files to dist
@@ -8,6 +8,16 @@ const distDir = "./dist";
 const txtFiles = readdirSync(toolsDir).filter(f => f.endsWith(".txt"));
 for (const file of txtFiles) {
   cpSync(join(toolsDir, file), join(distDir, file));
+}
+
+// Copy prompt library
+if (existsSync("./prompts")) {
+  cpSync("./prompts", join(distDir, "prompts"), { recursive: true });
+}
+
+// Copy tool documentation library
+if (existsSync("./docs/tools")) {
+  cpSync("./docs/tools", join(distDir, "docs", "tools"), { recursive: true });
 }
 
 const result = await Bun.build({

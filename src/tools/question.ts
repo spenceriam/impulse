@@ -79,45 +79,9 @@ export function hasPendingQuestion(): boolean {
   return pendingResolver !== null;
 }
 
-const DESCRIPTION = `Ask the user questions with structured options, organized by topic tabs.
+const DESCRIPTION = `Ask structured questions via the question overlay.
 
-Use this tool when you need to:
-- Gather user preferences or requirements
-- Clarify ambiguous instructions  
-- Get decisions on implementation choices
-- Offer choices about what direction to take
-
-IMPORTANT GUIDELINES:
-- Maximum 3 topics per call (UI shows them as tabs)
-- If you need more questions, make a follow-up call after receiving answers
-- Each topic should have a short name (max 20 chars) like "Project setup", "UI stack", "Deployment"
-- Users can always type a custom answer instead of selecting an option
-- Use the 'context' field to explain WHY you're asking (shown in header)
-- Keep option labels concise (1-5 words)
-
-Example with multiple topics:
-{
-  "context": "Setting up your new project",
-  "questions": [
-    {
-      "topic": "Platform",
-      "question": "What platforms do you need to support?",
-      "options": [
-        { "label": "macOS + Linux", "description": "Unix terminals" },
-        { "label": "Windows", "description": "CMD/PowerShell" },
-        { "label": "Cross-platform", "description": "All of the above" }
-      ]
-    },
-    {
-      "topic": "UI Framework",
-      "question": "What UI approach do you prefer?",
-      "options": [
-        { "label": "React-like", "description": "Component-based, declarative" },
-        { "label": "Immediate mode", "description": "Redraw each frame" }
-      ]
-    }
-  ]
-}`;
+Provide up to 3 topics per call. See docs/tools/question.md for examples.`;
 
 export const questionTool: Tool<QuestionToolInput> = Tool.define(
   "question",
