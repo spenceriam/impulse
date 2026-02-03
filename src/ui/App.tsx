@@ -27,8 +27,8 @@ import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import { Tool } from "../tools/registry";
-import { setCurrentMode } from "../tools/mode-state";
-import { type ToolCallInfo } from "./components/MessageBlock";
+import { resetAutoApproval, setAutoApprovalGranted, setCurrentMode } from "../tools/mode-state";
+import { type ToolCallInfo, type ReasoningSegment } from "./components/MessageBlock";
 import { type ToolMetadata } from "../types/tool-metadata";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
@@ -55,6 +55,46 @@ function joinContentSections(base: string, addition: string): string {
   
   // Join with double newline (paragraph break)
   return trimmedBase + "\n\n" + trimmedAddition;
+}
+
+/**
+ * Ensure assistant responses include Findings and Next steps sections.
+ * If missing, append minimal fallback sections (with tool call summary when available).
+ */
+function ensureFindingsNextSteps(content: string, toolCalls: ToolCallInfo[]): string {
+  const hasFindings = /(^|\n)\s*(#{1,3}\s*)?(\*\*)?findings(\*\*)?\b/i.test(content);
+  const hasNext = /(^|\n)\s*(#{1,3}\s*)?(\*\*)?next steps?(\*\*)?\b/i.test(content);
+  if (hasFindings && hasNext) return content;
+
+  const formatToolCall = (toolCall: ToolCallInfo): string => {
+    const meta = toolCall.metadata as Record<string, unknown> | undefined;
+    const suffix =
+      (meta?.filePath ? ` ${String(meta.filePath)}` : "") ||
+      (meta?.command ? ` "${String(meta.command)}"` : "") ||
+      (meta?.pattern ? ` "${String(meta.pattern)}"` : "") ||
+      (meta?.description ? ` "${String(meta.description)}"` : "");
+    const status = toolCall.status || "unknown";
+    return `- ${toolCall.name}${suffix} (${status})`;
+  };
+
+  const fallbackFindings =
+    toolCalls.length > 0
+      ? toolCalls.map(formatToolCall).join("\n")
+      : "- (No tool actions)";
+  const fallbackNextSteps = "- Awaiting your direction";
+
+  const appendSection = (base: string, title: string, body: string) =>
+    `${base}${base ? "\n\n" : ""}**${title}**\n${body}`;
+
+  let updated = content.trimEnd();
+  if (!hasFindings) {
+    updated = appendSection(updated, "Findings", fallbackFindings);
+  }
+  if (!hasNext) {
+    updated = appendSection(updated, "Next steps", fallbackNextSteps);
+  }
+
+  return updated;
 }
 
 /**
@@ -933,6 +973,55 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
   const [isLoading, setIsLoading] = createSignal(false);
   
+  // Reasoning segment helpers (per-phase thinking blocks)
+  const getReasoningSegments = (messageId: string): ReasoningSegment[] => {
+    const msg = messages().find((m) => m.id === messageId);
+    return msg?.reasoningSegments ? msg.reasoningSegments.map((seg) => ({ ...seg })) : [];
+  };
+  
+  const beginReasoningSegment = (messageId: string): ReasoningSegment[] => {
+    const existing = getReasoningSegments(messageId).map((seg) =>
+      seg.streaming ? { ...seg, streaming: false } : seg
+    );
+    const updated = [...existing, { content: "", streaming: true }];
+    updateMessage(messageId, { reasoningSegments: updated });
+    return updated;
+  };
+  
+  const updateReasoningSegment = (messageId: string, content: string): void => {
+    const segments = getReasoningSegments(messageId);
+    if (segments.length === 0) {
+      return;
+    }
+    const lastIndex = segments.length - 1;
+    const updated = [...segments];
+    updated[lastIndex] = { ...updated[lastIndex], content, streaming: true };
+    updateMessage(messageId, { reasoningSegments: updated });
+  };
+  
+  const finalizeReasoningSegments = (messageId: string): void => {
+    const segments = getReasoningSegments(messageId);
+    if (segments.length === 0) return;
+    
+    let changed = false;
+    const updated = segments.map((seg) => {
+      if (seg.streaming) {
+        changed = true;
+        return { ...seg, streaming: false };
+      }
+      return seg;
+    });
+    
+    if (changed) {
+      updateMessage(messageId, { reasoningSegments: updated });
+    }
+  };
+
+  const getToolCallsForMessage = (messageId: string): ToolCallInfo[] => {
+    const msg = messages().find((m) => m.id === messageId);
+    return msg?.toolCalls ? [...msg.toolCalls] : [];
+  };
+  
   // Track if user has ever started a session (to keep session view after /clear or /new)
   const [hasStartedSession, setHasStartedSession] = createSignal(false);
   
@@ -1209,16 +1298,38 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       }, 100);
     }
   });
+
+  // Reset AUTO approval gate when entering AUTO mode
+  createEffect(() => {
+    if (mode() === "AUTO") {
+      resetAutoApproval();
+    }
+  });
   
   // Handle question submission
   const handleQuestionSubmit = (answers: string[][]) => {
+    const pending = pendingQuestions();
     setPendingQuestions(null);
+    
+    // AUTO approval gate: detect approval responses
+    if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
+      const approved = answers.flat().some((answer) =>
+        ["approve", "approved", "yes", "y", "ok", "okay", "proceed"].includes(
+          answer.trim().toLowerCase()
+        )
+      );
+      setAutoApprovalGranted(approved);
+    }
     resolveQuestion(answers);
   };
   
   // Handle question cancel
   const handleQuestionCancel = () => {
+    const pending = pendingQuestions();
     setPendingQuestions(null);
+    if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
+      resetAutoApproval();
+    }
     rejectQuestion();
   };
   
@@ -1575,6 +1686,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       let accumulatedContent = "";
       let accumulatedReasoning = "";
       const newToolCallsMap = new Map<number, ToolCallInfo>();
+      let reasoningSegmentStarted = false;
       
       newProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
@@ -1587,6 +1699,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           });
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
+          if (!reasoningSegmentStarted) {
+            reasoningSegmentStarted = true;
+            beginReasoningSegment(newAssistantMsgId);
+          }
           // Append reasoning (though typically reasoning is separate per turn)
           const fullReasoning = baseReasoning
             ? baseReasoning + "\n" + accumulatedReasoning
@@ -1594,6 +1710,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           updateMessage(newAssistantMsgId, {
             reasoning: fullReasoning,
           });
+          updateReasoningSegment(newAssistantMsgId, accumulatedReasoning);
         } else if (event.type === "tool_call_start") {
           const toolCallInfo: ToolCallInfo = {
             id: event.id,
@@ -1625,10 +1742,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             });
           }
           
-          // Mark message as no longer streaming
-          updateMessage(newAssistantMsgId, { streaming: false });
+          const hasToolCalls = event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0;
           
-          if (event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0) {
+          // Mark current reasoning segment complete
+          finalizeReasoningSegments(newAssistantMsgId);
+          
+          // Keep streaming on during tool execution to keep UI pinned
+          updateMessage(newAssistantMsgId, { streaming: hasToolCalls ? true : false });
+          
+          if (hasToolCalls) {
             // Recursive tool execution
             // fullContent = total accumulated for UI display (base + this continuation)
             // accumulatedContent = just this continuation's content (for API messages)
@@ -1646,6 +1768,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
               fullContent             // Total for UI display
             );
           } else {
+            const fullContent = joinContentSections(baseContent, accumulatedContent);
+            const finalContent = ensureFindingsNextSteps(
+              fullContent,
+              getToolCallsForMessage(newAssistantMsgId)
+            );
+            updateMessage(newAssistantMsgId, { content: finalContent });
             setIsLoading(false);
             setStreamProc(null);
             // Save after AI response completes (event-driven, not interval-based)
@@ -1713,6 +1841,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const handleSubmit = async (content: string) => {
     const trimmedContent = content.trim();
     if (!trimmedContent) return;
+
+    const activeMode = mode() as typeof MODES[number];
+    if (!trimmedContent.startsWith("/") && activeMode === "AUTO") {
+      // New user request in AUTO mode should require fresh approval
+      resetAutoApproval();
+    }
     
     // If AI is processing, enqueue the message instead of blocking
     if (isLoading()) {
@@ -1960,6 +2094,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       let accumulatedContent = "";
       let accumulatedReasoning = "";
       const toolCallsMap = new Map<number, ToolCallInfo>();
+      let reasoningSegmentStarted = false;
 
       // Handle stream events - batch updates at 16ms (~60fps) for smooth rendering
       processor.onEvent((event: StreamEvent) => {
@@ -1973,11 +2108,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           }, Timing.batchInterval);
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
+          if (!reasoningSegmentStarted) {
+            reasoningSegmentStarted = true;
+            beginReasoningSegment(assistantMsgId);
+          }
           // Batch reasoning updates
           batchUpdate("stream-reasoning", () => {
             updateMessage(assistantMsgId, {
               reasoning: accumulatedReasoning,
             });
+            updateReasoningSegment(assistantMsgId, accumulatedReasoning);
           }, Timing.batchInterval);
         } else if (event.type === "tool_call_start") {
           // New tool call starting - update immediately for responsiveness
@@ -2020,15 +2160,25 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             });
           }
           
-          // Stream finished - mark message as no longer streaming
-          updateMessage(assistantMsgId, { streaming: false });
+          const hasToolCalls = event.state.finishReason === "tool_calls" && toolCallsMap.size > 0;
+          
+          // Stream finished - mark current reasoning segment complete
+          finalizeReasoningSegments(assistantMsgId);
+          
+          // Keep streaming on during tool execution to keep UI pinned
+          updateMessage(assistantMsgId, { streaming: hasToolCalls ? true : false });
           
           // Check if we need to execute tools
-          if (event.state.finishReason === "tool_calls" && toolCallsMap.size > 0) {
+          if (hasToolCalls) {
             // Execute tools and continue conversation
             // First call: content for this turn = accumulated content, total for UI = same
             executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
           } else {
+            const finalContent = ensureFindingsNextSteps(
+              accumulatedContent,
+              getToolCallsForMessage(assistantMsgId)
+            );
+            updateMessage(assistantMsgId, { content: finalContent });
             setIsLoading(false);
             setStreamProc(null);
             // Save after AI response completes (event-driven, not interval-based)

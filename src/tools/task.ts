@@ -20,7 +20,7 @@ type TaskInput = z.infer<typeof TaskSchema>;
 type Thoroughness = "quick" | "medium" | "thorough";
 
 // Maximum iterations to prevent infinite loops
-const MAX_ITERATIONS = 10;
+const MAX_ITERATIONS = 50;
 
 /**
  * Get thoroughness instructions for explore subagent

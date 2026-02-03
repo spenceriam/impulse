@@ -38,6 +38,14 @@ export interface ToolCallInfo {
 }
 
 /**
+ * Reasoning segment for multi-phase thinking
+ */
+export interface ReasoningSegment {
+  content: string;
+  streaming: boolean;
+}
+
+/**
  * Message type
  */
 export interface Message {
@@ -45,6 +53,7 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   reasoning?: string;    // Thinking/reasoning content (GLM-specific)
+  reasoningSegments?: ReasoningSegment[]; // Per-phase thinking blocks
   mode?: Mode;           // Mode used when generating (for assistant messages)
   model?: string;        // Model used (e.g., "glm-4.7")
   toolCalls?: ToolCallInfo[];  // Tool calls made in this message
@@ -777,9 +786,19 @@ export function MessageBlock(props: MessageBlockProps) {
   // AI messages use mode color; default to AUTO's color (soft white) if no mode set
   const modeColor = () => mode() ? getModeColor(mode()!) : Colors.mode.AUTO;
   const toolCalls = () => props.message.toolCalls ?? [];
-  const reasoning = () => props.message.reasoning;
   const isStreaming = () => props.message.streaming ?? false;
-  const showThinking = () => !!reasoning() && isStreaming();
+  const reasoningSegments = () => {
+    if (props.message.reasoningSegments && props.message.reasoningSegments.length > 0) {
+      return props.message.reasoningSegments;
+    }
+    if (props.message.reasoning) {
+      return [{ content: props.message.reasoning, streaming: isStreaming() }];
+    }
+    return [];
+  };
+  const thinkingSegments = () =>
+    reasoningSegments().filter((segment) => segment.content && segment.content.trim().length > 0);
+  const showThinking = () => isStreaming() && thinkingSegments().length > 0;
 
   const toolEntries = () => toolCalls().map((toolCall, index) => ({ toolCall, index }));
   const getAttemptNumber = (index: number) => {
@@ -860,7 +879,7 @@ export function MessageBlock(props: MessageBlockProps) {
             </box>
             
             {/* Bouncing dots during initial processing (before content/reasoning arrives) */}
-            <Show when={isStreaming() && !props.message.content && !reasoning()}>
+            <Show when={isStreaming() && !props.message.content && thinkingSegments().length === 0}>
               <box flexDirection="row" marginTop={1}>
                 <text fg={Colors.ui.dim}>Thinking </text>
                 <BouncingDots color={modeColor()} />
@@ -869,7 +888,15 @@ export function MessageBlock(props: MessageBlockProps) {
             
             {/* Thinking/Reasoning content - collapsible block */}
             <Show when={showThinking()}>
-              <ThinkingBlock content={reasoning()!} streaming={isStreaming()} mode={mode()} />
+              <For each={thinkingSegments()}>
+                {(segment) => (
+                  <ThinkingBlock
+                    content={segment.content}
+                    streaming={segment.streaming}
+                    mode={mode()}
+                  />
+                )}
+              </For>
             </Show>
             
             {/* Message content - custom markdown parser */}

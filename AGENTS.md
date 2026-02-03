@@ -120,6 +120,9 @@
 - [x] Chat auto-scroll respects manual scroll position
 - [x] Todo list preserves original ordering when completing items
 - [x] AUTO mode requires plan + approval before execution
+- [x] Chat auto-scroll stays pinned during tool calls
+- [x] Thinking blocks segment per reasoning phase
+- [x] Responses always include Findings + Next steps
 
 ## Version Bumping Protocol
 

@@ -13,6 +13,7 @@ import type { MODES } from "../constants";
 type Mode = typeof MODES[number];
 
 let currentMode: Mode = "AUTO";
+let autoApprovalGranted = false;
 
 /**
  * Set the current mode (called by App.tsx before API calls)
@@ -29,10 +30,25 @@ export function getCurrentMode(): Mode {
 }
 
 /**
+ * AUTO mode approval gate (plan + user approval required before execution)
+ */
+export function isAutoApprovalGranted(): boolean {
+  return autoApprovalGranted;
+}
+
+export function setAutoApprovalGranted(value: boolean): void {
+  autoApprovalGranted = value;
+}
+
+export function resetAutoApproval(): void {
+  autoApprovalGranted = false;
+}
+
+/**
  * Check if the current mode allows write operations
  */
 export function canWriteFiles(): boolean {
-  return currentMode === "AGENT" || currentMode === "DEBUG" || currentMode === "AUTO";
+  return currentMode === "AGENT" || currentMode === "DEBUG" || (currentMode === "AUTO" && autoApprovalGranted);
 }
 
 /**

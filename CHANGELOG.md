@@ -5,7 +5,23 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.28.3] - 2026-02-02
+## [0.30.0] - 2026-02-03
+
+**Type:** minor  
+**Title:** Chatview reliability and AUTO approval gating
+
+### Added
+
+- **Findings + Next steps required in responses** - Ensures every reply ends with a concise summary and a clear next action.
+
+### Changed
+
+- **AUTO mode now blocks write/exec tools until explicit approval** - Enforces plan-first and approval-before-execution.
+- **Thinking blocks segment by reasoning phase** - Each thinking phase renders as its own block.
+
+### Fixed
+
+- **Chat auto-scroll stays pinned during tool execution** - Prevents losing the latest output while tools run.
 
 ## [0.29.0] - 2026-02-03
 
@@ -38,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **File-write DiffView visibility** - Tool metadata is persisted so file_write diffs render reliably.
-- **Abort cancellations are surfaced** - In-flight tool calls show as cancelled when a response is interrupted.
+
+## [0.28.3] - 2026-02-02
 
 ## [0.28.2] - 2026-02-02
 
