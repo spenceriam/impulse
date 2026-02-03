@@ -156,6 +156,15 @@ export function ChatView(props: ChatViewProps) {
     }
   });
 
+  // Lock auto-scroll while loading: force pin to bottom and track any message updates
+  createEffect(() => {
+    if (!isLoading()) return;
+    setAutoScrollEnabled(true);
+    // Track all message updates (content, reasoning, tool calls) while loading
+    messages();
+    scheduleScroll(16);
+  });
+
   // Ensure we land at bottom after streaming completes
   createEffect(on(isLoading, (loading, prev) => {
     if (prev && !loading) {
@@ -287,7 +296,13 @@ export function ChatView(props: ChatViewProps) {
         flexGrow={1}
         stickyScroll={true}
         stickyStart="bottom"
-        onMouseScroll={() => scheduleAutoScrollUpdate()}
+        onMouseScroll={() => {
+          if (isLoading()) {
+            scheduleScroll(0);
+            return;
+          }
+          scheduleAutoScrollUpdate();
+        }}
         scrollAcceleration={scrollAcceleration}
         style={{
           viewportOptions: {

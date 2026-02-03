@@ -153,6 +153,8 @@ export function ThinkingBlock(props: ThinkingBlockProps) {
             <scrollbox
               height={Math.min(contentLines(), EXPANDED_MAX_HEIGHT)}
               flexGrow={1}
+              stickyScroll={props.streaming ?? false}
+              stickyStart="bottom"
             >
               <text fg={Colors.ui.dim}><em>{props.content}</em></text>
             </scrollbox>

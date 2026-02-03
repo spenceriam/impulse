@@ -2,7 +2,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ToolDefinition } from "../api/types";
 import type { MODES } from "../constants";
-import { getCurrentMode } from "./mode-state";
+import { getCurrentMode, isAutoApprovalGranted } from "./mode-state";
 
 type Mode = typeof MODES[number];
 
@@ -62,8 +62,13 @@ function getToolsForMode(mode: Mode): Set<string> {
       allowed.add(toolName);
     } else if (category === "write") {
       // Write tools only in execution modes
-      if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO") {
+      if (mode === "AGENT" || mode === "DEBUG") {
         allowed.add(toolName);
+      } else if (mode === "AUTO") {
+        // AUTO mode requires explicit approval before enabling write tools
+        if (isAutoApprovalGranted()) {
+          allowed.add(toolName);
+        }
       }
       // PLANNER and PLAN-PRD get file_write with restrictions (enforced in handler)
       else if (mode === "PLANNER" || mode === "PLAN-PRD") {
@@ -219,6 +224,12 @@ export namespace Tool {
 
     const currentMode = getCurrentMode();
     if (!isToolAllowedForMode(name, currentMode)) {
+      if (currentMode === "AUTO" && TOOL_CATEGORIES[name] === "write" && !isAutoApprovalGranted()) {
+        return {
+          success: false,
+          output: `AUTO mode requires a plan and explicit user approval before execution. Ask for approval with the question tool (context "AUTO_APPROVAL"), then proceed.`,
+        };
+      }
       return {
         success: false,
         output: `Tool "${name}" is not allowed in ${currentMode} mode. Switch to AGENT or DEBUG to proceed.`,
