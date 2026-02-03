@@ -1,6 +1,8 @@
 import { InputArea, type CommandCandidate } from "./InputArea";
 import { TodoBar, TODO_PANEL_HEIGHT } from "./TodoBar";
+import { QueueBar, getQueueBarHeight } from "./QueueBar";
 import { useTodo } from "../context";
+import { useQueue } from "../context/queue";
 import { type Mode } from "../design";
 
 /**
@@ -12,6 +14,7 @@ import { type Mode } from "../design";
  *   - Expanded: 7 rows (5 tasks + border)
  *   - Collapsed: 3 rows (header + 1 task + border)
  * - When all complete or no todos: HIDDEN (use /todo to view history)
+ * - Queue preview (if any): stacked above input, no border
  * 
  * Height Calculation for InputArea (borderless design):
  * - top accent line: 1 row
@@ -61,6 +64,7 @@ interface BottomPanelProps {
 
 export function BottomPanel(props: BottomPanelProps) {
   const { incompleteTodos } = useTodo();
+  const queue = useQueue();
   
   // Only show todo panel when there are incomplete todos
   // (TodoBar handles its own visibility, but we need height calculation)
@@ -69,8 +73,9 @@ export function BottomPanel(props: BottomPanelProps) {
   // For now, assume expanded state for height calculation
   // TODO: Could track collapsed state here if needed for precise height
   const panelHeight = () => {
-    if (!hasIncompleteTodos()) return INPUT_HEIGHT;
-    return TODO_PANEL_HEIGHT + INPUT_HEIGHT;
+    const queueHeight = getQueueBarHeight(queue.count());
+    if (!hasIncompleteTodos()) return INPUT_HEIGHT + queueHeight;
+    return TODO_PANEL_HEIGHT + queueHeight + INPUT_HEIGHT;
   };
 
   return (
@@ -83,6 +88,9 @@ export function BottomPanel(props: BottomPanelProps) {
     >
       {/* Todo panel - handles its own visibility based on incomplete todos */}
       <TodoBar />
+      
+      {/* Queue preview - stacked queued messages above input */}
+      <QueueBar />
       
       {/* Input area - full width */}
       <box 

@@ -10,7 +10,7 @@ import { useTodo, type Todo } from "../context";
  * - Fixed height of 5 visible task rows + border
  * - Stacked vertically (top to bottom)
  * - Alternating row colors for readability
- * - Auto-scroll to in_progress task at top when > 5 items
+ * - Auto-scroll to top when list updates
  * - Counter on LEFT: "Todo (2/5)"
  * - Collapse button on RIGHT: [−]/[+]
  * - When collapsed: shows current in_progress task only
@@ -31,20 +31,6 @@ const COLLAPSED_HEIGHT = 3;  // Just header + 1 task + border
 // Export for BottomPanel height calculation
 export const TODO_PANEL_HEIGHT = PANEL_HEIGHT;
 export const TODO_COLLAPSED_HEIGHT = COLLAPSED_HEIGHT;
-
-// Sort todos: in_progress first, then pending, then completed, then cancelled
-// This ensures the current task is always at the top
-function sortTodos(todos: Todo[]): Todo[] {
-  const priority: Record<string, number> = {
-    in_progress: 0,
-    pending: 1,
-    completed: 2,
-    cancelled: 3,
-  };
-  return [...todos].sort((a, b) => 
-    (priority[a.status] ?? 99) - (priority[b.status] ?? 99)
-  );
-}
 
 // Get display properties for a todo status
 interface TodoDisplay {
@@ -93,8 +79,8 @@ export function TodoBar() {
   // Collapsed state (user can toggle)
   const [collapsed, setCollapsed] = createSignal(false);
   
-  // Sort todos with in_progress at top
-  const sortedTodos = createMemo(() => sortTodos(todos()));
+  // Preserve original order (status changes shouldn't reorder)
+  const orderedTodos = createMemo(() => todos());
   
   // Counts for the header
   const incompleteCount = () => incompleteTodos().length;
@@ -102,8 +88,9 @@ export function TodoBar() {
   
   // Current in_progress task (for collapsed view)
   const currentTask = createMemo(() => {
-    return sortedTodos().find(t => t.status === "in_progress") || 
-           sortedTodos().find(t => t.status === "pending");
+    const ordered = orderedTodos();
+    return ordered.find(t => t.status === "in_progress") || 
+           ordered.find(t => t.status === "pending");
   });
   
   // Check if we should show the panel at all
@@ -115,9 +102,9 @@ export function TodoBar() {
   
   // Auto-scroll to top when in_progress task changes (keeps current task visible)
   createEffect(() => {
-    // Access sortedTodos to create dependency
-    const sorted = sortedTodos();
-    if (sorted.length > 0 && scrollboxRef?.scrollToTop) {
+    // Access orderedTodos to create dependency
+    const ordered = orderedTodos();
+    if (ordered.length > 0 && scrollboxRef?.scrollToTop) {
       scrollboxRef.scrollToTop();
     }
   });
@@ -202,7 +189,7 @@ export function TodoBar() {
             stickyScroll={false}
           >
             <box flexDirection="column">
-              <For each={sortedTodos()}>
+              <For each={orderedTodos()}>
                 {(todo: Todo, index) => {
                   const display = () => getTodoDisplay(todo.status);
                   const bgColor = () => getRowBackground(index());
