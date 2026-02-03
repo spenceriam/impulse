@@ -1,4 +1,4 @@
-import { For, Show, createEffect, on, onCleanup, ErrorBoundary } from "solid-js";
+import { For, Show, createEffect, on, onCleanup, ErrorBoundary, createSignal } from "solid-js";
 import { useAppKeyboard } from "../context/keyboard";
 import type { ScrollAcceleration } from "@opentui/core";
 import { MessageBlock, type Message } from "./MessageBlock";
@@ -88,6 +88,7 @@ export function ChatView(props: ChatViewProps) {
   // Using 'any' because ScrollBoxRenderable type may not expose scrollToBottom
   let scrollboxRef: any;
   let scrollTimer: NodeJS.Timeout | null = null;
+  const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(true);
   
   // Scroll to bottom helper - uses scrollTo for reliable positioning
   const scrollToBottom = () => {
@@ -110,11 +111,35 @@ export function ChatView(props: ChatViewProps) {
   };
 
   const scheduleScroll = (delay: number = 16) => {
+    if (!autoScrollEnabled()) return;
     if (scrollTimer) return;
     scrollTimer = setTimeout(() => {
       scrollTimer = null;
+      if (!autoScrollEnabled()) return;
       scrollToBottom();
     }, delay);
+  };
+
+  const getMaxScrollTop = () => {
+    if (!scrollboxRef) return 0;
+    const viewportHeight = scrollboxRef.viewport?.height ?? 0;
+    return Math.max(0, scrollboxRef.scrollHeight - viewportHeight);
+  };
+  
+  const isAtBottom = () => {
+    if (!scrollboxRef) return true;
+    const maxScrollTop = getMaxScrollTop();
+    return scrollboxRef.scrollTop >= maxScrollTop - 1;
+  };
+  
+  const updateAutoScrollEnabled = () => {
+    setAutoScrollEnabled(isAtBottom());
+  };
+  
+  const scheduleAutoScrollUpdate = () => {
+    setTimeout(() => {
+      updateAutoScrollEnabled();
+    }, 0);
   };
   
   // Auto-scroll when messages change (new message added)
@@ -126,10 +151,17 @@ export function ChatView(props: ChatViewProps) {
   // Auto-scroll during loading - keep pinned to bottom
   createEffect(() => {
     if (isLoading()) {
-      // While loading, continuously scroll to bottom
+      // While loading, keep pinned to bottom unless user scrolls away
       scheduleScroll(16);
     }
   });
+
+  // Ensure we land at bottom after streaming completes
+  createEffect(on(isLoading, (loading, prev) => {
+    if (prev && !loading) {
+      scheduleScroll(50);
+    }
+  }, { defer: true }));
   
   // Auto-scroll during streaming - create a derived signal that changes when content updates
   // This triggers reactive tracking on the last message's content
@@ -166,8 +198,10 @@ export function ChatView(props: ChatViewProps) {
     
     if (key.name === "pageup") {
       scrollBy(-PAGE_SCROLL_LINES);
+      scheduleAutoScrollUpdate();
     } else if (key.name === "pagedown") {
       scrollBy(PAGE_SCROLL_LINES);
+      scheduleAutoScrollUpdate();
     }
   });
 
@@ -253,6 +287,7 @@ export function ChatView(props: ChatViewProps) {
         flexGrow={1}
         stickyScroll={true}
         stickyStart="bottom"
+        onMouseScroll={() => scheduleAutoScrollUpdate()}
         scrollAcceleration={scrollAcceleration}
         style={{
           viewportOptions: {
@@ -260,6 +295,11 @@ export function ChatView(props: ChatViewProps) {
             paddingLeft: 1,
             paddingTop: 1,
             paddingBottom: 1,
+          },
+          contentOptions: {
+            onSizeChange: () => {
+              scheduleScroll(16);
+            },
           },
           scrollbarOptions: {
             visible: false,

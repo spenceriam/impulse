@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.28.3
+- **Version:** v0.29.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
@@ -113,6 +113,13 @@
 - [x] Task 9.3: Thinking block visibility (current only)
 - [x] Task 9.4: Tool call context titles
 - [x] Task 9.5: File write DiffView visibility
+
+### Post-Phase 9 (Unreleased)
+
+- [x] Queue bar stacked preview above input (OpenCode-style)
+- [x] Chat auto-scroll respects manual scroll position
+- [x] Todo list preserves original ordering when completing items
+- [x] AUTO mode requires plan + approval before execution
 
 ## Version Bumping Protocol
 

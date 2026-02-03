@@ -31,3 +31,7 @@ question({
 })
 
 Be natural about this - don't suggest switches for every message, only at clear inflection points.
+
+AUTO approval gate:
+- In AUTO mode, do NOT switch to AGENT/DEBUG or begin execution until the user explicitly approves via the question tool.
+- If you intend to implement changes, first outline a brief plan, ask for approval, then proceed only after the user confirms.

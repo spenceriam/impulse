@@ -42,7 +42,6 @@ function generateImageFilename(): string {
   }
 }
 
-
 /**
  * Input Area Component
  * Boxed input with mode in title, ghost text, and multi-line support
@@ -115,6 +114,7 @@ export function InputArea(props: InputAreaProps) {
   const PASTE_THRESHOLD_MS = 100;    // ...or >3 chars in <100ms
   
   let textareaRef: TextareaRenderable | undefined;
+  
 
   // Ghost text: darker (#444444) and italic for subtle appearance
   const GHOST_COLOR = "#444444";

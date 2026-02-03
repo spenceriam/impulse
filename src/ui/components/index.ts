@@ -9,6 +9,7 @@ export { ToolBlock } from "./ToolBlock";
 export { TodoItem } from "./TodoItem";
 export { TodoPanel } from "./TodoPanel";
 export { TodoBar } from "./TodoBar";
+export { QueueBar, getQueueBarHeight } from "./QueueBar";
 export { BottomPanel, BOTTOM_PANEL_HEIGHT } from "./BottomPanel";
 export { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 export { DiffView } from "./DiffView";

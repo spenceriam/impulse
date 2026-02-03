@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.28.3] - 2026-02-02
 
+## [0.29.0] - 2026-02-03
+
+**Type:** minor  
+**Title:** Queue preview and session UX polish
+
+### Added
+
+- **Stacked queue preview above the prompt** - Shows up to three queued messages with an overflow hint for quick visibility.
+
+### Changed
+
+- **AUTO mode now requires plan + approval before execution** - Prevents immediate tool use without confirmation.
+
+### Fixed
+
+- **Chat auto-scroll respects manual scrolling** - Keeps your position when you scroll away from the bottom.
+- **Todo ordering stays consistent after completion** - Items remain in their original order.
+- **Todos refresh on load** - Persisted todos are restored if update events were missed.
+
 **Type:** patch  
 **Title:** Tool-call clarity and spacing polish
 

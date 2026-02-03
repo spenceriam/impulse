@@ -1,6 +1,7 @@
-import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter } from "solid-js";
+import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onCleanup, onMount } from "solid-js";
 import { Bus } from "../../bus";
 import { TodoEvents } from "../../bus/events";
+import { Todo as TodoStore } from "../../session/todo";
 
 /**
  * Todo type
@@ -35,6 +36,7 @@ const TodoContext = createContext<TodoContextType>();
  */
 export const TodoProvider: ParentComponent = (props) => {
   const [todos, setTodos] = createSignal<Todo[]>([]);
+  let didReceiveUpdate = false;
 
   const addTodo = (todo: Omit<Todo, "id">) => {
     const newTodo: Todo = {
@@ -84,10 +86,27 @@ export const TodoProvider: ParentComponent = (props) => {
   };
 
   // Subscribe to todo updates from bus
-  Bus.subscribe(({ type, properties }) => {
+  const unsubscribe = Bus.subscribe(({ type, properties }) => {
     if (type === TodoEvents.Updated.name) {
+      didReceiveUpdate = true;
       // @ts-ignore: typing for bus events
       setTodos(() => properties.todos);
+    }
+  });
+
+  onCleanup(() => {
+    unsubscribe();
+  });
+
+  // Load persisted todos on mount (in case we missed earlier events)
+  onMount(async () => {
+    try {
+      const existing = await TodoStore.get();
+      if (!didReceiveUpdate) {
+        setTodos(() => existing);
+      }
+    } catch {
+      // Ignore read errors, fallback to empty list
     }
   });
 
