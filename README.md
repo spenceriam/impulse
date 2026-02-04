@@ -185,3 +185,5 @@ IMPULSE wouldn't exist without these amazing projects:
 Anyone who uses any part of this codebase to build a service or application that users interact with over a network must share their complete modified source code (including all modifications) with those users, under the same AGPL-3.0 license.
 
 For more details, see [LICENSE](LICENSE) or [https://www.gnu.org/licenses/agpl-3.0](https://www.gnu.org/licenses/agpl-3.0)
+
+[sbp]
