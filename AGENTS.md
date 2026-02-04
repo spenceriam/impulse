@@ -447,12 +447,11 @@ Loading Animation (Braille Wheel):
     ┃
     ┃ ▶ file_write src/api/types.ts                              [OK]
     ┃ ▶ file_write src/api/client.ts                             [OK]
+    ┃ ▼ todo_write (1/2)                                         [OK]
+    ┃   [>] Implement API client
+    ┃   [ ] Set up project structure
     
     ─────────────────────────────────────────────────────────────────────────────
-    ┌─ Todo ─────────────────────────────────────────────────────────── 1/2 ────┐
-    │ [>] Implement API client                                                  │
-    │ [ ] Set up project structure                                              │
-    └───────────────────────────────────────────────────────────────────────────┘
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
     ┃  > _                                                                      ┃
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -460,7 +459,7 @@ Loading Animation (Braille Wheel):
 ```
 
 **Notes:**
-- Sidebar removed - todos now in BottomPanel above input
+- Todos render inside `todo_read`/`todo_write` tool blocks; `/todo` shows the full list overlay
 - Messages have accent lines (mode-colored for AI, gray for user)
 - Input area has mode-colored accent lines (no full border)
 - Status line includes spinner, version, optional [EXPRESS] and Queue indicators
@@ -613,7 +612,7 @@ Dynamic header line at the top of the session screen showing context about the c
 | After `/compact` | `[IMPULSE] \| Compacted: <description>` | `[IMPULSE] \| Compacted: Express mode` |
 | After `/undo` | `[IMPULSE] \| Reverted: <description>` | `[IMPULSE] \| Reverted: Express mode` |
 | After `/redo` | `[IMPULSE] \| Reapplied: <description>` | `[IMPULSE] \| Reapplied: Express mode` |
-| After `/load` | Restore saved header | `[IMPULSE] \| Express mode permission system` |
+| After `/continue` | Restore saved header | `[IMPULSE] \| Express mode permission system` |
 
 ### Tool: `set_header`
 
@@ -626,7 +625,7 @@ AI uses the `set_header` tool to update the header. Guidelines:
 ### Persistence
 
 - Header title persists with session on `/save`
-- Restored when session is loaded via `/load`
+- Restored when session is continued via `/continue` (alias: `/load`)
 - Prefixes (Compacted/Reverted/Reapplied) are cleared on next AI update
 
 ## Todo System
@@ -653,31 +652,21 @@ interface Todo {
 
 ### UI Display
 
-Todos appear in a fixed-height bordered panel above the input prompt:
+Todos render inside the chat stream as expanded `todo_read` / `todo_write` tool blocks:
 
 ```
-┌─ Todo ──────────────────────────────────────────────── 2/5 ───┐
-│ [>] Current task                                              │ <- cyan, darker bg
-│ [ ] Next task                                                 │ <- dim, lighter bg
-│ [ ] Another task                                              │ <- dim, darker bg
-│ [x] Completed task                                            │ <- dim, lighter bg
-│ [-] Cancelled task                                            │ <- dim+strikethrough
-└───────────────────────────────────────────────────────────────┘
+▼ [OK] todo_write (1/2)
+  [>] Implement API client
+  [ ] Set up project structure
 ```
+
+Use `/todo` to open the full list overlay at any time.
 
 **Status indicators:**
 - `[>]` = in_progress (cyan text)
 - `[ ]` = pending (dim text)
 - `[x]` = completed (dim text)
 - `[-]` = cancelled (dim text + strikethrough entire line)
-
-**Features:**
-- Fixed 5-row height with scrollbar when > 5 items
-- Alternating row backgrounds for readability
-- Counter in upper right: incomplete/total
-- Auto-scrolls to keep in_progress task at top
-- Collapses to single "All tasks complete" row when done
-- Completely hidden when no todos exist
 
 ### Agent Usage
 
@@ -795,7 +784,7 @@ interface QuestionToolOutput {
 | `/new` | New session (prompt to save) |
 | `/compact` | Manual AI summarization |
 | `/save` | Save with AI-suggested name |
-| `/load` | Session picker with preview |
+| `/continue` | Session picker with preview (alias: `/load`) |
 | `/undo` | Git-based revert to checkpoint |
 | `/redo` | Restore undone changes |
 | `/model` | Switch GLM model |

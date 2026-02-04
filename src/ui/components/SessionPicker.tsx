@@ -164,7 +164,7 @@ export function SessionPickerOverlay(props: SessionPickerOverlayProps) {
     >
       <box
         border
-        title="Load Session"
+        title="Continue Session"
         flexDirection="column"
         padding={1}
         width={95}

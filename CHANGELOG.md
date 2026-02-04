@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-02-04
+
+**Type:** minor  
+**Title:** Continue command and todo stream snapshots
+
+### Added
+
+- **Todo snapshots in tool blocks** - `todo_read`/`todo_write` now render expanded todo lists in the chat stream.
+
+### Changed
+
+- **`/continue` is now the primary session command** - `/load` remains as an alias, and help text reflects the new command.
+- **Todo UI moved into the chat stream** - Bottom panel todo removed; `/todo` overlay remains for full-list viewing.
+
 ## [0.30.0] - 2026-02-03
 
 **Type:** minor  
@@ -170,8 +184,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Mode and model now persist across session save/load** - Critical UI fix
-  - Mode colors were showing white and mode labels missing after `/load` or `-c`
+- **Mode and model now persist across session save/continue** - Critical UI fix
+  - Mode colors were showing white and mode labels missing after `/continue` or `-c`
   - Added `mode` and `model` fields to session store Message interface
   - Messages now save and restore mode/model for proper display coloring
   - This was a recurring issue (4+ times) - now properly addressed at storage layer
@@ -456,7 +470,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Shift+Tab "Allow All Edits"** - Quick approve file operations for session
   - Only auto-approves `file_edit` and `file_write` (NOT bash, task, etc.)
-  - Session-scoped only (NOT persisted on /save + /load)
+  - Session-scoped only (NOT persisted on /save + /continue)
   - Only works in AUTO, AGENT, DEBUG modes
   - In read-only modes (EXPLORE, PLANNER, PLAN-PRD): shows flash notification for 5 seconds
   - Hint text updated to show Shift+Tab option
@@ -888,7 +902,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Session picker (`/load`)** - Overlay now closes immediately after selecting a session
+- **Session picker (`/continue`)** - Overlay now closes immediately after selecting a session
 - **Session message restoration** - Tool calls and reasoning content now properly restored when loading saved sessions
   - Previously showed empty messages for assistant responses that only contained tool calls
   - Now displays tool names, arguments, and results correctly
@@ -1595,7 +1609,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Double Overlay Bug** - Fixed `/load` and `/model` commands showing both command autocomplete and picker overlay:
+- **Double Overlay Bug** - Fixed `/continue` and `/model` commands showing both command autocomplete and picker overlay:
   - Autocomplete now cleared before showing session/model picker
   - Also clears autocomplete before showing command result overlays
 
@@ -1647,10 +1661,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project-Based Session Storage** - Sessions are now organized by working directory:
   - Sessions stored in `~/.config/impulse/storage/session/<projectID>/`
   - Project ID is SHA-1 hash of the working directory path
-  - `/load` only shows sessions for the current project
+  - `/continue` only shows sessions for the current project
   - Matches OpenCode's session organization pattern
 
-- **Fixed-Height Session Picker** - `/load` overlay now has a scrollable list:
+- **Fixed-Height Session Picker** - `/continue` overlay now has a scrollable list:
   - Maximum 10 visible rows with scrollbar for longer lists
   - Prevents UI overflow with many sessions
   - Shows session count for current project
@@ -1686,7 +1700,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Session List Bug** - `/load` command now correctly lists saved sessions:
+- **Session List Bug** - `/continue` command now correctly lists saved sessions:
   - Fixed key indexing in `SessionStoreInstance.list()` - was using `key[0]` ("session") instead of `key[1]` (session ID)
   - Sessions are now properly retrieved from `~/.config/impulse/storage/session/`
 
@@ -2154,7 +2168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Interactive `/load` Session Picker** - `/load` command now opens an interactive overlay:
+- **Interactive `/continue` Session Picker** - `/continue` command now opens an interactive overlay:
   - Lists all saved sessions sorted by most recently updated
   - Shows session name, relative time, message count, and working directory
   - Preview panel displays first user/assistant messages from selected session
@@ -2216,7 +2230,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Format: `[IMPULSE] | <context>`
   - AI updates via `set_header` tool at meaningful milestones
   - Prefixes for system actions: `Compacted:`, `Reverted:`, `Reapplied:`
-  - Persists with session on save/load
+  - Persists with session on save/continue
 
 ## [0.7.0] - 2026-01-21
 
@@ -2463,9 +2477,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session store with auto-save (1s debounced)
 - Git-based checkpoint system per message
 - AI-powered auto-compact at 70% threshold
-- Session manager lifecycle (new/load/switch/exit)
+- Session manager lifecycle (new/continue/switch/exit)
 - Command registry with argument parsing
-- Core commands: /new, /save, /load, /quit, /exit
+- Core commands: /new, /save, /continue, /quit, /exit
 - Utility commands: /undo, /redo, /compact, /model, /mode, /think
 - Info commands: /stats, /help, /config, /instruct
 

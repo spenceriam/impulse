@@ -492,33 +492,17 @@ The API client is now ready.
 - Blinking cursor during streaming
 - Auto-collapse after generation completes
 
-### 5.7 Sidebar
+### 5.7 Todo Visibility
 
-**Structure:**
+Todo updates render in the chat stream as expanded `todo_read` / `todo_write` tool blocks.
+Use `/todo` to open the full list overlay on demand.
+
+**Example:**
 ```
-Session
-───────────────────────────────────────
-Context: 42% (84k/200k)
-Cost: $0.12
-
-▼ Todo
-[ ] Set up project structure
-[>] Implement API client
-[ ] Add error handling
-[x] Write configuration
-
-▶ MCPs 4/4
-
-▶ Modified Files
+▼ [OK] todo_write (1/2)
+  [>] Implement API client
+  [ ] Set up project structure
 ```
-
-**Specifications:**
-- Fixed width: 42 characters
-- Left border separator from main content
-- Collapsible sections with `▶`/`▼`
-- Section headers: Bold
-- Todo items: Status indicators with content
-- MCP count: Green if all connected
 
 ### 5.8 Input Area
 
@@ -574,7 +558,7 @@ Cost: $0.12
                     │  > /new                                               │
                     │    /new         New session                           │
                     │    /save        Save session                          │
-                    │    /load        Load session                          │
+                    │    /continue    Continue session                      │
                     │    /undo        Revert last change                    │
                     │    /redo        Restore undone                        │
                     │    /model       Switch model                          │
@@ -699,7 +683,7 @@ impulse/
 │   │   ├── registry.ts          # Command registration
 │   │   ├── new.ts               # /new command
 │   │   ├── save.ts              # /save command
-│   │   ├── load.ts              # /load command
+│   │   ├── continue.ts          # /continue command
 │   │   ├── compact.ts           # /compact command
 │   │   ├── undo.ts              # /undo command
 │   │   ├── redo.ts              # /redo command
@@ -787,7 +771,7 @@ impulse/
 3. Todo.update() writes to storage: `["todo", sessionID]`
 4. Bus publishes `todo.updated` event
 5. UI context receives event, updates TodoState store
-6. Sidebar re-renders with new todos via SolidJS reconciliation
+6. Chat view renders todo snapshot inside the todo tool block; /todo overlay reflects the same state
 7. Tool returns count of non-completed todos
 
 ---

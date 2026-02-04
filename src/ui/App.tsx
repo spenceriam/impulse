@@ -9,7 +9,7 @@ import { SessionProvider, useSession } from "./context/session";
 import { TodoProvider } from "./context/todo";
 import { QueueProvider, useQueue } from "./context/queue";
 import { KeyboardProvider, useAppKeyboard } from "./context/keyboard";
-// Sidebar removed - todos now in BottomPanel
+// Sidebar removed - todos render in todo tool blocks; /todo overlay shows full list
 import { ExpressProvider, useExpress } from "./context/express";
 import { respond as respondPermission, enableAllowAllEdits, type PermissionRequest, type PermissionResponse } from "../permission";
 import { load as loadConfig, save as saveConfig } from "../util/config";
@@ -69,10 +69,10 @@ function ensureFindingsNextSteps(content: string, toolCalls: ToolCallInfo[]): st
   const formatToolCall = (toolCall: ToolCallInfo): string => {
     const meta = toolCall.metadata as Record<string, unknown> | undefined;
     const suffix =
-      (meta?.filePath ? ` ${String(meta.filePath)}` : "") ||
-      (meta?.command ? ` "${String(meta.command)}"` : "") ||
-      (meta?.pattern ? ` "${String(meta.pattern)}"` : "") ||
-      (meta?.description ? ` "${String(meta.description)}"` : "");
+      (meta?.["filePath"] ? ` ${String(meta["filePath"])}` : "") ||
+      (meta?.["command"] ? ` "${String(meta["command"])}"` : "") ||
+      (meta?.["pattern"] ? ` "${String(meta["pattern"])}"` : "") ||
+      (meta?.["description"] ? ` "${String(meta["description"])}"` : "");
     const status = toolCall.status || "unknown";
     return `- ${toolCall.name}${suffix} (${status})`;
   };
@@ -1475,7 +1475,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         const lastMsg = msgs[msgs.length - 1];
         if (lastMsg && lastMsg.role === "assistant") {
           // Mark any in-flight tool calls as cancelled for visibility
-          const cancelledToolCalls = lastMsg.toolCalls?.map((tc) => {
+          const cancelledToolCalls = lastMsg.toolCalls?.map((tc): ToolCallInfo => {
             if (tc.status === "pending" || tc.status === "running") {
               return {
                 ...tc,
@@ -1939,9 +1939,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         }
       }
       
-      // Handle /load specially - show interactive session picker
-      // Only if no session ID provided (just "/load")
-      if (parsed && parsed.name === "load") {
+      // Handle /continue (and /load alias) specially - show interactive session picker
+      // Only if no session ID provided (just "/continue")
+      if (parsed && (parsed.name === "continue" || parsed.name === "load")) {
         const hasSessionArg = trimmedContent.trim().split(/\s+/).length > 1;
         if (!hasSessionArg) {
           setAutocompleteData(null);  // Clear command autocomplete before showing picker
@@ -2259,7 +2259,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
                 </Show>
               </box>
               
-              {/* Bottom panel: 70% prompt + 30% todos (fixed height) */}
+              {/* Bottom panel: prompt + queue preview (fixed height) */}
               <BottomPanel
                 mode={mode()}
                 model={model()}
