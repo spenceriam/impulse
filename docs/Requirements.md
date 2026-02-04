@@ -79,7 +79,7 @@ Generated: 01-19-2026
 | FR-1.5.1 | /new - Start new session with save prompt | Must |
 | FR-1.5.2 | /compact - Manual AI summarization | Must |
 | FR-1.5.3 | /save - Save with AI-suggested name | Must |
-| FR-1.5.4 | /load - Session picker with preview | Must |
+| FR-1.5.4 | /continue - Session picker with preview (alias: /load) | Must |
 | FR-1.5.5 | /undo - Git-based revert to checkpoint | Must |
 | FR-1.5.6 | /redo - Restore undone changes | Must |
 | FR-1.5.7 | /model - Switch GLM model | Must |

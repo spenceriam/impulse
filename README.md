@@ -89,7 +89,7 @@ Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mo
 |---------|-------------|
 | `/new` | New session |
 | `/save` | Save session |
-| `/load` | Session picker |
+| `/continue` | Session picker (alias: `/load`) |
 | `/undo` `/redo` | Revert/restore changes |
 | `/compact` | Manually compact context |
 | `/model` | Model picker |

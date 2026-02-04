@@ -87,6 +87,22 @@ export interface TaskMetadata {
 }
 
 // ============================================
+// Todo Tool Metadata
+// ============================================
+export interface TodoMetadata {
+  type: "todo";
+  source: "read" | "write";
+  todos: Array<{
+    id: string;
+    content: string;
+    status: "pending" | "in_progress" | "completed" | "cancelled";
+    priority: "high" | "medium" | "low";
+  }>;
+  total: number;
+  remaining: number;
+}
+
+// ============================================
 // Union Type
 // ============================================
 export type ToolMetadata =
@@ -96,7 +112,8 @@ export type ToolMetadata =
   | FileReadMetadata
   | GlobMetadata
   | GrepMetadata
-  | TaskMetadata;
+  | TaskMetadata
+  | TodoMetadata;
 
 // ============================================
 // Type Guards
@@ -139,6 +156,10 @@ export function isTaskMetadata(m: ToolMetadata): m is TaskMetadata {
   return m.type === "task";
 }
 
+export function isTodoMetadata(m: ToolMetadata): m is TodoMetadata {
+  return m.type === "todo";
+}
+
 // ============================================
 // Consolidated Type Guards Object
 // ============================================
@@ -161,4 +182,5 @@ export const TypeGuards = {
   isGlob: (m: ToolMetadata): m is GlobMetadata => m.type === "glob",
   isGrep: (m: ToolMetadata): m is GrepMetadata => m.type === "grep",
   isTask: (m: ToolMetadata): m is TaskMetadata => m.type === "task",
+  isTodo: (m: ToolMetadata): m is TodoMetadata => m.type === "todo",
 } as const;

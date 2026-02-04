@@ -1,6 +1,6 @@
 import { For, Show, type JSX } from "solid-js";
-import { Colors, type Mode, getModeColor, getModeBackground } from "../design";
-import type { ToolMetadata } from "../../types/tool-metadata";
+import { Colors, Indicators, type Mode, getModeColor, getModeBackground } from "../design";
+import type { ToolMetadata, TodoMetadata } from "../../types/tool-metadata";
 import {
   isBashMetadata,
   isFileEditMetadata,
@@ -9,6 +9,7 @@ import {
   isGlobMetadata,
   isGrepMetadata,
   isTaskMetadata,
+  isTodoMetadata,
 } from "../../types/tool-metadata";
 import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 import { DiffView } from "./DiffView";
@@ -337,6 +338,14 @@ function getToolTitle(name: string, args: string, metadata?: ToolMetadata): stri
     if (isTaskMetadata(metadata)) {
       return `task [${metadata.subagentType}] "${metadata.description}"`;
     }
+
+    if (isTodoMetadata(metadata)) {
+      const total = metadata.total ?? metadata.todos.length;
+      const remaining = metadata.remaining ?? metadata.todos.filter(
+        (t) => t.status !== "completed" && t.status !== "cancelled"
+      ).length;
+      return `${name} (${remaining}/${total})`;
+    }
   }
 
   // Fallback: parse from arguments
@@ -416,6 +425,71 @@ function getToolTitle(name: string, args: string, metadata?: ToolMetadata): stri
   return name;
 }
 
+function getTodoDisplay(status: TodoMetadata["todos"][number]["status"]) {
+  switch (status) {
+    case "in_progress":
+      return {
+        indicator: Indicators.todo.in_progress,
+        color: Colors.mode.AGENT,
+        strikethrough: false,
+      };
+    case "completed":
+      return {
+        indicator: Indicators.todo.completed,
+        color: Colors.ui.dim,
+        strikethrough: false,
+      };
+    case "cancelled":
+      return {
+        indicator: Indicators.todo.cancelled,
+        color: Colors.ui.dim,
+        strikethrough: true,
+      };
+    default:
+      return {
+        indicator: Indicators.todo.pending,
+        color: Colors.ui.dim,
+        strikethrough: false,
+      };
+  }
+}
+
+function renderTodoSnapshot(metadata: TodoMetadata): JSX.Element {
+  const total = metadata.total ?? metadata.todos.length;
+  const remaining = metadata.remaining ?? metadata.todos.filter(
+    (t) => t.status !== "completed" && t.status !== "cancelled"
+  ).length;
+
+  return (
+    <box flexDirection="column">
+      <text fg={Colors.ui.dim}>Todo ({remaining}/{total})</text>
+      <Show
+        when={metadata.todos.length > 0}
+        fallback={<text fg={Colors.ui.dim}>No tasks</text>}
+      >
+        <For each={metadata.todos}>
+          {(todo) => {
+            const display = getTodoDisplay(todo.status);
+            const content = `${display.indicator} ${todo.content}`;
+            return (
+              <box flexDirection="row">
+                <Show
+                  when={display.strikethrough}
+                  fallback={<text fg={display.color}>{content}</text>}
+                >
+                  <text fg={display.color}>
+                    <s>{content}</s>
+                  </text>
+                </Show>
+              </box>
+            );
+          }}
+        </For>
+      </Show>
+    </box>
+  );
+}
+
 /**
  * Generate expanded content for a tool call based on its metadata
  * Returns null if no expanded content available
@@ -476,6 +550,11 @@ function getExpandedContent(
         </text>
       );
     }
+  }
+
+  // Todo: show snapshot list
+  if (isTodoMetadata(metadata)) {
+    return renderTodoSnapshot(metadata);
   }
 
   // Task: show action summaries (or in-progress placeholder)
@@ -546,7 +625,7 @@ function getToolActivityLabel(name: string): string {
     
     // Todo operations
     case "todo_write":
-      return "Planning...";
+      return "Updating todos...";
     case "todo_read":
       return "Reading todos...";
     
@@ -744,7 +823,7 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
     if (props.verbose === true) return true;
     if (isRunning() && props.toolCall.name === "task") return true;
     // Auto-expand file modifications to show DiffView
-    if (status() === "success" && ["file_write", "file_edit"].includes(props.toolCall.name)) {
+    if (status() === "success" && ["file_write", "file_edit", "todo_write", "todo_read"].includes(props.toolCall.name)) {
       return true;
     }
     return false; // Other success cases = collapsed by default

@@ -10,7 +10,7 @@ const SaveArgsSchema = z.object({
   name: z.string().optional(),
 });
 
-const LoadArgsSchema = z.object({
+const ContinueArgsSchema = z.object({
   id: z.string().optional(),
 });
 
@@ -36,8 +36,8 @@ async function handleSave(args: Record<string, unknown>) {
   };
 }
 
-async function handleLoad(args: Record<string, unknown>) {
-  const parsed = LoadArgsSchema.parse(args);
+async function handleContinue(args: Record<string, unknown>) {
+  const parsed = ContinueArgsSchema.parse(args);
 
   if (!parsed.id) {
     const sessions = await SessionManager.listSessions();
@@ -55,7 +55,7 @@ async function handleLoad(args: Record<string, unknown>) {
 
     return {
       success: true,
-      output: `Available sessions:\n${list}\n\nUse /load <id> to load a session`,
+      output: `Available sessions:\n${list}\n\nUse /continue <id> to continue a session (alias: /load)`,
     };
   }
 
@@ -63,7 +63,7 @@ async function handleLoad(args: Record<string, unknown>) {
 
   return {
     success: true,
-    output: `Loaded session: ${session.name} (${session.id})`,
+    output: `Continued session: ${session.name} (${session.id})`,
   };
 }
 
@@ -115,12 +115,21 @@ export function registerCoreCommands(): void {
       examples: ["/save", "/save 'Fix API bug'"],
     },
     {
+      name: "continue",
+      category: "core",
+      description: "Continue a saved session (alias: /load)",
+      args: ContinueArgsSchema,
+      handler: handleContinue,
+      examples: ["/continue", "/continue sess_1234567890"],
+    },
+    {
       name: "load",
       category: "core",
-      description: "Load a saved session",
-      args: LoadArgsSchema,
-      handler: handleLoad,
+      description: "Alias for /continue",
+      args: ContinueArgsSchema,
+      handler: handleContinue,
       examples: ["/load", "/load sess_1234567890"],
+      hidden: true,
     },
     {
       name: "quit",

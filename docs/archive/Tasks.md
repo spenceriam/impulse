@@ -2793,7 +2793,7 @@ src/
 **Estimated Effort:** Medium
 
 #### Description
-Implement /new, /save, /load, /quit, /exit commands.
+Implement /new, /save, /continue, /quit, /exit commands.
 
 #### Before
 ```
@@ -2809,21 +2809,21 @@ src/commands/
 ├── registry.ts
 ├── new.ts
 ├── save.ts
-├── load.ts
+├── continue.ts
 └── quit.ts
 ```
 
 #### Steps
 1. Create `src/commands/new.ts` - prompt to save, create new
 2. Create `src/commands/save.ts` - AI-generated name
-3. Create `src/commands/load.ts` - session picker overlay
+3. Create `src/commands/continue.ts` - session picker overlay
 4. Create `src/commands/quit.ts` - show summary, exit
 5. Register all commands
 
 #### Verification
 - [ ] /new prompts to save
 - [ ] /save uses AI name
-- [ ] /load shows picker
+- [ ] /continue shows picker
 - [ ] /quit shows summary
 
 ---
@@ -3287,7 +3287,7 @@ const [messages, setMessages] = createSignal([])
 ```tsx
 // Session state persisted via SessionManager
 const session = useSession()
-// Auto-saves, loads on startup, supports /new, /load, /save
+// Auto-saves, loads on startup, supports /new, /continue, /save
 ```
 
 #### Steps
@@ -3296,14 +3296,14 @@ const session = useSession()
 3. Wire auto-save (30 second interval)
 4. Connect session context to SessionManager
 5. Ensure messages persist across restarts
-6. Wire up /new, /load, /save commands
+6. Wire up /new, /continue, /save commands
 
 #### Verification
 - [ ] Sessions persist to disk
 - [ ] Auto-save triggers every 30s
 - [ ] App loads last session on startup
 - [ ] /new creates fresh session
-- [ ] /load opens session picker
+- [ ] /continue opens session picker
 - [ ] /save persists current session
 
 ---

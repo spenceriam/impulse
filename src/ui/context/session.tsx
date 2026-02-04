@@ -102,8 +102,10 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
   let toolCalls: ToolCallInfo[] | undefined;
   if (msg.tool_calls && msg.tool_calls.length > 0) {
     toolCalls = msg.tool_calls.map((tc, i) => {
+      const resultMetadata = tc.result?.metadata as Record<string, unknown> | undefined;
+      const wasCancelled = Boolean(resultMetadata?.["cancelled"]);
       const status: "pending" | "running" | "success" | "error" | "cancelled" = tc.result
-        ? (tc.result.metadata?.cancelled ? "cancelled" : (tc.result.success ? "success" : "error"))
+        ? (wasCancelled ? "cancelled" : (tc.result.success ? "success" : "error"))
         : "success";  // If no result recorded, assume success (historical data)
       
       const info: ToolCallInfo = {

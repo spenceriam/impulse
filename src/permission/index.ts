@@ -84,7 +84,7 @@ let expressAcknowledged = false;
 
 /**
  * "Allow All Edits" mode - auto-approves file_edit and file_write only
- * Session-scoped, cleared when session ends (NOT persisted on /save + /load)
+ * Session-scoped, cleared when session ends (NOT persisted on /save + /continue)
  */
 let allowAllEditsMode = false;
 

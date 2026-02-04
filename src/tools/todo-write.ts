@@ -34,6 +34,9 @@ export const todoWrite: Tool<TodoWriteInput> = Tool.define(
         success: true,
         output: `Todo list updated. ${incompleteCount} tasks remaining.`,
         metadata: {
+          type: "todo",
+          source: "write",
+          todos: input.todos,
           total: input.todos.length,
           remaining: incompleteCount,
         },

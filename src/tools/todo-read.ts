@@ -18,10 +18,22 @@ export const todoRead: Tool<TodoReadInput> = Tool.define(
     try {
       const todos = await Todo.get();
 
+      const total = todos.length;
+      const remaining = todos.filter(
+        (t) => t.status !== "completed" && t.status !== "cancelled"
+      ).length;
+
       if (todos.length === 0) {
         return {
           success: true,
           output: "No todos found for this session.",
+          metadata: {
+            type: "todo",
+            source: "read",
+            todos: [],
+            total,
+            remaining,
+          },
         };
       }
 
@@ -56,8 +68,11 @@ export const todoRead: Tool<TodoReadInput> = Tool.define(
         success: true,
         output: `${statusCounts.join(" | ")}\n${todoLines.join("\n")}`,
         metadata: {
-          total: todos.length,
-          byStatus: statusCounts,
+          type: "todo",
+          source: "read",
+          todos,
+          total,
+          remaining,
         },
       };
     } catch (error) {

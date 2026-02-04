@@ -28,7 +28,7 @@ const VISIBLE_ROWS = 5;
 const PANEL_HEIGHT = VISIBLE_ROWS + 2;  // 5 rows + top/bottom border
 const COLLAPSED_HEIGHT = 3;  // Just header + 1 task + border
 
-// Export for BottomPanel height calculation
+// Exported for legacy sizing (BottomPanel no longer uses this)
 export const TODO_PANEL_HEIGHT = PANEL_HEIGHT;
 export const TODO_COLLAPSED_HEIGHT = COLLAPSED_HEIGHT;
 
