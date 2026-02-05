@@ -1,7 +1,8 @@
-import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onCleanup, onMount } from "solid-js";
+import { createContext, createSignal, useContext, ParentComponent, Accessor, Setter, onCleanup, createEffect } from "solid-js";
 import { Bus } from "../../bus";
 import { TodoEvents } from "../../bus/events";
 import { Todo as TodoStore } from "../../session/todo";
+import { useSession } from "./session";
 
 /**
  * Todo type
@@ -35,29 +36,27 @@ const TodoContext = createContext<TodoContextType>();
  * Manages todo list with bus event subscription
  */
 export const TodoProvider: ParentComponent = (props) => {
+  const { sessionId } = useSession();
   const [todos, setTodos] = createSignal<Todo[]>([]);
   let didReceiveUpdate = false;
+  let lastScopeId = "";
+
+  const getScopeId = () => sessionId() ?? "";
 
   const addTodo = (todo: Omit<Todo, "id">) => {
     const newTodo: Todo = {
       ...todo,
       id: `todo-${Date.now()}-${Math.random()}`,
     };
-    setTodos((prev) => [...prev, newTodo]);
-
-    Bus.publish(TodoEvents.Updated, {
-      sessionID: "default",
-      todos: [...todos(), newTodo],
-    });
+    const next = [...todos(), newTodo];
+    setTodos(() => next);
+    void TodoStore.update(next, getScopeId());
   };
 
   const updateTodo = (id: string, updates: Partial<Todo>) => {
     setTodos((prev) => {
       const updated = prev.map((todo) => (todo.id === id ? { ...todo, ...updates } : todo));
-      Bus.publish(TodoEvents.Updated, {
-        sessionID: "default",
-        todos: updated,
-      });
+      void TodoStore.update(updated, getScopeId());
       return updated;
     });
   };
@@ -65,10 +64,7 @@ export const TodoProvider: ParentComponent = (props) => {
   const removeTodo = (id: string) => {
     setTodos((prev) => {
       const updated = prev.filter((todo) => todo.id !== id);
-      Bus.publish(TodoEvents.Updated, {
-        sessionID: "default",
-        todos: updated,
-      });
+      void TodoStore.update(updated, getScopeId());
       return updated;
     });
   };
@@ -88,9 +84,10 @@ export const TodoProvider: ParentComponent = (props) => {
   // Subscribe to todo updates from bus
   const unsubscribe = Bus.subscribe(({ type, properties }) => {
     if (type === TodoEvents.Updated.name) {
+      const payload = properties as { sessionID?: string; todos?: Todo[] };
+      if (payload.sessionID !== getScopeId()) return;
       didReceiveUpdate = true;
-      // @ts-ignore: typing for bus events
-      setTodos(() => properties.todos);
+      setTodos(() => (Array.isArray(payload.todos) ? payload.todos : []));
     }
   });
 
@@ -98,16 +95,26 @@ export const TodoProvider: ParentComponent = (props) => {
     unsubscribe();
   });
 
-  // Load persisted todos on mount (in case we missed earlier events)
-  onMount(async () => {
-    try {
-      const existing = await TodoStore.get();
-      if (!didReceiveUpdate) {
-        setTodos(() => existing);
-      }
-    } catch {
-      // Ignore read errors, fallback to empty list
+  // Load persisted todos on scope changes (project/session)
+  createEffect(() => {
+    const scopeId = getScopeId();
+    if (scopeId === lastScopeId) return;
+    lastScopeId = scopeId;
+    didReceiveUpdate = false;
+    if (!scopeId) {
+      setTodos(() => []);
+      return;
     }
+    void (async () => {
+      try {
+        const existing = await TodoStore.get(scopeId);
+        if (!didReceiveUpdate) {
+          setTodos(() => existing);
+        }
+      } catch {
+        // Ignore read errors, fallback to empty list
+      }
+    })();
   });
 
   return (

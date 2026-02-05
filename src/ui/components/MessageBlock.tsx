@@ -1,4 +1,4 @@
-import { For, Show, type JSX } from "solid-js";
+import { For, Show, type JSX, type Accessor } from "solid-js";
 import { Colors, Indicators, type Mode, getModeColor, getModeBackground } from "../design";
 import type { ToolMetadata, TodoMetadata } from "../../types/tool-metadata";
 import {
@@ -459,10 +459,26 @@ function renderTodoSnapshot(metadata: TodoMetadata): JSX.Element {
   const remaining = metadata.remaining ?? metadata.todos.filter(
     (t) => t.status !== "completed" && t.status !== "cancelled"
   ).length;
+  const currentTodo = metadata.todos.find((t) => t.status === "in_progress")
+    ?? metadata.todos.find((t) => t.status === "pending");
 
   return (
     <box flexDirection="column">
       <text fg={Colors.ui.dim}>Todo ({remaining}/{total})</text>
+      <Show
+        when={currentTodo}
+        fallback={<text fg={Colors.ui.dim}>Current: (none)</text>}
+      >
+        {(todo: Accessor<TodoMetadata["todos"][number]>) => {
+          const display = getTodoDisplay(todo().status);
+          return (
+            <box flexDirection="row">
+              <text fg={Colors.ui.dim}>Current: </text>
+              <text fg={display.color}>{display.indicator} {todo().content}</text>
+            </box>
+          );
+        }}
+      </Show>
       <Show
         when={metadata.todos.length > 0}
         fallback={<text fg={Colors.ui.dim}>No tasks</text>}
@@ -877,7 +893,7 @@ export function MessageBlock(props: MessageBlockProps) {
   };
   const thinkingSegments = () =>
     reasoningSegments().filter((segment) => segment.content && segment.content.trim().length > 0);
-  const showThinking = () => isStreaming() && thinkingSegments().length > 0;
+  const showThinking = () => thinkingSegments().length > 0;
 
   const toolEntries = () => toolCalls().map((toolCall, index) => ({ toolCall, index }));
   const getAttemptNumber = (index: number) => {

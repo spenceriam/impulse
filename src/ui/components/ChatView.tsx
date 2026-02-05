@@ -88,18 +88,24 @@ export function ChatView(props: ChatViewProps) {
   // Using 'any' because ScrollBoxRenderable type may not expose scrollToBottom
   let scrollboxRef: any;
   let scrollTimer: NodeJS.Timeout | null = null;
-  const [autoScrollEnabled, setAutoScrollEnabled] = createSignal(true);
+  const [userScrolledUp, setUserScrolledUp] = createSignal(false);
   
   // Scroll to bottom helper - uses scrollTo for reliable positioning
   const scrollToBottom = () => {
-    if (scrollboxRef) {
-      // Use scrollTo with a large number to ensure we reach the bottom
-      // This is more reliable than scrollToBottom() which may have timing issues
-      if (typeof scrollboxRef.scrollTo === "function") {
-        scrollboxRef.scrollTo(100_000);
-      } else if (typeof scrollboxRef.scrollToBottom === "function") {
-        scrollboxRef.scrollToBottom();
-      }
+    if (!scrollboxRef) return;
+    if (typeof scrollboxRef.scrollToBottom === "function") {
+      scrollboxRef.scrollToBottom();
+      setUserScrolledUp(false);
+      return;
+    }
+    if (typeof scrollboxRef.scrollTo === "function") {
+      scrollboxRef.scrollTo(100_000);
+      setUserScrolledUp(false);
+      return;
+    }
+    if ("scrollTop" in scrollboxRef) {
+      scrollboxRef.scrollTop = getMaxScrollTop();
+      setUserScrolledUp(false);
     }
   };
   
@@ -110,12 +116,12 @@ export function ChatView(props: ChatViewProps) {
     }
   };
 
-  const scheduleScroll = (delay: number = 16) => {
-    if (!autoScrollEnabled()) return;
+  const scheduleScroll = (delay: number = 16, force: boolean = false) => {
+    if (!force && !isLoading() && userScrolledUp()) return;
     if (scrollTimer) return;
     scrollTimer = setTimeout(() => {
       scrollTimer = null;
-      if (!autoScrollEnabled()) return;
+      if (!force && !isLoading() && userScrolledUp()) return;
       scrollToBottom();
     }, delay);
   };
@@ -132,13 +138,17 @@ export function ChatView(props: ChatViewProps) {
     return scrollboxRef.scrollTop >= maxScrollTop - 1;
   };
   
-  const updateAutoScrollEnabled = () => {
-    setAutoScrollEnabled(isAtBottom());
+  const updateScrollState = () => {
+    if (isLoading()) {
+      setUserScrolledUp(false);
+      return;
+    }
+    setUserScrolledUp(!isAtBottom());
   };
   
-  const scheduleAutoScrollUpdate = () => {
+  const scheduleScrollStateUpdate = () => {
     setTimeout(() => {
-      updateAutoScrollEnabled();
+      updateScrollState();
     }, 0);
   };
   
@@ -151,24 +161,25 @@ export function ChatView(props: ChatViewProps) {
   // Auto-scroll during loading - keep pinned to bottom
   createEffect(() => {
     if (isLoading()) {
-      // While loading, keep pinned to bottom unless user scrolls away
-      scheduleScroll(16);
+      // While loading, keep pinned to bottom
+      setUserScrolledUp(false);
+      scheduleScroll(16, true);
     }
   });
 
   // Lock auto-scroll while loading: force pin to bottom and track any message updates
   createEffect(() => {
     if (!isLoading()) return;
-    setAutoScrollEnabled(true);
     // Track all message updates (content, reasoning, tool calls) while loading
     messages();
-    scheduleScroll(16);
+    scheduleScroll(16, true);
   });
 
   // Ensure we land at bottom after streaming completes
   createEffect(on(isLoading, (loading, prev) => {
     if (prev && !loading) {
       scheduleScroll(50);
+      scheduleScrollStateUpdate();
     }
   }, { defer: true }));
   
@@ -207,10 +218,10 @@ export function ChatView(props: ChatViewProps) {
     
     if (key.name === "pageup") {
       scrollBy(-PAGE_SCROLL_LINES);
-      scheduleAutoScrollUpdate();
+      scheduleScrollStateUpdate();
     } else if (key.name === "pagedown") {
       scrollBy(PAGE_SCROLL_LINES);
-      scheduleAutoScrollUpdate();
+      scheduleScrollStateUpdate();
     }
   });
 
@@ -294,14 +305,14 @@ export function ChatView(props: ChatViewProps) {
       <scrollbox 
         ref={(r: any) => { scrollboxRef = r; }}
         flexGrow={1}
-        stickyScroll={true}
+        stickyScroll={isLoading() ? true : !userScrolledUp()}
         stickyStart="bottom"
         onMouseScroll={() => {
           if (isLoading()) {
-            scheduleScroll(0);
+            scheduleScroll(0, true);
             return;
           }
-          scheduleAutoScrollUpdate();
+          scheduleScrollStateUpdate();
         }}
         scrollAcceleration={scrollAcceleration}
         style={{
@@ -313,7 +324,7 @@ export function ChatView(props: ChatViewProps) {
           },
           contentOptions: {
             onSizeChange: () => {
-              scheduleScroll(16);
+              scheduleScroll(16, isLoading());
             },
           },
           scrollbarOptions: {

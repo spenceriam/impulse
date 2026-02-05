@@ -123,6 +123,9 @@
 - [x] Chat auto-scroll stays pinned during tool calls
 - [x] Thinking blocks segment per reasoning phase
 - [x] Responses always include Findings + Next steps
+- [x] Chat auto-scroll stays pinned during streaming updates
+- [x] Paste renders as numbered hidden-input indicator blocks with line wrapping
+- [x] Todos scoped to chat session with current-task snapshot
 
 ## Version Bumping Protocol
 
