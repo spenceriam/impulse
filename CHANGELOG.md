@@ -5,6 +5,22 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-02-05
+
+**Type:** minor  
+**Title:** Streaming pin reliability, structured paste blocks, and session-only todos
+
+### Changed
+
+- **Chat streaming stays pinned at the latest output** - Scroll behavior now reliably follows thinking, content, and tool-call updates during active streaming.
+- **Pasted input now renders as numbered indicator blocks** - Each paste is shown as `[Pasted lines #N ~X lines]`, wraps across multiple lines for readability, and stays hidden from the prompt body.
+- **Prompt submission preserves text/paste ordering** - Typed text and hidden pasted blocks are reconstructed in insertion order when submitted.
+
+### Fixed
+
+- **Thinking segments remain visible after streaming** - Completed reasoning blocks no longer disappear once the assistant turn finishes.
+- **Todo state is session-scoped only** - Todo lists no longer leak across chats; each chat session keeps its own isolated todo state.
+
 ## [0.31.0] - 2026-02-04
 
 **Type:** minor  
