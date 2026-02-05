@@ -103,6 +103,20 @@ export interface TodoMetadata {
 }
 
 // ============================================
+// Question Tool Metadata
+// ============================================
+export interface QuestionMetadata {
+  type: "question";
+  context?: string;
+  questions: Array<{
+    topic: string;
+    question: string;
+    options: string[];
+    answers: string[];
+  }>;
+}
+
+// ============================================
 // Union Type
 // ============================================
 export type ToolMetadata =
@@ -113,7 +127,8 @@ export type ToolMetadata =
   | GlobMetadata
   | GrepMetadata
   | TaskMetadata
-  | TodoMetadata;
+  | TodoMetadata
+  | QuestionMetadata;
 
 // ============================================
 // Type Guards
@@ -160,6 +175,10 @@ export function isTodoMetadata(m: ToolMetadata): m is TodoMetadata {
   return m.type === "todo";
 }
 
+export function isQuestionMetadata(m: ToolMetadata): m is QuestionMetadata {
+  return m.type === "question";
+}
+
 // ============================================
 // Consolidated Type Guards Object
 // ============================================
@@ -183,4 +202,5 @@ export const TypeGuards = {
   isGrep: (m: ToolMetadata): m is GrepMetadata => m.type === "grep",
   isTask: (m: ToolMetadata): m is TaskMetadata => m.type === "task",
   isTodo: (m: ToolMetadata): m is TodoMetadata => m.type === "todo",
+  isQuestion: (m: ToolMetadata): m is QuestionMetadata => m.type === "question",
 } as const;

@@ -5,6 +5,27 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-02-05
+
+**Type:** minor  
+**Title:** Ordered chat rendering, self-check summaries, and safer path handling
+
+### Added
+
+- **Ordered assistant chat rendering** - Assistant responses now preserve stream order across text, thinking, and tool calls for a clearer turn timeline.
+- **Self-check summary panel** - Findings and Next steps are now generated from executed tool outcomes (including delegated subagent task metadata) without mutating model response text.
+- **Question result metadata rendering** - Question tool calls now show structured topic/question/answer summaries directly in tool blocks.
+- **Regression coverage for self-check logic** - Added tests for success/error/running states and subagent audit scenarios.
+
+### Changed
+
+- **Thinking visibility follows global toggle consistently** - Thinking blocks now respect the shared hide/show control during streaming and replay.
+- **Tool call continuity across follow-up turns** - Tool updates merge by id so completed calls stay visible while continuation turns run.
+
+### Fixed
+
+- **Path sanitizer symlink handling** - Valid symlinks inside the base directory and empty-path resolution now pass safely while preserving traversal protection.
+
 ## [0.32.0] - 2026-02-05
 
 **Type:** minor  

@@ -1,8 +1,8 @@
 import { createContext, createSignal, createEffect, useContext, ParentComponent, Accessor, Setter, onCleanup } from "solid-js";
 import { SessionManager } from "../../session/manager";
-import { SessionStoreInstance, Message as StoreMessage, Session } from "../../session/store";
+import { SessionStoreInstance, Message as StoreMessage, Session, type MessageContentBlock as StoreMessageContentBlock } from "../../session/store";
 import { type HeaderPrefix } from "../components/HeaderLine";
-import { type Message as MessageBlockMessage, type ToolCallInfo } from "../components/MessageBlock";
+import { type AssistantContentBlock, type Message as MessageBlockMessage, type ToolCallInfo } from "../components/MessageBlock";
 import { type ToolMetadata } from "../../types/tool-metadata";
 import { type Mode } from "../design";
 
@@ -74,6 +74,9 @@ interface SessionContextType {
   // Tool display verbosity (toggleable via /verbose)
   verboseTools: Accessor<boolean>;
   setVerboseTools: Setter<boolean>;
+  // Global thinking block visibility (pi-mono style)
+  hideThinkingBlocks: Accessor<boolean>;
+  setHideThinkingBlocks: Setter<boolean>;
   // Stats tracking
   addTokenUsage: (usage: Partial<TokenStats>) => void;
   recordToolCall: (name: string, success: boolean) => void;
@@ -109,7 +112,7 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
         : "success";  // If no result recorded, assume success (historical data)
       
       const info: ToolCallInfo = {
-        id: `tc-${index}-${i}`,
+        id: tc.id ?? `tc-${index}-${i}`,
         name: tc.tool,
         arguments: JSON.stringify(tc.arguments, null, 2),
         status,
@@ -144,6 +147,42 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
   if (toolCalls) {
     result.toolCalls = toolCalls;
   }
+  if (msg.content_blocks && msg.content_blocks.length > 0) {
+    const contentBlocks: AssistantContentBlock[] = [];
+    for (let i = 0; i < msg.content_blocks.length; i++) {
+      const block = msg.content_blocks[i];
+      if (!block) continue;
+      if (block.type === "text") {
+        contentBlocks.push({
+          id: block.id,
+          type: "text",
+          text: block.text,
+        });
+      } else if (block.type === "thinking") {
+        contentBlocks.push({
+          id: block.id,
+          type: "thinking",
+          thinking: block.thinking,
+        });
+      } else if (block.type === "tool_call") {
+        const fallbackToolId = toolCalls?.[i]?.id ?? `tc-${index}-${i}`;
+        contentBlocks.push({
+          id: block.id,
+          type: "tool_call",
+          toolCallId: block.tool_call_id || fallbackToolId,
+        });
+      }
+    }
+    if (contentBlocks.length > 0) {
+      result.contentBlocks = contentBlocks;
+    }
+  }
+  if (msg.validation) {
+    result.validation = {
+      findings: [...msg.validation.findings],
+      nextSteps: [...msg.validation.nextSteps],
+    };
+  }
   // Restore mode and model for proper display coloring
   if (msg.mode) {
     result.mode = msg.mode as Mode;
@@ -169,6 +208,35 @@ function uiToStoreMessage(msg: Message): StoreMessage {
   if (msg.reasoning) {
     result.reasoning_content = msg.reasoning;
   }
+  if (msg.contentBlocks && msg.contentBlocks.length > 0) {
+    result.content_blocks = msg.contentBlocks.map((block): StoreMessageContentBlock => {
+      if (block.type === "text") {
+        return {
+          id: block.id,
+          type: "text",
+          text: block.text,
+        };
+      }
+      if (block.type === "thinking") {
+        return {
+          id: block.id,
+          type: "thinking",
+          thinking: block.thinking,
+        };
+      }
+      return {
+        id: block.id,
+        type: "tool_call",
+        tool_call_id: block.toolCallId,
+      };
+    });
+  }
+  if (msg.validation) {
+    result.validation = {
+      findings: [...msg.validation.findings],
+      nextSteps: [...msg.validation.nextSteps],
+    };
+  }
   
   // Convert UI toolCalls to store tool_calls format
   if (msg.toolCalls && msg.toolCalls.length > 0) {
@@ -183,6 +251,7 @@ function uiToStoreMessage(msg: Message): StoreMessage {
       }
 
       const toolCall: any = {
+        id: tc.id,
         tool: tc.name,
         arguments: parsedArguments,
         timestamp: new Date(msg.timestamp).toISOString(),
@@ -281,6 +350,7 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
   
   // Tool display verbosity (default: false = compact display)
   const [verboseTools, setVerboseTools] = createSignal<boolean>(false);
+  const [hideThinkingBlocks, setHideThinkingBlocks] = createSignal<boolean>(false);
   
   // Set header title with optional prefix clearing
   const setHeaderTitle = (title: string, clearPrefix: boolean = true) => {
@@ -589,6 +659,8 @@ export const SessionProvider: ParentComponent<SessionProviderProps> = (props) =>
     // Tool display verbosity
     verboseTools,
     setVerboseTools,
+    hideThinkingBlocks,
+    setHideThinkingBlocks,
     // Stats tracking
     addTokenUsage,
     recordToolCall,
