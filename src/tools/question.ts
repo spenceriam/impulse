@@ -114,7 +114,14 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
         success: true,
         output: `User responded:\n${formattedAnswers.join("\n")}`,
         metadata: {
-          answers,
+          type: "question",
+          context: input.context,
+          questions: input.questions.map((question, index) => ({
+            topic: question.topic,
+            question: question.question,
+            options: question.options.map((option) => option.label),
+            answers: answers[index] ?? [],
+          })),
         },
       };
     } catch (error) {

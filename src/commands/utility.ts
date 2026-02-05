@@ -248,6 +248,14 @@ async function handleThink() {
   };
 }
 
+async function handleThinkingBlocks() {
+  // This is handled specially in App.tsx to toggle thinking block visibility in SessionContext
+  return {
+    success: true,
+    output: "Thinking block visibility toggled (handled by UI)",
+  };
+}
+
 async function handleExpress() {
   // This is handled specially in App.tsx to use the Express context
   // This handler is just a placeholder for the command registry
@@ -314,6 +322,14 @@ export function registerUtilityCommands(): void {
       description: "Toggle thinking mode",
       handler: handleThink,
       examples: ["/think"],
+    },
+    {
+      name: "thinking-blocks",
+      aliases: ["toggle-thinking-blocks", "thinking"],
+      category: "utility",
+      description: "Toggle visibility of thinking blocks in chat",
+      handler: handleThinkingBlocks,
+      examples: ["/thinking-blocks", "/thinking"],
     },
     {
       name: "express",

@@ -10,6 +10,7 @@ import {
   isGrepMetadata,
   isTaskMetadata,
   isTodoMetadata,
+  isQuestionMetadata,
 } from "../../types/tool-metadata";
 import { CollapsibleToolBlock } from "./CollapsibleToolBlock";
 import { DiffView } from "./DiffView";
@@ -47,6 +48,20 @@ export interface ReasoningSegment {
 }
 
 /**
+ * Ordered assistant content block (pi-mono style).
+ * Preserves streamed order across text, thinking, and tool calls.
+ */
+export type AssistantContentBlock =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "thinking"; thinking: string }
+  | { id: string; type: "tool_call"; toolCallId: string };
+
+export interface ValidationSummary {
+  findings: string[];
+  nextSteps: string[];
+}
+
+/**
  * Message type
  */
 export interface Message {
@@ -58,6 +73,8 @@ export interface Message {
   mode?: Mode;           // Mode used when generating (for assistant messages)
   model?: string;        // Model used (e.g., "glm-4.7")
   toolCalls?: ToolCallInfo[];  // Tool calls made in this message
+  contentBlocks?: AssistantContentBlock[]; // Ordered assistant render blocks
+  validation?: ValidationSummary; // Non-model self-check summary
   streaming?: boolean;   // Whether this message is currently being streamed
   timestamp?: number;    // Unix timestamp when message was created
 }
@@ -276,6 +293,17 @@ function renderMarkdownNode(node: MarkdownNode) {
   }
 }
 
+function renderMarkdownContent(content: string) {
+  const nodes = parseMarkdown(content);
+  return (
+    <box flexDirection="column">
+      <For each={nodes}>
+        {(node: MarkdownNode) => renderMarkdownNode(node)}
+      </For>
+    </box>
+  );
+}
+
 /**
  * Message Block Component
  * Message display with role-based styling and markdown rendering
@@ -345,6 +373,11 @@ function getToolTitle(name: string, args: string, metadata?: ToolMetadata): stri
         (t) => t.status !== "completed" && t.status !== "cancelled"
       ).length;
       return `${name} (${remaining}/${total})`;
+    }
+
+    if (isQuestionMetadata(metadata)) {
+      const count = metadata.questions.length;
+      return `question (${count} topic${count === 1 ? "" : "s"})`;
     }
   }
 
@@ -573,6 +606,31 @@ function getExpandedContent(
     return renderTodoSnapshot(metadata);
   }
 
+  if (isQuestionMetadata(metadata)) {
+    return (
+      <box flexDirection="column">
+        <Show
+          when={metadata.context && metadata.context.trim().length > 0}
+        >
+          <text fg={Colors.ui.dim}>Context: {metadata.context}</text>
+        </Show>
+        <For each={metadata.questions}>
+          {(question, index) => {
+            const answers = question.answers.length > 0 ? question.answers.join(", ") : "(no selection)";
+            return (
+              <box flexDirection="column" marginTop={index() === 0 && !metadata.context ? 0 : 1}>
+                <text fg={Colors.ui.dim}>
+                  {question.topic}: {question.question}
+                </text>
+                <text fg={Colors.ui.text}>→ {answers}</text>
+              </box>
+            );
+          }}
+        </For>
+      </box>
+    );
+  }
+
   // Task: show action summaries (or in-progress placeholder)
   if (isTaskMetadata(metadata)) {
     const isActive = status === "pending" || status === "running";
@@ -602,219 +660,16 @@ function getExpandedContent(
   return null;
 }
 
-// ThinkingSection removed - now using ThinkingBlock component
-
-// ============================================
-// Activity Status Grouping
-// ============================================
-
-/**
- * Activity categories for grouping tool calls
- */
-/**
- * Get activity status label for a specific tool
- * Returns singular form - caller can pluralize if needed
- */
-function getToolActivityLabel(name: string): string {
-  switch (name) {
-    // File operations
-    case "file_read":
-      return "Reading file...";
-    case "file_write":
-      return "Writing file...";
-    case "file_edit":
-      return "Editing file...";
-    
-    // Search operations
-    case "glob":
-      return "Finding files...";
-    case "grep":
-      return "Searching...";
-    case "tool_docs":
-      return "Loading tool docs...";
-    
-    // Execution
-    case "bash":
-      return "Running command...";
-    case "task":
-      return "Running subagent...";
-    
-    // Todo operations
-    case "todo_write":
-      return "Updating todos...";
-    case "todo_read":
-      return "Reading todos...";
-    
-    // UI/session tools
-    case "set_header":
-      return "Updating header...";
-    case "set_mode":
-      return "Switching mode...";
-    
-    // Question tool
-    case "question":
-      return "Asking question...";
-    
-    // MCP tools
-    case "webSearchPrime":
-      return "Searching web...";
-    case "webReader":
-      return "Reading webpage...";
-    case "search_doc":
-    case "get_repo_structure":
-    case "read_file":
-      return "Querying docs...";
-    case "ui_to_artifact":
-    case "extract_text_from_screenshot":
-    case "diagnose_error_screenshot":
-    case "understand_technical_diagram":
-    case "analyze_data_visualization":
-    case "ui_diff_check":
-    case "image_analysis":
-    case "video_analysis":
-      return "Analyzing image...";
-    case "resolve-library-id":
-    case "query-docs":
-      return "Querying Context7...";
-    
-    default:
-      // Generic MCP tool
-      if (name.startsWith("mcp_")) {
-        return "Using external tool...";
-      }
-      return "Working...";
-  }
-}
-
-/**
- * Check if a tool is an MCP tool
- */
-function isMCPTool(name: string): boolean {
-  return name.startsWith("mcp_") || 
-    ["webSearchPrime", "webReader", "search_doc", "get_repo_structure", "read_file",
-     "ui_to_artifact", "extract_text_from_screenshot", "diagnose_error_screenshot",
-     "understand_technical_diagram", "analyze_data_visualization", "ui_diff_check",
-     "image_analysis", "video_analysis", "resolve-library-id", "query-docs"].includes(name);
-}
-
-/**
- * Get MCP server name from tool name for display
- */
-function getMCPServerName(toolName: string): string {
-  // Map known MCP tools to their server names
-  const toolToServer: Record<string, string> = {
-    webSearchPrime: "Web Search",
-    webReader: "Web Reader",
-    search_doc: "Zread",
-    get_repo_structure: "Zread",
-    read_file: "Zread",
-    ui_to_artifact: "Vision",
-    extract_text_from_screenshot: "Vision",
-    diagnose_error_screenshot: "Vision",
-    understand_technical_diagram: "Vision",
-    analyze_data_visualization: "Vision",
-    ui_diff_check: "Vision",
-    image_analysis: "Vision",
-    video_analysis: "Vision",
-    "resolve-library-id": "Context7",
-    "query-docs": "Context7",
-  };
-  
-  return toolToServer[toolName] || "MCP";
-}
-
-/**
- * Get the current activity label for running tool calls
- * Returns the label for the first running/pending tool, or empty if none
- */
-function getCurrentActivityLabel(toolCalls: ToolCallInfo[]): string {
-  const runningTool = toolCalls.find(tc => tc.status === "pending" || tc.status === "running");
-  if (!runningTool) return "";
-  
-  // For MCP tools, show server name
-  if (isMCPTool(runningTool.name)) {
-    return `Using ${getMCPServerName(runningTool.name)} (MCP)...`;
-  }
-  
-  return getToolActivityLabel(runningTool.name);
-}
-
-/**
- * Check if a tool is read-only (should be shown as minimal one-liner)
- */
-function isReadOnlyTool(name: string): boolean {
-  return ["file_read", "glob", "grep", "tool_docs"].includes(name);
-}
-
-/**
- * Minimal one-liner display for read-only tools (file_read, glob, grep)
- * Shows dim status indicator + title, no expand option
- */
-function ReadOnlyToolDisplay(props: { toolCall: ToolCallInfo }): JSX.Element {
-  const title = () => getToolTitle(
-    props.toolCall.name,
-    props.toolCall.arguments,
-    props.toolCall.metadata
-  );
-  
-  const status = () => props.toolCall.status;
-  
-  // Status indicator: ~ running, checkmark success, x error
-  const statusIndicator = () => {
-    switch (status()) {
-      case "pending":
-      case "running":
-        return "~";
-      case "success":
-        return "\u2713"; // checkmark
-      case "error":
-        return "!";
-      case "cancelled":
-        return "X";
-      default:
-        return " ";
-    }
-  };
-  
-  const statusColor = () => {
-    switch (status()) {
-      case "pending":
-      case "running":
-        return Colors.ui.primary;
-      case "success":
-        return Colors.status.success;
-      case "error":
-      case "cancelled":
-        return Colors.status.error;
-      default:
-        return Colors.ui.dim;
-    }
-  };
-  
-  return (
-    <box flexDirection="row" height={1}>
-      <text fg={statusColor()}>{statusIndicator()} </text>
-      <text fg={Colors.ui.dim}>{title()}</text>
-    </box>
-  );
-}
-
 /**
  * Render a single tool call with inline summary display (Option A)
  * 
  * Display modes:
- * - Read-only tools (file_read, glob, grep): Minimal one-liner, no expand
  * - Running/Pending: Shows `~ tool_title` with running indicator
  * - Success: Shows `✓ tool_title` as compact one-liner (expandable if has content)
  * - Error: Shows `✗ tool_title` auto-expanded with error details
  * - Verbose mode: All tools default expanded
  */
 function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean }): JSX.Element {
-  // Read-only tools get minimal display (unless in verbose mode)
-  if (isReadOnlyTool(props.toolCall.name) && !props.verbose) {
-    return <ReadOnlyToolDisplay toolCall={props.toolCall} />;
-  }
-  
   const title = () => getToolTitle(
     props.toolCall.name,
     props.toolCall.arguments,
@@ -828,21 +683,11 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
     props.toolCall.status
   );
 
-  const status = () => props.toolCall.status;
-  const isRunning = () => status() === "pending" || status() === "running";
-  
-  // In verbose mode, default to expanded
-  // For errors, auto-expand
-  // For file modifications (write/edit), auto-expand to show diff
-  // For other success cases, default to collapsed (compact inline summary)
+  // pi-mono style:
+  // - collapsed by default
+  // - global expand toggle controls full expansion
   const defaultExpanded = () => {
-    if (props.verbose === true) return true;
-    if (isRunning() && props.toolCall.name === "task") return true;
-    // Auto-expand file modifications to show DiffView
-    if (status() === "success" && ["file_write", "file_edit", "todo_write", "todo_read"].includes(props.toolCall.name)) {
-      return true;
-    }
-    return false; // Other success cases = collapsed by default
+    return props.verbose === true;
   };
 
   // For successful completions without meaningful expanded content, 
@@ -871,9 +716,7 @@ export function MessageBlock(props: MessageBlockProps) {
     }
   };
   // Access session context for verbose setting
-  const { verboseTools } = useSession();
-  
-  const parsed = () => parseMarkdown(props.message.content);
+  const { verboseTools, hideThinkingBlocks } = useSession();
 
   const isUser = () => props.message.role === "user";
   const model = () => props.message.model || "GLM-4.7";
@@ -893,9 +736,47 @@ export function MessageBlock(props: MessageBlockProps) {
   };
   const thinkingSegments = () =>
     reasoningSegments().filter((segment) => segment.content && segment.content.trim().length > 0);
-  const showThinking = () => thinkingSegments().length > 0;
+  const orderedBlocks = () => {
+    if (props.message.contentBlocks && props.message.contentBlocks.length > 0) {
+      return props.message.contentBlocks;
+    }
 
-  const toolEntries = () => toolCalls().map((toolCall, index) => ({ toolCall, index }));
+    // Legacy fallback for old sessions/messages that only have separate fields.
+    const blocks: AssistantContentBlock[] = [];
+    const segments = thinkingSegments();
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (!seg || !seg.content || !seg.content.trim()) continue;
+      blocks.push({
+        id: `legacy-thinking-${i}`,
+        type: "thinking",
+        thinking: seg.content,
+      });
+    }
+
+    if (props.message.content && props.message.content.trim()) {
+      blocks.push({
+        id: "legacy-text",
+        type: "text",
+        text: props.message.content,
+      });
+    }
+
+    for (const tc of toolCalls()) {
+      blocks.push({
+        id: `legacy-tool-${tc.id}`,
+        type: "tool_call",
+        toolCallId: tc.id,
+      });
+    }
+
+    return blocks;
+  };
+
+  const hasAssistantBlocks = () => orderedBlocks().length > 0;
+  const showInitialThinking = () => isStreaming() && !hasAssistantBlocks();
+
   const getAttemptNumber = (index: number) => {
     const allToolCalls = toolCalls();
     const current = allToolCalls[index];
@@ -912,6 +793,55 @@ export function MessageBlock(props: MessageBlockProps) {
     }
 
     return attempts > 1 ? attempts : undefined;
+  };
+
+  const renderAssistantBlock = (block: AssistantContentBlock) => {
+    if (block.type === "text") {
+      return (
+        <box flexDirection="column" marginTop={1}>
+          {renderMarkdownContent(block.text)}
+        </box>
+      );
+    }
+
+    if (block.type === "thinking") {
+      if (hideThinkingBlocks()) {
+        return (
+          <box flexDirection="row" marginTop={1}>
+            <text fg={Colors.ui.dim}><em>Thinking...</em></text>
+          </box>
+        );
+      }
+
+      return (
+        <ThinkingBlock
+          content={block.thinking}
+          mode={mode()}
+        />
+      );
+    }
+
+    const list = toolCalls();
+    const toolIndex = list.findIndex((toolCall) => toolCall.id === block.toolCallId);
+    if (toolIndex === -1) return null;
+
+    const toolCall = list[toolIndex];
+    if (!toolCall) return null;
+
+    const attempt = getAttemptNumber(toolIndex);
+    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
+      toolCall,
+      verbose: verboseTools(),
+    };
+    if (attempt !== undefined) {
+      displayProps.attemptNumber = attempt;
+    }
+
+    return (
+      <box flexDirection="column" marginTop={1}>
+        <ToolCallDisplay {...displayProps} />
+      </box>
+    );
   };
   
   // User accent color is gray (dim) - distinct from mode-colored AI messages
@@ -973,84 +903,55 @@ export function MessageBlock(props: MessageBlockProps) {
               </Show>
             </box>
             
-            {/* Bouncing dots during initial processing (before content/reasoning arrives) */}
-            <Show when={isStreaming() && !props.message.content && thinkingSegments().length === 0}>
+            {/* Bouncing dots during initial processing (before first block arrives) */}
+            <Show when={showInitialThinking()}>
               <box flexDirection="row" marginTop={1}>
                 <text fg={Colors.ui.dim}>Thinking </text>
                 <BouncingDots color={modeColor()} />
               </box>
             </Show>
-            
-            {/* Thinking/Reasoning content - collapsible block */}
-            <Show when={showThinking()}>
-              <For each={thinkingSegments()}>
-                {(segment) => (
-                  <ThinkingBlock
-                    content={segment.content}
-                    streaming={segment.streaming}
-                    mode={mode()}
-                  />
-                )}
-              </For>
-            </Show>
-            
-            {/* Message content - custom markdown parser */}
-            <Show when={props.message.content}>
-              <box flexDirection="column" marginTop={1}>
-                <For each={parsed()}>
-                  {(node: MarkdownNode) => renderMarkdownNode(node)}
+
+            {/* Ordered assistant stream blocks (text/thinking/tool_call) */}
+            <Show when={hasAssistantBlocks()}>
+              <box flexDirection="column">
+                <For each={orderedBlocks()}>
+                  {(block) => renderAssistantBlock(block)}
                 </For>
               </box>
             </Show>
-            
-            {/* Tool calls with activity label */}
-            <Show when={toolCalls().length > 0}>
-              <box flexDirection="column" marginTop={1}>
-                {/* Activity status label (only when a tool is running) */}
-                <Show when={getCurrentActivityLabel(toolCalls())}>
-                  <box flexDirection="row" marginBottom={1}>
-                    <text fg={Colors.ui.primary}>
-                      {getCurrentActivityLabel(toolCalls())}
-                    </text>
-                  </box>
-                </Show>
 
-                <Show
-                  when={!verboseTools()}
-                  fallback={
-                    <For each={toolCalls()}>
-                      {(toolCall, index) => {
-                        const attempt = getAttemptNumber(index());
-
-                        const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
-                          toolCall,
-                          verbose: true,
-                        };
-                        if (attempt !== undefined) {
-                          displayProps.attemptNumber = attempt;
-                        }
-
-                        return <ToolCallDisplay {...displayProps} />;
-                      }}
-                    </For>
-                  }
+            <Show when={props.message.validation && (props.message.validation.findings.length > 0 || props.message.validation.nextSteps.length > 0)}>
+              {(validation: () => ValidationSummary) => (
+                <box
+                  flexDirection="column"
+                  marginTop={1}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor="#1a1a1a"
                 >
-                  {/* Show all tool calls in non-verbose mode (ghosted titles, colored status) */}
-                  <For each={toolEntries()}>
-                    {(entry) => {
-                      const attempt = getAttemptNumber(entry.index);
-                      const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
-                        toolCall: entry.toolCall,
-                        verbose: false,
-                      };
-                      if (attempt !== undefined) {
-                        displayProps.attemptNumber = attempt;
-                      }
-                      return <ToolCallDisplay {...displayProps} />;
-                    }}
-                  </For>
-                </Show>
-              </box>
+                  <text fg={Colors.ui.dim}><strong>Self-check</strong></text>
+                  <Show when={validation().findings.length > 0}>
+                    <box flexDirection="column" marginTop={1}>
+                      <text fg={Colors.ui.dim}>Findings</text>
+                      <For each={validation().findings}>
+                        {(item) => (
+                          <text fg={Colors.ui.dim}>- {item}</text>
+                        )}
+                      </For>
+                    </box>
+                  </Show>
+                  <Show when={validation().nextSteps.length > 0}>
+                    <box flexDirection="column" marginTop={1}>
+                      <text fg={Colors.ui.dim}>Next steps</text>
+                      <For each={validation().nextSteps}>
+                        {(item) => (
+                          <text fg={Colors.ui.dim}>- {item}</text>
+                        )}
+                      </For>
+                    </box>
+                  </Show>
+                </box>
+              )}
             </Show>
             
             {/* Turn footer - only show when not streaming */}
@@ -1113,11 +1014,7 @@ export function MessageBlock(props: MessageBlockProps) {
           {/* Empty row above user content */}
           <box height={1} />
           <Show when={props.message.content}>
-            <box flexDirection="column">
-              <For each={parsed()}>
-                {(node: MarkdownNode) => renderMarkdownNode(node)}
-              </For>
-            </box>
+            {renderMarkdownContent(props.message.content)}
           </Show>
           {/* Empty row below user content */}
           <box height={1} />

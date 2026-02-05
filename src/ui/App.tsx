@@ -28,7 +28,7 @@ import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import { Tool } from "../tools/registry";
 import { resetAutoApproval, setAutoApprovalGranted, setCurrentMode } from "../tools/mode-state";
-import { type ToolCallInfo, type ReasoningSegment } from "./components/MessageBlock";
+import { type AssistantContentBlock, type ToolCallInfo } from "./components/MessageBlock";
 import { type ToolMetadata } from "../types/tool-metadata";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
@@ -37,6 +37,7 @@ import { startEventLoopLagMonitor } from "../util/lag-monitor";
 import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
+import { createSelfCheckSummary } from "./self-check";
 
 /**
  * Join content sections with normalized whitespace.
@@ -55,46 +56,6 @@ function joinContentSections(base: string, addition: string): string {
   
   // Join with double newline (paragraph break)
   return trimmedBase + "\n\n" + trimmedAddition;
-}
-
-/**
- * Ensure assistant responses include Findings and Next steps sections.
- * If missing, append minimal fallback sections (with tool call summary when available).
- */
-function ensureFindingsNextSteps(content: string, toolCalls: ToolCallInfo[]): string {
-  const hasFindings = /(^|\n)\s*(#{1,3}\s*)?(\*\*)?findings(\*\*)?\b/i.test(content);
-  const hasNext = /(^|\n)\s*(#{1,3}\s*)?(\*\*)?next steps?(\*\*)?\b/i.test(content);
-  if (hasFindings && hasNext) return content;
-
-  const formatToolCall = (toolCall: ToolCallInfo): string => {
-    const meta = toolCall.metadata as Record<string, unknown> | undefined;
-    const suffix =
-      (meta?.["filePath"] ? ` ${String(meta["filePath"])}` : "") ||
-      (meta?.["command"] ? ` "${String(meta["command"])}"` : "") ||
-      (meta?.["pattern"] ? ` "${String(meta["pattern"])}"` : "") ||
-      (meta?.["description"] ? ` "${String(meta["description"])}"` : "");
-    const status = toolCall.status || "unknown";
-    return `- ${toolCall.name}${suffix} (${status})`;
-  };
-
-  const fallbackFindings =
-    toolCalls.length > 0
-      ? toolCalls.map(formatToolCall).join("\n")
-      : "- (No tool actions)";
-  const fallbackNextSteps = "- Awaiting your direction";
-
-  const appendSection = (base: string, title: string, body: string) =>
-    `${base}${base ? "\n\n" : ""}**${title}**\n${body}`;
-
-  let updated = content.trimEnd();
-  if (!hasFindings) {
-    updated = appendSection(updated, "Findings", fallbackFindings);
-  }
-  if (!hasNext) {
-    updated = appendSection(updated, "Next steps", fallbackNextSteps);
-  }
-
-  return updated;
 }
 
 /**
@@ -964,7 +925,7 @@ function buildAPIMessages(
 
 // App that decides between welcome screen and session view
 function AppWithSession(props: { showSessionPicker?: boolean }) {
-  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit } = useSession();
+  const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, setHideThinkingBlocks, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit } = useSession();
   const { mode, setMode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
   const queue = useQueue();
@@ -973,55 +934,105 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
   const [isLoading, setIsLoading] = createSignal(false);
   
-  // Reasoning segment helpers (per-phase thinking blocks)
-  const getReasoningSegments = (messageId: string): ReasoningSegment[] => {
+  // Ordered assistant block helpers (pi-mono style stream ordering)
+  const getContentBlocks = (messageId: string): AssistantContentBlock[] => {
     const msg = messages().find((m) => m.id === messageId);
-    return msg?.reasoningSegments ? msg.reasoningSegments.map((seg) => ({ ...seg })) : [];
-  };
-  
-  const beginReasoningSegment = (messageId: string): ReasoningSegment[] => {
-    const existing = getReasoningSegments(messageId).map((seg) =>
-      seg.streaming ? { ...seg, streaming: false } : seg
-    );
-    const updated = [...existing, { content: "", streaming: true }];
-    updateMessage(messageId, { reasoningSegments: updated });
-    return updated;
-  };
-  
-  const updateReasoningSegment = (messageId: string, content: string): void => {
-    const segments = getReasoningSegments(messageId);
-    if (segments.length === 0) {
-      return;
-    }
-    const lastIndex = segments.length - 1;
-    const updated = [...segments];
-    updated[lastIndex] = { ...updated[lastIndex], content, streaming: true };
-    updateMessage(messageId, { reasoningSegments: updated });
-  };
-  
-  const finalizeReasoningSegments = (messageId: string): void => {
-    const segments = getReasoningSegments(messageId);
-    if (segments.length === 0) return;
-    
-    let changed = false;
-    const updated = segments.map((seg) => {
-      if (seg.streaming) {
-        changed = true;
-        return { ...seg, streaming: false };
-      }
-      return seg;
-    });
-    
-    if (changed) {
-      updateMessage(messageId, { reasoningSegments: updated });
-    }
+    return msg?.contentBlocks ? msg.contentBlocks.map((block) => ({ ...block })) : [];
   };
 
-  const getToolCallsForMessage = (messageId: string): ToolCallInfo[] => {
+  const appendTextBlockDelta = (messageId: string, delta: string, forceNewBlock: boolean = false): void => {
+    if (!delta) return;
+    const blocks = getContentBlocks(messageId);
+    const last = blocks[blocks.length - 1];
+
+    if (!forceNewBlock && last && last.type === "text") {
+      blocks[blocks.length - 1] = {
+        ...last,
+        text: last.text + delta,
+      };
+    } else {
+      blocks.push({
+        id: `text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: "text",
+        text: delta,
+      });
+    }
+
+    updateMessage(messageId, { contentBlocks: blocks });
+  };
+
+  const appendThinkingBlockDelta = (messageId: string, delta: string, forceNewBlock: boolean = false): void => {
+    if (!delta) return;
+    const blocks = getContentBlocks(messageId);
+    const last = blocks[blocks.length - 1];
+
+    if (!forceNewBlock && last && last.type === "thinking") {
+      blocks[blocks.length - 1] = {
+        ...last,
+        thinking: last.thinking + delta,
+      };
+    } else {
+      blocks.push({
+        id: `thinking-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: "thinking",
+        thinking: delta,
+      });
+    }
+
+    updateMessage(messageId, { contentBlocks: blocks });
+  };
+
+  const upsertToolCallBlock = (messageId: string, toolCallId: string): void => {
+    if (!toolCallId) return;
+    const blocks = getContentBlocks(messageId);
+    const exists = blocks.some((block) => block.type === "tool_call" && block.toolCallId === toolCallId);
+    if (exists) return;
+
+    blocks.push({
+      id: `tool-${toolCallId}`,
+      type: "tool_call",
+      toolCallId,
+    });
+    updateMessage(messageId, { contentBlocks: blocks });
+  };
+
+  const getMessageToolCalls = (messageId: string): ToolCallInfo[] => {
     const msg = messages().find((m) => m.id === messageId);
     return msg?.toolCalls ? [...msg.toolCalls] : [];
   };
-  
+
+  const mergeToolCalls = (messageId: string, incoming: ToolCallInfo[]): ToolCallInfo[] => {
+    if (incoming.length === 0) return getMessageToolCalls(messageId);
+
+    const existing = getMessageToolCalls(messageId);
+    const byId = new Map<string, ToolCallInfo>();
+
+    for (const toolCall of existing) {
+      byId.set(toolCall.id, toolCall);
+    }
+    for (const toolCall of incoming) {
+      byId.set(toolCall.id, toolCall);
+    }
+
+    // Preserve existing order, then append new ids in incoming order.
+    const ordered: ToolCallInfo[] = [];
+    const pushed = new Set<string>();
+    for (const toolCall of existing) {
+      const merged = byId.get(toolCall.id);
+      if (!merged || pushed.has(merged.id)) continue;
+      ordered.push(merged);
+      pushed.add(merged.id);
+    }
+    for (const toolCall of incoming) {
+      const merged = byId.get(toolCall.id);
+      if (!merged || pushed.has(merged.id)) continue;
+      ordered.push(merged);
+      pushed.add(merged.id);
+    }
+
+    return ordered;
+  };
+
   // Track if user has ever started a session (to keep session view after /clear or /new)
   const [hasStartedSession, setHasStartedSession] = createSignal(false);
   
@@ -1099,6 +1110,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     statusFlashTimeout = setTimeout(() => {
       setStatusFlash(null);
     }, 5000);
+  };
+
+  const toggleThinkingBlockVisibility = () => {
+    setHideThinkingBlocks((current) => {
+      const next = !current;
+      showStatusFlash(`Thinking blocks: ${next ? "hidden" : "visible"}`);
+      return next;
+    });
   };
   
   // Check if user has seen welcome screen on mount
@@ -1486,10 +1505,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             return tc;
           });
 
-          // Append interruption notice to the message
-          const interruptedContent = lastMsg.content 
-            ? lastMsg.content + "\n\n---\n*[Response interrupted by user]*"
+          // Append interruption notice to message content and ordered blocks
+          const interruptionSuffix = lastMsg.content
+            ? "\n\n---\n*[Response interrupted by user]*"
             : "*[Response interrupted by user]*";
+          appendTextBlockDelta(lastMsg.id, interruptionSuffix, true);
+          const interruptedContent = lastMsg.content
+            ? lastMsg.content + interruptionSuffix
+            : interruptionSuffix;
           updateMessage(lastMsg.id, { 
             content: interruptedContent,
             streaming: false,
@@ -1523,6 +1546,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       setShowQueueOverlay((prev) => !prev);
       return;
     }
+
+    // Ctrl+G to toggle thinking block visibility (pi-mono style)
+    if (key.ctrl && key.name === "g") {
+      toggleThinkingBlockVisibility();
+      return;
+    }
   });
 
   // Execute tools and continue conversation with tool results
@@ -1545,7 +1574,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       // Update status to running
       toolCall.status = "running";
       updateMessage(assistantMsgId, {
-        toolCalls: [...toolCalls],
+        toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
       });
       
       try {
@@ -1595,7 +1624,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           toolCall.metadata = result.metadata as unknown as ToolMetadata;
         }
         updateMessage(assistantMsgId, {
-          toolCalls: [...toolCalls],
+          toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
         });
         
         // Record tool call for stats
@@ -1609,7 +1638,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         toolCall.status = "error";
         toolCall.result = error instanceof Error ? error.message : "Unknown error";
         updateMessage(assistantMsgId, {
-          toolCalls: [...toolCalls],
+          toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
         });
         
         // Record failed tool call
@@ -1686,11 +1715,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       let accumulatedContent = "";
       let accumulatedReasoning = "";
       const newToolCallsMap = new Map<number, ToolCallInfo>();
-      let reasoningSegmentStarted = false;
+      let textBlockStarted = false;
+      let thinkingBlockStarted = false;
       
       newProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
+          appendTextBlockDelta(newAssistantMsgId, event.delta, !textBlockStarted);
+          textBlockStarted = true;
           // Append new content to base content (single message block)
           // Use joinContentSections to normalize whitespace and prevent excessive blank lines
           const fullContent = joinContentSections(baseContent, accumulatedContent);
@@ -1699,10 +1731,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           });
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
-          if (!reasoningSegmentStarted) {
-            reasoningSegmentStarted = true;
-            beginReasoningSegment(newAssistantMsgId);
-          }
+          appendThinkingBlockDelta(newAssistantMsgId, event.delta, !thinkingBlockStarted);
+          thinkingBlockStarted = true;
           // Append reasoning (though typically reasoning is separate per turn)
           const fullReasoning = baseReasoning
             ? baseReasoning + "\n" + accumulatedReasoning
@@ -1710,7 +1740,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           updateMessage(newAssistantMsgId, {
             reasoning: fullReasoning,
           });
-          updateReasoningSegment(newAssistantMsgId, accumulatedReasoning);
         } else if (event.type === "tool_call_start") {
           const toolCallInfo: ToolCallInfo = {
             id: event.id,
@@ -1719,15 +1748,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             status: "pending",
           };
           newToolCallsMap.set(event.index, toolCallInfo);
+          upsertToolCallBlock(newAssistantMsgId, event.id);
           updateMessage(newAssistantMsgId, {
-            toolCalls: Array.from(newToolCallsMap.values()),
+            toolCalls: mergeToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values())),
           });
         } else if (event.type === "tool_call_delta") {
           const existing = newToolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
             updateMessage(newAssistantMsgId, {
-              toolCalls: Array.from(newToolCallsMap.values()),
+              toolCalls: mergeToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values())),
             });
           }
         } else if (event.type === "done") {
@@ -1743,9 +1773,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           }
           
           const hasToolCalls = event.state.finishReason === "tool_calls" && newToolCallsMap.size > 0;
-          
-          // Mark current reasoning segment complete
-          finalizeReasoningSegments(newAssistantMsgId);
           
           // Keep streaming on during tool execution to keep UI pinned
           updateMessage(newAssistantMsgId, { streaming: hasToolCalls ? true : false });
@@ -1769,11 +1796,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             );
           } else {
             const fullContent = joinContentSections(baseContent, accumulatedContent);
-            const finalContent = ensureFindingsNextSteps(
-              fullContent,
-              getToolCallsForMessage(newAssistantMsgId)
-            );
-            updateMessage(newAssistantMsgId, { content: finalContent });
+            const selfCheck = createSelfCheckSummary(getMessageToolCalls(newAssistantMsgId));
+            updateMessage(newAssistantMsgId, { content: fullContent, validation: selfCheck });
             setIsLoading(false);
             setStreamProc(null);
             // Save after AI response completes (event-driven, not interval-based)
@@ -1802,8 +1826,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       
       await newProcessor.process(stream);
     } catch (error) {
+      const selfCheck = createSelfCheckSummary(getMessageToolCalls(newAssistantMsgId));
       updateMessage(newAssistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        validation: selfCheck,
       });
       setIsLoading(false);
       setStreamProc(null);
@@ -1972,6 +1998,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         // No confirmation overlay - just toggle silently
         return;
       }
+
+      // Handle /thinking-blocks (and aliases) - toggle thinking block visibility
+      if (parsed && (parsed.name === "thinking-blocks" || parsed.name === "toggle-thinking-blocks" || parsed.name === "thinking")) {
+        toggleThinkingBlockVisibility();
+        return;
+      }
       
       // Handle /compact - set "Compacted:" prefix on header (no confirmation overlay)
       if (parsed && parsed.name === "compact") {
@@ -2051,7 +2083,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     const currentMode = mode() as typeof MODES[number];
 
     // Add assistant message placeholder with streaming flag and current mode
-    addMessage({ role: "assistant", content: "", streaming: true, mode: currentMode, model: model() });
+    addMessage({ role: "assistant", content: "", streaming: true, mode: currentMode, model: model(), contentBlocks: [] });
 
     // Get the assistant message ID (last message)
     const updatedMessages = messages();
@@ -2094,7 +2126,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       let accumulatedContent = "";
       let accumulatedReasoning = "";
       const toolCallsMap = new Map<number, ToolCallInfo>();
-      let reasoningSegmentStarted = false;
+      let textBlockStarted = false;
+      let thinkingBlockStarted = false;
 
       // Handle stream events - batch updates at 16ms (~60fps) for smooth rendering
       processor.onEvent((event: StreamEvent) => {
@@ -2106,18 +2139,17 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
               content: accumulatedContent,
             });
           }, Timing.batchInterval);
+          appendTextBlockDelta(assistantMsgId, event.delta, !textBlockStarted);
+          textBlockStarted = true;
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
-          if (!reasoningSegmentStarted) {
-            reasoningSegmentStarted = true;
-            beginReasoningSegment(assistantMsgId);
-          }
+          appendThinkingBlockDelta(assistantMsgId, event.delta, !thinkingBlockStarted);
+          thinkingBlockStarted = true;
           // Batch reasoning updates
           batchUpdate("stream-reasoning", () => {
             updateMessage(assistantMsgId, {
               reasoning: accumulatedReasoning,
             });
-            updateReasoningSegment(assistantMsgId, accumulatedReasoning);
           }, Timing.batchInterval);
         } else if (event.type === "tool_call_start") {
           // New tool call starting - update immediately for responsiveness
@@ -2128,8 +2160,9 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             status: "pending",
           };
           toolCallsMap.set(event.index, toolCall);
+          upsertToolCallBlock(assistantMsgId, event.id);
           updateMessage(assistantMsgId, {
-            toolCalls: Array.from(toolCallsMap.values()),
+            toolCalls: mergeToolCalls(assistantMsgId, Array.from(toolCallsMap.values())),
           });
         } else if (event.type === "tool_call_delta") {
           // Tool call arguments streaming in - batch these updates
@@ -2138,7 +2171,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             existing.arguments += event.arguments;
             batchUpdate("stream-tools", () => {
               updateMessage(assistantMsgId, {
-                toolCalls: Array.from(toolCallsMap.values()),
+                toolCalls: mergeToolCalls(assistantMsgId, Array.from(toolCallsMap.values())),
               });
             }, Timing.batchInterval);
           }
@@ -2162,9 +2195,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           
           const hasToolCalls = event.state.finishReason === "tool_calls" && toolCallsMap.size > 0;
           
-          // Stream finished - mark current reasoning segment complete
-          finalizeReasoningSegments(assistantMsgId);
-          
           // Keep streaming on during tool execution to keep UI pinned
           updateMessage(assistantMsgId, { streaming: hasToolCalls ? true : false });
           
@@ -2174,11 +2204,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             // First call: content for this turn = accumulated content, total for UI = same
             executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
           } else {
-            const finalContent = ensureFindingsNextSteps(
-              accumulatedContent,
-              getToolCallsForMessage(assistantMsgId)
-            );
-            updateMessage(assistantMsgId, { content: finalContent });
+            const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+            updateMessage(assistantMsgId, { content: accumulatedContent, validation: selfCheck });
             setIsLoading(false);
             setStreamProc(null);
             // Save after AI response completes (event-driven, not interval-based)
@@ -2204,8 +2231,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       await processor.process(stream);
     } catch (error) {
       // Update assistant message with error
+      const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
       updateMessage(assistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        validation: selfCheck,
       });
       setIsLoading(false);
       setStreamProc(null);

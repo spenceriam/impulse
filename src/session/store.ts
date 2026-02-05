@@ -38,13 +38,26 @@ export interface Message {
   role: "user" | "assistant" | "system"
   content: string
   reasoning_content?: string
+  content_blocks?: MessageContentBlock[]
+  validation?: MessageValidation
   timestamp: string
   tool_calls?: ToolCall[]
   mode?: string       // Mode used when generating (for assistant messages)
   model?: string      // Model used (e.g., "glm-4.7")
 }
 
+export type MessageContentBlock =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "thinking"; thinking: string }
+  | { id: string; type: "tool_call"; tool_call_id: string };
+
+export interface MessageValidation {
+  findings: string[]
+  nextSteps: string[]
+}
+
 export interface ToolCall {
+  id?: string
   tool: string
   arguments: Record<string, unknown>
   result?: ToolResult

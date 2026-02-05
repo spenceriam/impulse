@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.29.0
+- **Version:** v0.33.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
@@ -126,6 +126,9 @@
 - [x] Chat auto-scroll stays pinned during streaming updates
 - [x] Paste renders as numbered hidden-input indicator blocks with line wrapping
 - [x] Todos scoped to chat session with current-task snapshot
+- [x] Chat view now renders ordered assistant blocks (text/thinking/tools)
+- [x] Self-check panel captures Findings + Next steps from tool outcomes
+- [x] Question tool outputs render as structured summaries in tool blocks
 
 ## Version Bumping Protocol
 
