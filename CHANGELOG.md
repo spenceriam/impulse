@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prompt ghost text overlap** - Placeholder text no longer appears when pasted text/image tokens exist.
 - **ESC clear with hidden paste tokens** - Double-ESC now clears paste-token state even when the visible prompt text is empty.
 - **Wrapped paste line counts** - Pasted-line indicators now reflect visual wrapped lines, not only newline characters.
+- **Automatic language fallback** - Predominantly Chinese assistant responses are now detected and retried automatically with an English-only instruction.
 
 ## [0.33.0] - 2026-02-05
 

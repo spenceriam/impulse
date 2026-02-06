@@ -128,6 +128,7 @@
 - [x] Active task/question calls show specific processing labels
 - [x] Pasted text tokens render inline; image paste remains attachment-style
 - [x] Self-check renders only in DEBUG or verbose mode
+- [x] Non-English (Chinese) responses auto-retry in English
 - [x] Chat auto-scroll stays pinned during streaming updates
 - [x] Paste renders as numbered hidden-input indicator blocks with line wrapping
 - [x] Todos scoped to chat session with current-task snapshot

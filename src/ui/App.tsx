@@ -38,6 +38,7 @@ import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAP
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
 import { createSelfCheckSummary } from "./self-check";
+import { ENGLISH_RETRY_PROMPT, shouldRetryInEnglish } from "./language-guard";
 
 /**
  * Join content sections with normalized whitespace.
@@ -1129,6 +1130,104 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       return next;
     });
   };
+
+  const retryAssistantInEnglish = async (
+    assistantMsgId: string,
+    baseMessages: APIMessage[],
+    sourceContent: string,
+    sourceReasoning: string = ""
+  ) => {
+    showStatusFlash("Detected non-English response. Retrying in English...");
+
+    const retainedToolBlocks = getContentBlocks(assistantMsgId).filter(
+      (block) => block.type === "tool_call"
+    );
+    updateMessage(assistantMsgId, {
+      content: "",
+      reasoning: "",
+      contentBlocks: retainedToolBlocks,
+      streaming: true,
+    });
+
+    const assistantContextMessage: APIMessage = {
+      role: "assistant",
+      content: sourceContent || null,
+    };
+    if (sourceReasoning) {
+      assistantContextMessage.reasoning_content = sourceReasoning;
+    }
+
+    const retryMessages: APIMessage[] = [
+      ...baseMessages,
+      assistantContextMessage,
+      { role: "user", content: ENGLISH_RETRY_PROMPT },
+    ];
+
+    try {
+      const retryProcessor = new StreamProcessor();
+      setStreamProc(retryProcessor);
+
+      let retryContent = "";
+      let retryReasoning = "";
+      let textBlockStarted = false;
+      let thinkingBlockStarted = false;
+
+      retryProcessor.onEvent((event: StreamEvent) => {
+        if (event.type === "content") {
+          retryContent += event.delta;
+          batchUpdate("retry-stream-content", () => {
+            updateMessage(assistantMsgId, { content: retryContent });
+          }, Timing.batchInterval);
+          appendTextBlockDelta(assistantMsgId, event.delta, !textBlockStarted);
+          textBlockStarted = true;
+        } else if (event.type === "reasoning") {
+          retryReasoning += event.delta;
+          appendThinkingBlockDelta(assistantMsgId, event.delta, !thinkingBlockStarted);
+          thinkingBlockStarted = true;
+          batchUpdate("retry-stream-reasoning", () => {
+            updateMessage(assistantMsgId, { reasoning: retryReasoning });
+          }, Timing.batchInterval);
+        } else if (event.type === "done") {
+          flushBatch("retry-stream-content");
+          flushBatch("retry-stream-reasoning");
+          const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+          updateMessage(assistantMsgId, {
+            content: retryContent || sourceContent,
+            validation: selfCheck,
+            streaming: false,
+          });
+          setIsLoading(false);
+          setStreamProc(null);
+          saveAfterResponse();
+        }
+      });
+
+      const retryStream = GLMClient.stream({
+        messages: retryMessages as any,
+        model: model() as any,
+        signal: retryProcessor.getAbortSignal(),
+        thinking: {
+          type: thinking() ? "enabled" : "disabled",
+          clear_thinking: false,
+        },
+      });
+
+      await retryProcessor.process(retryStream);
+    } catch {
+      const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+      const fallbackContent = sourceContent
+        ? `${sourceContent}\n\n---\n*Automatic English retry failed. Please ask to rephrase in English.*`
+        : "*Automatic English retry failed. Please ask to rephrase in English.*";
+      updateMessage(assistantMsgId, {
+        content: fallbackContent,
+        validation: selfCheck,
+        streaming: false,
+      });
+      setIsLoading(false);
+      setStreamProc(null);
+      saveAfterResponse();
+    }
+  };
   
   // Check if user has seen welcome screen on mount
   // NOTE: Update check is now triggered AFTER Bus subscription is set up (see below)
@@ -1795,6 +1894,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             );
           } else {
             const fullContent = joinContentSections(baseContent, accumulatedContent);
+            const fullReasoning = joinContentSections(baseReasoning, accumulatedReasoning);
+            if (shouldRetryInEnglish(fullContent)) {
+              void retryAssistantInEnglish(
+                newAssistantMsgId,
+                continuationMessages,
+                fullContent,
+                fullReasoning
+              );
+              return;
+            }
             const selfCheck = createSelfCheckSummary(getMessageToolCalls(newAssistantMsgId));
             updateMessage(newAssistantMsgId, { content: fullContent, validation: selfCheck });
             setIsLoading(false);
@@ -2198,6 +2307,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             // First call: content for this turn = accumulated content, total for UI = same
             executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
           } else {
+            if (shouldRetryInEnglish(accumulatedContent)) {
+              void retryAssistantInEnglish(
+                assistantMsgId,
+                apiMessages,
+                accumulatedContent,
+                accumulatedReasoning
+              );
+              return;
+            }
             const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
             updateMessage(assistantMsgId, { content: accumulatedContent, validation: selfCheck });
             setIsLoading(false);
