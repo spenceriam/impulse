@@ -5,6 +5,30 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-02-06
+
+**Type:** minor  
+**Title:** Chat runtime polish, mode-safe delegation, and clearer input/paste UX
+
+### Added
+
+- **Planning-mode subagent guardrails** - PLANNER and PLAN-PRD now expose explore-only delegation and reject non-explore subagent execution.
+- **Command registry alias de-duplication tests** - Added regression coverage to keep slash-command autocomplete free of duplicate alias entries.
+- **Tool-call stream regression tests** - Added tests for delayed tool-call start handling and argument buffering across streamed chunks.
+
+### Changed
+
+- **Processing indicators are context-aware** - Active task and question tool calls now show specific in-block status labels, and duplicate global processing indicators are suppressed while tools are active.
+- **Self-check visibility is mode-aware** - Self-check panels now render only in DEBUG mode or when verbose mode is enabled.
+- **Pasted input UX is clearer** - Text pastes render as inline prompt tokens while image pastes remain attachment-style above the prompt.
+- **Planner/PRD prompting tightened** - Core and mode prompts now better enforce planning constraints and explicit delegation behavior.
+
+### Fixed
+
+- **Prompt ghost text overlap** - Placeholder text no longer appears when pasted text/image tokens exist.
+- **ESC clear with hidden paste tokens** - Double-ESC now clears paste-token state even when the visible prompt text is empty.
+- **Wrapped paste line counts** - Pasted-line indicators now reflect visual wrapped lines, not only newline characters.
+
 ## [0.33.0] - 2026-02-05
 
 **Type:** minor  
