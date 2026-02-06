@@ -1033,6 +1033,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     return ordered;
   };
 
+  const setMessageToolCalls = (messageId: string, incoming: ToolCallInfo[]): void => {
+    const merged = mergeToolCalls(messageId, incoming);
+    for (const toolCall of merged) {
+      if (toolCall.id) {
+        upsertToolCallBlock(messageId, toolCall.id);
+      }
+    }
+    updateMessage(messageId, { toolCalls: merged });
+  };
+
   // Track if user has ever started a session (to keep session view after /clear or /new)
   const [hasStartedSession, setHasStartedSession] = createSignal(false);
   
@@ -1573,9 +1583,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     for (const toolCall of toolCalls) {
       // Update status to running
       toolCall.status = "running";
-      updateMessage(assistantMsgId, {
-        toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
-      });
+      setMessageToolCalls(assistantMsgId, [...toolCalls]);
       
       try {
         // Parse arguments
@@ -1623,9 +1631,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           // Cast to ToolMetadata - tools return typed metadata with discriminated 'type' field
           toolCall.metadata = result.metadata as unknown as ToolMetadata;
         }
-        updateMessage(assistantMsgId, {
-          toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
-        });
+        setMessageToolCalls(assistantMsgId, [...toolCalls]);
         
         // Record tool call for stats
         recordToolCall(toolCall.name, result.success);
@@ -1637,9 +1643,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         
         toolCall.status = "error";
         toolCall.result = error instanceof Error ? error.message : "Unknown error";
-        updateMessage(assistantMsgId, {
-          toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
-        });
+        setMessageToolCalls(assistantMsgId, [...toolCalls]);
         
         // Record failed tool call
         recordToolCall(toolCall.name, false);
@@ -1748,17 +1752,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             status: "pending",
           };
           newToolCallsMap.set(event.index, toolCallInfo);
-          upsertToolCallBlock(newAssistantMsgId, event.id);
-          updateMessage(newAssistantMsgId, {
-            toolCalls: mergeToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values())),
-          });
+          setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
         } else if (event.type === "tool_call_delta") {
           const existing = newToolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
-            updateMessage(newAssistantMsgId, {
-              toolCalls: mergeToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values())),
-            });
+            setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
           }
         } else if (event.type === "done") {
           // Record token usage if available
@@ -2160,19 +2159,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             status: "pending",
           };
           toolCallsMap.set(event.index, toolCall);
-          upsertToolCallBlock(assistantMsgId, event.id);
-          updateMessage(assistantMsgId, {
-            toolCalls: mergeToolCalls(assistantMsgId, Array.from(toolCallsMap.values())),
-          });
+          setMessageToolCalls(assistantMsgId, Array.from(toolCallsMap.values()));
         } else if (event.type === "tool_call_delta") {
           // Tool call arguments streaming in - batch these updates
           const existing = toolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
             batchUpdate("stream-tools", () => {
-              updateMessage(assistantMsgId, {
-                toolCalls: mergeToolCalls(assistantMsgId, Array.from(toolCallsMap.values())),
-              });
+              setMessageToolCalls(assistantMsgId, Array.from(toolCallsMap.values()));
             }, Timing.batchInterval);
           }
         } else if (event.type === "done") {

@@ -117,6 +117,10 @@ const SUBAGENT_DELEGATION = `
 
 Use the \`task\` tool to spawn subagents for complex operations. This keeps your context clean and enables parallel work.
 
+Planning mode restriction:
+- In PLANNER and PLAN-PRD, only \`subagent_type: "explore"\` is allowed.
+- \`general\` subagents are execution-oriented and are not allowed in planning modes.
+
 ### Available Subagents
 
 **explore** - Fast, read-only codebase search
@@ -136,6 +140,7 @@ ALWAYS delegate when:
 - The task requires multiple search/read iterations
 - You need to explore unfamiliar parts of the codebase
 - Tasks can be parallelized (launch multiple subagents concurrently)
+- In PLANNER/PLAN-PRD, use explore subagents to gather evidence before writing docs/PRD output
 
 Examples:
 \`\`\`
@@ -286,11 +291,25 @@ You should recognize when the conversation is shifting toward a different mode's
 |---------|----------|---------|
 | EXPLORE | PLAN-PRD | "I want to build...", "Let's create...", simple feature |
 | EXPLORE | PLANNER | Complex feature, needs architecture, multi-component |
+| AUTO | PLAN-PRD | Single feature, clear user outcome, lightweight planning needed |
+| AUTO | PLANNER | Broad/unclear scope, multiple systems, architecture or migration decisions needed |
 | EXPLORE | DEBUG | "Something's broken...", "This error...", "Why isn't..." |
 | EXPLORE | AGENT | User explicitly wants to start coding |
 | PLAN-PRD | AGENT | Requirements clear, user says "let's do it" |
 | PLANNER | AGENT | Plan complete, user approves design |
 | Any | EXPLORE | "Wait, explain...", "I don't understand...", "Back up..." |
+
+### PLAN-PRD vs PLANNER Rubric
+
+Use PLAN-PRD when most answers are "yes":
+- Is this mostly one feature or one user flow?
+- Can requirements fit in one concise PRD?
+- Is architecture impact localized?
+
+Use PLANNER when any of these are true:
+- Cross-cutting changes across modules/services
+- Significant unknowns, risks, or tradeoffs
+- Need phased rollout, migration, or deep technical design docs
 
 ### How to Suggest Mode Switches
 
@@ -414,8 +433,16 @@ Research and documentation mode. Focus on understanding the codebase, gathering 
 
 - Read-only file access
 - Create documentation in docs/ directory
+- Delegate research to \`task\` with \`subagent_type: "explore"\`
 - Research and analyze architecture
 - Produce design documents, task breakdowns, and technical specs
+
+### Use PLANNER When
+
+- Scope spans multiple systems, services, or teams
+- You need architecture decisions, tradeoff analysis, or phased rollout planning
+- You need multiple documentation artifacts (design docs, migration plans, implementation plans)
+- Requirements are ambiguous enough that broad exploration is required
 
 ### Diagrams in PLANNER Mode
 
@@ -439,11 +466,23 @@ Do NOT output Mermaid in chat responses - only in file_write to docs/*.md files.
 
 Quick PRD creation through Q&A. Ask clarifying questions to understand requirements, then produce a concise Product Requirements Document.
 
+### PLAN-PRD Capabilities
+
+- Read-only file access
+- Write \`PRD.md\` only
+- Delegate focused research with \`task\` using \`subagent_type: "explore"\` only
+
 ### PLAN-PRD Process
 
 1. Ask focused questions about the feature (use question tool)
 2. Clarify scope, constraints, and success criteria
 3. Produce a concise PRD
+
+### Use PLAN-PRD When
+
+- Work is a single feature or tightly scoped enhancement
+- Expected implementation can fit into a short execution cycle
+- The key outcome is one concise PRD rather than full architecture docs
 
 ### When to Suggest Mode Switches
 
@@ -519,8 +558,9 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   // Add mode switch instructions for all modes (intelligent transitions)
   parts.push(getPrompt("core", "mode-switch", MODE_SWITCH_INSTRUCTIONS));
 
-  // Add subagent delegation instructions for execution modes
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO") {
+  // Add subagent delegation instructions for all modes except EXPLORE.
+  // In planning modes, task is restricted to explore subagents only.
+  if (mode !== "EXPLORE") {
     parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
   }
 

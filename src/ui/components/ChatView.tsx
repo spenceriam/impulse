@@ -322,11 +322,10 @@ export function ChatView(props: ChatViewProps) {
             paddingTop: 1,
             paddingBottom: 1,
           },
-          contentOptions: {
-            onSizeChange: () => {
-              scheduleScroll(16, isLoading());
-            },
-          },
+          // IMPORTANT:
+          // Do not override contentOptions.onSizeChange.
+          // OpenTUI's ScrollBox uses that internal hook to recalculate
+          // scrollHeight/viewport metrics. Overriding it breaks scrolling.
           scrollbarOptions: {
             visible: false,
           },

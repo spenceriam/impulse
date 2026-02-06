@@ -18,6 +18,7 @@ import { TerminalOutput } from "./TerminalOutput";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { BouncingDots } from "./BouncingDots";
 import { useSession } from "../context/session";
+import { useMode } from "../context/mode";
 import { getModelDisplayName } from "../../constants";
 
 // Background colors for message types (per design spec)
@@ -544,11 +545,25 @@ function renderTodoSnapshot(metadata: TodoMetadata): JSX.Element {
  * Returns null if no expanded content available
  */
 function getExpandedContent(
-  _name: string,
+  name: string,
   metadata?: ToolMetadata,
   _result?: string,
   status?: "pending" | "running" | "success" | "error" | "cancelled"
 ): JSX.Element | null {
+  if ((status === "pending" || status === "running") && !metadata) {
+    const pendingLabel = name === "task"
+      ? "Sub-agent processing "
+      : name === "question"
+        ? "Question processing "
+        : "Processing ";
+    return (
+      <box flexDirection="row">
+        <text fg={Colors.ui.dim}>{pendingLabel}</text>
+        <BouncingDots color={Colors.ui.dim} />
+      </box>
+    );
+  }
+
   if (!metadata) return null;
 
   // Bash: use TerminalOutput component for proper terminal-style display
@@ -683,11 +698,20 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
     props.toolCall.status
   );
 
-  // pi-mono style:
-  // - collapsed by default
-  // - global expand toggle controls full expansion
+  // Keep high-signal outputs visible by default (diffs/todos), while
+  // preserving compact display for most tool calls.
   const defaultExpanded = () => {
-    return props.verbose === true;
+    if (props.verbose === true) return true;
+    if ((props.toolCall.status === "pending" || props.toolCall.status === "running") && props.toolCall.name === "task") {
+      return true;
+    }
+    if ((props.toolCall.status === "pending" || props.toolCall.status === "running") && props.toolCall.name === "question") {
+      return true;
+    }
+    if (props.toolCall.status === "success" && ["file_write", "file_edit", "todo_write", "todo_read"].includes(props.toolCall.name)) {
+      return true;
+    }
+    return false;
   };
 
   // For successful completions without meaningful expanded content, 
@@ -717,6 +741,7 @@ export function MessageBlock(props: MessageBlockProps) {
   };
   // Access session context for verbose setting
   const { verboseTools, hideThinkingBlocks } = useSession();
+  const { mode: appMode } = useMode();
 
   const isUser = () => props.message.role === "user";
   const model = () => props.message.model || "GLM-4.7";
@@ -724,6 +749,19 @@ export function MessageBlock(props: MessageBlockProps) {
   // AI messages use mode color; default to AUTO's color (soft white) if no mode set
   const modeColor = () => mode() ? getModeColor(mode()!) : Colors.mode.AUTO;
   const toolCalls = () => props.message.toolCalls ?? [];
+  const validationSummary = (): ValidationSummary => {
+    const raw = props.message.validation as Partial<ValidationSummary> | undefined;
+    const findings = Array.isArray(raw?.findings)
+      ? raw.findings.filter((item): item is string => typeof item === "string")
+      : [];
+    const nextSteps = Array.isArray(raw?.nextSteps)
+      ? raw.nextSteps.filter((item): item is string => typeof item === "string")
+      : [];
+    return { findings, nextSteps };
+  };
+  const showValidationSummary = () =>
+    (appMode() === "DEBUG" || verboseTools()) &&
+    (validationSummary().findings.length > 0 || validationSummary().nextSteps.length > 0);
   const isStreaming = () => props.message.streaming ?? false;
   const reasoningSegments = () => {
     if (props.message.reasoningSegments && props.message.reasoningSegments.length > 0) {
@@ -775,7 +813,16 @@ export function MessageBlock(props: MessageBlockProps) {
   };
 
   const hasAssistantBlocks = () => orderedBlocks().length > 0;
+  const hasActiveToolCall = () =>
+    toolCalls().some((toolCall) => toolCall.status === "pending" || toolCall.status === "running");
+  const hasHiddenThinkingPlaceholder = () =>
+    hideThinkingBlocks() && orderedBlocks().some((block) => block.type === "thinking");
   const showInitialThinking = () => isStreaming() && !hasAssistantBlocks();
+  const showStreamingIndicator = () =>
+    isStreaming() &&
+    hasAssistantBlocks() &&
+    !hasActiveToolCall() &&
+    !hasHiddenThinkingPlaceholder();
 
   const getAttemptNumber = (index: number) => {
     const allToolCalls = toolCalls();
@@ -808,7 +855,7 @@ export function MessageBlock(props: MessageBlockProps) {
       if (hideThinkingBlocks()) {
         return (
           <box flexDirection="row" marginTop={1}>
-            <text fg={Colors.ui.dim}><em>Thinking...</em></text>
+            <text fg={Colors.ui.dim}><em>Processing...</em></text>
           </box>
         );
       }
@@ -906,7 +953,7 @@ export function MessageBlock(props: MessageBlockProps) {
             {/* Bouncing dots during initial processing (before first block arrives) */}
             <Show when={showInitialThinking()}>
               <box flexDirection="row" marginTop={1}>
-                <text fg={Colors.ui.dim}>Thinking </text>
+                <text fg={Colors.ui.dim}>Processing </text>
                 <BouncingDots color={modeColor()} />
               </box>
             </Show>
@@ -920,8 +967,16 @@ export function MessageBlock(props: MessageBlockProps) {
               </box>
             </Show>
 
-            <Show when={props.message.validation && (props.message.validation.findings.length > 0 || props.message.validation.nextSteps.length > 0)}>
-              {(validation: () => ValidationSummary) => (
+            {/* Keep a live indicator visible while the turn is still streaming. */}
+            <Show when={showStreamingIndicator()}>
+              <box flexDirection="row" marginTop={1}>
+                <text fg={Colors.ui.dim}>Processing </text>
+                <BouncingDots color={modeColor()} />
+              </box>
+            </Show>
+
+            <Show when={showValidationSummary()}>
+              {(() => (
                 <box
                   flexDirection="column"
                   marginTop={1}
@@ -930,20 +985,20 @@ export function MessageBlock(props: MessageBlockProps) {
                   backgroundColor="#1a1a1a"
                 >
                   <text fg={Colors.ui.dim}><strong>Self-check</strong></text>
-                  <Show when={validation().findings.length > 0}>
+                  <Show when={validationSummary().findings.length > 0}>
                     <box flexDirection="column" marginTop={1}>
                       <text fg={Colors.ui.dim}>Findings</text>
-                      <For each={validation().findings}>
+                      <For each={validationSummary().findings}>
                         {(item) => (
                           <text fg={Colors.ui.dim}>- {item}</text>
                         )}
                       </For>
                     </box>
                   </Show>
-                  <Show when={validation().nextSteps.length > 0}>
+                  <Show when={validationSummary().nextSteps.length > 0}>
                     <box flexDirection="column" marginTop={1}>
                       <text fg={Colors.ui.dim}>Next steps</text>
-                      <For each={validation().nextSteps}>
+                      <For each={validationSummary().nextSteps}>
                         {(item) => (
                           <text fg={Colors.ui.dim}>- {item}</text>
                         )}
@@ -951,7 +1006,7 @@ export function MessageBlock(props: MessageBlockProps) {
                     </box>
                   </Show>
                 </box>
-              )}
+              ))()}
             </Show>
             
             {/* Turn footer - only show when not streaming */}

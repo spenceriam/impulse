@@ -3,6 +3,7 @@ import { Tool, ToolResult } from "./registry";
 import { GLMClient } from "../api/client";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
+import { getCurrentMode } from "./mode-state";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
 
@@ -218,6 +219,14 @@ export const taskTool: Tool<TaskInput> = Tool.define(
   TaskSchema,
   async (input: TaskInput): Promise<ToolResult> => {
     try {
+      const currentMode = getCurrentMode();
+      if ((currentMode === "PLANNER" || currentMode === "PLAN-PRD") && input.subagent_type !== "explore") {
+        return {
+          success: false,
+          output: `${currentMode} mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`,
+        };
+      }
+
       const result = await executeSubagent(
         input.subagent_type,
         input.prompt,

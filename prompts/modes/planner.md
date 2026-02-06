@@ -6,8 +6,16 @@ Research and documentation mode. Focus on understanding the codebase, gathering 
 
 - Read-only file access
 - Create documentation in docs/ directory
+- Delegate research to `task` with `subagent_type: "explore"`
 - Research and analyze architecture
 - Produce design documents, task breakdowns, and technical specs
+
+### Use PLANNER When
+
+- Scope spans multiple systems, services, or teams
+- You need architecture decisions, tradeoff analysis, or phased rollout planning
+- You need multiple documentation artifacts (design docs, migration plans, implementation plans)
+- Requirements are ambiguous enough that broad exploration is required
 
 ### Diagrams in PLANNER Mode
 

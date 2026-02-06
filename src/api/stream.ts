@@ -32,6 +32,8 @@ interface PartialToolCall {
   id: string;
   functionName: string;
   functionArguments: string;
+  // Whether a tool_call_start event has been emitted for this index.
+  startEmitted: boolean;
 }
 
 // Events emitted during streaming
@@ -100,17 +102,19 @@ export function processChunk(
             id: tc.id ?? "",
             functionName: tc.function?.name ?? "",
             functionArguments: tc.function?.arguments ?? "",
+            startEmitted: false,
           };
           state.toolCalls.set(tc.index, partial);
 
-          if (tc.id && tc.function?.name) {
+          if (partial.id && partial.functionName) {
             events.push({
               type: "tool_call_start",
               index: tc.index,
-              id: tc.id,
-              name: tc.function.name,
-              arguments: tc.function.arguments ?? "",
+              id: partial.id,
+              name: partial.functionName,
+              arguments: partial.functionArguments,
             });
+            partial.startEmitted = true;
           }
         } else {
           // Accumulate to existing tool call
@@ -118,6 +122,20 @@ export function processChunk(
           if (tc.function?.name) existing.functionName = tc.function.name;
           if (tc.function?.arguments) {
             existing.functionArguments += tc.function.arguments;
+          }
+
+          // Some providers stream id/name in later chunks. Emit start as soon as
+          // we have both fields, using all buffered args collected so far.
+          if (!existing.startEmitted && existing.id && existing.functionName) {
+            events.push({
+              type: "tool_call_start",
+              index: tc.index,
+              id: existing.id,
+              name: existing.functionName,
+              arguments: existing.functionArguments,
+            });
+            existing.startEmitted = true;
+          } else if (existing.startEmitted && tc.function?.arguments) {
             events.push({
               type: "tool_call_delta",
               index: tc.index,

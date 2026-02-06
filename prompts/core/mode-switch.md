@@ -8,11 +8,25 @@ You should recognize when the conversation is shifting toward a different mode's
 |---------|----------|---------|
 | EXPLORE | PLAN-PRD | "I want to build...", "Let's create...", simple feature |
 | EXPLORE | PLANNER | Complex feature, needs architecture, multi-component |
+| AUTO | PLAN-PRD | Single feature, clear user outcome, lightweight planning needed |
+| AUTO | PLANNER | Broad/unclear scope, multiple systems, architecture or migration decisions needed |
 | EXPLORE | DEBUG | "Something's broken...", "This error...", "Why isn't..." |
 | EXPLORE | AGENT | User explicitly wants to start coding |
 | PLAN-PRD | AGENT | Requirements clear, user says "let's do it" |
 | PLANNER | AGENT | Plan complete, user approves design |
 | Any | EXPLORE | "Wait, explain...", "I don't understand...", "Back up..." |
+
+### PLAN-PRD vs PLANNER Rubric
+
+Use PLAN-PRD when most answers are "yes":
+- Is this mostly one feature or one user flow?
+- Can requirements fit in one concise PRD?
+- Is architecture impact localized?
+
+Use PLANNER when any of these are true:
+- Cross-cutting changes across modules/services
+- Significant unknowns, risks, or tradeoffs
+- Need phased rollout, migration, or deep technical design docs
 
 ### How to Suggest Mode Switches
 

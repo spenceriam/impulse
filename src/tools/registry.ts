@@ -76,6 +76,10 @@ function getToolsForMode(mode: Mode): Set<string> {
         if (toolName === "file_write") {
           allowed.add(toolName);
         }
+        // Allow subagent delegation for research only (enforced by task handler).
+        if (toolName === "task") {
+          allowed.add(toolName);
+        }
         // Also allow todo tools for planning
         if (toolName === "todo_write") {
           allowed.add(toolName);
@@ -174,9 +178,14 @@ export namespace Tool {
         // For PLANNER/PLAN-PRD, modify file_write description to note restrictions
         let description = tool.description;
         if (tool.name === "file_write" && (mode === "PLANNER" || mode === "PLAN-PRD")) {
-          const restriction = mode === "PLANNER" 
+          const restriction = mode === "PLANNER"
             ? "RESTRICTED: Can only write to docs/ directory in PLANNER mode."
             : "RESTRICTED: Can only write PRD.md in PLAN-PRD mode.";
+          description = `${restriction}\n\n${description}`;
+        }
+
+        if (tool.name === "task" && (mode === "PLANNER" || mode === "PLAN-PRD")) {
+          const restriction = "RESTRICTED: In planning modes, only subagent_type=\"explore\" is allowed.";
           description = `${restriction}\n\n${description}`;
         }
 
