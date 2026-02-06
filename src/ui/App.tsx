@@ -38,6 +38,7 @@ import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAP
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
 import { createSelfCheckSummary } from "./self-check";
+import { ENGLISH_RETRY_PROMPT, shouldRetryInEnglish } from "./language-guard";
 
 /**
  * Join content sections with normalized whitespace.
@@ -1033,6 +1034,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     return ordered;
   };
 
+  const setMessageToolCalls = (messageId: string, incoming: ToolCallInfo[]): void => {
+    const merged = mergeToolCalls(messageId, incoming);
+    for (const toolCall of merged) {
+      if (toolCall.id) {
+        upsertToolCallBlock(messageId, toolCall.id);
+      }
+    }
+    updateMessage(messageId, { toolCalls: merged });
+  };
+
   // Track if user has ever started a session (to keep session view after /clear or /new)
   const [hasStartedSession, setHasStartedSession] = createSignal(false);
   
@@ -1118,6 +1129,104 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       showStatusFlash(`Thinking blocks: ${next ? "hidden" : "visible"}`);
       return next;
     });
+  };
+
+  const retryAssistantInEnglish = async (
+    assistantMsgId: string,
+    baseMessages: APIMessage[],
+    sourceContent: string,
+    sourceReasoning: string = ""
+  ) => {
+    showStatusFlash("Detected non-English response. Retrying in English...");
+
+    const retainedToolBlocks = getContentBlocks(assistantMsgId).filter(
+      (block) => block.type === "tool_call"
+    );
+    updateMessage(assistantMsgId, {
+      content: "",
+      reasoning: "",
+      contentBlocks: retainedToolBlocks,
+      streaming: true,
+    });
+
+    const assistantContextMessage: APIMessage = {
+      role: "assistant",
+      content: sourceContent || null,
+    };
+    if (sourceReasoning) {
+      assistantContextMessage.reasoning_content = sourceReasoning;
+    }
+
+    const retryMessages: APIMessage[] = [
+      ...baseMessages,
+      assistantContextMessage,
+      { role: "user", content: ENGLISH_RETRY_PROMPT },
+    ];
+
+    try {
+      const retryProcessor = new StreamProcessor();
+      setStreamProc(retryProcessor);
+
+      let retryContent = "";
+      let retryReasoning = "";
+      let textBlockStarted = false;
+      let thinkingBlockStarted = false;
+
+      retryProcessor.onEvent((event: StreamEvent) => {
+        if (event.type === "content") {
+          retryContent += event.delta;
+          batchUpdate("retry-stream-content", () => {
+            updateMessage(assistantMsgId, { content: retryContent });
+          }, Timing.batchInterval);
+          appendTextBlockDelta(assistantMsgId, event.delta, !textBlockStarted);
+          textBlockStarted = true;
+        } else if (event.type === "reasoning") {
+          retryReasoning += event.delta;
+          appendThinkingBlockDelta(assistantMsgId, event.delta, !thinkingBlockStarted);
+          thinkingBlockStarted = true;
+          batchUpdate("retry-stream-reasoning", () => {
+            updateMessage(assistantMsgId, { reasoning: retryReasoning });
+          }, Timing.batchInterval);
+        } else if (event.type === "done") {
+          flushBatch("retry-stream-content");
+          flushBatch("retry-stream-reasoning");
+          const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+          updateMessage(assistantMsgId, {
+            content: retryContent || sourceContent,
+            validation: selfCheck,
+            streaming: false,
+          });
+          setIsLoading(false);
+          setStreamProc(null);
+          saveAfterResponse();
+        }
+      });
+
+      const retryStream = GLMClient.stream({
+        messages: retryMessages as any,
+        model: model() as any,
+        signal: retryProcessor.getAbortSignal(),
+        thinking: {
+          type: thinking() ? "enabled" : "disabled",
+          clear_thinking: false,
+        },
+      });
+
+      await retryProcessor.process(retryStream);
+    } catch {
+      const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+      const fallbackContent = sourceContent
+        ? `${sourceContent}\n\n---\n*Automatic English retry failed. Please ask to rephrase in English.*`
+        : "*Automatic English retry failed. Please ask to rephrase in English.*";
+      updateMessage(assistantMsgId, {
+        content: fallbackContent,
+        validation: selfCheck,
+        streaming: false,
+      });
+      setIsLoading(false);
+      setStreamProc(null);
+      saveAfterResponse();
+    }
   };
   
   // Check if user has seen welcome screen on mount
@@ -1573,9 +1682,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     for (const toolCall of toolCalls) {
       // Update status to running
       toolCall.status = "running";
-      updateMessage(assistantMsgId, {
-        toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
-      });
+      setMessageToolCalls(assistantMsgId, [...toolCalls]);
       
       try {
         // Parse arguments
@@ -1623,9 +1730,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           // Cast to ToolMetadata - tools return typed metadata with discriminated 'type' field
           toolCall.metadata = result.metadata as unknown as ToolMetadata;
         }
-        updateMessage(assistantMsgId, {
-          toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
-        });
+        setMessageToolCalls(assistantMsgId, [...toolCalls]);
         
         // Record tool call for stats
         recordToolCall(toolCall.name, result.success);
@@ -1637,9 +1742,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         
         toolCall.status = "error";
         toolCall.result = error instanceof Error ? error.message : "Unknown error";
-        updateMessage(assistantMsgId, {
-          toolCalls: mergeToolCalls(assistantMsgId, [...toolCalls]),
-        });
+        setMessageToolCalls(assistantMsgId, [...toolCalls]);
         
         // Record failed tool call
         recordToolCall(toolCall.name, false);
@@ -1748,17 +1851,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             status: "pending",
           };
           newToolCallsMap.set(event.index, toolCallInfo);
-          upsertToolCallBlock(newAssistantMsgId, event.id);
-          updateMessage(newAssistantMsgId, {
-            toolCalls: mergeToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values())),
-          });
+          setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
         } else if (event.type === "tool_call_delta") {
           const existing = newToolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
-            updateMessage(newAssistantMsgId, {
-              toolCalls: mergeToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values())),
-            });
+            setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
           }
         } else if (event.type === "done") {
           // Record token usage if available
@@ -1796,6 +1894,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             );
           } else {
             const fullContent = joinContentSections(baseContent, accumulatedContent);
+            const fullReasoning = joinContentSections(baseReasoning, accumulatedReasoning);
+            if (shouldRetryInEnglish(fullContent)) {
+              void retryAssistantInEnglish(
+                newAssistantMsgId,
+                continuationMessages,
+                fullContent,
+                fullReasoning
+              );
+              return;
+            }
             const selfCheck = createSelfCheckSummary(getMessageToolCalls(newAssistantMsgId));
             updateMessage(newAssistantMsgId, { content: fullContent, validation: selfCheck });
             setIsLoading(false);
@@ -2160,19 +2268,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             status: "pending",
           };
           toolCallsMap.set(event.index, toolCall);
-          upsertToolCallBlock(assistantMsgId, event.id);
-          updateMessage(assistantMsgId, {
-            toolCalls: mergeToolCalls(assistantMsgId, Array.from(toolCallsMap.values())),
-          });
+          setMessageToolCalls(assistantMsgId, Array.from(toolCallsMap.values()));
         } else if (event.type === "tool_call_delta") {
           // Tool call arguments streaming in - batch these updates
           const existing = toolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
             batchUpdate("stream-tools", () => {
-              updateMessage(assistantMsgId, {
-                toolCalls: mergeToolCalls(assistantMsgId, Array.from(toolCallsMap.values())),
-              });
+              setMessageToolCalls(assistantMsgId, Array.from(toolCallsMap.values()));
             }, Timing.batchInterval);
           }
         } else if (event.type === "done") {
@@ -2204,6 +2307,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             // First call: content for this turn = accumulated content, total for UI = same
             executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
           } else {
+            if (shouldRetryInEnglish(accumulatedContent)) {
+              void retryAssistantInEnglish(
+                assistantMsgId,
+                apiMessages,
+                accumulatedContent,
+                accumulatedReasoning
+              );
+              return;
+            }
             const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
             updateMessage(assistantMsgId, { content: accumulatedContent, validation: selfCheck });
             setIsLoading(false);

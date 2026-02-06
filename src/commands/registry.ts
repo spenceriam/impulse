@@ -78,7 +78,11 @@ class CommandRegistryImpl {
   }
 
   list(category?: CommandCategory, includeHidden = false): CommandDefinition[] {
-    let commands = Array.from(this.commands.values());
+    // Only expose canonical command entries (not alias map entries)
+    // so autocomplete/help don't render duplicates.
+    let commands = Array.from(this.commands.entries())
+      .filter(([key, definition]) => key === definition.name)
+      .map(([, definition]) => definition);
     
     // Filter out hidden commands unless explicitly requested
     if (!includeHidden) {

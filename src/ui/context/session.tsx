@@ -93,6 +93,28 @@ interface SessionContextType {
 }
 
 /**
+ * Normalize persisted validation payloads across schema variants.
+ * Older sessions may have missing arrays or snake_case next_steps.
+ */
+function normalizeValidationSummary(
+  value: unknown
+): { findings: string[]; nextSteps: string[] } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
+  const rawFindings = obj["findings"];
+  const rawNextSteps = obj["nextSteps"] ?? obj["next_steps"];
+
+  const findings = Array.isArray(rawFindings)
+    ? rawFindings.filter((item): item is string => typeof item === "string")
+    : [];
+  const nextSteps = Array.isArray(rawNextSteps)
+    ? rawNextSteps.filter((item): item is string => typeof item === "string")
+    : [];
+
+  return { findings, nextSteps };
+}
+
+/**
  * Session Context
  */
 const SessionContext = createContext<SessionContextType>();
@@ -178,10 +200,10 @@ function storeToUiMessage(msg: StoreMessage, index: number): Message {
     }
   }
   if (msg.validation) {
-    result.validation = {
-      findings: [...msg.validation.findings],
-      nextSteps: [...msg.validation.nextSteps],
-    };
+    const normalizedValidation = normalizeValidationSummary(msg.validation);
+    if (normalizedValidation) {
+      result.validation = normalizedValidation;
+    }
   }
   // Restore mode and model for proper display coloring
   if (msg.mode) {
@@ -232,10 +254,10 @@ function uiToStoreMessage(msg: Message): StoreMessage {
     });
   }
   if (msg.validation) {
-    result.validation = {
-      findings: [...msg.validation.findings],
-      nextSteps: [...msg.validation.nextSteps],
-    };
+    const normalizedValidation = normalizeValidationSummary(msg.validation);
+    if (normalizedValidation) {
+      result.validation = normalizedValidation;
+    }
   }
   
   // Convert UI toolCalls to store tool_calls format

@@ -19,6 +19,15 @@ interface PastedBlock {
   position: number; // Cursor offset in visible text when pasted
 }
 
+function estimateWrappedLineCount(text: string, wrapWidth: number): number {
+  if (text.length === 0) return 1;
+  const safeWidth = Math.max(1, Math.floor(wrapWidth));
+  return text.split("\n").reduce((total, logicalLine) => {
+    const width = Array.from(logicalLine).length;
+    return total + Math.max(1, Math.ceil(width / safeWidth));
+  }, 0);
+}
+
 // Track image paste counts for same-minute deduplication
 const imagePasteCounts = new Map<string, number>();
 
@@ -128,8 +137,11 @@ export function InputArea(props: InputAreaProps) {
   const GHOST_COLOR = "#444444";
   const ghostText = t`${fg(GHOST_COLOR)(italic("What are we building, breaking, or making better?"))}`;
   
-  // Ghost text only shows on first render, before user has ever typed
-  const showGhostText = () => !hasEverTyped() && value().length === 0;
+  // Ghost text only shows on first render, before user has typed or pasted content
+  const showGhostText = () =>
+    !hasEverTyped() &&
+    value().length === 0 &&
+    pastedBlocks().length === 0;
 
   const clearHiddenPaste = () => {
     setPastedBlocks([]);
@@ -156,20 +168,39 @@ export function InputArea(props: InputAreaProps) {
     return { start, insertedText, delta };
   };
 
-  const getPasteIndicatorChunks = () => {
-    const blocks = pastedBlocks();
-    if (blocks.length === 0) return [] as string[];
-    return blocks
-      .map((block, index) => {
-        const label = block.type === "image"
-          ? `Pasted image #${index + 1}`
-          : `Pasted lines #${index + 1} ~${block.lineCount} lines`;
-        return `[${label}]`;
-      });
+  const getPasteWrapWidth = () => {
+    const textareaWidth = textareaRef?.width ?? 0;
+    if (Number.isFinite(textareaWidth) && textareaWidth > 0) {
+      return Math.max(1, Math.floor(textareaWidth));
+    }
+    // Fallback for initial render timing before textarea has measured width.
+    return Math.max(24, Math.floor(dimensions().width - 10));
   };
 
-  const getWrappedPasteIndicators = () => {
-    const segments = getPasteIndicatorChunks();
+  const getTextPasteBlocks = () => {
+    return pastedBlocks().filter((block) => block.type === "text");
+  };
+
+  const getImagePasteIndicatorChunks = () => {
+    const imageBlocks = pastedBlocks().filter((block) => block.type === "image");
+    if (imageBlocks.length === 0) return [] as string[];
+    return imageBlocks.map((_, index) => `[Pasted image #${index + 1}]`);
+  };
+
+  const getInlineTextPasteLabel = () => {
+    const textBlocks = getTextPasteBlocks();
+    if (textBlocks.length === 0) return "";
+
+    const firstBlock = textBlocks[0];
+    if (!firstBlock) return "";
+    const lineUnit = firstBlock.lineCount === 1 ? "line" : "lines";
+    const baseLabel = `[Pasted lines #1 ~${firstBlock.lineCount} ${lineUnit}]`;
+    if (textBlocks.length === 1) return baseLabel;
+    return `${baseLabel} [+${textBlocks.length - 1} more]`;
+  };
+
+  const getWrappedImagePasteIndicators = () => {
+    const segments = getImagePasteIndicatorChunks();
     if (segments.length === 0) return [] as string[];
     const maxCharsPerLine = Math.max(24, dimensions().width - 16);
     const lines: string[] = [];
@@ -313,7 +344,7 @@ export function InputArea(props: InputAreaProps) {
       const lastTime = lastEscTime();
       setLastEscTime(now);
       
-      if (now - lastTime < DOUBLE_ESC_THRESHOLD && value().length > 0) {
+      if (now - lastTime < DOUBLE_ESC_THRESHOLD && (value().length > 0 || pastedBlocks().length > 0)) {
         // Double-ESC detected - clear the prompt
         if (textareaRef) {
           textareaRef.clear();
@@ -464,7 +495,7 @@ export function InputArea(props: InputAreaProps) {
           setSelectedIndex(0);
           return;
         }
-        const lineCount = (insertedText.match(/\n/g)?.length ?? 0) + 1;
+        const lineCount = estimateWrappedLineCount(insertedText, getPasteWrapWidth());
         const newBlock: PastedBlock = {
           id: `paste-${now}-${Math.random().toString(36).slice(2, 8)}`,
           type: "text",
@@ -590,6 +621,7 @@ export function InputArea(props: InputAreaProps) {
       const cursorPosition = textareaRef?.cursorOffset ?? previousValue.length;
       if (Date.now() - lastFallbackPasteAt < 150 && pastedText === lastFallbackPasteText) {
         // Fallback already captured this paste, only restore visible content.
+        event.preventDefault();
         if (textareaRef) {
           suppressNextContentChange = true;
           textareaRef.clear();
@@ -602,8 +634,11 @@ export function InputArea(props: InputAreaProps) {
         }
         return;
       }
-      // Always hide pasted text in UI, keep it for submission
-      const lineCount = (pastedText.match(/\n/g)?.length ?? 0) + 1;
+      // Prevent textarea default paste insertion.
+      // We keep pasted text hidden and only inject it at submit time.
+      event.preventDefault();
+
+      const lineCount = estimateWrappedLineCount(pastedText, getPasteWrapWidth());
       const now = Date.now();
       const newBlock: PastedBlock = {
         id: `paste-${now}-${Math.random().toString(36).slice(2, 8)}`,
@@ -614,18 +649,6 @@ export function InputArea(props: InputAreaProps) {
       };
 
       setPastedBlocks((prev) => [...prev, newBlock]);
-
-      // Restore visible text to pre-paste content
-      if (textareaRef) {
-        suppressNextContentChange = true;
-        textareaRef.clear();
-        if (previousValue) {
-          textareaRef.insertText(previousValue);
-        }
-        setValue(previousValue);
-        lastContentValue = previousValue;
-        lastContentLength = previousValue.length;
-      }
     } else {
       // Possible image paste (no text content)
       const filename = generateImageFilename();
@@ -651,7 +674,7 @@ export function InputArea(props: InputAreaProps) {
   // Get the mode color for accent lines
   const modeColor = () => getModeColor(props.mode);
   
-  // Mode label text: MODE > MODEL (thinking indicator)
+  // Mode label text: MODE > MODEL (thinking mode indicator)
   const modeLabel = () => {
     const thinkingSuffix = props.thinking ? " (Thinking)" : "";
     const modelName = getModelDisplayName(props.model);
@@ -685,13 +708,13 @@ export function InputArea(props: InputAreaProps) {
       
       {/* Main content area with padding */}
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
-        {/* Paste indicator block (wraps across multiple lines for readability) */}
+        {/* Image paste indicator block (attachment-style, above prompt) */}
         <box
-          height={Math.max(1, getWrappedPasteIndicators().length)}
+          height={Math.max(1, getWrappedImagePasteIndicators().length)}
           flexDirection="column"
         >
-          <Show when={pastedBlocks().length > 0}>
-            <For each={getWrappedPasteIndicators()}>
+          <Show when={getImagePasteIndicatorChunks().length > 0}>
+            <For each={getWrappedImagePasteIndicators()}>
               {(line) => <text fg={Colors.ui.dim}>{line}</text>}
             </For>
           </Show>
@@ -703,6 +726,11 @@ export function InputArea(props: InputAreaProps) {
           <box width={2} flexShrink={0}>
             <text fg={Colors.ui.dim}>{">"} </text>
           </box>
+          <Show when={getTextPasteBlocks().length > 0}>
+            <box flexShrink={0} paddingRight={1}>
+              <text fg={Colors.ui.dim}>{getInlineTextPasteLabel()}</text>
+            </box>
+          </Show>
           {/* Textarea fills remaining space, minWidth={0} allows shrinking */}
           <box flexGrow={1} minWidth={0}>
             <textarea

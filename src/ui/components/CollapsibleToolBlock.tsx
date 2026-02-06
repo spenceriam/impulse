@@ -1,4 +1,4 @@
-import { createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { Colors, Indicators } from "../design";
 
 /**
@@ -63,13 +63,25 @@ export function CollapsibleToolBlock(props: CollapsibleToolBlockProps) {
       : config().autoExpand;
 
   const [expanded, setExpanded] = createSignal(initialExpanded());
+  const [userToggled, setUserToggled] = createSignal(false);
 
   // Toggle on click (only if there's content to expand)
   const handleClick = () => {
     if (props.expandedContent) {
+      setUserToggled(true);
       setExpanded(prev => !prev);
     }
   };
+
+  // Auto-expand when a block becomes expandable and the caller requests expansion.
+  // This keeps file diffs visible once metadata arrives (e.g. pending -> success).
+  createEffect(() => {
+    if (userToggled()) return;
+    if (!props.expandedContent) return;
+    if (initialExpanded() && !expanded()) {
+      setExpanded(true);
+    }
+  });
 
   const expandIndicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
   const hasExpandableContent = () => !!props.expandedContent;

@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.33.0
+- **Version:** v0.34.1
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
@@ -123,6 +123,12 @@
 - [x] Chat auto-scroll stays pinned during tool calls
 - [x] Thinking blocks segment per reasoning phase
 - [x] Responses always include Findings + Next steps
+- [x] Command autocomplete de-duplicates aliased commands
+- [x] Processing indicators avoid duplicate global/tool placeholders
+- [x] Active task/question calls show specific processing labels
+- [x] Pasted text tokens render inline; image paste remains attachment-style
+- [x] Self-check renders only in DEBUG or verbose mode
+- [x] Non-English (Chinese) responses auto-retry in English
 - [x] Chat auto-scroll stays pinned during streaming updates
 - [x] Paste renders as numbered hidden-input indicator blocks with line wrapping
 - [x] Todos scoped to chat session with current-task snapshot
