@@ -5,6 +5,20 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2026-02-06
+
+**Type:** patch  
+**Title:** Automatic English retry for non-English model responses
+
+### Added
+
+- **Language guard + retry path** - Assistant turns are now checked for predominantly Chinese output and automatically retried once with an explicit English-only instruction.
+- **Language detection regression tests** - Added coverage for English, Chinese, mixed-language, and code-block-heavy responses.
+
+### Changed
+
+- **Retry visibility during streaming** - When auto-retry is triggered, the assistant message remains in-place and re-streams in English while preserving existing tool-call context blocks.
+
 ## [0.34.0] - 2026-02-06
 
 **Type:** minor  
@@ -28,7 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prompt ghost text overlap** - Placeholder text no longer appears when pasted text/image tokens exist.
 - **ESC clear with hidden paste tokens** - Double-ESC now clears paste-token state even when the visible prompt text is empty.
 - **Wrapped paste line counts** - Pasted-line indicators now reflect visual wrapped lines, not only newline characters.
-- **Automatic language fallback** - Predominantly Chinese assistant responses are now detected and retried automatically with an English-only instruction.
 
 ## [0.33.0] - 2026-02-05
 
