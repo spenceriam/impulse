@@ -4,7 +4,7 @@ type BatchFn = () => void;
 
 class BatchSchedulerImpl {
   private static instance: BatchSchedulerImpl;
-  private pendingUpdates: Map<string, BatchFn[]> = new Map();
+  private pendingUpdates: Map<string, BatchFn> = new Map();
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private defaultBatchWindow: number = 16;
   private globalPending: BatchFn[] = [];
@@ -21,15 +21,8 @@ class BatchSchedulerImpl {
 
   schedule(key: string, fn: BatchFn, window?: number): void {
     const batchWindow = window ?? this.defaultBatchWindow;
-
-    if (!this.pendingUpdates.has(key)) {
-      this.pendingUpdates.set(key, []);
-    }
-
-    const updates = this.pendingUpdates.get(key);
-    if (updates) {
-      updates.push(fn);
-    }
+    // Coalesce to the latest update per key inside the batch window.
+    this.pendingUpdates.set(key, fn);
 
     // Only create timer if one doesn't exist (don't reset on each call)
     // This ensures we fire after batchWindow from FIRST call, not last
@@ -57,9 +50,8 @@ class BatchSchedulerImpl {
   }
 
   flush(key: string): void {
-    const updates = this.pendingUpdates.get(key);
-
-    if (!updates || updates.length === 0) {
+    const update = this.pendingUpdates.get(key);
+    if (!update) {
       return;
     }
 
@@ -72,12 +64,10 @@ class BatchSchedulerImpl {
     this.pendingUpdates.delete(key);
 
     solidBatch(() => {
-      for (const update of updates) {
-        try {
-          update();
-        } catch (e) {
-          console.error(`Error in batched update [${key}]:`, e);
-        }
+      try {
+        update();
+      } catch (e) {
+        console.error(`Error in batched update [${key}]:`, e);
       }
     });
   }
@@ -115,8 +105,7 @@ class BatchSchedulerImpl {
   }
 
   hasPendingUpdates(key: string): boolean {
-    const updates = this.pendingUpdates.get(key);
-    return updates !== undefined && updates.length > 0;
+    return this.pendingUpdates.has(key);
   }
 
   hasPendingGlobalUpdates(): boolean {

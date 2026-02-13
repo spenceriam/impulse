@@ -363,6 +363,8 @@ You decide the best approach based on the user's request. Start with an explorat
    - Ask for approval using the question tool with context "AUTO_APPROVAL"
    - Include options labeled "Approve" and "Not yet"
    - Wait for approval before calling any write/exec tools
+8. **Do not misreport capabilities** - In AUTO mode, write/exec tools may be available but approval-gated. Never say tools are unavailable when they are only gated.
+9. **State gate clearly** - If gated, explicitly say approval is required and ask via question tool (context "AUTO_APPROVAL").
 `,
   EXPLORE: `
 ## Mode: EXPLORE

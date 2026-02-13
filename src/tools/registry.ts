@@ -30,6 +30,8 @@ export interface Tool<TInput = unknown> {
  */
 type ToolCategory = "read_only" | "write" | "utility";
 
+const tools = new Map<string, Tool<unknown>>();
+
 // Tool categorization for mode filtering
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // Read-only tools (all modes)
@@ -39,6 +41,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   question: "read_only",
   todo_read: "read_only",
   set_header: "utility",
+  set_mode: "utility",
   mcp_discover: "read_only",
   tool_docs: "read_only",
   
@@ -50,13 +53,21 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   task: "write",
 };
 
+function getToolCategory(name: string): ToolCategory {
+  // Default unknown tools (e.g. dynamically registered MCP tools) to read-only.
+  // This keeps external capability tools callable without opening write paths.
+  return TOOL_CATEGORIES[name] ?? "read_only";
+}
+
 /**
  * Get tools allowed for a specific mode
  */
 function getToolsForMode(mode: Mode): Set<string> {
   const allowed = new Set<string>();
-  
-  for (const [toolName, category] of Object.entries(TOOL_CATEGORIES)) {
+
+  // Evaluate registered tools so dynamically added tools are included.
+  for (const toolName of tools.keys()) {
+    const category = getToolCategory(toolName);
     if (category === "read_only" || category === "utility") {
       // Read-only and utility tools available in all modes
       allowed.add(toolName);
@@ -65,10 +76,9 @@ function getToolsForMode(mode: Mode): Set<string> {
       if (mode === "AGENT" || mode === "DEBUG") {
         allowed.add(toolName);
       } else if (mode === "AUTO") {
-        // AUTO mode requires explicit approval before enabling write tools
-        if (isAutoApprovalGranted()) {
-          allowed.add(toolName);
-        }
+        // Expose write tools in AUTO so the model knows capabilities exist,
+        // but keep execution gated in Tool.execute() until approval is granted.
+        allowed.add(toolName);
       }
       // PLANNER and PLAN-PRD get file_write with restrictions (enforced in handler)
       else if (mode === "PLANNER" || mode === "PLAN-PRD") {
@@ -92,10 +102,25 @@ function getToolsForMode(mode: Mode): Set<string> {
 }
 
 export function isToolAllowedForMode(name: string, mode: Mode): boolean {
-  return getToolsForMode(mode).has(name);
-}
+  const category = getToolCategory(name);
+  if (category === "read_only" || category === "utility") {
+    return true;
+  }
 
-const tools = new Map<string, Tool<unknown>>();
+  if (mode === "AGENT" || mode === "DEBUG") {
+    return true;
+  }
+
+  if (mode === "AUTO") {
+    return isAutoApprovalGranted();
+  }
+
+  if (mode === "PLANNER" || mode === "PLAN-PRD") {
+    return name === "file_write" || name === "task" || name === "todo_write";
+  }
+
+  return false;
+}
 
 export namespace Tool {
   export function define<TInput>(
@@ -186,6 +211,12 @@ export namespace Tool {
 
         if (tool.name === "task" && (mode === "PLANNER" || mode === "PLAN-PRD")) {
           const restriction = "RESTRICTED: In planning modes, only subagent_type=\"explore\" is allowed.";
+          description = `${restriction}\n\n${description}`;
+        }
+
+        if (mode === "AUTO" && getToolCategory(tool.name) === "write" && !isAutoApprovalGranted()) {
+          const restriction =
+            "AUTO GATE: This tool is available, but execution requires explicit user approval first via question tool (context \"AUTO_APPROVAL\").";
           description = `${restriction}\n\n${description}`;
         }
 

@@ -11,6 +11,13 @@ import path from "path";
 
 let debugEnabled = false;
 let sessionLogPath: string | null = null;
+const MAX_LOG_OUTPUT_CHARS = 16000;
+
+function truncateLogText(text: string): string {
+  if (text.length <= MAX_LOG_OUTPUT_CHARS) return text;
+  const omitted = text.length - MAX_LOG_OUTPUT_CHARS;
+  return `${text.slice(0, MAX_LOG_OUTPUT_CHARS)}\n...[truncated ${omitted} chars]`;
+}
 
 /**
  * Enable debug logging
@@ -108,7 +115,7 @@ export async function logToolExecution(
     tool: toolName,
     arguments: args,
     success: result.success,
-    output: result.output,
+    output: truncateLogText(result.output),
   });
 }
 
@@ -181,9 +188,40 @@ export async function logError(
 export async function logRawAPIMessages(
   messages: Array<{ role: string; content?: string | null; reasoning_content?: string; tool_calls?: unknown[] }>
 ): Promise<void> {
+  const summarized = messages.map((message) => {
+    const content = typeof message.content === "string" ? message.content : "";
+    const reasoning = typeof message.reasoning_content === "string" ? message.reasoning_content : "";
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+    return {
+      role: message.role,
+      contentLength: content.length,
+      contentPreview: content.slice(0, 500),
+      reasoningLength: reasoning.length,
+      toolCallCount: toolCalls.length,
+      toolCalls: toolCalls.map((tc) => {
+        const toolCall = tc as {
+          id?: unknown;
+          function?: {
+            name?: unknown;
+            arguments?: unknown;
+          };
+        };
+        return {
+          id: typeof toolCall.id === "string" ? toolCall.id : null,
+          name: typeof toolCall.function?.name === "string" ? toolCall.function.name : null,
+          argumentsLength:
+            typeof toolCall.function?.arguments === "string"
+              ? toolCall.function.arguments.length
+              : 0,
+        };
+      }),
+    };
+  });
+
   await appendLog({
     type: "raw_api_messages",
     timestamp: new Date().toISOString(),
-    messages,
+    messages: summarized,
   });
 }

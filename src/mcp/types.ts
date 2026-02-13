@@ -50,6 +50,7 @@ export interface MCPServer {
   error?: string;
   tools: string[];          // Tool names only (backwards compat)
   toolMetadata?: MCPTool[]; // Full tool metadata when fetched
+  sessionId?: string;       // MCP streamable HTTP session id (for Z.AI HTTP MCP)
 }
 
 /**

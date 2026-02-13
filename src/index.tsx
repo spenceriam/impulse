@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import packageJson from "../package.json";
+import { consumeCrashRecoveryHint, installCrashRecoveryHandlers } from "./util/crash-recovery";
 
 // =============================================================================
 // CLI Argument Parsing - BEFORE any TUI initialization
@@ -157,6 +158,14 @@ const dirOverride = getFlagValue("-d", "--dir");
 const showContinue = hasFlag("-c", "--continue");
 const expressMode = hasFlag("-e", "--express");
 const verboseMode = hasFlag("", "--verbose");
+const crashRecoveryHint = consumeCrashRecoveryHint();
+const effectiveVerboseMode = verboseMode || crashRecoveryHint.forceVerbose;
+
+installCrashRecoveryHandlers(packageJson.version);
+
+if (crashRecoveryHint.notice) {
+  console.error(`[recovery] ${crashRecoveryHint.notice}`);
+}
 
 // =============================================================================
 // Validate for Unknown Flags
@@ -259,7 +268,7 @@ const runHeadless = async (prompt: string) => {
   processor.onEvent((event: StreamEvent) => {
     if (event.type === "content") {
       process.stdout.write(event.delta);
-    } else if (event.type === "reasoning" && verboseMode) {
+    } else if (event.type === "reasoning" && effectiveVerboseMode) {
       // In verbose mode, show thinking to stderr
       process.stderr.write(`[thinking] ${event.delta}`);
     } else if (event.type === "done") {
@@ -356,7 +365,8 @@ You can also set the GLM_API_KEY environment variable to skip this prompt.
       ...(modeOverride ? { initialMode: modeOverride.toUpperCase() as "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG" } : {}),
       ...(sessionId ? { initialSessionId: sessionId } : {}),
       ...(showContinue ? { showSessionPicker: true } : {}),
-      ...(verboseMode ? { verbose: true } : {}),
+      ...(effectiveVerboseMode ? { verbose: true } : {}),
+      ...(crashRecoveryHint.notice ? { recoveryNotice: crashRecoveryHint.notice } : {}),
     };
 
     render(() => <App {...initialProps} />);

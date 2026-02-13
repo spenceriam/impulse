@@ -53,6 +53,8 @@ async function execute(args: MCPDiscoverArgs): Promise<ToolResult> {
         lines.push(`[${score}%] ${result.tool.server}/${result.tool.name}`);
         lines.push(`     ${result.tool.description}\n`);
       }
+      lines.push("Next: call the matching tool directly (not mcp_discover again).");
+      lines.push("Example: webSearchPrime({\"search_query\":\"badlogic pi-mono github\"})");
 
       return { success: true, output: lines.join("\n") };
     }
@@ -78,7 +80,10 @@ async function execute(args: MCPDiscoverArgs): Promise<ToolResult> {
       const details = MCPDiscovery.formatToolDetails(toolInfo);
       const example = MCPDiscovery.generateExampleCall(toolInfo);
 
-      return { success: true, output: `${details}\n\nExample:\n  ${example}` };
+      return {
+        success: true,
+        output: `${details}\n\nExample:\n  ${example}\n\nNext: call ${tool} directly with JSON arguments.`,
+      };
     }
 
     case "list": {
@@ -95,6 +100,7 @@ async function execute(args: MCPDiscoverArgs): Promise<ToolResult> {
         for (const [s, count] of byServer) {
           lines.push(`  ${s.padEnd(14)} ${count} tools`);
         }
+        lines.push("\nUse mcp_discover(action=\"list\", server=\"<server>\") to see callable tool names.");
 
         return { success: true, output: lines.join("\n") };
       }
@@ -115,6 +121,7 @@ async function execute(args: MCPDiscoverArgs): Promise<ToolResult> {
         lines.push(`  ${t.name}`);
         lines.push(`    ${t.description}\n`);
       }
+      lines.push("Next: call one of the tool names above directly with JSON arguments.");
 
       return { success: true, output: lines.join("\n") };
     }
@@ -127,7 +134,8 @@ async function execute(args: MCPDiscoverArgs): Promise<ToolResult> {
 // Auto-register on import
 export const mcpDiscoverTool = Tool.define(
   "mcp_discover",
-  "Discover MCP tools. Use search, list, or details. See docs/tools/mcp-discover.md.",
+  "Discover MCP tools one time, then call the discovered tool directly. Use search, list, or details. See docs/tools/mcp-discover.md.",
   MCPDiscoverSchema,
-  execute
+  execute,
+  { timeout: 15000 }
 );

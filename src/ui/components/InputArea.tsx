@@ -16,7 +16,7 @@ interface PastedBlock {
   type: "text" | "image";
   content: string;
   lineCount: number;
-  position: number; // Cursor offset in visible text when pasted
+  token?: string; // Visible inline token for text pastes
 }
 
 function estimateWrappedLineCount(text: string, wrapWidth: number): number {
@@ -129,6 +129,7 @@ export function InputArea(props: InputAreaProps) {
   let lastContentValue = "";
   const PASTE_THRESHOLD_CHARS = 20;  // Consider paste if >20 chars added at once
   const PASTE_THRESHOLD_MS = 100;    // ...or >3 chars in <100ms
+  let textPasteCounter = 0;
   
   let textareaRef: TextareaRenderable | undefined;
   
@@ -178,7 +179,7 @@ export function InputArea(props: InputAreaProps) {
   };
 
   const getTextPasteBlocks = () => {
-    return pastedBlocks().filter((block) => block.type === "text");
+    return pastedBlocks().filter((block) => block.type === "text" && !!block.token);
   };
 
   const getImagePasteIndicatorChunks = () => {
@@ -187,16 +188,10 @@ export function InputArea(props: InputAreaProps) {
     return imageBlocks.map((_, index) => `[Pasted image #${index + 1}]`);
   };
 
-  const getInlineTextPasteLabel = () => {
-    const textBlocks = getTextPasteBlocks();
-    if (textBlocks.length === 0) return "";
-
-    const firstBlock = textBlocks[0];
-    if (!firstBlock) return "";
-    const lineUnit = firstBlock.lineCount === 1 ? "line" : "lines";
-    const baseLabel = `[Pasted lines #1 ~${firstBlock.lineCount} ${lineUnit}]`;
-    if (textBlocks.length === 1) return baseLabel;
-    return `${baseLabel} [+${textBlocks.length - 1} more]`;
+  const createTextPasteToken = (lineCount: number) => {
+    textPasteCounter += 1;
+    const lineUnit = lineCount === 1 ? "line" : "lines";
+    return `[Pasted lines #${textPasteCounter} ~${lineCount} ${lineUnit}]`;
   };
 
   const getWrappedImagePasteIndicators = () => {
@@ -226,16 +221,56 @@ export function InputArea(props: InputAreaProps) {
     return lines;
   };
 
-  const updatePastePositions = (previousValue: string, newValue: string) => {
-    if (previousValue === newValue) return;
-    const { start, delta } = getInsertionDelta(previousValue, newValue);
-    if (delta === 0) return;
+  const pruneMissingTextBlocks = (currentText: string) => {
     setPastedBlocks((prev) =>
-      prev.map((block) => {
-        if (block.position <= start) return block;
-        return { ...block, position: Math.max(start, block.position + delta) };
+      prev.filter((block) => {
+        if (block.type !== "text") return true;
+        if (!block.token) return false;
+        return currentText.includes(block.token);
       })
     );
+  };
+
+  const replaceVisibleInput = (nextText: string, cursorOffset?: number) => {
+    if (!textareaRef) return;
+    suppressNextContentChange = true;
+    textareaRef.replaceText(nextText);
+    if (typeof cursorOffset === "number") {
+      textareaRef.cursorOffset = Math.max(0, Math.min(cursorOffset, nextText.length));
+    }
+    setValue(nextText);
+    lastContentValue = nextText;
+    lastContentLength = nextText.length;
+    lastContentChangeTime = Date.now();
+  };
+
+  const removePastedTokenAtCursor = (keyName: string) => {
+    if (!textareaRef) return false;
+    const cursor = textareaRef.cursorOffset;
+    const text = textareaRef.plainText;
+    if (!text) return false;
+
+    for (const block of getTextPasteBlocks()) {
+      const token = block.token;
+      if (!token) continue;
+      const start = text.indexOf(token);
+      if (start < 0) continue;
+      const end = start + token.length;
+      const deletingBackward = keyName === "backspace";
+      const deletingForward = keyName === "delete";
+      const hitsToken =
+        (deletingBackward && cursor > start && cursor <= end) ||
+        (deletingForward && cursor >= start && cursor < end);
+
+      if (!hitsToken) continue;
+
+      const nextText = text.slice(0, start) + text.slice(end);
+      replaceVisibleInput(nextText, start);
+      setPastedBlocks((prev) => prev.filter((item) => item.id !== block.id));
+      return true;
+    }
+
+    return false;
   };
 
   // Get filtered commands based on current input
@@ -301,6 +336,10 @@ export function InputArea(props: InputAreaProps) {
     // Skip all keyboard handling when overlay is active
     // This prevents history navigation from interfering with overlay navigation
     if (props.overlayActive) {
+      return;
+    }
+
+    if ((key.name === "backspace" || key.name === "delete") && removePastedTokenAtCursor(key.name)) {
       return;
     }
     
@@ -468,7 +507,6 @@ export function InputArea(props: InputAreaProps) {
       const newValue = textareaRef.plainText;
       const now = Date.now();
       const previousValue = lastContentValue;
-      updatePastePositions(previousValue, newValue);
       
       // Detect paste by checking if large amount of text was added quickly
       const charsAdded = newValue.length - lastContentLength;
@@ -496,29 +534,22 @@ export function InputArea(props: InputAreaProps) {
           return;
         }
         const lineCount = estimateWrappedLineCount(insertedText, getPasteWrapWidth());
+        const token = createTextPasteToken(lineCount);
+        const nextValue = newValue.slice(0, start) + token + newValue.slice(start + insertedText.length);
         const newBlock: PastedBlock = {
           id: `paste-${now}-${Math.random().toString(36).slice(2, 8)}`,
           type: "text",
           content: insertedText,
           lineCount,
-          position: start,
+          token,
         };
 
         setPastedBlocks((prev) => [...prev, newBlock]);
         lastFallbackPasteAt = now;
         lastFallbackPasteText = insertedText;
-
-        if (textareaRef) {
-          suppressNextContentChange = true;
-          textareaRef.clear();
-          if (previousValue) {
-            textareaRef.insertText(previousValue);
-          }
-          setValue(previousValue);
-          lastContentValue = previousValue;
-          lastContentLength = previousValue.length;
-          return;
-        }
+        setHasEverTyped(true);
+        replaceVisibleInput(nextValue, start + token.length);
+        return;
       }
       
       // Update tracking variables for next change
@@ -527,6 +558,7 @@ export function InputArea(props: InputAreaProps) {
       lastContentValue = newValue;
       
       setValue(newValue);
+      pruneMissingTextBlocks(newValue);
       // Mark that user has typed (never show ghost text again)
       if (newValue.length > 0) {
         setHasEverTyped(true);
@@ -581,19 +613,10 @@ export function InputArea(props: InputAreaProps) {
     let submission = visible;
 
     if (blocks.length > 0) {
-      // Insert pasted blocks into the visible text by recorded positions
-      const sorted = blocks
-        .filter(({ type }) => type === "text")
-        .map((block, index) => ({ block, index }))
-        .sort((a, b) => a.block.position - b.block.position || a.index - b.index);
-      let offset = 0;
-      for (const { block } of sorted) {
-        const insertPos = Math.min(block.position + offset, submission.length);
-        submission =
-          submission.slice(0, insertPos) +
-          block.content +
-          submission.slice(insertPos);
-        offset += block.content.length;
+      // Replace inline paste tokens with original hidden text.
+      for (const block of blocks) {
+        if (block.type !== "text" || !block.token) continue;
+        submission = submission.split(block.token).join(block.content);
       }
     }
 
@@ -611,7 +634,7 @@ export function InputArea(props: InputAreaProps) {
   // Handle paste - show indicator with line count (for large pastes) or image filename
   const handlePaste = (event: PasteEvent) => {
     lastOnPasteAt = Date.now();
-    const previousValue = lastContentValue;
+    const previousValue = textareaRef?.plainText ?? lastContentValue;
     
     // Check if this is an image paste (OpenTUI passes image data differently)
     // For now, we detect images by checking if text is empty but event fired
@@ -620,18 +643,8 @@ export function InputArea(props: InputAreaProps) {
     if (pastedText.length > 0) {
       const cursorPosition = textareaRef?.cursorOffset ?? previousValue.length;
       if (Date.now() - lastFallbackPasteAt < 150 && pastedText === lastFallbackPasteText) {
-        // Fallback already captured this paste, only restore visible content.
+        // Fallback already captured this paste; don't duplicate block insertion.
         event.preventDefault();
-        if (textareaRef) {
-          suppressNextContentChange = true;
-          textareaRef.clear();
-          if (previousValue) {
-            textareaRef.insertText(previousValue);
-          }
-          setValue(previousValue);
-          lastContentValue = previousValue;
-          lastContentLength = previousValue.length;
-        }
         return;
       }
       // Prevent textarea default paste insertion.
@@ -640,15 +653,24 @@ export function InputArea(props: InputAreaProps) {
 
       const lineCount = estimateWrappedLineCount(pastedText, getPasteWrapWidth());
       const now = Date.now();
+      const token = createTextPasteToken(lineCount);
       const newBlock: PastedBlock = {
         id: `paste-${now}-${Math.random().toString(36).slice(2, 8)}`,
         type: "text",
         content: pastedText,
         lineCount,
-        position: cursorPosition,
+        token,
       };
 
       setPastedBlocks((prev) => [...prev, newBlock]);
+      if (textareaRef) {
+        const nextValue =
+          previousValue.slice(0, cursorPosition) +
+          token +
+          previousValue.slice(cursorPosition);
+        replaceVisibleInput(nextValue, cursorPosition + token.length);
+      }
+      setHasEverTyped(true);
     } else {
       // Possible image paste (no text content)
       const filename = generateImageFilename();
@@ -658,17 +680,9 @@ export function InputArea(props: InputAreaProps) {
         type: "image",
         content: filename,
         lineCount: 0,
-        position: textareaRef?.cursorOffset ?? previousValue.length,
       };
       setPastedBlocks((prev) => [...prev, newBlock]);
     }
-    
-    // After paste completes, move cursor to end of buffer
-    setTimeout(() => {
-      if (textareaRef) {
-        textareaRef.gotoBufferEnd();
-      }
-    }, 0);
   };
 
   // Get the mode color for accent lines
@@ -726,11 +740,6 @@ export function InputArea(props: InputAreaProps) {
           <box width={2} flexShrink={0}>
             <text fg={Colors.ui.dim}>{">"} </text>
           </box>
-          <Show when={getTextPasteBlocks().length > 0}>
-            <box flexShrink={0} paddingRight={1}>
-              <text fg={Colors.ui.dim}>{getInlineTextPasteLabel()}</text>
-            </box>
-          </Show>
           {/* Textarea fills remaining space, minWidth={0} allows shrinking */}
           <box flexGrow={1} minWidth={0}>
             <textarea

@@ -1,10 +1,32 @@
 import { isDebugEnabled, logEventLoopLag } from "./debug-log";
 
+export interface LagSample {
+  timestamp: string;
+  lagMs: number;
+  intervalMs: number;
+}
+
 interface LagMonitorOptions {
   intervalMs?: number;
   warnMs?: number;
   logThrottleMs?: number;
   consoleWarnMs?: number;
+  onLag?: (sample: LagSample) => void;
+}
+
+const MAX_RECENT_SAMPLES = 256;
+const recentLagSamples: LagSample[] = [];
+
+function recordLagSample(sample: LagSample): void {
+  recentLagSamples.push(sample);
+  if (recentLagSamples.length > MAX_RECENT_SAMPLES) {
+    recentLagSamples.splice(0, recentLagSamples.length - MAX_RECENT_SAMPLES);
+  }
+}
+
+export function getRecentLagSamples(limit: number = 50): LagSample[] {
+  const normalizedLimit = Math.max(1, Math.floor(limit));
+  return recentLagSamples.slice(-normalizedLimit);
 }
 
 export function startEventLoopLagMonitor(options: LagMonitorOptions = {}): () => void {
@@ -23,6 +45,13 @@ export function startEventLoopLagMonitor(options: LagMonitorOptions = {}): () =>
 
     if (lag < warnMs) return;
 
+    const sample: LagSample = {
+      timestamp: new Date(now).toISOString(),
+      lagMs: lag,
+      intervalMs,
+    };
+    recordLagSample(sample);
+
     if (now - lastLogged >= logThrottleMs) {
       lastLogged = now;
       if (isDebugEnabled()) {
@@ -32,6 +61,12 @@ export function startEventLoopLagMonitor(options: LagMonitorOptions = {}): () =>
 
     if (lag >= consoleWarnMs) {
       console.warn(`[perf] Event loop lag detected: ${lag}ms`);
+    }
+
+    try {
+      options.onLag?.(sample);
+    } catch {
+      // Keep lag monitor non-fatal; callbacks must not destabilize the app.
     }
   }, intervalMs);
 

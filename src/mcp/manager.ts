@@ -54,6 +54,13 @@ function parseSSEOrJSON<T>(text: string): T {
   return JSON.parse(text) as T;
 }
 
+function extractSessionId(headers: Headers): string | undefined {
+  const sessionId = headers.get("mcp-session-id");
+  if (!sessionId) return undefined;
+  const trimmed = sessionId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 /**
  * MCP Manager
  * Manages all 5 MCP servers with single API key configuration
@@ -243,6 +250,12 @@ export class MCPManager {
         signal: controller.signal,
       });
 
+      // MCP servers may rotate session ids; always keep the latest.
+      const nextSessionId = extractSessionId(response.headers);
+      if (nextSessionId) {
+        server.sessionId = nextSessionId;
+      }
+
       clearTimeout(timeoutId);
 
       if (!response.ok) {
@@ -258,6 +271,12 @@ export class MCPManager {
         }
         // For other 4xx errors, throw with status
         throw new Error(`HTTP error ${response.status}`);
+      }
+
+      // Z.AI MCP uses streamable HTTP sessions. Persist session id for tool calls.
+      const sessionId = extractSessionId(response.headers);
+      if (sessionId) {
+        server.sessionId = sessionId;
       }
 
       // Verify the response is valid JSON-RPC
@@ -509,7 +528,8 @@ export class MCPManager {
   private async callHTTPTool(
     server: MCPServer,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    allowSessionRefresh: boolean = true
   ): Promise<{ success: boolean; output: string }> {
     const { url } = server.config;
     if (!url) {
@@ -519,15 +539,27 @@ export class MCPManager {
     const config = await load();
     const apiKey = config.apiKey;
 
-    // Build headers - Z.AI servers need API key, Context7 doesn't
+    // Build headers - Z.AI servers need API key and session id, Context7 doesn't
     // Accept header includes text/event-stream for SSE support (required by some MCP servers)
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "Accept": "application/json, text/event-stream",
     };
 
-    if (server.config.name !== "context7" && apiKey) {
+    if (server.config.name !== "context7") {
+      if (!apiKey) {
+        return { success: false, output: "MCP API key missing" };
+      }
+
+      // Some Z.AI MCP endpoints require a valid session header on tools/call.
+      if (!server.sessionId) {
+        await this.refreshHTTPSession(server, apiKey);
+      }
+
       headers["Authorization"] = `Bearer ${apiKey}`;
+      if (server.sessionId) {
+        headers["Mcp-Session-Id"] = server.sessionId;
+      }
     }
 
     const controller = new AbortController();
@@ -554,6 +586,15 @@ export class MCPManager {
 
       if (!response.ok) {
         const text = await response.text();
+        if (
+          allowSessionRefresh &&
+          server.config.name !== "context7" &&
+          apiKey &&
+          this.shouldRefreshSession(text)
+        ) {
+          await this.refreshHTTPSession(server, apiKey);
+          return this.callHTTPTool(server, toolName, args, false);
+        }
         return {
           success: false,
           output: `HTTP ${response.status}: ${text}`,
@@ -565,9 +606,19 @@ export class MCPManager {
       const data = parseSSEOrJSON<JSONRPCResponse<MCPToolCallResult>>(text);
 
       if (data.error) {
+        const errorText = `MCP error: ${data.error.message}`;
+        if (
+          allowSessionRefresh &&
+          server.config.name !== "context7" &&
+          apiKey &&
+          this.shouldRefreshSession(errorText)
+        ) {
+          await this.refreshHTTPSession(server, apiKey);
+          return this.callHTTPTool(server, toolName, args, false);
+        }
         return {
           success: false,
-          output: `MCP error: ${data.error.message}`,
+          output: errorText,
         };
       }
 
@@ -584,9 +635,21 @@ export class MCPManager {
         .map((c) => c.text)
         .join("\n");
 
+      const output = textContent || "Tool executed successfully (no output)";
+      if (
+        allowSessionRefresh &&
+        data.result.isError &&
+        server.config.name !== "context7" &&
+        apiKey &&
+        this.shouldRefreshSession(output)
+      ) {
+        await this.refreshHTTPSession(server, apiKey);
+        return this.callHTTPTool(server, toolName, args, false);
+      }
+
       return {
         success: !data.result.isError,
-        output: textContent || "Tool executed successfully (no output)",
+        output,
       };
     } catch (error) {
       clearTimeout(timeoutId);
@@ -594,6 +657,48 @@ export class MCPManager {
         return { success: false, output: "Tool call timed out" };
       }
       throw error;
+    }
+  }
+
+  private shouldRefreshSession(text: string): boolean {
+    const normalized = text.toLowerCase();
+    return (
+      normalized.includes("apikey not found") ||
+      normalized.includes("mcp-session-id") ||
+      normalized.includes("session")
+    );
+  }
+
+  private async refreshHTTPSession(server: MCPServer, apiKey: string): Promise<void> {
+    const { url } = server.config;
+    if (!url) return;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: Date.now(),
+        method: "tools/list",
+        params: {},
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to refresh MCP session (${response.status})`);
+    }
+
+    // Ensure response is valid before accepting session id.
+    const text = await response.text();
+    parseSSEOrJSON<JSONRPCResponse<{ tools?: unknown[] }>>(text);
+
+    const sessionId = extractSessionId(response.headers);
+    if (sessionId) {
+      server.sessionId = sessionId;
     }
   }
 

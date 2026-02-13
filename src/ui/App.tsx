@@ -33,12 +33,13 @@ import { type ToolMetadata } from "../types/tool-metadata";
 import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 import { runUpdateCheck, performUpdate, type UpdateState } from "../util/update-check";
-import { startEventLoopLagMonitor } from "../util/lag-monitor";
-import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
+import { startEventLoopLagMonitor, type LagSample } from "../util/lag-monitor";
+import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logAPIResponse, logError, logRawAPIMessages } from "../util/debug-log";
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
 import { createSelfCheckSummary } from "./self-check";
 import { ENGLISH_RETRY_PROMPT, shouldRetryInEnglish } from "./language-guard";
+import { isAutoApprovalAffirmed } from "../util/auto-approval";
 
 /**
  * Join content sections with normalized whitespace.
@@ -57,6 +58,132 @@ function joinContentSections(base: string, addition: string): string {
   
   // Join with double newline (paragraph break)
   return trimmedBase + "\n\n" + trimmedAddition;
+}
+
+const MAX_TOOL_CONTINUATION_DEPTH = 24;
+const MAX_TOOL_CONTINUATION_DEPTH_EXPRESS = 48;
+const MAX_REPEATED_TOOL_SIGNATURES = 3;
+const STREAM_IDLE_TIMEOUT_MS = 45000;
+const STREAM_TOTAL_TIMEOUT_MS = 240000;
+
+interface ToolContinuationState {
+  depth: number;
+  signatureCounts: Map<string, number>;
+}
+
+function buildToolCallSignature(toolCalls: ToolCallInfo[]): string {
+  return toolCalls.map((toolCall) => `${toolCall.name}:${toolCall.arguments}`).join("||");
+}
+
+function hasMeaningfulStreamProgress(chunk: unknown): boolean {
+  if (!chunk || typeof chunk !== "object") return false;
+  const c = chunk as {
+    choices?: Array<{
+      finish_reason?: string | null;
+      delta?: {
+        role?: string;
+        content?: string | null;
+        reasoning_content?: string | null;
+        tool_calls?: unknown[];
+      };
+    }>;
+    usage?: unknown;
+  };
+
+  if (c.usage) return true;
+  if (!Array.isArray(c.choices)) return false;
+
+  for (const choice of c.choices) {
+    if (!choice) continue;
+    if (choice.finish_reason) return true;
+    const delta = choice.delta;
+    if (!delta) continue;
+    if (delta.role) return true;
+    if (delta.content) return true;
+    if (delta.reasoning_content) return true;
+    if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) return true;
+  }
+
+  return false;
+}
+
+async function processStreamWithWatchdog(
+  processor: StreamProcessor,
+  stream: AsyncIterable<unknown>,
+  label: string
+): Promise<void> {
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let totalTimer: ReturnType<typeof setTimeout> | null = null;
+  let timeoutError: Error | null = null;
+  let rejectTimeout: ((reason?: unknown) => void) | null = null;
+
+  const clearTimers = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    if (totalTimer) {
+      clearTimeout(totalTimer);
+      totalTimer = null;
+    }
+  };
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+
+  const triggerTimeout = (message: string) => {
+    if (timeoutError) return;
+    timeoutError = new Error(message);
+    processor.abort();
+    rejectTimeout?.(timeoutError);
+  };
+
+  const resetIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+    idleTimer = setTimeout(() => {
+      triggerTimeout(
+        `${label} stalled: no stream events for ${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}s`
+      );
+    }, STREAM_IDLE_TIMEOUT_MS);
+  };
+
+  resetIdleTimer();
+  totalTimer = setTimeout(() => {
+    triggerTimeout(
+      `${label} exceeded ${Math.round(STREAM_TOTAL_TIMEOUT_MS / 1000)}s total stream time`
+    );
+  }, STREAM_TOTAL_TIMEOUT_MS);
+
+  const watchedStream = (async function* () {
+    for await (const chunk of stream as AsyncIterable<unknown>) {
+      if (hasMeaningfulStreamProgress(chunk)) {
+        resetIdleTimer();
+      }
+      yield chunk;
+    }
+  })();
+
+  const processPromise = processor.process(watchedStream as AsyncIterable<any>);
+  // If timeout wins the race, prevent an unhandled rejection from the stream promise.
+  processPromise.catch(() => {});
+
+  try {
+    await Promise.race([processPromise, timeoutPromise]);
+  } catch (error) {
+    if (timeoutError) {
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimers();
+  }
+
+  if (timeoutError) {
+    throw timeoutError;
+  }
 }
 
 /**
@@ -591,6 +718,7 @@ interface AppProps {
   initialSessionId?: string;
   showSessionPicker?: boolean;
   verbose?: boolean;
+  recoveryNotice?: string;
 }
 
 // Main app wrapper
@@ -606,7 +734,13 @@ export function App(props: AppProps) {
       keyHandler.setMaxListeners(50);
     }
 
-    stopLagMonitor = startEventLoopLagMonitor();
+    stopLagMonitor = startEventLoopLagMonitor({
+      onLag: (sample: LagSample) => {
+        if (sample.lagMs >= 4000) {
+          Bus.emit("perf.lag_spike", sample);
+        }
+      },
+    });
 
     initializeCommands();
     // MCP tools registered async in background (don't block UI)
@@ -693,6 +827,7 @@ export function App(props: AppProps) {
     ...(props.initialSessionId ? { initialSessionId: props.initialSessionId } : {}),
   };
   const appWithSessionProps = props.showSessionPicker ? { showSessionPicker: true } : {};
+  const appRecoveryProps = props.recoveryNotice ? { recoveryNotice: props.recoveryNotice } : {};
 
   // Show API key overlay if needed, otherwise show main app
   return (
@@ -709,7 +844,7 @@ export function App(props: AppProps) {
                   padding={1}
                 >
                   <Show when={hasApiKey()}>
-                    <AppWithSession {...appWithSessionProps} />
+                    <AppWithSession {...appWithSessionProps} {...appRecoveryProps} />
                   </Show>
                   <Show when={!hasApiKey() && !showApiKeyOverlay()}>
                     {/* Brief moment before overlay shows */}
@@ -925,7 +1060,7 @@ function buildAPIMessages(
 }
 
 // App that decides between welcome screen and session view
-function AppWithSession(props: { showSessionPicker?: boolean }) {
+function AppWithSession(props: { showSessionPicker?: boolean; recoveryNotice?: string }) {
   const { messages, addMessage, updateMessage, model, setModel, headerTitle, setHeaderTitle, headerPrefix, setHeaderPrefix, setVerboseTools, setHideThinkingBlocks, createNewSession, loadSession, stats, recordToolCall, addTokenUsage, ensureSessionCreated, saveAfterResponse, saveOnExit } = useSession();
   const { mode, setMode, thinking, setThinking, cycleMode, cycleModeReverse } = useMode();
   const { express, showWarning, acknowledge: acknowledgeExpress, toggle: toggleExpress } = useExpress();
@@ -1112,6 +1247,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   // Flash notification for status line (5 second auto-dismiss)
   const [statusFlash, setStatusFlash] = createSignal<string | null>(null);
   let statusFlashTimeout: ReturnType<typeof setTimeout> | null = null;
+  const [lagGuardActive, setLagGuardActive] = createSignal(false);
+  const severeLagThresholdMs = 7000;
+  const severeLagWindowMs = 45000;
+  const severeLagBurstCount = 4;
+  let severeLagTimestamps: number[] = [];
   
   const showStatusFlash = (message: string) => {
     if (statusFlashTimeout) {
@@ -1121,6 +1261,24 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     statusFlashTimeout = setTimeout(() => {
       setStatusFlash(null);
     }, 5000);
+  };
+
+  const updateLagGuard = (sample: LagSample) => {
+    if (sample.lagMs < severeLagThresholdMs) return;
+
+    const parsedTs = Date.parse(sample.timestamp);
+    const now = Number.isFinite(parsedTs) ? parsedTs : Date.now();
+
+    severeLagTimestamps.push(now);
+    severeLagTimestamps = severeLagTimestamps.filter((ts) => now - ts <= severeLagWindowMs);
+
+    if (lagGuardActive()) return;
+    if (severeLagTimestamps.length < severeLagBurstCount) return;
+
+    setLagGuardActive(true);
+    setHideThinkingBlocks(true);
+    setVerboseTools(false);
+    showStatusFlash("Performance guard active: reduced heavy chat rendering.");
   };
 
   const toggleThinkingBlockVisibility = () => {
@@ -1188,6 +1346,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             updateMessage(assistantMsgId, { reasoning: retryReasoning });
           }, Timing.batchInterval);
         } else if (event.type === "done") {
+          if (isDebugEnabled()) {
+            void logAPIResponse("english_retry_done", {
+              finishReason: event.state.finishReason,
+              contentLength: retryContent.length,
+              reasoningLength: retryReasoning.length,
+              toolCallCount: event.state.toolCalls.size,
+            });
+          }
           flushBatch("retry-stream-content");
           flushBatch("retry-stream-reasoning");
           const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
@@ -1212,8 +1378,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       });
 
-      await retryProcessor.process(retryStream);
-    } catch {
+      await processStreamWithWatchdog(retryProcessor, retryStream, "English retry stream");
+    } catch (error) {
+      if (isDebugEnabled()) {
+        void logError("English retry stream failure", error instanceof Error ? error.message : String(error));
+      }
+      if (error instanceof Error && (error.message.includes("stalled") || error.message.includes("exceeded"))) {
+        showStatusFlash(error.message);
+      }
       const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
       const fallbackContent = sourceContent
         ? `${sourceContent}\n\n---\n*Automatic English retry failed. Please ask to rephrase in English.*`
@@ -1228,6 +1400,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       saveAfterResponse();
     }
   };
+
+  onMount(() => {
+    if (props.recoveryNotice) {
+      showStatusFlash(props.recoveryNotice);
+    }
+  });
   
   // Check if user has seen welcome screen on mount
   // NOTE: Update check is now triggered AFTER Bus subscription is set up (see below)
@@ -1293,6 +1471,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     const unsubscribe = Bus.subscribe((event) => {
       if (event.type === "question.asked") {
         const payload = event.properties as { context?: string; questions: Question[] };
+        if (isDebugEnabled()) {
+          void logAPIResponse("question_overlay_asked", {
+            context: payload.context ?? null,
+            topicCount: payload.questions.length,
+            topics: payload.questions.map((q) => q.topic),
+          });
+        }
         setPendingQuestions({ 
           ...(payload.context ? { context: payload.context } : {}),
           questions: payload.questions 
@@ -1323,6 +1508,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
             updateMessage(lastMsg.id, { mode: newMode });
           }
+        }
+      }
+      if (event.type === "perf.lag_spike") {
+        const payload = event.properties as LagSample;
+        if (payload && typeof payload.lagMs === "number") {
+          updateLagGuard(payload);
         }
       }
       // Session status events - show/hide compacting indicator
@@ -1437,15 +1628,17 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   // Handle question submission
   const handleQuestionSubmit = (answers: string[][]) => {
     const pending = pendingQuestions();
+    if (isDebugEnabled()) {
+      void logAPIResponse("question_overlay_submitted", {
+        topicCount: pending?.questions.length ?? 0,
+        answers,
+      });
+    }
     setPendingQuestions(null);
     
     // AUTO approval gate: detect approval responses
     if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
-      const approved = answers.flat().some((answer) =>
-        ["approve", "approved", "yes", "y", "ok", "okay", "proceed"].includes(
-          answer.trim().toLowerCase()
-        )
-      );
+      const approved = answers.flat().some((answer) => isAutoApprovalAffirmed(answer));
       setAutoApprovalGranted(approved);
     }
     resolveQuestion(answers);
@@ -1454,6 +1647,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   // Handle question cancel
   const handleQuestionCancel = () => {
     const pending = pendingQuestions();
+    if (isDebugEnabled()) {
+      void logAPIResponse("question_overlay_cancelled", {
+        topicCount: pending?.questions.length ?? 0,
+      });
+    }
     setPendingQuestions(null);
     if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
       resetAutoApproval();
@@ -1672,9 +1870,77 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     previousApiMessages: APIMessage[],
     assistantContent: string,        // Content from THIS turn only (for API messages)
     assistantReasoning: string = "", // Reasoning from THIS turn only (for API messages)
-    totalContentForUI: string = ""   // Total accumulated for UI display
+    totalContentForUI: string = "",  // Total accumulated for UI display
+    continuationState: ToolContinuationState = { depth: 0, signatureCounts: new Map() }
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
+    if (isDebugEnabled()) {
+      void logAPIResponse("tool_handoff_enter", {
+        toolCallCount: toolCalls.length,
+        continuationDepth: continuationState.depth,
+      });
+    }
+    const toolCallSignature = buildToolCallSignature(toolCalls);
+    const signatureCount =
+      (continuationState.signatureCounts.get(toolCallSignature) ?? 0) + 1;
+    continuationState.signatureCounts.set(toolCallSignature, signatureCount);
+
+    const maxContinuationDepth = express()
+      ? MAX_TOOL_CONTINUATION_DEPTH_EXPRESS
+      : MAX_TOOL_CONTINUATION_DEPTH;
+
+    const stopContinuation = (reason: string): void => {
+      const finalizedToolCalls = toolCalls.map((toolCall): ToolCallInfo => {
+        if (toolCall.status === "pending" || toolCall.status === "running") {
+          return {
+            ...toolCall,
+            status: "cancelled",
+            result: toolCall.result ?? reason,
+          };
+        }
+        return toolCall;
+      });
+      setMessageToolCalls(assistantMsgId, finalizedToolCalls);
+      const selfCheck = createSelfCheckSummary(finalizedToolCalls);
+      const currentContent =
+        messages().find((msg) => msg.id === assistantMsgId)?.content ?? "";
+      const nextContent = currentContent
+        ? `${currentContent}\n\n---\n*${reason}*`
+        : `*${reason}*`;
+      updateMessage(assistantMsgId, {
+        content: nextContent,
+        validation: selfCheck,
+        streaming: false,
+      });
+      setIsLoading(false);
+      setStreamProc(null);
+      showStatusFlash(reason);
+      if (isDebugEnabled()) {
+        void logAPIResponse("tool_handoff_stopped", {
+          reason,
+          continuationDepth: continuationState.depth,
+          maxContinuationDepth,
+          repeatedSignatureCount: signatureCount,
+          toolCallCount: toolCalls.length,
+        });
+      }
+      saveAfterResponse();
+    };
+
+    if (continuationState.depth >= maxContinuationDepth) {
+      stopContinuation(
+        `Stopped after ${maxContinuationDepth} tool continuation hops to prevent an infinite loop.`
+      );
+      return;
+    }
+
+    if (signatureCount > MAX_REPEATED_TOOL_SIGNATURES) {
+      stopContinuation(
+        `Stopped repeated identical tool calls (${signatureCount}) to prevent an infinite loop.`
+      );
+      return;
+    }
+
     // Ensure tool handlers see the current mode
     setCurrentMode(mode() as typeof MODES[number]);
     
@@ -1716,11 +1982,19 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         }
 
         // Execute the tool
+        if (isDebugEnabled()) {
+          void logAPIResponse("tool_execution_start", {
+            tool: toolCall.name,
+            toolCallId: toolCall.id,
+            argumentsLength: toolCall.arguments.length,
+            continuationDepth: continuationState.depth,
+          });
+        }
         const result = await Tool.execute(toolCall.name, args);
         
         // Debug log tool execution
         if (isDebugEnabled()) {
-          await logToolExecution(toolCall.name, args, result);
+          void logToolExecution(toolCall.name, args, result);
         }
         
         // Update with result (including metadata for DiffView, TerminalOutput, etc.)
@@ -1737,7 +2011,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       } catch (error) {
         // Debug log error
         if (isDebugEnabled()) {
-          await logError(`Tool execution: ${toolCall.name}`, error instanceof Error ? error : String(error));
+          void logError(`Tool execution: ${toolCall.name}`, error instanceof Error ? error : String(error));
         }
         
         toolCall.status = "error";
@@ -1809,6 +2083,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     // Base reasoning from before tool execution
     const baseReasoning = assistantReasoning;
     
+    const continuationBatchPrefix = `continuation-${assistantMsgId}`;
+    const continuationContentBatchKey = `${continuationBatchPrefix}-content`;
+    const continuationReasoningBatchKey = `${continuationBatchPrefix}-reasoning`;
+    const continuationToolBatchKey = `${continuationBatchPrefix}-tools`;
+
     try {
       // Create new stream processor and store in signal
       const newProcessor = new StreamProcessor();
@@ -1818,32 +2097,55 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       let accumulatedContent = "";
       let accumulatedReasoning = "";
       const newToolCallsMap = new Map<number, ToolCallInfo>();
+      let pendingTextDelta = "";
+      let pendingThinkingDelta = "";
       let textBlockStarted = false;
       let thinkingBlockStarted = false;
       
       newProcessor.onEvent((event: StreamEvent) => {
         if (event.type === "content") {
           accumulatedContent += event.delta;
-          appendTextBlockDelta(newAssistantMsgId, event.delta, !textBlockStarted);
-          textBlockStarted = true;
+          pendingTextDelta += event.delta;
           // Append new content to base content (single message block)
           // Use joinContentSections to normalize whitespace and prevent excessive blank lines
-          const fullContent = joinContentSections(baseContent, accumulatedContent);
-          updateMessage(newAssistantMsgId, {
-            content: fullContent,
-          });
+          batchUpdate(continuationContentBatchKey, () => {
+            const fullContent = joinContentSections(baseContent, accumulatedContent);
+            updateMessage(newAssistantMsgId, {
+              content: fullContent,
+            });
+            if (pendingTextDelta) {
+              appendTextBlockDelta(newAssistantMsgId, pendingTextDelta, !textBlockStarted);
+              textBlockStarted = true;
+              pendingTextDelta = "";
+            }
+          }, Timing.batchInterval);
         } else if (event.type === "reasoning") {
           accumulatedReasoning += event.delta;
-          appendThinkingBlockDelta(newAssistantMsgId, event.delta, !thinkingBlockStarted);
-          thinkingBlockStarted = true;
+          pendingThinkingDelta += event.delta;
           // Append reasoning (though typically reasoning is separate per turn)
-          const fullReasoning = baseReasoning
-            ? baseReasoning + "\n" + accumulatedReasoning
-            : accumulatedReasoning;
-          updateMessage(newAssistantMsgId, {
-            reasoning: fullReasoning,
-          });
+          batchUpdate(continuationReasoningBatchKey, () => {
+            const fullReasoning = baseReasoning
+              ? baseReasoning + "\n" + accumulatedReasoning
+              : accumulatedReasoning;
+            updateMessage(newAssistantMsgId, {
+              reasoning: fullReasoning,
+            });
+            if (pendingThinkingDelta) {
+              appendThinkingBlockDelta(
+                newAssistantMsgId,
+                pendingThinkingDelta,
+                !thinkingBlockStarted
+              );
+              thinkingBlockStarted = true;
+              pendingThinkingDelta = "";
+            }
+          }, Timing.batchInterval);
         } else if (event.type === "tool_call_start") {
+          // Preserve stream order in UI: flush any queued narration blocks
+          // before inserting the tool call block for this continuation chunk.
+          flushBatch(continuationContentBatchKey);
+          flushBatch(continuationReasoningBatchKey);
+
           const toolCallInfo: ToolCallInfo = {
             id: event.id,
             name: event.name,
@@ -1856,9 +2158,23 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           const existing = newToolCallsMap.get(event.index);
           if (existing) {
             existing.arguments += event.arguments;
-            setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
+            batchUpdate(continuationToolBatchKey, () => {
+              setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
+            }, Timing.batchInterval);
           }
         } else if (event.type === "done") {
+          if (isDebugEnabled()) {
+            void logAPIResponse("continuation_stream_done", {
+              finishReason: event.state.finishReason,
+              contentLength: accumulatedContent.length,
+              reasoningLength: accumulatedReasoning.length,
+              toolCallCount: newToolCallsMap.size,
+            });
+          }
+          flushBatch(continuationContentBatchKey);
+          flushBatch(continuationReasoningBatchKey);
+          flushBatch(continuationToolBatchKey);
+
           // Record token usage if available
           if (event.state.usage) {
             addTokenUsage({
@@ -1876,6 +2192,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           updateMessage(newAssistantMsgId, { streaming: hasToolCalls ? true : false });
           
           if (hasToolCalls) {
+            scheduleToolHandoffWatchdog(newAssistantMsgId, newToolCallsMap.size, "continuation");
             // Recursive tool execution
             // fullContent = total accumulated for UI display (base + this continuation)
             // accumulatedContent = just this continuation's content (for API messages)
@@ -1884,14 +2201,20 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             
             // Pass content from THIS continuation only (accumulatedContent) for API messages
             // Pass fullContent for UI display (total accumulated across all continuations)
-            executeToolsAndContinue(
+            void executeToolsAndContinue(
               newAssistantMsgId,
               newToolCallsMap,
               continuationMessages as any,
               accumulatedContent,     // Content from THIS continuation only
               accumulatedReasoning,   // Reasoning from THIS continuation only
-              fullContent             // Total for UI display
-            );
+              fullContent,            // Total for UI display
+              {
+                depth: continuationState.depth + 1,
+                signatureCounts: continuationState.signatureCounts,
+              }
+            ).catch((error) => {
+              void handleToolContinuationFailure(newAssistantMsgId, error);
+            });
           } else {
             const fullContent = joinContentSections(baseContent, accumulatedContent);
             const fullReasoning = joinContentSections(baseReasoning, accumulatedReasoning);
@@ -1920,6 +2243,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       
       // Ensure mode is set for tool handlers (may have changed between calls)
       setCurrentMode(currentMode);
+
+      if (isDebugEnabled()) {
+        void logAPIRequest(model(), continuationMessages as any, Tool.getAPIDefinitionsForMode(currentMode));
+        void logRawAPIMessages(continuationMessages as any);
+      }
       
       const stream = GLMClient.stream({
         messages: continuationMessages as any,
@@ -1932,16 +2260,73 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       });
       
-      await newProcessor.process(stream);
+      await processStreamWithWatchdog(newProcessor, stream, "Continuation stream");
     } catch (error) {
+      if (isDebugEnabled()) {
+        void logError("Continuation stream failure", error instanceof Error ? error.message : String(error));
+      }
+      if (error instanceof Error && (error.message.includes("stalled") || error.message.includes("exceeded"))) {
+        showStatusFlash(error.message);
+      }
+      flushBatch(continuationContentBatchKey);
+      flushBatch(continuationReasoningBatchKey);
+      flushBatch(continuationToolBatchKey);
       const selfCheck = createSelfCheckSummary(getMessageToolCalls(newAssistantMsgId));
       updateMessage(newAssistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         validation: selfCheck,
+        streaming: false,
       });
       setIsLoading(false);
       setStreamProc(null);
     }
+  };
+
+  const handleToolContinuationFailure = async (
+    assistantMsgId: string,
+    error: unknown
+  ): Promise<void> => {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+    updateMessage(assistantMsgId, {
+      content: `Error: ${errorMessage}`,
+      validation: selfCheck,
+      streaming: false,
+    });
+    setIsLoading(false);
+    setStreamProc(null);
+    showStatusFlash(`Tool continuation failed: ${errorMessage}`);
+    if (isDebugEnabled()) {
+      void logError("Unhandled tool continuation failure", errorMessage);
+    }
+  };
+
+  const scheduleToolHandoffWatchdog = (
+    assistantMsgId: string,
+    expectedToolCount: number,
+    phase: "assistant" | "continuation"
+  ): void => {
+    setTimeout(() => {
+      if (!isLoading()) return;
+
+      const msg = messages().find((m) => m.id === assistantMsgId);
+      const currentToolCalls = msg?.toolCalls ?? [];
+      const hasExecutionStarted = currentToolCalls.some(
+        (tc) =>
+          tc.status === "running" ||
+          tc.status === "success" ||
+          tc.status === "error" ||
+          tc.status === "cancelled"
+      );
+
+      if (hasExecutionStarted) return;
+
+      const phaseLabel = phase === "assistant" ? "Assistant stream" : "Continuation stream";
+      const error = new Error(
+        `${phaseLabel} ended with ${expectedToolCount} tool call(s), but tool execution did not start.`
+      );
+      void handleToolContinuationFailure(assistantMsgId, error);
+    }, 3000);
   };
 
   // Handle user confirming update - exit app and run npm install
@@ -2223,8 +2608,8 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
 
       // Debug log API request (use mode-filtered tools for accurate logging)
       if (isDebugEnabled()) {
-        await logAPIRequest(model(), apiMessages, Tool.getAPIDefinitionsForMode(currentMode));
-        await logRawAPIMessages(apiMessages);
+        void logAPIRequest(model(), apiMessages, Tool.getAPIDefinitionsForMode(currentMode));
+        void logRawAPIMessages(apiMessages);
       }
 
       // Create stream processor and store in signal
@@ -2279,6 +2664,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             }, Timing.batchInterval);
           }
         } else if (event.type === "done") {
+          if (isDebugEnabled()) {
+            void logAPIResponse("assistant_stream_done", {
+              finishReason: event.state.finishReason,
+              contentLength: accumulatedContent.length,
+              reasoningLength: accumulatedReasoning.length,
+              toolCallCount: toolCallsMap.size,
+            });
+          }
           // Flush any pending batched updates before finishing
           flushBatch("stream-content");
           flushBatch("stream-reasoning");
@@ -2303,9 +2696,19 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           
           // Check if we need to execute tools
           if (hasToolCalls) {
+            scheduleToolHandoffWatchdog(assistantMsgId, toolCallsMap.size, "assistant");
             // Execute tools and continue conversation
             // First call: content for this turn = accumulated content, total for UI = same
-            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
+            void executeToolsAndContinue(
+              assistantMsgId,
+              toolCallsMap,
+              apiMessages,
+              accumulatedContent,
+              accumulatedReasoning,
+              accumulatedContent
+            ).catch((error) => {
+              void handleToolContinuationFailure(assistantMsgId, error);
+            });
           } else {
             if (shouldRetryInEnglish(accumulatedContent)) {
               void retryAssistantInEnglish(
@@ -2340,13 +2743,20 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       });
 
-      await processor.process(stream);
+      await processStreamWithWatchdog(processor, stream, "Assistant stream");
     } catch (error) {
+      if (isDebugEnabled()) {
+        void logError("Assistant stream failure", error instanceof Error ? error.message : String(error));
+      }
+      if (error instanceof Error && (error.message.includes("stalled") || error.message.includes("exceeded"))) {
+        showStatusFlash(error.message);
+      }
       // Update assistant message with error
       const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
       updateMessage(assistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         validation: selfCheck,
+        streaming: false,
       });
       setIsLoading(false);
       setStreamProc(null);
@@ -2381,6 +2791,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             <ChatView 
               messages={messages()} 
               isLoading={isLoading()}
+              performanceGuard={lagGuardActive()}
               compactingState={compactingState()} 
               updateState={updateState()} 
               onDismissUpdate={() => setUpdateState(null)}

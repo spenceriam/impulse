@@ -34,7 +34,11 @@ class BusImpl {
     event.schema.parse(properties);
 
     for (const listener of this.listeners) {
-      listener({ type: event.name, properties });
+      try {
+        listener({ type: event.name, properties });
+      } catch (error) {
+        console.error(`Bus listener failed for "${event.name}":`, error);
+      }
     }
   }
 
@@ -44,7 +48,11 @@ class BusImpl {
    */
   emit(type: string, properties: unknown = {}): void {
     for (const listener of this.listeners) {
-      listener({ type, properties });
+      try {
+        listener({ type, properties });
+      } catch (error) {
+        console.error(`Bus listener failed for "${type}":`, error);
+      }
     }
   }
 }

@@ -71,6 +71,7 @@ const scrollAcceleration = new FastScrollAcceleration(MOUSE_SCROLL_SPEED);
 interface ChatViewProps {
   messages?: Message[];
   isLoading?: boolean;
+  performanceGuard?: boolean;
   compactingState?: CompactingState | null;
   updateState?: UpdateState | null;
   onDismissUpdate?: () => void;
@@ -81,6 +82,7 @@ interface ChatViewProps {
 export function ChatView(props: ChatViewProps) {
   const messages = () => props.messages ?? [];
   const isLoading = () => props.isLoading ?? false;
+  const performanceGuard = () => props.performanceGuard ?? false;
   const compactingState = () => props.compactingState ?? null;
   const updateState = () => props.updateState ?? null;
   
@@ -301,6 +303,20 @@ export function ChatView(props: ChatViewProps) {
       flexDirection="column"
       overflow="hidden"
     >
+      <Show when={performanceGuard()}>
+        <box
+          flexDirection="row"
+          paddingLeft={1}
+          paddingRight={1}
+          height={1}
+          alignItems="center"
+          backgroundColor="#1a1200"
+        >
+          <text fg={Colors.status.warning}>
+            Performance guard active: reducing heavy chat rendering.
+          </text>
+        </box>
+      </Show>
       {/* Scrollable message area */}
       <scrollbox 
         ref={(r: any) => { scrollboxRef = r; }}
@@ -342,6 +358,7 @@ export function ChatView(props: ChatViewProps) {
               )}>
                 <MessageBlock 
                   message={message} 
+                  performanceGuard={performanceGuard()}
                   {...(props.onCopyMessage ? { onCopy: props.onCopyMessage } : {})}
                 />
               </ErrorBoundary>

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, Show, type JSX } from "solid-js";
 import { Colors, Indicators } from "../design";
 
 /**
@@ -51,6 +51,7 @@ interface CollapsibleToolBlockProps {
   children: JSX.Element;              // Title content (always visible)
   expandedContent?: JSX.Element;      // Content shown when expanded
   defaultExpanded?: boolean;          // Override auto-expand behavior
+  forceCollapsed?: boolean;           // Runtime guard to collapse heavy content
 }
 
 export function CollapsibleToolBlock(props: CollapsibleToolBlockProps) {
@@ -64,10 +65,18 @@ export function CollapsibleToolBlock(props: CollapsibleToolBlockProps) {
 
   const [expanded, setExpanded] = createSignal(initialExpanded());
   const [userToggled, setUserToggled] = createSignal(false);
+  // Evaluate expandability in reactive render context, not in mouse handlers.
+  const hasExpandableContent = createMemo(() => !!props.expandedContent);
+
+  createEffect(() => {
+    if (props.forceCollapsed) {
+      setExpanded(false);
+    }
+  });
 
   // Toggle on click (only if there's content to expand)
   const handleClick = () => {
-    if (props.expandedContent) {
+    if (hasExpandableContent()) {
       setUserToggled(true);
       setExpanded(prev => !prev);
     }
@@ -77,14 +86,13 @@ export function CollapsibleToolBlock(props: CollapsibleToolBlockProps) {
   // This keeps file diffs visible once metadata arrives (e.g. pending -> success).
   createEffect(() => {
     if (userToggled()) return;
-    if (!props.expandedContent) return;
+    if (!hasExpandableContent()) return;
     if (initialExpanded() && !expanded()) {
       setExpanded(true);
     }
   });
 
   const expandIndicator = () => expanded() ? Indicators.expanded : Indicators.collapsed;
-  const hasExpandableContent = () => !!props.expandedContent;
 
   return (
     <box flexDirection="column" paddingLeft={2}>

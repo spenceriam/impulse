@@ -86,6 +86,7 @@ export interface Message {
 interface MessageBlockProps {
   message: Message;
   onCopy?: (content: string) => void;  // Called when user clicks to copy message
+  performanceGuard?: boolean;
 }
 
 /**
@@ -252,6 +253,18 @@ function renderMarkdownNode(node: MarkdownNode) {
         </text>
       );
     case "code_block":
+      // Fallback for plain/unknown languages so fenced blocks never disappear.
+      // This preserves ASCII trees and other preformatted text.
+      if (!node.language || node.language === "text" || node.language === "txt" || node.language === "plaintext") {
+        const lines = node.content.split("\n");
+        return (
+          <box marginTop={1} marginBottom={1} flexDirection="column">
+            <For each={lines}>
+              {(line) => <text>{line}</text>}
+            </For>
+          </box>
+        );
+      }
       return (
         <box marginTop={1} marginBottom={1}>
           <code
@@ -315,6 +328,7 @@ function renderMarkdownContent(content: string) {
 
 interface MessageBlockProps {
   message: Message;
+  performanceGuard?: boolean;
 }
 
 
@@ -684,7 +698,7 @@ function getExpandedContent(
  * - Error: Shows `✗ tool_title` auto-expanded with error details
  * - Verbose mode: All tools default expanded
  */
-function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean }): JSX.Element {
+function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean; performanceGuard?: boolean }): JSX.Element {
   const title = () => getToolTitle(
     props.toolCall.name,
     props.toolCall.arguments,
@@ -701,6 +715,7 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
   // Keep high-signal outputs visible by default (diffs/todos), while
   // preserving compact display for most tool calls.
   const defaultExpanded = () => {
+    if (props.performanceGuard) return false;
     if (props.verbose === true) return true;
     if ((props.toolCall.status === "pending" || props.toolCall.status === "running") && props.toolCall.name === "task") {
       return true;
@@ -723,6 +738,7 @@ function ToolCallDisplay(props: { toolCall: ToolCallInfo; attemptNumber?: number
       status={props.toolCall.status}
       expandedContent={hasExpandableContent() ? expandedContent() : undefined}
       defaultExpanded={defaultExpanded()}
+      forceCollapsed={props.performanceGuard ?? false}
     >
       <text fg={Colors.ui.dim}>{title()}</text>
       <Show when={props.attemptNumber}>
@@ -876,9 +892,10 @@ export function MessageBlock(props: MessageBlockProps) {
     if (!toolCall) return null;
 
     const attempt = getAttemptNumber(toolIndex);
-    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean } = {
+    const displayProps: { toolCall: ToolCallInfo; attemptNumber?: number; verbose?: boolean; performanceGuard?: boolean } = {
       toolCall,
       verbose: verboseTools(),
+      performanceGuard: props.performanceGuard ?? false,
     };
     if (attempt !== undefined) {
       displayProps.attemptNumber = attempt;

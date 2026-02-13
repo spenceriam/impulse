@@ -442,7 +442,7 @@ export const MCPDiscovery = {
       }
     }
     
-    return `mcp_call ${tool.server} ${tool.name} '${JSON.stringify(args)}'`;
+    return `${tool.name}(${JSON.stringify(args)})`;
   },
   
   /**
