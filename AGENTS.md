@@ -844,6 +844,7 @@ interface QuestionToolOutput {
 - Conventional commits format
 - Commit after each discrete task
 - No `git push` without explicit permission
+- Keep PR descriptions concise: Summary + Validation + issue links only; avoid generic "Notes" sections and avoid stating "draft PR" in the body.
 
 ### UI
 - No emojis anywhere
