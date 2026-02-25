@@ -138,7 +138,7 @@ export const ModeEvents = {
   Changed: BusEvent.define(
     "mode.changed",
     z.object({
-      mode: z.enum(["AUTO", "EXPLORE", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"]),
+      mode: z.enum(["WORK", "EXPLORE", "PLAN", "DEBUG"]),
       reason: z.string().optional().describe("Brief explanation of why mode was changed"),
     })
   ),

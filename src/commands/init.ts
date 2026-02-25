@@ -397,9 +397,9 @@ async function handleInit(_args: Record<string, unknown>): Promise<{ success: bo
       output: `Empty project directory detected.
 
 To start a new project, switch modes using the Tab key:
-- **PLANNER** - Design your project with full documentation
-- **PLAN-PRD** - Quick PRD generation via Q&A  
-- **AUTO** - Let the AI decide the best approach
+- **PLAN** - Design your project and write planning docs
+- **WORK** - Implement features and execute changes end-to-end
+- **EXPLORE** - Investigate code and gather context before coding
 
 Once you have files in your project, run /init again to analyze and create AGENTS.md.`,
     };

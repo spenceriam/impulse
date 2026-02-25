@@ -46,7 +46,7 @@ export const fileEdit: Tool<EditInput> = Tool.define(
     try {
       const safePath = sanitizePath(input.filePath);
       
-      // Check mode-based path restrictions (PLANNER -> docs/, PLAN-PRD -> PRD.md)
+      // Check mode-based path restrictions (PLAN -> docs/ or PRD.md)
       const modeError = validateWritePath(safePath);
       if (modeError) {
         return {

@@ -36,5 +36,5 @@ general (full access)
 - Subagent results return to the main agent, not the user
 - Provide specific prompts; subagents do not see conversation history
 - Mode restrictions:
-  - PLANNER and PLAN-PRD: only `subagent_type: "explore"` is allowed
-  - AGENT/DEBUG: both `explore` and `general` are allowed
+  - PLAN: only `subagent_type: "explore"` is allowed
+  - WORK/DEBUG: both `explore` and `general` are allowed

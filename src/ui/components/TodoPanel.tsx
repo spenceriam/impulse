@@ -17,7 +17,7 @@ import { useTodo, type Todo } from "../context";
 function getTodoDisplay(status: string): { indicator: string; color: string; strikethrough: boolean } {
   switch (status) {
     case "in_progress":
-      return { indicator: Indicators.todo.in_progress, color: Colors.mode.AGENT, strikethrough: false };
+      return { indicator: Indicators.todo.in_progress, color: Colors.mode.WORK, strikethrough: false };
     case "completed":
       return { indicator: Indicators.todo.completed, color: Colors.ui.dim, strikethrough: true };
     case "cancelled":

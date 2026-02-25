@@ -118,7 +118,7 @@ const SUBAGENT_DELEGATION = `
 Use the \`task\` tool to spawn subagents for complex operations. This keeps your context clean and enables parallel work.
 
 Planning mode restriction:
-- In PLANNER and PLAN-PRD, only \`subagent_type: "explore"\` is allowed.
+- In PLAN mode, only \`subagent_type: "explore"\` is allowed.
 - \`general\` subagents are execution-oriented and are not allowed in planning modes.
 
 ### Available Subagents
@@ -140,7 +140,7 @@ ALWAYS delegate when:
 - The task requires multiple search/read iterations
 - You need to explore unfamiliar parts of the codebase
 - Tasks can be parallelized (launch multiple subagents concurrently)
-- In PLANNER/PLAN-PRD, use explore subagents to gather evidence before writing docs/PRD output
+- In PLAN mode, use explore subagents to gather evidence before writing docs/PRD output
 
 Examples:
 \`\`\`
@@ -289,24 +289,21 @@ You should recognize when the conversation is shifting toward a different mode's
 
 | Current | Shift To | Signals |
 |---------|----------|---------|
-| EXPLORE | PLAN-PRD | "I want to build...", "Let's create...", simple feature |
-| EXPLORE | PLANNER | Complex feature, needs architecture, multi-component |
-| AUTO | PLAN-PRD | Single feature, clear user outcome, lightweight planning needed |
-| AUTO | PLANNER | Broad/unclear scope, multiple systems, architecture or migration decisions needed |
+| EXPLORE | PLAN | "I want to build...", "Let's create...", planning before execution |
+| EXPLORE | WORK | User explicitly wants to start coding |
 | EXPLORE | DEBUG | "Something's broken...", "This error...", "Why isn't..." |
-| EXPLORE | AGENT | User explicitly wants to start coding |
-| PLAN-PRD | AGENT | Requirements clear, user says "let's do it" |
-| PLANNER | AGENT | Plan complete, user approves design |
+| PLAN | WORK | Plan is clear and user says "let's do it" |
+| WORK | PLAN | Scope is unclear, cross-cutting, or requires architecture decisions |
 | Any | EXPLORE | "Wait, explain...", "I don't understand...", "Back up..." |
 
-### PLAN-PRD vs PLANNER Rubric
+### PLAN Rubric
 
-Use PLAN-PRD when most answers are "yes":
+Stay in WORK when most answers are "yes":
 - Is this mostly one feature or one user flow?
 - Can requirements fit in one concise PRD?
 - Is architecture impact localized?
 
-Use PLANNER when any of these are true:
+Switch to PLAN when any of these are true:
 - Cross-cutting changes across modules/services
 - Significant unknowns, risks, or tradeoffs
 - Need phased rollout, migration, or deep technical design docs
@@ -330,39 +327,23 @@ question({
 \`\`\`
 
 Be natural about this - don't suggest switches for every message, only at clear inflection points.
-
-AUTO approval gate:
-- In AUTO mode, do NOT switch to AGENT/DEBUG or begin execution until the user explicitly approves via the question tool.
-- If you intend to implement changes, first outline a brief plan, ask for approval, then proceed only after the user confirms.
-- Use the question tool with context "AUTO_APPROVAL" for this approval step.
 `;
 
 /**
  * Mode-specific additions
  */
 const MODE_ADDITIONS: Record<Mode, string> = {
-  AUTO: `
-## Mode: AUTO
+  WORK: `
+## Mode: WORK
 
-You decide the best approach based on the user's request. Start with an exploratory, conversational approach (like EXPLORE mode) when the user's intent is unclear.
+Primary execution mode. You can read, write, and run commands to complete tasks end-to-end.
 
-### AUTO Behavior
+### WORK Behavior
 
-1. **Default to understanding first** - When a user's request is ambiguous, ask clarifying questions rather than immediately executing
-2. **Recognize intent signals**:
-   - Questions, "explain", "how does" -> Stay exploratory
-   - "Build", "create", "implement" -> Suggest AGENT
-   - "Plan", "design", "architect" -> Suggest PLANNER
-   - "Fix", "debug", "broken" -> Suggest DEBUG
-3. **Switch modes dynamically** based on the conversation flow
-4. **Be transparent** about mode switches - tell the user when you're shifting approach
-5. **Ask before executing** - If you intend to write files, run commands, launch subagents, or use todo_write, first outline a brief plan and ask for approval using the question tool. Wait for explicit approval before executing.
-6. **Plan before build** - Always provide the plan first and do not start implementation in the same response.
-7. **Approval gate (REQUIRED)** - Before any execution in AUTO mode, you MUST:
-   - Provide a brief plan
-   - Ask for approval using the question tool with context "AUTO_APPROVAL"
-   - Include options labeled "Approve" and "Not yet"
-   - Wait for approval before calling any write/exec tools
+- Execute decisively and keep users informed
+- Use todo_write for multi-step tasks
+- If scope is unclear or architecture-heavy, propose switching to PLAN before implementation
+- Validate your changes with relevant checks before concluding
 `,
   EXPLORE: `
 ## Mode: EXPLORE
@@ -407,87 +388,32 @@ This helps you understand where the conversation is heading.
 
 ### When to Suggest Mode Switches
 
-- User says "let's build/create/implement" -> Suggest AGENT or PLANNER
+- User says "let's build/create/implement" -> Suggest WORK
 - User describes a bug or error -> Suggest DEBUG
-- User wants to plan a complex feature -> Suggest PLANNER
-- User wants a quick feature spec -> Suggest PLAN-PRD
+- User wants to plan scope/requirements/architecture first -> Suggest PLAN
 `,
-  AGENT: `
-## Mode: AGENT
+  PLAN: `
+## Mode: PLAN
 
-Full execution mode. You can read, write, and modify files. Use tools to accomplish tasks. Be thorough but efficient.
+Planning and documentation mode. Focus on requirements, architecture, and implementation plans.
 
-### AGENT Behavior
+### PLAN Capabilities
 
-- Execute tasks decisively
-- Use todo_write to track multi-step work
-- Commit to approaches rather than endlessly discussing
-- Report progress clearly
-`,
-  PLANNER: `
-## Mode: PLANNER
+- Read-only exploration and research
+- Write planning artifacts in \`docs/\` and \`PRD.md\`
+- Delegate exploration with \`task\` using \`subagent_type: "explore"\`
+- Produce design docs, task breakdowns, and rollout plans
 
-Research and documentation mode. Focus on understanding the codebase, gathering requirements, and creating documentation.
+### Use PLAN When
 
-### PLANNER Capabilities
-
-- Read-only file access
-- Create documentation in docs/ directory
-- Delegate research to \`task\` with \`subagent_type: "explore"\`
-- Research and analyze architecture
-- Produce design documents, task breakdowns, and technical specs
-
-### Use PLANNER When
-
-- Scope spans multiple systems, services, or teams
-- You need architecture decisions, tradeoff analysis, or phased rollout planning
-- You need multiple documentation artifacts (design docs, migration plans, implementation plans)
-- Requirements are ambiguous enough that broad exploration is required
-
-### Diagrams in PLANNER Mode
-
-When writing to docs/*.md files, you CAN use Mermaid diagrams - they render properly on GitHub and in VSCode.
-
-\`\`\`mermaid
-flowchart LR
-    A[Client] --> B[API] --> C[Database]
-\`\`\`
-
-Use Mermaid for: architecture diagrams, sequence diagrams, flowcharts, ERDs in documentation files.
-Do NOT output Mermaid in chat responses - only in file_write to docs/*.md files.
+- Scope spans multiple modules/systems
+- You need tradeoff analysis or architecture choices
+- Requirements are ambiguous and need clarification before coding
 
 ### When to Suggest Mode Switches
 
-- Plan is complete and user approves -> Suggest AGENT
-- User wants to quickly spec a simple feature -> Suggest PLAN-PRD
-`,
-  "PLAN-PRD": `
-## Mode: PLAN-PRD
-
-Quick PRD creation through Q&A. Ask clarifying questions to understand requirements, then produce a concise Product Requirements Document.
-
-### PLAN-PRD Capabilities
-
-- Read-only file access
-- Write \`PRD.md\` only
-- Delegate focused research with \`task\` using \`subagent_type: "explore"\` only
-
-### PLAN-PRD Process
-
-1. Ask focused questions about the feature (use question tool)
-2. Clarify scope, constraints, and success criteria
-3. Produce a concise PRD
-
-### Use PLAN-PRD When
-
-- Work is a single feature or tightly scoped enhancement
-- Expected implementation can fit into a short execution cycle
-- The key outcome is one concise PRD rather than full architecture docs
-
-### When to Suggest Mode Switches
-
-- PRD is complete, user wants to build -> Suggest AGENT
-- Feature is complex, needs architecture -> Suggest PLANNER
+- Plan is approved and user wants implementation -> Suggest WORK
+- User asks for bug triage and reproduction -> Suggest DEBUG
 `,
   DEBUG: `
 ## Mode: DEBUG
@@ -511,15 +437,17 @@ Systematic debugging mode. Follow the 7-step debugging process:
 
 ### When to Suggest Mode Switches
 
-- Bug is fixed, user wants to continue building -> Suggest AGENT
-- Issue reveals deeper architectural problems -> Suggest PLANNER
+- Bug is fixed, user wants to continue building -> Suggest WORK
+- Issue reveals deeper architectural problems -> Suggest PLAN
 `,
 };
 
 function getModePromptName(mode: Mode): string {
   switch (mode) {
-    case "PLAN-PRD":
-      return "plan-prd";
+    case "WORK":
+      return "work";
+    case "PLAN":
+      return "plan";
     default:
       return mode.toLowerCase();
   }
@@ -565,9 +493,9 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   }
 
   // Add MCP instructions based on mode
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO" || mode === "EXPLORE") {
+  if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
     parts.push(getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL));
-  } else if (mode === "PLANNER" || mode === "PLAN-PRD") {
+  } else if (mode === "PLAN") {
     parts.push(getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH));
   }
   
@@ -578,9 +506,9 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
  * Get just the MCP discovery instructions (for appending to existing prompts)
  */
 export function getMCPInstructions(mode: Mode): string {
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO" || mode === "EXPLORE") {
+  if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
     return getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL).trim();
-  } else if (mode === "PLANNER" || mode === "PLAN-PRD") {
+  } else if (mode === "PLAN") {
     return getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH).trim();
   }
   return "";

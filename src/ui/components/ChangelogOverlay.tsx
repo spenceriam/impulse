@@ -24,7 +24,7 @@ function getTypeColor(type: ChangelogEntry["type"]): string {
     case "major":
       return Colors.status.error;
     case "minor":
-      return Colors.mode.AGENT;
+      return Colors.mode.WORK;
     case "patch":
       return Colors.ui.dim;
     default:
@@ -134,7 +134,7 @@ export function ChangelogOverlay(props: ChangelogOverlayProps) {
             <text fg={Colors.status.error}>{error()}</text>
             <box height={1} />
             <text fg={Colors.ui.dim}>View directly at:</text>
-            <text fg={Colors.mode.AGENT}>https://github.com/spenceriam/impulse/blob/main/CHANGELOG.md</text>
+            <text fg={Colors.mode.WORK}>https://github.com/spenceriam/impulse/blob/main/CHANGELOG.md</text>
           </box>
         </Show>
         
@@ -146,7 +146,7 @@ export function ChangelogOverlay(props: ChangelogOverlayProps) {
             style={{
               scrollbarOptions: {
                 trackOptions: {
-                  foregroundColor: Colors.mode.AGENT,
+                  foregroundColor: Colors.mode.WORK,
                   backgroundColor: Colors.ui.dim,
                 },
               },
@@ -175,7 +175,7 @@ export function ChangelogOverlay(props: ChangelogOverlayProps) {
                     
                     {/* Title if present */}
                     <Show when={entry.title}>
-                      <text fg={Colors.mode.AGENT}>{entry.title}</text>
+                      <text fg={Colors.mode.WORK}>{entry.title}</text>
                     </Show>
                     
                     {/* Changes list */}
@@ -211,7 +211,7 @@ export function ChangelogOverlay(props: ChangelogOverlayProps) {
                     paddingLeft={2}
                     paddingRight={2}
                   >
-                    <text fg={Colors.mode.AGENT}>
+                    <text fg={Colors.mode.WORK}>
                       [ Load {Math.min(ENTRIES_PER_PAGE, remainingCount())} more ({remainingCount()} remaining) ]
                     </text>
                   </box>

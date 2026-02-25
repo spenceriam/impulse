@@ -27,14 +27,14 @@ interface PermissionOption {
 interface PermissionPromptProps {
   request: PermissionRequest;
   onRespond: (response: PermissionResponse, message?: string, wildcard?: boolean) => void;
-  onAllowAllEdits?: () => void;           // Shift+Tab handler for AUTO/AGENT/DEBUG modes
+  onAllowAllEdits?: () => void;           // Shift+Tab handler for writable execution modes
   onReadOnlyNotification?: () => void;    // Flash notification for read-only modes
 }
 
 /**
  * Read-only modes where Shift+Tab "Allow All Edits" is blocked
  */
-const READ_ONLY_MODES = ["EXPLORE", "PLANNER", "PLAN-PRD"];
+const READ_ONLY_MODES = ["EXPLORE", "PLAN"];
 
 /**
  * PermissionPrompt Component
@@ -252,7 +252,7 @@ export function PermissionPrompt(props: PermissionPromptProps) {
             const showSessionHeader = () => option.id === "session-exact";
             
             // Highlight color: cyan for normal options, red for reject
-            const highlightBg = () => isReject ? Colors.status.error : Colors.mode.AGENT;
+            const highlightBg = () => isReject ? Colors.status.error : Colors.mode.WORK;
             
             // Click handler - select and confirm this option
             const handleClick = () => {

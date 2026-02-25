@@ -3,7 +3,8 @@ import { CommandRegistry, CommandDefinition } from "./registry";
 import { SessionManager } from "../session/manager";
 import { CheckpointManager } from "../session/checkpoint";
 import { CompactManager } from "../session/compact";
-import { GLM_MODELS, MODES, getModelDisplayName } from "../constants";
+import { GLM_MODELS, MODES, getModelDisplayName, normalizeMode } from "../constants";
+import { Bus, ModeEvents } from "../bus";
 
 const UndoArgsSchema = z.object({
   index: z.number().optional(),
@@ -203,13 +204,12 @@ async function handleMode(args: Record<string, unknown>) {
   // If no mode specified, show available modes
   if (!modeArg) {
     const currentSession = SessionManager.getCurrentSession();
-    const currentMode = currentSession?.mode || "AUTO";
+    const currentMode = normalizeMode(currentSession?.mode);
     
     const modeDescriptions: Record<string, string> = {
-      AUTO: "AI decides based on prompt",
-      AGENT: "Full execution + looper skill",
-      PLANNER: "Research + documentation",
-      "PLAN-PRD": "Quick PRD via Q&A",
+      WORK: "Full execution mode",
+      EXPLORE: "Read-only understanding",
+      PLAN: "Planning and documentation",
       DEBUG: "7-step systematic debugging",
     };
     
@@ -226,18 +226,33 @@ async function handleMode(args: Record<string, unknown>) {
   }
 
   const modeUpper = modeArg.toUpperCase();
-  if (!MODES.includes(modeUpper as (typeof MODES)[number])) {
+  const allowedInputs = new Set<string>([
+    ...MODES,
+    "AUTO",
+    "AGENT",
+    "PLANNER",
+    "PLAN-PRD",
+  ]);
+  if (!allowedInputs.has(modeUpper)) {
     return {
       success: false,
-      error: `Invalid mode: ${modeArg}\nValid modes: ${MODES.join(", ")}`,
+      error: `Invalid mode: ${modeArg}\nValid modes: ${MODES.join(", ")}\nLegacy aliases: AUTO, AGENT, PLANNER, PLAN-PRD`,
     };
   }
 
-  await SessionManager.update({ mode: modeUpper });
+  const normalizedMode = normalizeMode(modeUpper);
+
+  await SessionManager.update({ mode: normalizedMode });
+  Bus.publish(ModeEvents.Changed, {
+    mode: normalizedMode,
+    reason: "User changed mode via /mode",
+  });
 
   return {
     success: true,
-    output: `Mode changed to ${modeUpper}`,
+    output: modeUpper === normalizedMode
+      ? `Mode changed to ${normalizedMode}`
+      : `Mode changed to ${normalizedMode} (mapped from ${modeUpper})`,
   };
 }
 
@@ -262,6 +277,14 @@ async function handleExpress() {
   return {
     success: true,
     output: "Express mode toggled (handled by UI)",
+  };
+}
+
+async function handleEngage() {
+  // This is handled specially in App.tsx to manage Engage state and loop behavior.
+  return {
+    success: true,
+    output: "Engage mode toggled (handled by UI)",
   };
 }
 
@@ -314,7 +337,7 @@ export function registerUtilityCommands(): void {
       description: "Switch AI mode",
       args: ModeArgsSchema,
       handler: handleMode,
-      examples: ["/mode AUTO", "/mode EXPLORE", "/mode AGENT"],
+      examples: ["/mode WORK", "/mode EXPLORE", "/mode PLAN", "/mode DEBUG"],
     },
     {
       name: "think",
@@ -337,6 +360,13 @@ export function registerUtilityCommands(): void {
       description: "Toggle Express mode (auto-approve all permissions)",
       handler: handleExpress,
       examples: ["/express"],
+    },
+    {
+      name: "engage",
+      category: "utility",
+      description: "Toggle Engage mode (WORK + express + deeper autonomous loop)",
+      handler: handleEngage,
+      examples: ["/engage"],
     },
     {
       name: "verbose",

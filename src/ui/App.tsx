@@ -23,12 +23,13 @@ import { registerCoreCommands } from "../commands/core";
 import { registerUtilityCommands } from "../commands/utility";
 import { registerInfoCommands } from "../commands/info";
 import { registerInitCommand } from "../commands/init";
-import { GLM_MODELS, MODES, getModelDisplayName } from "../constants";
+import { GLM_MODELS, MODES, getModelDisplayName, normalizeMode } from "../constants";
+import { SessionManager } from "../session/manager";
 import { generateSystemPrompt } from "../agent/prompts";
 import { Bus } from "../bus";
 import { resolveQuestion, rejectQuestion, type Question } from "../tools/question";
 import { Tool } from "../tools/registry";
-import { resetAutoApproval, setAutoApprovalGranted, setCurrentMode } from "../tools/mode-state";
+import { setCurrentMode } from "../tools/mode-state";
 import { type AssistantContentBlock, type ToolCallInfo } from "./components/MessageBlock";
 import { type ToolMetadata } from "../types/tool-metadata";
 import { registerMCPTools, mcpManager } from "../mcp";
@@ -40,13 +41,14 @@ import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
 import { createSelfCheckSummary } from "./self-check";
 import { ENGLISH_RETRY_PROMPT, shouldRetryInEnglish } from "./language-guard";
-import { isAutoApprovalAffirmative } from "../util/auto-approval";
 
 const STREAM_IDLE_TIMEOUT_MS = 45000;
 const STREAM_TOTAL_TIMEOUT_MS = 240000;
 const MAX_CONTINUATION_DEPTH = 24;
 const MAX_CONTINUATION_DEPTH_EXPRESS = 48;
+const MAX_CONTINUATION_DEPTH_ENGAGE = 72;
 const MAX_IDENTICAL_TOOL_SIGNATURES = 3;
+const MAX_IDENTICAL_TOOL_SIGNATURES_ENGAGE = 5;
 
 /**
  * Join content sections with normalized whitespace.
@@ -143,7 +145,7 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
         <box height={1} />
         <box flexDirection="row" flexWrap="wrap">
           <text fg={Colors.ui.text}>To get started, you'll need a </text>
-          <text fg={Colors.mode.AGENT}>Coding Plan API key</text>
+          <text fg={Colors.mode.WORK}>Coding Plan API key</text>
           <text fg={Colors.ui.text}> from Z.ai.</text>
         </box>
         <text fg={Colors.ui.dim}>
@@ -152,7 +154,7 @@ function ApiKeyOverlay(props: { onSave: (key: string) => void; onCancel: () => v
         <box height={1} />
         <box flexDirection="row">
           <text fg={Colors.ui.dim}>Get your key at: </text>
-          <text fg={Colors.mode.AGENT}>https://z.ai/manage-apikey/subscription</text>
+          <text fg={Colors.mode.WORK}>https://z.ai/manage-apikey/subscription</text>
         </box>
         <box height={1} />
         <box flexDirection="row">
@@ -231,7 +233,7 @@ function CommandResultOverlay(props: {
             style={{
               scrollbarOptions: {
                 trackOptions: {
-                  foregroundColor: Colors.mode.AGENT,
+                  foregroundColor: Colors.mode.WORK,
                   backgroundColor: Colors.ui.dim,
                 },
               },
@@ -366,7 +368,7 @@ function ModelSelectOverlay(props: {
               >
                 <box 
                   flexDirection="row" 
-                  backgroundColor={Colors.mode.AGENT}
+                  backgroundColor={Colors.mode.WORK}
                   onMouseDown={() => props.onSelect(model)}
                 >
                   <text fg={isCurrent ? "#006600" : "#333333"}>{checkbox}</text>
@@ -595,7 +597,7 @@ async function initializeMCPTools() {
 interface AppProps {
   initialExpress?: boolean;
   initialModel?: string;
-  initialMode?: "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
+  initialMode?: typeof MODES[number];
   initialSessionId?: string;
   showSessionPicker?: boolean;
   verbose?: boolean;
@@ -664,7 +666,7 @@ export function App(props: AppProps) {
       const cfg = await loadConfig().catch(() => ({
         apiKey: key,
         defaultModel: "glm-4.7",
-        defaultMode: "AUTO",
+        defaultMode: "WORK",
         thinking: true,
         hasSeenWelcome: false,
       }));
@@ -941,6 +943,26 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   const renderer = useRenderer();
   const dimensions = useTerminalDimensions();
 
+  // Keep runtime mode in sync with persisted session mode (e.g. after loading sessions).
+  createEffect(() => {
+    messages();
+    const persistedMode = SessionManager.getCurrentSession()?.mode;
+    if (!persistedMode) return;
+    const normalized = normalizeMode(persistedMode);
+    if (mode() !== normalized) {
+      setMode(normalized);
+    }
+  });
+
+  // Persist mode changes so session reload restores the latest active mode.
+  createEffect(() => {
+    const activeMode = mode();
+    const currentSession = SessionManager.getCurrentSession();
+    if (!currentSession) return;
+    if (normalizeMode(currentSession.mode) === activeMode) return;
+    void SessionManager.update({ mode: activeMode });
+  });
+
   const [isLoading, setIsLoading] = createSignal(false);
   
   // Ordered assistant block helpers (pi-mono style stream ordering)
@@ -1100,6 +1122,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   
   // Queue overlay state - shown via Ctrl+Q
   const [showQueueOverlay, setShowQueueOverlay] = createSignal(false);
+
+  // Engage mode state (/engage): higher-autonomy execution profile layered on top of WORK.
+  const [engageEnabled, setEngageEnabled] = createSignal(false);
+  const [engageOwnedExpress, setEngageOwnedExpress] = createSignal(false);
   
   // Compacting state - shown in ChatView when context is being compacted
   const [compactingState, setCompactingState] = createSignal<CompactingState | null>(null);
@@ -1513,33 +1539,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     }
   });
 
-  // Reset AUTO approval gate when entering AUTO mode
-  createEffect(() => {
-    if (mode() === "AUTO") {
-      resetAutoApproval();
-    }
-  });
-  
   // Handle question submission
   const handleQuestionSubmit = (answers: string[][]) => {
-    const pending = pendingQuestions();
     setPendingQuestions(null);
-    
-    // AUTO approval gate: detect approval responses
-    if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
-      const approved = answers.flat().some((answer) => isAutoApprovalAffirmative(answer));
-      setAutoApprovalGranted(approved);
-    }
     resolveQuestion(answers);
   };
   
   // Handle question cancel
   const handleQuestionCancel = () => {
-    const pending = pendingQuestions();
     setPendingQuestions(null);
-    if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
-      resetAutoApproval();
-    }
     rejectQuestion();
   };
   
@@ -1575,7 +1583,35 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
   
   // Handle read-only mode notification for Shift+Tab
   const handleReadOnlyNotification = () => {
-    showStatusFlash("Read-only mode - use AUTO or AGENT to allow all edits");
+    showStatusFlash("Read-only mode - use WORK to allow all edits");
+  };
+
+  // Handle /engage toggle
+  const toggleEngageMode = async () => {
+    if (engageEnabled()) {
+      // Disable engage profile.
+      if (engageOwnedExpress() && express()) {
+        toggleExpress();
+      }
+      setEngageEnabled(false);
+      setEngageOwnedExpress(false);
+      showStatusFlash("ENGAGE disabled");
+      return;
+    }
+
+    // Enable engage profile in WORK mode.
+    setMode("WORK");
+    await SessionManager.update({ mode: "WORK" });
+
+    let enabledExpressForEngage = false;
+    if (!express()) {
+      toggleExpress();
+      enabledExpressForEngage = true;
+    }
+
+    setEngageOwnedExpress(enabledExpressForEngage);
+    setEngageEnabled(true);
+    showStatusFlash("ENGAGE enabled");
   };
 
   let ctrlCCount = 0;
@@ -1759,12 +1795,19 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     recentToolSignatures: string[] = []
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
-    const maxDepth = express() ? MAX_CONTINUATION_DEPTH_EXPRESS : MAX_CONTINUATION_DEPTH;
+    const maxDepth = engageEnabled()
+      ? MAX_CONTINUATION_DEPTH_ENGAGE
+      : express()
+        ? MAX_CONTINUATION_DEPTH_EXPRESS
+        : MAX_CONTINUATION_DEPTH;
+    const maxIdenticalSignatures = engageEnabled()
+      ? MAX_IDENTICAL_TOOL_SIGNATURES_ENGAGE
+      : MAX_IDENTICAL_TOOL_SIGNATURES;
     const signature = getToolCallSignature(toolCallsMap);
     const signatureHistory = [...recentToolSignatures, signature].slice(-8);
     const identicalSignatureCount = signatureHistory.filter((entry) => entry === signature).length;
     const hitDepthGuard = continuationDepth >= maxDepth;
-    const hitSignatureGuard = identicalSignatureCount >= MAX_IDENTICAL_TOOL_SIGNATURES;
+    const hitSignatureGuard = identicalSignatureCount >= maxIdenticalSignatures;
 
     if (hitDepthGuard || hitSignatureGuard) {
       const stopReason = hitDepthGuard
@@ -2131,12 +2174,6 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     const trimmedContent = content.trim();
     if (!trimmedContent) return;
 
-    const activeMode = mode() as typeof MODES[number];
-    if (!trimmedContent.startsWith("/") && activeMode === "AUTO") {
-      // New user request in AUTO mode should require fresh approval
-      resetAutoApproval();
-    }
-    
     // If AI is processing, enqueue the message instead of blocking
     if (isLoading()) {
       // Don't queue commands - they should wait for AI to finish
@@ -2245,6 +2282,12 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         toggleExpress();
         // No confirmation overlay - warning shown on first enable via ExpressWarning component
         // Status line [EX] indicator shows current state
+        return;
+      }
+
+      // Handle /engage specially - toggle high-autonomy profile
+      if (parsed && parsed.name === "engage") {
+        await toggleEngageMode();
         return;
       }
       
@@ -2365,10 +2408,21 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       
       // Set the mode for tool handlers (for mode-aware path restrictions)
       setCurrentMode(currentMode);
+
+      const systemPrompt = engageEnabled()
+        ? `${generateSystemPrompt(currentMode)}
+
+## Engage Mode
+
+ENGAGE is active for this request. Work autonomously and persist until the task is fully complete.
+- After each tool result, verify whether the user outcome is satisfied.
+- If gaps remain, continue with the next concrete step instead of stopping early.
+- Preserve safety guards and stop only when complete or blocked.`
+        : generateSystemPrompt(currentMode);
       
       const systemMessage: APIMessage = {
         role: "system",
-        content: generateSystemPrompt(currentMode),
+        content: systemPrompt,
       };
       
       // Build messages for API with proper tool call serialization
@@ -2606,7 +2660,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           
           {/* Status line at very bottom - aligned with content above */}
           <box flexShrink={0} height={1}>
-            <StatusLine loading={isLoading()} flashMessage={statusFlash()} />
+            <StatusLine loading={isLoading()} flashMessage={statusFlash()} engage={engageEnabled()} />
           </box>
         </box>
       </Show>
@@ -2642,12 +2696,13 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       {/* Session picker overlay */}
       <Show when={showSessionPicker()}>
         <SessionPickerOverlay
-          onSelect={(session) => {
+          onSelect={async (session) => {
             // Close picker and mark session started FIRST (sync)
             setShowSessionPicker(false);
             setHasStartedSession(true);
             // Then load session data (async, but UI already transitioned)
-            loadSession(session.id);
+            await loadSession(session.id);
+            setMode(normalizeMode(session.mode));
           }}
           onCancel={() => setShowSessionPicker(false)}
         />
@@ -2786,7 +2841,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
                               </box>
                             }
                           >
-                            <box flexDirection="row" height={1} backgroundColor={Colors.mode.AGENT}>
+                            <box flexDirection="row" height={1} backgroundColor={Colors.mode.WORK}>
                               <text fg="#000000">
                                 {` /${cmd.name.padEnd(12)}`}
                               </text>

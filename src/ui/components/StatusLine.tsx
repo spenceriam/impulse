@@ -34,6 +34,7 @@ interface StatusLineProps {
   isInitialScreen?: boolean;
   loading?: boolean;  // Show spinner when AI is processing
   flashMessage?: string | null;  // Flash notification (5 second auto-dismiss)
+  engage?: boolean;  // Engage mode indicator
 }
 
 // Get truncated working directory
@@ -154,7 +155,7 @@ export function StatusLine(props: StatusLineProps) {
   }
 
   // Reactive memo for mode - re-evaluates when modeContext.mode() changes
-  const mode = createMemo(() => modeContext?.mode() ?? "AUTO");
+  const mode = createMemo(() => modeContext?.mode() ?? "WORK");
   
   // Reactive memo for model
   const model = createMemo(() => sessionContext?.model() ?? "GLM-4.7");
@@ -315,12 +316,16 @@ export function StatusLine(props: StatusLineProps) {
         <text fg={Colors.ui.dim}>{" | "}</text>
         <text fg={modeColor()}>{props.flashMessage}</text>
       </Show>
-      <Show when={isExpress()}>
+        <Show when={isExpress()}>
+          <text fg={Colors.ui.dim}>{" | "}</text>
+          <text fg={Colors.status.warning}>{"[EXPRESS]"}</text>
+        </Show>
+        <Show when={props.engage}>
+          <text fg={Colors.ui.dim}>{" | "}</text>
+          <text fg={Colors.mode.WORK}>{"[ENGAGE]"}</text>
+        </Show>
         <text fg={Colors.ui.dim}>{" | "}</text>
-        <text fg={Colors.status.warning}>{"[EXPRESS]"}</text>
-      </Show>
-      <text fg={Colors.ui.dim}>{" | "}</text>
-      <text fg={modeColor()}>{mode()}</text>
+        <text fg={modeColor()}>{mode()}</text>
       <text fg={Colors.ui.dim}>{" | "}</text>
       <text fg={progressColor()}>{progressBar()}</text>
       <Show when={showCompactWarning()}>

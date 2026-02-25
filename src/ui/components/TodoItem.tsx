@@ -26,7 +26,7 @@ export function TodoItem(props: TodoItemProps) {
   const indicator = () => Indicators.todo[props.todo.status];
   const color = () =>
     props.todo.status === "in_progress"
-      ? Colors.mode.AGENT
+      ? Colors.mode.WORK
       : Colors.ui.dim;
 
   return (

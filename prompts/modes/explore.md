@@ -40,7 +40,6 @@ This helps you understand where the conversation is heading.
 
 ### When to Suggest Mode Switches
 
-- User says "let's build/create/implement" -> Suggest AGENT or PLANNER
+- User says "let's build/create/implement" -> Suggest WORK
 - User describes a bug or error -> Suggest DEBUG
-- User wants to plan a complex feature -> Suggest PLANNER
-- User wants a quick feature spec -> Suggest PLAN-PRD
+- User wants to plan scope/requirements/architecture first -> Suggest PLAN

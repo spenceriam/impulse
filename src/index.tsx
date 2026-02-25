@@ -2,6 +2,7 @@
 
 import packageJson from "../package.json";
 import { registerCrashRecoveryHandlers } from "./util/crash-recovery";
+import { normalizeMode, type Mode } from "./constants";
 
 // =============================================================================
 // CLI Argument Parsing - BEFORE any TUI initialization
@@ -50,7 +51,7 @@ OPTIONS:
     -s, --session <id>      Resume specific session by ID
     
     -m, --model <name>      Override default model (e.g., glm-4.7-flash)
-        --mode <mode>       Start in specific mode (auto/agent/planner/debug)
+        --mode <mode>       Start in specific mode (work/explore/plan/debug)
     -d, --dir <path>        Set working directory
         --verbose           Enable debug logging to file
         --check-update      Check for updates and exit (debug utility)
@@ -67,7 +68,7 @@ EXAMPLES:
                             Run headless prompt with piped input
     impulse -c              Show session picker to continue a session
     impulse -s sess_123     Resume session with ID sess_123
-    impulse --mode agent    Start in AGENT mode
+    impulse --mode work     Start in WORK mode
     impulse -d ~/projects/myapp
                             Start in different directory
 
@@ -246,8 +247,8 @@ const runHeadless = async (prompt: string) => {
   type StreamEvent = import("./api/stream").StreamEvent;
   const cfg = await loadConfig();
 
-  // Use mode override or default to AUTO
-  const mode = (modeOverride?.toUpperCase() ?? "AUTO") as "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG";
+  // Use mode override or configured default, then normalize legacy values.
+  const mode: Mode = normalizeMode(modeOverride?.toUpperCase() ?? cfg.defaultMode ?? "WORK");
   const model = modelOverride ?? cfg.defaultModel ?? "glm-4.7";
 
   const messages = [
@@ -355,7 +356,7 @@ You can also set the GLM_API_KEY environment variable to skip this prompt.
     const initialProps = {
       ...(expressMode ? { initialExpress: true } : {}),
       ...(modelOverride ? { initialModel: modelOverride } : {}),
-      ...(modeOverride ? { initialMode: modeOverride.toUpperCase() as "AUTO" | "EXPLORE" | "AGENT" | "PLANNER" | "PLAN-PRD" | "DEBUG" } : {}),
+      ...(modeOverride ? { initialMode: normalizeMode(modeOverride.toUpperCase()) } : {}),
       ...(sessionId ? { initialSessionId: sessionId } : {}),
       ...(showContinue ? { showSessionPicker: true } : {}),
       ...(verboseMode ? { verbose: true } : {}),

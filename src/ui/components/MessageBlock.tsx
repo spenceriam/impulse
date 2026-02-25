@@ -464,7 +464,7 @@ function getTodoDisplay(status: TodoMetadata["todos"][number]["status"]) {
     case "in_progress":
       return {
         indicator: Indicators.todo.in_progress,
-        color: Colors.mode.AGENT,
+        color: Colors.mode.WORK,
         strikethrough: false,
       };
     case "completed":
@@ -746,8 +746,8 @@ export function MessageBlock(props: MessageBlockProps) {
   const isUser = () => props.message.role === "user";
   const model = () => props.message.model || "GLM-4.7";
   const mode = () => props.message.mode;
-  // AI messages use mode color; default to AUTO's color (soft white) if no mode set
-  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.mode.AUTO;
+  // AI messages use mode color; default to WORK color if no mode set
+  const modeColor = () => mode() ? getModeColor(mode()!) : Colors.mode.WORK;
   const toolCalls = () => props.message.toolCalls ?? [];
   const validationSummary = (): ValidationSummary => {
     const raw = props.message.validation as Partial<ValidationSummary> | undefined;

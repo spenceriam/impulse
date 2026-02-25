@@ -42,11 +42,11 @@ interface TodoDisplay {
 function getTodoDisplay(status: string): TodoDisplay {
   switch (status) {
     case "in_progress":
-      return { 
-        indicator: Indicators.todo.in_progress, 
-        color: Colors.mode.AGENT,
-        strikethrough: false 
-      };
+        return { 
+          indicator: Indicators.todo.in_progress, 
+          color: Colors.mode.WORK,
+          strikethrough: false 
+        };
     case "completed":
       return { 
         indicator: Indicators.todo.completed, 
