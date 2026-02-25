@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, onCleanup, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, onCleanup, Show, For } from "solid-js";
 import { Colors, Indicators } from "../design";
 import { useMode } from "../context/mode";
 import { useSession } from "../context/session";
@@ -12,6 +12,7 @@ import { getModelDisplayName } from "../../constants";
 // 1 character wide, smooth clockwise rotation
 const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
 const SPINNER_INTERVAL = 80; // ms per frame (640ms full rotation)
+const ENGAGE_RAINBOW = ["#ff6b6b", "#e6c655", "#6fca6f", "#5cffff", "#5c8fff", "#b48eff"] as const;
 
 /**
  * Status Line Component
@@ -83,6 +84,23 @@ function buildProgressBar(percent: number, width: number = 10): { bar: string; w
   const bar = `[${Indicators.progress.filled.repeat(filled)}${Indicators.progress.empty.repeat(empty)}] ${percent}%`;
   const warning = percent >= COMPACT_WARNING_THRESHOLD && percent < COMPACT_TRIGGER_THRESHOLD;
   return { bar, warning };
+}
+
+function EngageBadge() {
+  const letters = "ENGAGE".split("");
+  const colorAt = (index: number): string =>
+    ENGAGE_RAINBOW[index % ENGAGE_RAINBOW.length] ?? Colors.mode.WORK;
+  return (
+    <box flexDirection="row">
+      <text fg={Colors.ui.text}>[</text>
+      <For each={letters}>
+        {(letter, index) => (
+          <text fg={colorAt(index())}>{letter}</text>
+        )}
+      </For>
+      <text fg={Colors.ui.text}>]</text>
+    </box>
+  );
 }
 
 // Check if compacting soon (70-84%)
@@ -316,13 +334,13 @@ export function StatusLine(props: StatusLineProps) {
         <text fg={Colors.ui.dim}>{" | "}</text>
         <text fg={modeColor()}>{props.flashMessage}</text>
       </Show>
-        <Show when={isExpress()}>
+        <Show when={isExpress() && !props.engage}>
           <text fg={Colors.ui.dim}>{" | "}</text>
           <text fg={Colors.status.warning}>{"[EXPRESS]"}</text>
         </Show>
         <Show when={props.engage}>
           <text fg={Colors.ui.dim}>{" | "}</text>
-          <text fg={Colors.mode.WORK}>{"[ENGAGE]"}</text>
+          <EngageBadge />
         </Show>
         <text fg={Colors.ui.dim}>{" | "}</text>
         <text fg={modeColor()}>{mode()}</text>

@@ -2279,6 +2279,17 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       // Handle /express specially - toggle Express mode using context
       // Only show warning on first enable, no confirmation on disable or subsequent enables
       if (parsed && parsed.name === "express") {
+        // Engage and express are mutually exclusive user-facing profiles.
+        // If engage is active, switch to express-only without double-tagging.
+        if (engageEnabled()) {
+          setEngageEnabled(false);
+          setEngageOwnedExpress(false);
+          if (!express()) {
+            toggleExpress();
+          }
+          showStatusFlash("Switched to EXPRESS mode");
+          return;
+        }
         toggleExpress();
         // No confirmation overlay - warning shown on first enable via ExpressWarning component
         // Status line [EX] indicator shows current state

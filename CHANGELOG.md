@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified planning restrictions under PLAN** - Mode-gated tool behavior now treats PLAN as a single planning surface with restricted writes and explore-only task delegation.
 - **Mode switching and persistence synchronization** - `/mode` now broadcasts runtime mode-change events, session loading normalizes persisted modes, and UI mode state stays synchronized with stored session mode.
 - **Prompt and command documentation alignment** - Updated core/mode prompts, tool docs, and command help text to reflect WORK/PLAN naming and behavior.
+- **Engage status visibility is more distinct** - Status line now renders a rainbow-style `[ENGAGE]` badge and suppresses `[EXPRESS]` while engage is active so only one profile indicator is shown at a time.
 
 ## [0.34.1] - 2026-02-06
 
