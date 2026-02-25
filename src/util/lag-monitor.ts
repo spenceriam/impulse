@@ -1,4 +1,5 @@
 import { isDebugEnabled, logEventLoopLag } from "./debug-log";
+import { recordLagSample } from "./crash-recovery";
 
 interface LagMonitorOptions {
   intervalMs?: number;
@@ -22,6 +23,12 @@ export function startEventLoopLagMonitor(options: LagMonitorOptions = {}): () =>
     last = now;
 
     if (lag < warnMs) return;
+
+    recordLagSample({
+      timestamp: new Date().toISOString(),
+      lagMs: lag,
+      intervalMs,
+    });
 
     if (now - lastLogged >= logThrottleMs) {
       lastLogged = now;
