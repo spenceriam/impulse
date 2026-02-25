@@ -47,30 +47,40 @@ function findBinary() {
   const { platform, arch } = detectPlatformAndArch();
   const packageName = `@spenceriam/impulse-${platform}-${arch}`;
   const binaryName = platform === "windows" ? "impulse.exe" : "impulse";
+  const packageCandidates = [packageName];
 
-  try {
-    const packageJsonPath = require.resolve(`${packageName}/package.json`);
-    const packageDir = dirname(packageJsonPath);
-    const binaryPath = join(packageDir, "bin", binaryName);
-
-    if (!existsSync(binaryPath)) {
-      throw new Error(`Binary not found at ${binaryPath}`);
-    }
-
-    return binaryPath;
-  } catch (error) {
-    // Check if symlinked binary exists in same directory
-    const localBinary = join(__dirname, binaryName);
-    if (existsSync(localBinary)) {
-      return localBinary;
-    }
-    
-    throw new Error(
-      `Could not find IMPULSE binary for ${platform}-${arch}.\n` +
-      `Package ${packageName} may not be installed.\n` +
-      `Try reinstalling: npm install -g @spenceriam/impulse`
-    );
+  // On Windows ARM64, allow fallback to the x64 package for Prism emulation.
+  if (platform === "windows" && arch === "arm64") {
+    packageCandidates.push("@spenceriam/impulse-windows-x64");
   }
+
+  for (const candidate of packageCandidates) {
+    try {
+      const packageJsonPath = require.resolve(`${candidate}/package.json`);
+      const packageDir = dirname(packageJsonPath);
+      const binaryPath = join(packageDir, "bin", binaryName);
+
+      if (!existsSync(binaryPath)) {
+        continue;
+      }
+
+      return binaryPath;
+    } catch (_error) {
+      // Try next candidate package.
+    }
+  }
+
+  // Check if symlinked binary exists in same directory
+  const localBinary = join(__dirname, binaryName);
+  if (existsSync(localBinary)) {
+    return localBinary;
+  }
+
+  throw new Error(
+    `Could not find IMPULSE binary for ${platform}-${arch}.\n` +
+    `Checked packages: ${packageCandidates.join(", ")}.\n` +
+    `Try reinstalling: npm install -g @spenceriam/impulse`
+  );
 }
 
 try {

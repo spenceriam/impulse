@@ -844,6 +844,7 @@ interface QuestionToolOutput {
 - Conventional commits format
 - Commit after each discrete task
 - No `git push` without explicit permission
+- Keep PR descriptions concise: Summary + Validation + issue links only; avoid generic "Notes" sections and avoid stating "draft PR" in the body.
 
 ### UI
 - No emojis anywhere
@@ -1013,7 +1014,7 @@ This ensures:
 | 01-23-2026 | chmod in postinstall | npm tarballs strip execute bits - must chmod in postinstall.mjs |
 | 01-23-2026 | --no-compile-autoload-bunfig | Compiled binaries must not load bunfig.toml - JSX already transformed |
 | 01-23-2026 | Inline tool descriptions | External .txt files can't be embedded in compiled binary - inline in TypeScript |
-| 01-23-2026 | Windows ARM64 not supported | Bun doesn't have cross-compile target yet - will add when available |
+| 02-25-2026 | Windows ARM64 package support | Publish `@spenceriam/impulse-windows-arm64` using x64 binary for Windows ARM64 emulation (Prism) |
 | 01-23-2026 | CLI args before TUI | Parse --help/--version before TUI init so they work without API key or TTY |
 | 01-23-2026 | TTY detection | Fail fast with clear message if not running in interactive terminal |
 | 01-23-2026 | First-run banner | Print plain-text message before TUI when no API key configured |
@@ -1373,8 +1374,9 @@ IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipelin
 | macOS | ARM64 | `macos-latest` | Native | `@spenceriam/impulse-darwin-arm64` |
 | macOS | x64 | `macos-15-intel` | Native | `@spenceriam/impulse-darwin-x64` |
 | Windows | x64 | `windows-latest` | Native | `@spenceriam/impulse-windows-x64` |
+| Windows | ARM64 | `windows-latest` | x64 binary (emulated) | `@spenceriam/impulse-windows-arm64` |
 
-**Note:** Windows ARM64 is not currently supported. Bun doesn't have a cross-compile target for Windows ARM64 yet (`bun-windows-aarch64` returns "Unsupported compile target"). Will be added when Bun supports it.
+**Note:** Bun does not currently produce native Windows ARM64 binaries. The `@spenceriam/impulse-windows-arm64` package ships the Windows x64 executable, which runs on Windows ARM64 via x64 emulation (Prism).
 
 ### Build Process
 
@@ -1390,7 +1392,7 @@ IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipelin
 
 ### Publishing
 
-1. Platform packages published first (6 packages)
+1. Platform packages published first (7 packages)
 2. CLI wrapper package (`@spenceriam/impulse`) published last with `optionalDependencies` pointing to all platform packages
 3. Publish targets:
    - npm registry (`registry.npmjs.org`) for installation

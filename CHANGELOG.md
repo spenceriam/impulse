@@ -5,6 +5,21 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-02-25
+
+**Type:** minor  
+**Title:** Windows ARM64 npm package support via x64 emulation
+
+### Added
+
+- **Windows ARM64 package publishing** - Release workflow now publishes `@spenceriam/impulse-windows-arm64` and includes it in CLI wrapper `optionalDependencies` so `npm install -g @spenceriam/impulse` resolves correctly on Windows ARM64.
+
+### Changed
+
+- **Windows ARM64 build strategy** - Because Bun still lacks native Windows ARM64 compile output, ARM64 package artifacts now intentionally ship the Windows x64 executable for Prism/x64 emulation compatibility.
+- **Installer platform support list** - CLI postinstall and related packaging scripts now treat `windows-arm64` as a supported platform combination.
+- **Windows ARM64 runtime fallback** - CLI wrapper now falls back to `@spenceriam/impulse-windows-x64` on `windows-arm64` when needed so forced/manual x64 installs can still launch.
+
 ## [0.35.0] - 2026-02-25
 
 **Type:** minor  
