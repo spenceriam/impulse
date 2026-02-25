@@ -49,14 +49,9 @@ jobs:
             platform: windows
             arch: x64
             target: bun-windows-x64
-          # Windows ARM64
-          - os: windows-latest
-            platform: windows
-            arch: arm64
-            # Bun does not yet produce native Windows ARM64 executables.
-            # We publish a Windows ARM64 package containing the x64 binary,
-            # which runs on ARM64 via Windows x64 emulation.
-            target: bun-windows-x64
+          # NOTE: Windows ARM64 not supported - Bun doesn't have cross-compile target yet
+          # Error: "Unsupported compile target: bun-windows-aarch64"
+          # Will add when Bun supports it
 
     runs-on: ${{ matrix.os }}
     
@@ -205,8 +200,7 @@ jobs:
               "@spenceriam/impulse-linux-arm64": "$VERSION",
               "@spenceriam/impulse-darwin-x64": "$VERSION",
               "@spenceriam/impulse-darwin-arm64": "$VERSION",
-              "@spenceriam/impulse-windows-x64": "$VERSION",
-              "@spenceriam/impulse-windows-arm64": "$VERSION"
+              "@spenceriam/impulse-windows-x64": "$VERSION"
             }
           }
           EOF
