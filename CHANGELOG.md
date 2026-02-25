@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Windows ARM64 build strategy** - Because Bun still lacks native Windows ARM64 compile output, ARM64 package artifacts now intentionally ship the Windows x64 executable for Prism/x64 emulation compatibility.
 - **Installer platform support list** - CLI postinstall and related packaging scripts now treat `windows-arm64` as a supported platform combination.
+- **Windows ARM64 runtime fallback** - CLI wrapper now falls back to `@spenceriam/impulse-windows-x64` on `windows-arm64` when needed so forced/manual x64 installs can still launch.
 
 ## [0.35.0] - 2026-02-25
 
