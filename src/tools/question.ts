@@ -27,7 +27,7 @@ const QuestionSchema = z.object({
  */
 const QuestionToolSchema = z.object({
   context: z.string().optional().describe("Brief explanation shown in header of why clarification is needed"),
-  questions: z.array(QuestionSchema).max(3).describe("Questions to ask (max 3 topics per call)"),
+  questions: z.array(QuestionSchema).min(1).describe("Questions to ask (max 3 topics per call; extra topics are ignored)"),
 });
 
 export type QuestionOption = z.infer<typeof QuestionOptionSchema>;
@@ -89,6 +89,16 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
   QuestionToolSchema,
   async (input: QuestionToolInput): Promise<ToolResult> => {
     try {
+      if (hasPendingQuestion()) {
+        return {
+          success: false,
+          output: "A question is already active. Wait for it to complete before asking another question.",
+        };
+      }
+
+      const questions = input.questions.slice(0, 3);
+      const wasTruncated = input.questions.length > questions.length;
+
       // Create a promise that will be resolved by the UI
       const answersPromise = new Promise<string[][]>((resolve, reject) => {
         pendingResolver = resolve;
@@ -98,25 +108,30 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
       // Publish event to notify UI to show the question overlay
       Bus.publish(QuestionEvents.Asked, {
         context: input.context,
-        questions: input.questions,
+        questions,
       });
 
       // Wait for user to answer (UI will call resolveQuestion or rejectQuestion)
       const answers = await answersPromise;
 
       // Format answers for the AI
-      const formattedAnswers = input.questions.map((q, i) => {
+      const formattedAnswers = questions.map((q, i) => {
         const selected = answers[i] || [];
         return `${q.topic}: ${selected.join(", ") || "(no selection)"}`;
       });
 
+      const truncationNote = wasTruncated
+        ? `Note: Received ${input.questions.length} topics; only the first 3 were asked.\n`
+        : "";
+
       return {
         success: true,
-        output: `User responded:\n${formattedAnswers.join("\n")}`,
+        output: `${truncationNote}User responded:\n${formattedAnswers.join("\n")}`,
         metadata: {
           type: "question",
           context: input.context,
-          questions: input.questions.map((question, index) => ({
+          truncatedTopicCount: wasTruncated ? input.questions.length - questions.length : 0,
+          questions: questions.map((question, index) => ({
             topic: question.topic,
             question: question.question,
             options: question.options.map((option) => option.label),

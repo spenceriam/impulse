@@ -129,5 +129,6 @@ export const mcpDiscoverTool = Tool.define(
   "mcp_discover",
   "Discover MCP tools. Use search, list, or details. See docs/tools/mcp-discover.md.",
   MCPDiscoverSchema,
-  execute
+  execute,
+  { timeout: 15000 }
 );

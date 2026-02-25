@@ -39,6 +39,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   question: "read_only",
   todo_read: "read_only",
   set_header: "utility",
+  set_mode: "utility",
   mcp_discover: "read_only",
   tool_docs: "read_only",
   
@@ -51,48 +52,37 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 };
 
 /**
- * Get tools allowed for a specific mode
+ * Unknown tools default to read_only (safe fallback for dynamically registered MCP tools).
  */
-function getToolsForMode(mode: Mode): Set<string> {
-  const allowed = new Set<string>();
-  
-  for (const [toolName, category] of Object.entries(TOOL_CATEGORIES)) {
-    if (category === "read_only" || category === "utility") {
-      // Read-only and utility tools available in all modes
-      allowed.add(toolName);
-    } else if (category === "write") {
-      // Write tools only in execution modes
-      if (mode === "AGENT" || mode === "DEBUG") {
-        allowed.add(toolName);
-      } else if (mode === "AUTO") {
-        // AUTO mode requires explicit approval before enabling write tools
-        if (isAutoApprovalGranted()) {
-          allowed.add(toolName);
-        }
-      }
-      // PLANNER and PLAN-PRD get file_write with restrictions (enforced in handler)
-      else if (mode === "PLANNER" || mode === "PLAN-PRD") {
-        // Allow file_write but the handler will enforce path restrictions
-        if (toolName === "file_write") {
-          allowed.add(toolName);
-        }
-        // Allow subagent delegation for research only (enforced by task handler).
-        if (toolName === "task") {
-          allowed.add(toolName);
-        }
-        // Also allow todo tools for planning
-        if (toolName === "todo_write") {
-          allowed.add(toolName);
-        }
-      }
+function getToolCategory(toolName: string): ToolCategory {
+  return TOOL_CATEGORIES[toolName] ?? "read_only";
+}
+
+function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: string): boolean {
+  if (category === "read_only" || category === "utility") {
+    return true;
+  }
+
+  if (mode === "AGENT" || mode === "DEBUG") {
+    return true;
+  }
+
+  if (mode === "AUTO") {
+    return isAutoApprovalGranted();
+  }
+
+  if (mode === "PLANNER" || mode === "PLAN-PRD") {
+    // file_write and task are available with mode-specific restrictions in handlers.
+    if (toolName === "file_write" || toolName === "task" || toolName === "todo_write") {
+      return true;
     }
   }
-  
-  return allowed;
+
+  return false;
 }
 
 export function isToolAllowedForMode(name: string, mode: Mode): boolean {
-  return getToolsForMode(mode).has(name);
+  return isCategoryAllowedForMode(getToolCategory(name), mode, name);
 }
 
 const tools = new Map<string, Tool<unknown>>();
@@ -161,10 +151,8 @@ export namespace Tool {
    * - PLAN-PRD: Read-only + file_write (restricted to PRD.md in handler)
    */
   export function getAPIDefinitionsForMode(mode: Mode): ToolDefinition[] {
-    const allowedTools = getToolsForMode(mode);
-    
     return Array.from(tools.values())
-      .filter((tool) => allowedTools.has(tool.name))
+      .filter((tool) => isToolAllowedForMode(tool.name, mode))
       .map((tool) => {
         // Convert Zod schema to JSON Schema
         const jsonSchema = zodToJsonSchema(tool.schema, {
@@ -233,7 +221,7 @@ export namespace Tool {
 
     const currentMode = getCurrentMode();
     if (!isToolAllowedForMode(name, currentMode)) {
-      if (currentMode === "AUTO" && TOOL_CATEGORIES[name] === "write" && !isAutoApprovalGranted()) {
+      if (currentMode === "AUTO" && getToolCategory(name) === "write" && !isAutoApprovalGranted()) {
         return {
           success: false,
           output: `AUTO mode requires a plan and explicit user approval before execution. Ask for approval with the question tool (context "AUTO_APPROVAL"), then proceed.`,

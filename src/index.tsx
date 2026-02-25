@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import packageJson from "../package.json";
+import { registerCrashRecoveryHandlers } from "./util/crash-recovery";
 
 // =============================================================================
 // CLI Argument Parsing - BEFORE any TUI initialization
 // =============================================================================
 
 const args = process.argv.slice(2);
+registerCrashRecoveryHandlers();
 
 // Helper to check for flag
 const hasFlag = (short: string, long: string): boolean => {

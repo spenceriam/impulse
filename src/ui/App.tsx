@@ -15,6 +15,7 @@ import { respond as respondPermission, enableAllowAllEdits, type PermissionReque
 import { load as loadConfig, save as saveConfig } from "../util/config";
 import { GLMClient } from "../api/client";
 import { StreamProcessor, StreamEvent } from "../api/stream";
+import type { ChatCompletionChunk } from "../api/types";
 import { Colors, Timing } from "./design";
 import { batch as batchUpdate, flushBatch } from "../util/batch";
 import { CommandRegistry } from "../commands/registry";
@@ -34,11 +35,18 @@ import { registerMCPTools, mcpManager } from "../mcp";
 import packageJson from "../../package.json";
 import { runUpdateCheck, performUpdate, type UpdateState } from "../util/update-check";
 import { startEventLoopLagMonitor } from "../util/lag-monitor";
-import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logError, logRawAPIMessages } from "../util/debug-log";
+import { enableDebugLog, isDebugEnabled, logUserMessage, logToolExecution, logAPIRequest, logAPIResponse, logError, logRawAPIMessages } from "../util/debug-log";
 import { copy as copyToClipboard } from "../util/clipboard";
 import { addToClipboardHistory } from "../util/clipboard-history";
 import { createSelfCheckSummary } from "./self-check";
 import { ENGLISH_RETRY_PROMPT, shouldRetryInEnglish } from "./language-guard";
+import { isAutoApprovalAffirmative } from "../util/auto-approval";
+
+const STREAM_IDLE_TIMEOUT_MS = 45000;
+const STREAM_TOTAL_TIMEOUT_MS = 240000;
+const MAX_CONTINUATION_DEPTH = 24;
+const MAX_CONTINUATION_DEPTH_EXPRESS = 48;
+const MAX_IDENTICAL_TOOL_SIGNATURES = 3;
 
 /**
  * Join content sections with normalized whitespace.
@@ -1131,6 +1139,71 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     });
   };
 
+  const processStreamWithWatchdog = async (
+    processor: StreamProcessor,
+    stream: AsyncIterable<ChatCompletionChunk>,
+    label: "assistant" | "continuation" | "english_retry",
+    getLastProgressAt: () => number
+  ): Promise<void> => {
+    let timedOut = false;
+    const startedAt = Date.now();
+    let rejectTimeout: ((reason?: unknown) => void) | null = null;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      rejectTimeout = reject;
+    });
+
+    const triggerTimeout = (reason: string) => {
+      if (timedOut) return;
+      timedOut = true;
+      processor.abort();
+      rejectTimeout?.(new Error(reason));
+    };
+
+    const watchdog = setInterval(() => {
+      const now = Date.now();
+      const idleMs = now - getLastProgressAt();
+      if (idleMs >= STREAM_IDLE_TIMEOUT_MS) {
+        triggerTimeout(`${label} stream idle timeout after ${Math.floor(idleMs / 1000)}s`);
+        return;
+      }
+
+      const totalMs = now - startedAt;
+      if (totalMs >= STREAM_TOTAL_TIMEOUT_MS) {
+        triggerTimeout(`${label} stream total timeout after ${Math.floor(totalMs / 1000)}s`);
+      }
+    }, 1000);
+
+    try {
+      await Promise.race([processor.process(stream), timeoutPromise]);
+    } finally {
+      clearInterval(watchdog);
+    }
+  };
+
+  const getToolCallSignature = (toolCallsMap: Map<number, ToolCallInfo>): string => {
+    return Array.from(toolCallsMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([_, toolCall]) => `${toolCall.name}:${toolCall.arguments}`)
+      .join("|");
+  };
+
+  const handleToolContinuationFailure = (assistantMsgId: string, error: unknown, context: string): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
+    updateMessage(assistantMsgId, {
+      content: `Error: ${message}`,
+      validation: selfCheck,
+      streaming: false,
+    });
+    setIsLoading(false);
+    setStreamProc(null);
+    showStatusFlash(`Tool continuation failed: ${message}`);
+    if (isDebugEnabled()) {
+      void logError(context, error instanceof Error ? error : String(error));
+    }
+  };
+
   const retryAssistantInEnglish = async (
     assistantMsgId: string,
     baseMessages: APIMessage[],
@@ -1171,8 +1244,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       let retryReasoning = "";
       let textBlockStarted = false;
       let thinkingBlockStarted = false;
+      let lastProgressAt = Date.now();
 
       retryProcessor.onEvent((event: StreamEvent) => {
+        lastProgressAt = Date.now();
         if (event.type === "content") {
           retryContent += event.delta;
           batchUpdate("retry-stream-content", () => {
@@ -1190,6 +1265,14 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         } else if (event.type === "done") {
           flushBatch("retry-stream-content");
           flushBatch("retry-stream-reasoning");
+          if (isDebugEnabled()) {
+            void logAPIResponse("english_retry_done", {
+              finishReason: event.state.finishReason,
+              contentLength: retryContent.length,
+              reasoningLength: retryReasoning.length,
+              toolCallCount: event.state.toolCalls.size,
+            });
+          }
           const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
           updateMessage(assistantMsgId, {
             content: retryContent || sourceContent,
@@ -1212,8 +1295,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       });
 
-      await retryProcessor.process(retryStream);
-    } catch {
+      await processStreamWithWatchdog(retryProcessor, retryStream, "english_retry", () => lastProgressAt);
+    } catch (error) {
+      if (isDebugEnabled()) {
+        void logError("English retry stream", error instanceof Error ? error : String(error));
+      }
       const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
       const fallbackContent = sourceContent
         ? `${sourceContent}\n\n---\n*Automatic English retry failed. Please ask to rephrase in English.*`
@@ -1441,11 +1527,7 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     
     // AUTO approval gate: detect approval responses
     if (pending?.context?.toLowerCase().startsWith("auto_approval")) {
-      const approved = answers.flat().some((answer) =>
-        ["approve", "approved", "yes", "y", "ok", "okay", "proceed"].includes(
-          answer.trim().toLowerCase()
-        )
-      );
+      const approved = answers.flat().some((answer) => isAutoApprovalAffirmative(answer));
       setAutoApprovalGranted(approved);
     }
     resolveQuestion(answers);
@@ -1672,9 +1754,57 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
     previousApiMessages: APIMessage[],
     assistantContent: string,        // Content from THIS turn only (for API messages)
     assistantReasoning: string = "", // Reasoning from THIS turn only (for API messages)
-    totalContentForUI: string = ""   // Total accumulated for UI display
+    totalContentForUI: string = "",  // Total accumulated for UI display
+    continuationDepth: number = 0,
+    recentToolSignatures: string[] = []
   ) => {
     const toolCalls = Array.from(toolCallsMap.values());
+    const maxDepth = express() ? MAX_CONTINUATION_DEPTH_EXPRESS : MAX_CONTINUATION_DEPTH;
+    const signature = getToolCallSignature(toolCallsMap);
+    const signatureHistory = [...recentToolSignatures, signature].slice(-8);
+    const identicalSignatureCount = signatureHistory.filter((entry) => entry === signature).length;
+    const hitDepthGuard = continuationDepth >= maxDepth;
+    const hitSignatureGuard = identicalSignatureCount >= MAX_IDENTICAL_TOOL_SIGNATURES;
+
+    if (hitDepthGuard || hitSignatureGuard) {
+      const stopReason = hitDepthGuard
+        ? `Stopped after ${continuationDepth} tool continuation hops to prevent an infinite loop`
+        : `Stopped repeated tool continuation pattern after ${identicalSignatureCount} identical signatures`;
+
+      const cancelledToolCalls = toolCalls.map((toolCall) => {
+        if (toolCall.status === "success" || toolCall.status === "error" || toolCall.status === "cancelled") {
+          return toolCall;
+        }
+        return {
+          ...toolCall,
+          status: "cancelled" as const,
+          result: stopReason,
+        };
+      });
+
+      setMessageToolCalls(assistantMsgId, cancelledToolCalls);
+      const selfCheck = createSelfCheckSummary(cancelledToolCalls);
+      updateMessage(assistantMsgId, {
+        content: joinContentSections(totalContentForUI || assistantContent, stopReason),
+        validation: selfCheck,
+        streaming: false,
+      });
+      setIsLoading(false);
+      setStreamProc(null);
+      showStatusFlash(stopReason);
+
+      if (isDebugEnabled()) {
+        void logAPIResponse("tool_handoff_stopped", {
+          depth: continuationDepth,
+          maxDepth,
+          identicalSignatureCount,
+          signature,
+          reason: stopReason,
+        });
+      }
+      return;
+    }
+
     // Ensure tool handlers see the current mode
     setCurrentMode(mode() as typeof MODES[number]);
     
@@ -1820,8 +1950,10 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       const newToolCallsMap = new Map<number, ToolCallInfo>();
       let textBlockStarted = false;
       let thinkingBlockStarted = false;
+      let lastProgressAt = Date.now();
       
       newProcessor.onEvent((event: StreamEvent) => {
+        lastProgressAt = Date.now();
         if (event.type === "content") {
           accumulatedContent += event.delta;
           appendTextBlockDelta(newAssistantMsgId, event.delta, !textBlockStarted);
@@ -1859,6 +1991,16 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             setMessageToolCalls(newAssistantMsgId, Array.from(newToolCallsMap.values()));
           }
         } else if (event.type === "done") {
+          if (isDebugEnabled()) {
+            void logAPIResponse("continuation_stream_done", {
+              finishReason: event.state.finishReason,
+              contentLength: accumulatedContent.length,
+              reasoningLength: accumulatedReasoning.length,
+              toolCallCount: newToolCallsMap.size,
+              continuationDepth,
+            });
+          }
+
           // Record token usage if available
           if (event.state.usage) {
             addTokenUsage({
@@ -1884,14 +2026,22 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             
             // Pass content from THIS continuation only (accumulatedContent) for API messages
             // Pass fullContent for UI display (total accumulated across all continuations)
-            executeToolsAndContinue(
+            void executeToolsAndContinue(
               newAssistantMsgId,
               newToolCallsMap,
               continuationMessages as any,
               accumulatedContent,     // Content from THIS continuation only
               accumulatedReasoning,   // Reasoning from THIS continuation only
-              fullContent             // Total for UI display
-            );
+              fullContent,            // Total for UI display
+              continuationDepth + 1,
+              signatureHistory
+            ).catch((error) => {
+              handleToolContinuationFailure(
+                newAssistantMsgId,
+                error,
+                "Continuation handoff"
+              );
+            });
           } else {
             const fullContent = joinContentSections(baseContent, accumulatedContent);
             const fullReasoning = joinContentSections(baseReasoning, accumulatedReasoning);
@@ -1932,12 +2082,17 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       });
       
-      await newProcessor.process(stream);
+      await processStreamWithWatchdog(newProcessor, stream, "continuation", () => lastProgressAt);
     } catch (error) {
+      if (isDebugEnabled()) {
+        void logError("Continuation stream", error instanceof Error ? error : String(error));
+      }
+      showStatusFlash(`Continuation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
       const selfCheck = createSelfCheckSummary(getMessageToolCalls(newAssistantMsgId));
       updateMessage(newAssistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         validation: selfCheck,
+        streaming: false,
       });
       setIsLoading(false);
       setStreamProc(null);
@@ -2236,9 +2391,11 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
       const toolCallsMap = new Map<number, ToolCallInfo>();
       let textBlockStarted = false;
       let thinkingBlockStarted = false;
+      let lastProgressAt = Date.now();
 
       // Handle stream events - batch updates at 16ms (~60fps) for smooth rendering
       processor.onEvent((event: StreamEvent) => {
+        lastProgressAt = Date.now();
         if (event.type === "content") {
           accumulatedContent += event.delta;
           // Batch content updates for 60fps rendering
@@ -2279,6 +2436,15 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
             }, Timing.batchInterval);
           }
         } else if (event.type === "done") {
+          if (isDebugEnabled()) {
+            void logAPIResponse("assistant_stream_done", {
+              finishReason: event.state.finishReason,
+              contentLength: accumulatedContent.length,
+              reasoningLength: accumulatedReasoning.length,
+              toolCallCount: toolCallsMap.size,
+            });
+          }
+
           // Flush any pending batched updates before finishing
           flushBatch("stream-content");
           flushBatch("stream-reasoning");
@@ -2305,7 +2471,22 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
           if (hasToolCalls) {
             // Execute tools and continue conversation
             // First call: content for this turn = accumulated content, total for UI = same
-            executeToolsAndContinue(assistantMsgId, toolCallsMap, apiMessages, accumulatedContent, accumulatedReasoning, accumulatedContent);
+            void executeToolsAndContinue(
+              assistantMsgId,
+              toolCallsMap,
+              apiMessages,
+              accumulatedContent,
+              accumulatedReasoning,
+              accumulatedContent,
+              0,
+              []
+            ).catch((error) => {
+              handleToolContinuationFailure(
+                assistantMsgId,
+                error,
+                "Initial tool continuation handoff"
+              );
+            });
           } else {
             if (shouldRetryInEnglish(accumulatedContent)) {
               void retryAssistantInEnglish(
@@ -2340,13 +2521,18 @@ function AppWithSession(props: { showSessionPicker?: boolean }) {
         },
       });
 
-      await processor.process(stream);
+      await processStreamWithWatchdog(processor, stream, "assistant", () => lastProgressAt);
     } catch (error) {
+      if (isDebugEnabled()) {
+        void logError("Assistant stream", error instanceof Error ? error : String(error));
+      }
+      showStatusFlash(`Assistant stream failed: ${error instanceof Error ? error.message : "Unknown error"}`);
       // Update assistant message with error
       const selfCheck = createSelfCheckSummary(getMessageToolCalls(assistantMsgId));
       updateMessage(assistantMsgId, {
         content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
         validation: selfCheck,
+        streaming: false,
       });
       setIsLoading(false);
       setStreamProc(null);

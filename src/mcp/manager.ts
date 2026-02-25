@@ -7,6 +7,9 @@ const HEALTH_CHECK_TIMEOUT = 5000;
 // Timeout for tool calls (ms)
 const TOOL_CALL_TIMEOUT = 60000;
 
+const MCP_SESSION_HEADER = "Mcp-Session-Id";
+const ZAI_HTTP_SESSION_SERVERS = new Set<MCPServerName>(["web-search", "web-reader", "zread"]);
+
 // JSON-RPC response type
 interface JSONRPCResponse<T = unknown> {
   jsonrpc: "2.0";
@@ -190,6 +193,83 @@ export class MCPManager {
     }
   }
 
+  private buildHTTPHeaders(
+    serverName: MCPServerName,
+    apiKey: string | undefined,
+    sessionId?: string
+  ): Record<string, string> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
+    };
+
+    if (serverName !== "context7" && apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
+    if (sessionId) {
+      headers[MCP_SESSION_HEADER] = sessionId;
+    }
+
+    return headers;
+  }
+
+  private updateSessionIdFromResponse(server: MCPServer, response: Response): void {
+    const sessionId = response.headers.get("mcp-session-id");
+    if (sessionId) {
+      server.sessionId = sessionId;
+    }
+  }
+
+  private isSessionRetryableFailure(server: MCPServer, statusCode: number | undefined, message: string): boolean {
+    if (!ZAI_HTTP_SESSION_SERVERS.has(server.config.name)) {
+      return false;
+    }
+
+    if (statusCode === 401 || statusCode === 403) {
+      return true;
+    }
+
+    const lower = message.toLowerCase();
+    return (
+      lower.includes("apikey not found") ||
+      lower.includes("session") ||
+      lower.includes("unauthorized") ||
+      lower.includes("forbidden")
+    );
+  }
+
+  private async refreshHTTPSession(server: MCPServer, apiKey: string | undefined): Promise<boolean> {
+    const { url } = server.config;
+    if (!url) {
+      return false;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: this.buildHTTPHeaders(server.config.name, apiKey, server.sessionId),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: Date.now(),
+          method: "tools/list",
+          params: {},
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      this.updateSessionIdFromResponse(server, response);
+      return response.ok;
+    } catch {
+      clearTimeout(timeoutId);
+      return false;
+    }
+  }
+
   /**
    * Initialize HTTP-based MCP server with health check
    */
@@ -218,22 +298,11 @@ export class MCPManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
 
-      // Build headers - Z.AI servers need API key, Context7 doesn't
-      // Accept header includes text/event-stream for SSE support (required by some MCP servers)
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-      };
-      
-      if (server.config.name !== "context7") {
-        headers["Authorization"] = `Bearer ${apiKey}`;
-      }
-
       // MCP uses JSON-RPC 2.0 - send an "initialize" or "tools/list" request
       // For a simple health check, we'll try a tools/list request
       const response = await fetch(url, {
         method: "POST",
-        headers,
+        headers: this.buildHTTPHeaders(server.config.name, apiKey, server.sessionId),
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -244,6 +313,7 @@ export class MCPManager {
       });
 
       clearTimeout(timeoutId);
+      this.updateSessionIdFromResponse(server, response);
 
       if (!response.ok) {
         // Non-2xx response - check specific error codes
@@ -519,82 +589,92 @@ export class MCPManager {
     const config = await load();
     const apiKey = config.apiKey;
 
-    // Build headers - Z.AI servers need API key, Context7 doesn't
-    // Accept header includes text/event-stream for SSE support (required by some MCP servers)
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/event-stream",
+    const callOnce = async (): Promise<{ success: boolean; output: string; sessionRetryable: boolean }> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TOOL_CALL_TIMEOUT);
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: this.buildHTTPHeaders(server.config.name, apiKey, server.sessionId),
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: Date.now(),
+            method: "tools/call",
+            params: {
+              name: toolName,
+              arguments: args,
+            },
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        this.updateSessionIdFromResponse(server, response);
+
+        if (!response.ok) {
+          const text = await response.text();
+          return {
+            success: false,
+            output: `HTTP ${response.status}: ${text}`,
+            sessionRetryable: this.isSessionRetryableFailure(server, response.status, text),
+          };
+        }
+
+        const text = await response.text();
+        const data = parseSSEOrJSON<JSONRPCResponse<MCPToolCallResult>>(text);
+
+        if (data.error) {
+          return {
+            success: false,
+            output: `MCP error: ${data.error.message}`,
+            sessionRetryable: this.isSessionRetryableFailure(server, data.error.code, data.error.message),
+          };
+        }
+
+        if (!data.result) {
+          return {
+            success: false,
+            output: "MCP returned empty result",
+            sessionRetryable: false,
+          };
+        }
+
+        const textContent = data.result.content
+          ?.filter((c) => c.type === "text" && c.text)
+          .map((c) => c.text)
+          .join("\n");
+
+        return {
+          success: !data.result.isError,
+          output: textContent || "Tool executed successfully (no output)",
+          sessionRetryable: false,
+        };
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === "AbortError") {
+          return { success: false, output: "Tool call timed out", sessionRetryable: false };
+        }
+        throw error;
+      }
     };
 
-    if (server.config.name !== "context7" && apiKey) {
-      headers["Authorization"] = `Bearer ${apiKey}`;
+    const firstAttempt = await callOnce();
+    if (!firstAttempt.success && firstAttempt.sessionRetryable) {
+      const refreshed = await this.refreshHTTPSession(server, apiKey);
+      if (refreshed) {
+        const retryAttempt = await callOnce();
+        return {
+          success: retryAttempt.success,
+          output: retryAttempt.output,
+        };
+      }
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), TOOL_CALL_TIMEOUT);
-
-    try {
-      // MCP JSON-RPC 2.0 format for tool calls
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: Date.now(),
-          method: "tools/call",
-          params: {
-            name: toolName,
-            arguments: args,
-          },
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const text = await response.text();
-        return {
-          success: false,
-          output: `HTTP ${response.status}: ${text}`,
-        };
-      }
-
-      // Parse response - Z.AI servers return SSE format, Context7 returns plain JSON
-      const text = await response.text();
-      const data = parseSSEOrJSON<JSONRPCResponse<MCPToolCallResult>>(text);
-
-      if (data.error) {
-        return {
-          success: false,
-          output: `MCP error: ${data.error.message}`,
-        };
-      }
-
-      if (!data.result) {
-        return {
-          success: false,
-          output: "MCP returned empty result",
-        };
-      }
-
-      // Extract text content from MCP response
-      const textContent = data.result.content
-        ?.filter((c) => c.type === "text" && c.text)
-        .map((c) => c.text)
-        .join("\n");
-
-      return {
-        success: !data.result.isError,
-        output: textContent || "Tool executed successfully (no output)",
-      };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === "AbortError") {
-        return { success: false, output: "Tool call timed out" };
-      }
-      throw error;
-    }
+    return {
+      success: firstAttempt.success,
+      output: firstAttempt.output,
+    };
   }
 
   /**

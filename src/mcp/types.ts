@@ -48,6 +48,7 @@ export interface MCPServer {
   config: MCPServerConfig;
   status: MCPConnectionStatus;
   error?: string;
+  sessionId?: string;       // HTTP MCP session ID (Mcp-Session-Id header)
   tools: string[];          // Tool names only (backwards compat)
   toolMetadata?: MCPTool[]; // Full tool metadata when fetched
 }
