@@ -57,7 +57,8 @@ async function main() {
     "@spenceriam/impulse-linux-arm64": VERSION,
     "@spenceriam/impulse-darwin-x64": VERSION,
     "@spenceriam/impulse-darwin-arm64": VERSION,
-    "@spenceriam/impulse-windows-x64": VERSION
+    "@spenceriam/impulse-windows-x64": VERSION,
+    "@spenceriam/impulse-windows-arm64": VERSION
   };
   writeFileSync("packages/cli/package.json", JSON.stringify(cliPkg, null, 2));
   

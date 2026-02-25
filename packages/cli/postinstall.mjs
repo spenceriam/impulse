@@ -54,14 +54,14 @@ function findBinary() {
     "darwin-x64",
     "darwin-arm64",
     "windows-x64",
+    "windows-arm64",
   ];
   
   const combo = `${platform}-${arch}`;
   if (!supportedCombos.includes(combo)) {
     throw new Error(
       `Unsupported platform: ${platform}-${arch}\n` +
-      `IMPULSE currently supports: ${supportedCombos.join(", ")}\n` +
-      `Windows ARM64 support is pending Bun's cross-compile target.`
+      `IMPULSE currently supports: ${supportedCombos.join(", ")}`
     );
   }
 
