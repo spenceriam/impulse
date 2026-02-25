@@ -20,9 +20,7 @@ const PLATFORMS = [
   { name: "darwin-arm64", target: "bun-darwin-arm64", binary: "impulse", os: "darwin" },
   // Windows
   { name: "windows-x64", target: "bun-windows-x64", binary: "impulse.exe", os: "win32" },
-  // Bun does not yet produce native Windows ARM64 executables.
-  // This package uses the Windows x64 binary, which runs on ARM64 via emulation.
-  { name: "windows-arm64", target: "bun-windows-x64", binary: "impulse.exe", os: "win32" },
+  { name: "windows-arm64", target: "bun-windows-arm64", binary: "impulse.exe", os: "win32" },
 ] as const;
 
 async function buildPlatform(platform: typeof PLATFORMS[number]) {
