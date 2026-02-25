@@ -261,6 +261,7 @@ Version bumping happens after task completion, before committing:
 5. Commit: `git commit -m "feat/diff/fix: description"`
 6. Create git tag: `git tag -a v0.X.Y -m "Release v0.X.Y"`
 7. **Ask user before pushing**: Push tags and commits?
+8. **Release trigger reminder**: npm/GitHub Packages publishing runs on tag push (`v*`), not PR merge alone
 
 ### Verification Commands
 
@@ -1391,7 +1392,10 @@ IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipelin
 
 1. Platform packages published first (6 packages)
 2. CLI wrapper package (`@spenceriam/impulse`) published last with `optionalDependencies` pointing to all platform packages
-3. npm's `optionalDependencies` automatically installs only the matching platform package
+3. Publish targets:
+   - npm registry (`registry.npmjs.org`) for installation
+   - GitHub Packages (`npm.pkg.github.com`) so the repo Packages page stays current
+4. npm's `optionalDependencies` automatically installs only the matching platform package
 
 ### Wrapper Package Structure
 
@@ -1430,9 +1434,12 @@ git push origin v0.X.Y
 gh run watch
 ```
 
+**Important:** Merging to `main` does not publish a release by itself. Publishing is triggered by pushing the `vX.Y.Z` tag (or manual workflow dispatch).
+
 ### Secrets Required
 
 - `NPM_TOKEN`: npm automation token with publish access to `@spenceriam` scope
+- `GITHUB_TOKEN`: built-in Actions token must have `packages: write` permission for GitHub Packages publish
 
 ### Test Devices
 

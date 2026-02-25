@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -205,3 +209,17 @@ jobs:
         run: |
           cd packages/cli
           npm publish --access public
+
+      - name: Setup Node.js for GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@spenceriam'
+
+      - name: Publish CLI wrapper to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd packages/cli
+          npm publish --registry=https://npm.pkg.github.com

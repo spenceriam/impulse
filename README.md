@@ -15,11 +15,12 @@ A brutally minimal terminal interface for AI-assisted software development. Flic
 ## Features
 
 - **GLM-4.x Models** - Z.ai's flagship models with thinking mode
-- **6 Modes** - AUTO, EXPLORE, AGENT, PLANNER, PLAN-PRD, DEBUG (Tab to cycle)
+- **4 Modes** - WORK, EXPLORE, PLAN, DEBUG (Tab to cycle)
 - **MCP Integration** - Vision, Web Search, Web Reader, Zread, Context7
 - **Session Management** - Auto-save, load previous sessions, undo/redo via git checkpoints
 - **Auto-Compact** - AI summarization at 85% context usage
 - **Express Mode** - Skip permission prompts in trusted environments
+- **Engage Mode** - High-autonomy execution profile with a distinct status-line indicator
 - **Headless Mode** - Run prompts without TUI via `--prompt`
 
 ## Installation
@@ -62,7 +63,7 @@ impulse --prompt "explain this codebase"
 | `-c, --continue` | Show session picker |
 | `-s, --session <id>` | Resume specific session |
 | `-m, --model <model>` | Set model (default: glm-4.7) |
-| `--mode <mode>` | Set mode (AUTO, AGENT, etc.) |
+| `--mode <mode>` | Set mode (WORK, EXPLORE, PLAN, DEBUG) |
 | `-e, --express` | Enable Express mode |
 | `-d, --dir <path>` | Set working directory |
 | `--verbose` | Enable verbose logging |
@@ -74,11 +75,9 @@ impulse --prompt "explain this codebase"
 
 | Mode | Purpose |
 |------|---------|
-| **AUTO** | AI decides approach, starts exploratory |
+| **WORK** | Full execution with all tools |
 | **EXPLORE** | Read-only understanding - patient, curious, anticipatory |
-| **AGENT** | Full execution with all tools |
-| **PLANNER** | Generate project documentation |
-| **PLAN-PRD** | Quick PRD via Q&A |
+| **PLAN** | Planning/documentation mode with restricted writes (`docs/`, `PRD.md`) |
 | **DEBUG** | 7-step systematic debugging |
 
 Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mode switches at natural inflection points.
@@ -96,6 +95,7 @@ Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mo
 | `/mode` | Switch mode |
 | `/think` | Toggle thinking mode |
 | `/express` | Toggle Express mode |
+| `/engage` | Toggle Engage mode (high-autonomy execution profile) |
 | `/init` | Analyze project, create AGENTS.md |
 | `/stats` | Session statistics |
 | `/changelog` | View release history |
@@ -137,7 +137,7 @@ Config file: `~/.config/impulse/config.json`
 {
   "apiKey": "your_key_here",
   "defaultModel": "glm-4.7",
-  "defaultMode": "AUTO",
+  "defaultMode": "WORK",
   "thinking": true,
   "express": false
 }
