@@ -40,7 +40,7 @@ export function CompactingBlock(props: CompactingBlockProps) {
     >
       {/* Top accent line - purple (system color) */}
       <box height={1} width="100%" overflow="hidden">
-        <text fg={Colors.mode.PLANNER}>{THIN_LINE.repeat(200)}</text>
+        <text fg={Colors.mode.PLAN}>{THIN_LINE.repeat(200)}</text>
       </box>
       
       {/* Message content area */}
@@ -77,14 +77,14 @@ export function CompactingBlock(props: CompactingBlockProps) {
           {/* Compacting state */}
           <box flexDirection="row">
             <text fg={Colors.ui.text}>Compacting conversation </text>
-            <BouncingDots color={Colors.mode.PLANNER} />
+            <BouncingDots color={Colors.mode.PLAN} />
           </box>
         </Show>
       </box>
       
       {/* Bottom accent line - purple */}
       <box height={1} width="100%" overflow="hidden">
-        <text fg={Colors.mode.PLANNER}>{THIN_LINE.repeat(200)}</text>
+        <text fg={Colors.mode.PLAN}>{THIN_LINE.repeat(200)}</text>
       </box>
     </box>
   );

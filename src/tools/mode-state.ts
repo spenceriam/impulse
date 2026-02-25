@@ -5,15 +5,14 @@
  * without needing to pass it through the entire execution chain.
  * 
  * The mode is set by App.tsx before each API call and read by tools that need
- * mode-aware behavior (like file_write for PLANNER/PLAN-PRD restrictions).
+ * mode-aware behavior (like file_write restrictions in PLAN mode).
  */
 
 import type { MODES } from "../constants";
 
 type Mode = typeof MODES[number];
 
-let currentMode: Mode = "AUTO";
-let autoApprovalGranted = false;
+let currentMode: Mode = "WORK";
 
 /**
  * Set the current mode (called by App.tsx before API calls)
@@ -30,39 +29,39 @@ export function getCurrentMode(): Mode {
 }
 
 /**
- * AUTO mode approval gate (plan + user approval required before execution)
+ * Legacy AUTO approval gate compatibility (no-op after AUTO removal)
  */
 export function isAutoApprovalGranted(): boolean {
-  return autoApprovalGranted;
+  return true;
 }
 
-export function setAutoApprovalGranted(value: boolean): void {
-  autoApprovalGranted = value;
+export function setAutoApprovalGranted(_value: boolean): void {
+  // No-op: AUTO mode no longer exists.
 }
 
 export function resetAutoApproval(): void {
-  autoApprovalGranted = false;
+  // No-op: AUTO mode no longer exists.
 }
 
 /**
  * Check if the current mode allows write operations
  */
 export function canWriteFiles(): boolean {
-  return currentMode === "AGENT" || currentMode === "DEBUG" || (currentMode === "AUTO" && autoApprovalGranted);
+  return currentMode === "WORK" || currentMode === "DEBUG";
 }
 
 /**
- * Check if the current mode is PLANNER (docs/ only)
+ * Check if the current mode is PLAN.
  */
 export function isPlannerMode(): boolean {
-  return currentMode === "PLANNER";
+  return currentMode === "PLAN";
 }
 
 /**
- * Check if the current mode is PLAN-PRD (PRD.md only)
+ * Legacy PLAN-PRD compatibility helper.
  */
 export function isPlanPrdMode(): boolean {
-  return currentMode === "PLAN-PRD";
+  return false;
 }
 
 /**
@@ -73,17 +72,17 @@ export function validateWritePath(filePath: string): string | null {
   const mode = getCurrentMode();
   
   // Execution modes can write anywhere
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "AUTO") {
+  if (mode === "WORK" || mode === "DEBUG") {
     return null;
   }
   
   // EXPLORE mode cannot write at all
   if (mode === "EXPLORE") {
-    return "EXPLORE mode is read-only. Switch to AGENT mode to write files.";
+    return "EXPLORE mode is read-only. Switch to WORK mode to write files.";
   }
   
-  // PLANNER mode can only write to docs/
-  if (mode === "PLANNER") {
+  // PLAN mode can only write planning artifacts (docs/ or PRD.md)
+  if (mode === "PLAN") {
     // Normalize path for comparison
     const normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();
     const cwd = process.cwd().replace(/\\/g, "/").toLowerCase();
@@ -93,24 +92,15 @@ export function validateWritePath(filePath: string): string | null {
       ? normalizedPath.slice(cwd.length).replace(/^\//, "")
       : normalizedPath;
     
-    if (relativePath.startsWith("docs/") || relativePath.startsWith("docs\\")) {
+    if (
+      relativePath.startsWith("docs/") ||
+      relativePath === "prd.md" ||
+      relativePath.endsWith("/prd.md")
+    ) {
       return null;
     }
     
-    return `PLANNER mode can only write to docs/ directory. Requested path: ${filePath}. Switch to AGENT mode to write elsewhere.`;
-  }
-  
-  // PLAN-PRD mode can only write PRD.md
-  if (mode === "PLAN-PRD") {
-    // Normalize path for comparison
-    const normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();
-    
-    // Check if path ends with prd.md
-    if (normalizedPath.endsWith("/prd.md") || normalizedPath.endsWith("\\prd.md") || normalizedPath === "prd.md") {
-      return null;
-    }
-    
-    return `PLAN-PRD mode can only write PRD.md. Requested path: ${filePath}. Switch to AGENT mode to write other files.`;
+    return `PLAN mode can only write to docs/ or PRD.md. Requested path: ${filePath}. Switch to WORK mode to write elsewhere.`;
   }
   
   return null; // Unknown mode, allow by default

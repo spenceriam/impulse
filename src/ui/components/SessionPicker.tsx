@@ -211,7 +211,7 @@ export function SessionPickerOverlay(props: SessionPickerOverlayProps) {
                 style={{
                   scrollbarOptions: {
                     trackOptions: {
-                      foregroundColor: Colors.mode.AGENT,
+                      foregroundColor: Colors.mode.WORK,
                       backgroundColor: Colors.ui.dim,
                     },
                   },
@@ -243,7 +243,7 @@ export function SessionPickerOverlay(props: SessionPickerOverlayProps) {
                             </box>
                           }
                         >
-                          <box flexDirection="row" backgroundColor={Colors.mode.AGENT}>
+                          <box flexDirection="row" backgroundColor={Colors.mode.WORK}>
                             <text fg="#000000">{nameCol}</text>
                             <text fg="#000000">{updatedCol}</text>
                             <text fg="#000000">{msgsCol}</text>

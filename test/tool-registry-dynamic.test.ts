@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import "../src/tools/init";
 import { Tool } from "../src/tools/registry";
-import { resetAutoApproval } from "../src/tools/mode-state";
 
 describe("tool registry dynamic mode filtering", () => {
   test("unknown dynamic tools default to read_only visibility", () => {
@@ -15,19 +14,18 @@ describe("tool registry dynamic mode filtering", () => {
       async () => ({ success: true, output: "ok" })
     );
 
-    const autoDefs = Tool.getAPIDefinitionsForMode("AUTO");
-    const plannerDefs = Tool.getAPIDefinitionsForMode("PLANNER");
+    const workDefs = Tool.getAPIDefinitionsForMode("WORK");
+    const planDefs = Tool.getAPIDefinitionsForMode("PLAN");
 
-    expect(autoDefs.some((def) => def.function.name === dynamicToolName)).toBe(true);
-    expect(plannerDefs.some((def) => def.function.name === dynamicToolName)).toBe(true);
+    expect(workDefs.some((def) => def.function.name === dynamicToolName)).toBe(true);
+    expect(planDefs.some((def) => def.function.name === dynamicToolName)).toBe(true);
   });
 
   test("set_mode remains available as a utility tool across modes", () => {
-    resetAutoApproval();
-    const plannerDefs = Tool.getAPIDefinitionsForMode("PLANNER");
+    const planDefs = Tool.getAPIDefinitionsForMode("PLAN");
     const exploreDefs = Tool.getAPIDefinitionsForMode("EXPLORE");
 
-    expect(plannerDefs.some((def) => def.function.name === "set_mode")).toBe(true);
+    expect(planDefs.some((def) => def.function.name === "set_mode")).toBe(true);
     expect(exploreDefs.some((def) => def.function.name === "set_mode")).toBe(true);
   });
 });

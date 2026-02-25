@@ -62,7 +62,7 @@ export function Sidebar(props: SidebarProps = {}) {
   const getTodoIndicator = (status: string) => {
     switch (status) {
       case "in_progress":
-        return { indicator: Indicators.todo.in_progress, color: Colors.mode.AGENT };
+        return { indicator: Indicators.todo.in_progress, color: Colors.mode.WORK };
       case "completed":
         return { indicator: Indicators.todo.completed, color: Colors.ui.dim };
       case "cancelled":

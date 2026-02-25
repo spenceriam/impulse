@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.34.1
+- **Version:** v0.35.0
 - **Tagline:** Terminal-based AI coding agent powered by GLM models
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
@@ -119,7 +119,8 @@
 - [x] Queue bar stacked preview above input (OpenCode-style)
 - [x] Chat auto-scroll respects manual scroll position
 - [x] Todo list preserves original ordering when completing items
-- [x] AUTO mode requires plan + approval before execution
+- [x] Mode model simplified to WORK/EXPLORE/PLAN/DEBUG with legacy mapping
+- [x] /engage high-autonomy profile (WORK + express + deeper loop guards)
 - [x] Chat auto-scroll stays pinned during tool calls
 - [x] Thinking blocks segment per reasoning phase
 - [x] Responses always include Findings + Next steps
@@ -345,11 +346,9 @@ preload = ["@opentui/solid/preload"]
 
 | Mode | Color | Hex | Purpose | Tools |
 |------|-------|-----|---------|-------|
-| **AUTO** | Gray | `#cccccc` | AI decides, starts exploratory | Switches dynamically |
 | **EXPLORE** | Green | `#6fca6f` | Read-only understanding - patient, curious | Read-only + web research |
-| **AGENT** | Cyan | `#5cffff` | Full execution + looper skill | All tools |
-| **PLANNER** | Purple | `#b48eff` | Research + documentation | Read-only + docs/ |
-| **PLAN-PRD** | Blue | `#5c8fff` | Quick PRD via Q&A | Read-only + docs/ |
+| **WORK** | Cyan | `#5cffff` | Full execution + looper skill | All tools |
+| **PLAN** | Purple | `#b48eff` | Planning + documentation | Read-only + docs/ + PRD.md |
 | **DEBUG** | Orange | `#ffaa5c` | 7-step systematic debugging | All tools |
 
 ### Mode Switching
@@ -358,11 +357,11 @@ All modes are **mode-aware** and will suggest switching when the conversation sh
 
 | From | To | Signals |
 |------|-----|---------|
-| EXPLORE | PLAN-PRD | "I want to build...", "Let's create...", simple feature |
-| EXPLORE | PLANNER | Complex feature, needs architecture |
+| EXPLORE | PLAN | "I want to build...", "Let's create...", planning first |
+| EXPLORE | WORK | User explicitly wants to start coding |
 | EXPLORE | DEBUG | "Something's broken...", "This error..." |
-| PLAN-PRD | AGENT | Requirements clear, user says "let's do it" |
-| PLANNER | AGENT | Plan complete, user approves |
+| PLAN | WORK | Requirements clear, user says "let's do it" |
+| WORK | PLAN | Complex scope needs architecture/tradeoff planning |
 | Any | EXPLORE | "Wait, explain...", "I don't understand..." |
 
 ### EXPLORE Mode Personality
@@ -390,11 +389,9 @@ EXPLORE is the "conversational" mode - like a traditional ChatGPT experience but
 **Mode Colors:**
 | Mode | Color | Hex |
 |------|-------|-----|
-| AUTO | White | `#ffffff` |
 | EXPLORE | Green | `#6fca6f` |
-| AGENT | Cyan | `#5cffff` |
-| PLANNER | Purple | `#b48eff` |
-| PLAN-PRD | Blue | `#5c8fff` |
+| WORK | Cyan | `#5cffff` |
+| PLAN | Purple | `#b48eff` |
 | DEBUG | Orange | `#ffaa5c` |
 
 **Status Colors:**
@@ -500,7 +497,7 @@ Loading Animation (Braille Wheel):
 
 **Status Line Format:**
 ```
-⣾ GLM 4.7 | [EXPRESS] | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
+⣾ GLM 4.7 | [EXPRESS] | [ENGAGE] | WORK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
 │     │         │         │            │              │           │         │        │          │
 │     │         │         │            │              │           │         │        │          └── Version
 │     │         │         │            │              │           │         │        └── Date
@@ -801,6 +798,7 @@ interface QuestionToolOutput {
 | `/redo` | Restore undone changes |
 | `/model` | Switch GLM model |
 | `/mode` | Switch mode (alt to Tab) |
+| `/engage` | Toggle high-autonomy execution profile |
 | `/instruct` | Edit project instructions |
 | `/config` | Basic settings overlay |
 | `/stats` | Session statistics |

@@ -6,24 +6,21 @@ You should recognize when the conversation is shifting toward a different mode's
 
 | Current | Shift To | Signals |
 |---------|----------|---------|
-| EXPLORE | PLAN-PRD | "I want to build...", "Let's create...", simple feature |
-| EXPLORE | PLANNER | Complex feature, needs architecture, multi-component |
-| AUTO | PLAN-PRD | Single feature, clear user outcome, lightweight planning needed |
-| AUTO | PLANNER | Broad/unclear scope, multiple systems, architecture or migration decisions needed |
+| EXPLORE | PLAN | "I want to build...", "Let's create...", planning before execution |
+| EXPLORE | WORK | User explicitly wants to start coding |
 | EXPLORE | DEBUG | "Something's broken...", "This error...", "Why isn't..." |
-| EXPLORE | AGENT | User explicitly wants to start coding |
-| PLAN-PRD | AGENT | Requirements clear, user says "let's do it" |
-| PLANNER | AGENT | Plan complete, user approves design |
+| PLAN | WORK | Plan is clear and user says "let's do it" |
+| WORK | PLAN | Scope is unclear, cross-cutting, or requires architecture decisions |
 | Any | EXPLORE | "Wait, explain...", "I don't understand...", "Back up..." |
 
-### PLAN-PRD vs PLANNER Rubric
+### PLAN Rubric
 
-Use PLAN-PRD when most answers are "yes":
+Stay in WORK when most answers are "yes":
 - Is this mostly one feature or one user flow?
 - Can requirements fit in one concise PRD?
 - Is architecture impact localized?
 
-Use PLANNER when any of these are true:
+Switch to PLAN when any of these are true:
 - Cross-cutting changes across modules/services
 - Significant unknowns, risks, or tradeoffs
 - Need phased rollout, migration, or deep technical design docs
@@ -45,7 +42,3 @@ question({
 })
 
 Be natural about this - don't suggest switches for every message, only at clear inflection points.
-
-AUTO approval gate:
-- In AUTO mode, do NOT switch to AGENT/DEBUG or begin execution until the user explicitly approves via the question tool.
-- If you intend to implement changes, first outline a brief plan, ask for approval, then proceed only after the user confirms.

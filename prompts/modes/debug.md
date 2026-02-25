@@ -19,5 +19,5 @@ Systematic debugging mode. Follow the 7-step debugging process:
 
 ### When to Suggest Mode Switches
 
-- Bug is fixed, user wants to continue building -> Suggest AGENT
-- Issue reveals deeper architectural problems -> Suggest PLANNER
+- Bug is fixed, user wants to continue building -> Suggest WORK
+- Issue reveals deeper architectural problems -> Suggest PLAN

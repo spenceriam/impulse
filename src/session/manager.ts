@@ -15,7 +15,7 @@ class SessionManagerImpl {
   private sessionHistory: Session[] = [];
   private options: Required<SessionManagerOptions> = {
     defaultModel: "glm-4.7",
-    defaultMode: "AUTO",
+    defaultMode: "WORK",
     initialContextWindow: 200000,
   };
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ToolDefinition } from "../api/types";
 import type { MODES } from "../constants";
-import { getCurrentMode, isAutoApprovalGranted } from "./mode-state";
+import { getCurrentMode } from "./mode-state";
 
 type Mode = typeof MODES[number];
 
@@ -24,9 +24,7 @@ export interface Tool<TInput = unknown> {
  * Tool access categories by mode
  * 
  * - READ_ONLY: Available in all modes (file_read, glob, grep, question, etc.)
- * - WRITE: Only in execution modes (AGENT, DEBUG, AUTO)
- * - PLANNER_DOCS: Write tools available in PLANNER mode but restricted to docs/
- * - PRD_ONLY: Write tools available in PLAN-PRD mode but restricted to PRD.md
+ * - WRITE: Only in execution modes (WORK, DEBUG) plus restricted planning tools in PLAN
  */
 type ToolCategory = "read_only" | "write" | "utility";
 
@@ -43,7 +41,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   mcp_discover: "read_only",
   tool_docs: "read_only",
   
-  // Write tools (restricted in PLANNER/PLAN-PRD)
+  // Write tools (restricted in PLAN)
   file_write: "write",
   file_edit: "write",
   bash: "write",
@@ -63,15 +61,11 @@ function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: 
     return true;
   }
 
-  if (mode === "AGENT" || mode === "DEBUG") {
+  if (mode === "WORK" || mode === "DEBUG") {
     return true;
   }
 
-  if (mode === "AUTO") {
-    return isAutoApprovalGranted();
-  }
-
-  if (mode === "PLANNER" || mode === "PLAN-PRD") {
+  if (mode === "PLAN") {
     // file_write and task are available with mode-specific restrictions in handlers.
     if (toolName === "file_write" || toolName === "task" || toolName === "todo_write") {
       return true;
@@ -145,10 +139,9 @@ export namespace Tool {
    * Get tools allowed for a specific mode as API-compatible definitions
    * 
    * Mode restrictions:
-   * - AGENT, DEBUG, AUTO: All tools
+   * - WORK, DEBUG: All tools
    * - EXPLORE: Read-only tools only (no file_write, file_edit, bash, task)
-   * - PLANNER: Read-only + file_write (restricted to docs/ in handler)
-   * - PLAN-PRD: Read-only + file_write (restricted to PRD.md in handler)
+   * - PLAN: Read-only + file_write/task/todo_write (restricted in handlers)
    */
   export function getAPIDefinitionsForMode(mode: Mode): ToolDefinition[] {
     return Array.from(tools.values())
@@ -163,17 +156,15 @@ export namespace Tool {
         // Remove $schema key if present (API doesn't need it)
         const { $schema, ...parameters } = jsonSchema as Record<string, unknown>;
         
-        // For PLANNER/PLAN-PRD, modify file_write description to note restrictions
+        // For PLAN, modify tool descriptions to note restrictions
         let description = tool.description;
-        if (tool.name === "file_write" && (mode === "PLANNER" || mode === "PLAN-PRD")) {
-          const restriction = mode === "PLANNER"
-            ? "RESTRICTED: Can only write to docs/ directory in PLANNER mode."
-            : "RESTRICTED: Can only write PRD.md in PLAN-PRD mode.";
+        if (tool.name === "file_write" && mode === "PLAN") {
+          const restriction = "RESTRICTED: PLAN mode can only write docs/ or PRD.md.";
           description = `${restriction}\n\n${description}`;
         }
 
-        if (tool.name === "task" && (mode === "PLANNER" || mode === "PLAN-PRD")) {
-          const restriction = "RESTRICTED: In planning modes, only subagent_type=\"explore\" is allowed.";
+        if (tool.name === "task" && mode === "PLAN") {
+          const restriction = "RESTRICTED: In PLAN mode, only subagent_type=\"explore\" is allowed.";
           description = `${restriction}\n\n${description}`;
         }
 
@@ -221,15 +212,9 @@ export namespace Tool {
 
     const currentMode = getCurrentMode();
     if (!isToolAllowedForMode(name, currentMode)) {
-      if (currentMode === "AUTO" && getToolCategory(name) === "write" && !isAutoApprovalGranted()) {
-        return {
-          success: false,
-          output: `AUTO mode requires a plan and explicit user approval before execution. Ask for approval with the question tool (context "AUTO_APPROVAL"), then proceed.`,
-        };
-      }
       return {
         success: false,
-        output: `Tool "${name}" is not allowed in ${currentMode} mode. Switch to AGENT or DEBUG to proceed.`,
+        output: `Tool "${name}" is not allowed in ${currentMode} mode. Switch to WORK or DEBUG to proceed.`,
       };
     }
 

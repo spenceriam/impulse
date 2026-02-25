@@ -5,6 +5,24 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-02-25
+
+**Type:** minor  
+**Title:** Simplified mode model and new /engage autonomy workflow
+
+### Added
+
+- **/engage command and runtime profile** - Added a high-autonomy execution toggle that enables a WORK-first workflow with express-style approvals, deeper continuation guard limits, and a visible `[ENGAGE]` status-line indicator.
+- **Dedicated WORK and PLAN prompt files** - Added `prompts/modes/work.md` and `prompts/modes/plan.md` to align prompt loading with the new canonical mode set.
+
+### Changed
+
+- **Canonical mode set reduced to four modes** - Runtime mode model is now `WORK`, `EXPLORE`, `PLAN`, and `DEBUG`; legacy names (`AUTO`, `AGENT`, `PLANNER`, `PLAN-PRD`) are mapped for compatibility.
+- **Unified planning restrictions under PLAN** - Mode-gated tool behavior now treats PLAN as a single planning surface with restricted writes and explore-only task delegation.
+- **Mode switching and persistence synchronization** - `/mode` now broadcasts runtime mode-change events, session loading normalizes persisted modes, and UI mode state stays synchronized with stored session mode.
+- **Prompt and command documentation alignment** - Updated core/mode prompts, tool docs, and command help text to reflect WORK/PLAN naming and behavior.
+- **Engage status visibility is more distinct** - Status line now renders a rainbow-style `[ENGAGE]` badge and suppresses `[EXPRESS]` while engage is active so only one profile indicator is shown at a time.
+
 ## [0.34.1] - 2026-02-06
 
 **Type:** patch  

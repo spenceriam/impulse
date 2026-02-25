@@ -9,6 +9,31 @@ export const GLM_MODELS = [
   "glm-4.5v",
 ] as const;
 
+export const MODES = [
+  "WORK",
+  "EXPLORE",
+  "PLAN",
+  "DEBUG",
+] as const;
+
+export type Mode = typeof MODES[number];
+
+const LEGACY_MODE_MAP: Record<string, Mode> = {
+  AUTO: "WORK",
+  AGENT: "WORK",
+  PLANNER: "PLAN",
+  "PLAN-PRD": "PLAN",
+  WORK: "WORK",
+  EXPLORE: "EXPLORE",
+  PLAN: "PLAN",
+  DEBUG: "DEBUG",
+};
+
+export function normalizeMode(mode?: string): Mode {
+  if (!mode) return "WORK";
+  return LEGACY_MODE_MAP[mode.toUpperCase()] ?? "WORK";
+}
+
 /**
  * Friendly display names for models
  * Maps API model names to user-facing display names
@@ -32,12 +57,3 @@ export const MODEL_DISPLAY_NAMES: Record<string, string> = {
 export function getModelDisplayName(model: string): string {
   return MODEL_DISPLAY_NAMES[model.toLowerCase()] || model.toUpperCase();
 }
-
-export const MODES = [
-  "AUTO",
-  "EXPLORE",
-  "AGENT",
-  "PLANNER",
-  "PLAN-PRD",
-  "DEBUG",
-] as const;

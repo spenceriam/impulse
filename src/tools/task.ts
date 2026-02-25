@@ -220,10 +220,10 @@ export const taskTool: Tool<TaskInput> = Tool.define(
   async (input: TaskInput): Promise<ToolResult> => {
     try {
       const currentMode = getCurrentMode();
-      if ((currentMode === "PLANNER" || currentMode === "PLAN-PRD") && input.subagent_type !== "explore") {
+      if (currentMode === "PLAN" && input.subagent_type !== "explore") {
         return {
           success: false,
-          output: `${currentMode} mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`,
+          output: `PLAN mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`,
         };
       }
 

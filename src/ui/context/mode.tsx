@@ -32,10 +32,10 @@ const ModeContext = createContext<ModeContextType>();
  * Manages current execution mode and thinking toggle
  */
 export const ModeProvider: ParentComponent<ModeProviderProps> = (props) => {
-  const [mode, setModeRaw] = createSignal<Mode>(props.initialMode ?? "AUTO");
+  const [mode, setModeRaw] = createSignal<Mode>(props.initialMode ?? "WORK");
   const [thinking, setThinking] = createSignal<boolean>(true);
 
-  const modes: Mode[] = ["AUTO", "EXPLORE", "AGENT", "PLANNER", "PLAN-PRD", "DEBUG"];
+  const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
 
   const setMode = (value: Mode | ((prev: Mode) => Mode)) => {
     setModeRaw(value);

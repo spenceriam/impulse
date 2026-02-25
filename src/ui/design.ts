@@ -1,3 +1,5 @@
+import type { Mode as AppMode } from "../constants";
+
 /**
  * Design Constants
  * Single source of truth for colors, indicators, and visual elements
@@ -19,13 +21,11 @@ export const Colors = {
    * Mode-specific colors (used in mode indicators, input borders)
    */
   mode: {
-    AUTO: "#cccccc",      // Soft white/gray - AI decides (less harsh than pure white)
+    WORK: "#5cffff",      // Cyan - Full execution
     EXPLORE: "#6fca6f",   // Green - Read-only understanding, research, patient
-    AGENT: "#5cffff",     // Cyan - Full execution
-    PLANNER: "#b48eff",   // Purple - Research + docs
-    "PLAN-PRD": "#5c8fff", // Blue - Quick PRD
+    PLAN: "#b48eff",      // Purple - Planning (lightweight or full)
     DEBUG: "#ffaa5c",     // Orange - Systematic debugging
-  },
+  } satisfies Record<AppMode, string>,
   
   /**
    * Mode-specific dim background colors (for AI message blocks)
@@ -33,13 +33,11 @@ export const Colors = {
    * Added gray to soften the tint for a more subtle, muted appearance
    */
   modeBackground: {
-    AUTO: "#161618",      // Neutral dark gray (slightly muted)
+    WORK: "#121818",      // Muted dark cyan tint
     EXPLORE: "#121812",   // Muted dark green tint
-    AGENT: "#121818",     // Muted dark cyan tint
-    PLANNER: "#181218",   // Muted dark purple tint
-    "PLAN-PRD": "#121218", // Muted dark blue tint
+    PLAN: "#181218",      // Muted dark purple tint
     DEBUG: "#181212",     // Muted dark orange/red tint
-  },
+  } satisfies Record<AppMode, string>,
 
   /**
    * Status colors (used in tool results, messages)
@@ -238,7 +236,7 @@ export const Timing = {
 } as const;
 
 // Type exports for type-safe usage
-export type Mode = keyof typeof Colors.mode;
+export type Mode = AppMode;
 export type Status = keyof typeof Colors.status;
 export type TodoStatus = keyof typeof Indicators.todo;
 export type ToolStatus = keyof typeof Indicators.tool;

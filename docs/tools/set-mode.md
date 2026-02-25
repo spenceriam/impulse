@@ -1,10 +1,10 @@
 # set_mode
 
-Switches the operating mode (AUTO, EXPLORE, AGENT, PLANNER, PLAN-PRD, DEBUG).
+Switches the operating mode (WORK, EXPLORE, PLAN, DEBUG).
 
 ## Parameters
 
-- mode (required): Target mode
+- mode (required): Target mode. Legacy aliases AUTO/AGENT/PLANNER/PLAN-PRD are accepted and mapped.
 - reason (optional): Short reason shown to the user
 
 ## Usage

@@ -35,7 +35,7 @@ const DNA_HELIX_FRAMES = [
 export function Spinner(props: SpinnerProps) {
   const [frameIndex, setFrameIndex] = createSignal(0);
   
-  const color = () => props.color || Colors.mode.AGENT;
+  const color = () => props.color || Colors.mode.WORK;
   const interval = () => props.interval || 120;
   
   let intervalId: ReturnType<typeof setInterval> | undefined;

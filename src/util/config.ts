@@ -6,7 +6,7 @@ import z from "zod";
 const ConfigSchema = z.object({
   apiKey: z.string().optional().describe("API key for authentication"),
   defaultModel: z.string().default("glm-4.7").describe("Default GLM model to use"),
-  defaultMode: z.string().default("AUTO").describe("Default mode: AUTO, EXPLORE, AGENT, PLANNER, PLAN-PRD, DEBUG"),
+  defaultMode: z.string().default("WORK").describe("Default mode: WORK, EXPLORE, PLAN, DEBUG"),
   thinking: z.boolean().default(true).describe("Enable thinking mode"),
   hasSeenWelcome: z.boolean().default(false).describe("Whether user has seen the welcome screen"),
 });

@@ -3,7 +3,7 @@
 Use the task tool to spawn subagents for complex operations. This keeps your context clean and enables parallel work.
 
 Planning mode restriction:
-- In PLANNER and PLAN-PRD, only `subagent_type: "explore"` is allowed.
+- In PLAN mode, only `subagent_type: "explore"` is allowed.
 - `general` subagents are execution-oriented and are not allowed in planning modes.
 
 ### Available Subagents
@@ -25,7 +25,7 @@ ALWAYS delegate when:
 - The task requires multiple search/read iterations
 - You need to explore unfamiliar parts of the codebase
 - Tasks can be parallelized (launch multiple subagents concurrently)
-- In PLANNER/PLAN-PRD, use explore subagents to gather evidence before writing docs/PRD output
+- In PLAN mode, use explore subagents to gather evidence before writing docs/PRD output
 
 Examples:
 // Finding where errors are handled
