@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { GLMClient } from "../api/client";
+import { getProviderManager } from "../api/manager";
+import type { CompletionOptions } from "../api/providers";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
 import { getCurrentMode } from "./mode-state";
@@ -90,11 +91,13 @@ async function executeSubagent(
   const actionSummary: string[] = [];
   
   // Conversation loop
+  const manager = await getProviderManager();
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     // Make non-streaming completion (subagents work in batch mode)
     // Only include tools if we have any (undefined vs empty array matters)
-    const completionOptions: Parameters<typeof GLMClient.complete>[0] = {
-      model: "glm-4.7-flash", // Use fast flagship model for subagents
+    // Use default model from config for subagent (no hardcoded z.ai model)
+    const completionOptions: CompletionOptions = {
       messages,
     };
     
@@ -102,7 +105,7 @@ async function executeSubagent(
       completionOptions.tools = filteredTools;
     }
     
-    const response = await GLMClient.complete(completionOptions);
+    const response = await manager.complete(completionOptions);
     
     const choice = response.choices[0];
     if (!choice) {

@@ -1,6 +1,6 @@
 import { Bus, SessionEvents } from "../bus";
 import { SessionStoreInstance, Message } from "./store";
-import { GLMClient } from "../api/client";
+import { getProviderManager } from "../api/manager";
 import type { ChatMessage } from "../api/types";
 
 // Compact thresholds (exported for StatusLine to use)
@@ -463,8 +463,9 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         { role: "user", content: prompt },
       ];
 
-      const response = await GLMClient.complete({
-        model: "glm-4.7",
+      const manager = await getProviderManager();
+      // Use default model from config (no hardcoded provider/model)
+      const response = await manager.complete({
         messages: apiMessages,
         temperature: 0.3,
         max_tokens: 1000,

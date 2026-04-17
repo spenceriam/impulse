@@ -1,4 +1,5 @@
-import { GLMClientError, GLMAuthError, GLMRateLimitError } from "../api/client";
+import { GLMAuthError, GLMRateLimitError } from "../api/client";
+import { ProviderError } from "../api/providers";
 
 export class AppError extends Error {
   constructor(
@@ -87,10 +88,10 @@ class ErrorHandlerImpl {
       return appError;
     }
 
-    if (error instanceof GLMClientError) {
+    if (error instanceof ProviderError) {
       const appError = new AppError(
-        `API error: ${error.message}`,
-        error.code ?? "API_ERROR",
+        `Provider error: ${error.message}`,
+        error.code ?? "PROVIDER_ERROR",
         true
       );
       this.log(appError, errorContext);
