@@ -3,9 +3,10 @@
  * Impulse CLI — minimal provider test runner
  *
  * Usage:
- *   npx tsx src/cli.ts                                # interactive mode
- *   npx tsx src/cli.ts "Say hi"                       # single prompt (default model)
- *   npx tsx src/cli.ts -m "openai/gpt-4o" "Say hi"   # specify model
+ *   npx tsx src/cli.ts                                # interactive mode (default: claude-haiku-4.5 via OpenRouter)
+ *   npx tsx src/cli.ts "Say hi"                       # single prompt
+ *   npx tsx src/cli.ts -m "anthropic/claude-3.5-haiku" "Say hi"
+ *   npx tsx src/cli.ts --setup                        # interactive API key setup
  */
 
 import { OpenRouterProvider } from "./api/providers/openrouter";
@@ -46,52 +47,69 @@ function homeEnvPath(): string {
   return path.join(homeDir(), ".impulse", ".env");
 }
 
-// Load config: project root .env > ~/.impulse/.env
-const pEnv = projectRootEnv();
-if (pEnv) {
-  loadDotenv(pEnv);
-} else {
+function loadConfig() {
+  const pEnv = projectRootEnv();
+  if (pEnv) {
+    loadDotenv(pEnv);
+    return;
+  }
   const hEnv = homeEnvPath();
-  if (fs.existsSync(hEnv)) loadDotenv(hEnv);
+  if (fs.existsSync(hEnv)) {
+    loadDotenv(hEnv);
+  }
+}
+
+loadConfig();
+
+// ---------------------------------------------------------------------------
+// Key check
+// ---------------------------------------------------------------------------
+function hasKey(): boolean {
+  return !!(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length > 10);
 }
 
 // ---------------------------------------------------------------------------
 // First-run onboarding
 // ---------------------------------------------------------------------------
-
-async function onboard(): Promise<void> {
-  console.log("\n  Welcome to Impulse");
-  console.log("  ───────────────────");
-  console.log("  No OpenRouter API key found.");
-  console.log("  Get one at: https://openrouter.ai/keys\n");
-
+async function runSetup(): Promise<void> {
   const rl = await import("readline");
   const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> =>
+    new Promise((res) => iface.question(q, (a) => res(a.trim())));
 
-  const key = await new Promise<string>((resolve) => {
-    iface.question("  Enter your OpenRouter API key: ", (answer) => {
-      resolve(answer.trim());
-    });
-  });
+  console.log("\n=== IMPULSE Setup ===\n");
+  console.log("Impulse uses OpenRouter for AI model inference.");
+  console.log("Get a free key at: https://openrouter.ai/keys\n");
 
-  if (!key || key.length < 10) {
-    console.log("\n  Invalid key. Exiting.\n");
+  const key = await ask("Enter your OpenRouter API key (sk-or-v1-...): ");
+
+  if (!key || key.toLowerCase().startsWith("sk-or-v1-") === false) {
+    console.log("\nThat doesn't look like a valid OpenRouter key. Aborting.");
+    iface.close();
     process.exit(1);
   }
 
-  // Create ~/.impulse/ and write .env
-  const dir = path.dirname(homeEnvPath());
+  // Ensure ~/.impulse/ directory exists
+  const dir = path.join(homeDir(), ".impulse");
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  fs.writeFileSync(homeEnvPath(), `OPENROUTER_API_KEY=${key}\n`);
+  // Write key to ~/.impulse/.env
+  const envPath = homeEnvPath();
+  const envContent = `# Impulse CLI — OpenRouter API Key\nOPENROUTER_API_KEY=${key}\n`;
+  fs.writeFileSync(envPath, envContent, { mode: 0o600 });
 
-  // Mask loaded key from env
-  fs.chmodSync(homeEnvPath(), 0o600);
+  // Also write project-local .env if repo has one
+  const projectEnv = projectRootEnv();
+  if (projectEnv) {
+    fs.writeFileSync(projectEnv, `OPENROUTER_API_KEY=${key}\n`, { mode: 0o600 });
+  }
 
-  console.log("\n  ✓ Config saved to ~/.impulse/.env");
-  console.log("  You can edit it later with: nano ~/.impulse/.env\n");
+  process.env.OPENROUTER_API_KEY = key;
+  console.log("\n✅ Key saved to ~/.impulse/.env");
+  if (projectEnv) console.log(`✅ Key also saved to ${projectEnv}`);
+  console.log("\nYou're all set. Run `npx tsx src/cli.ts` to start.\n");
 
   iface.close();
 }
@@ -100,7 +118,7 @@ async function onboard(): Promise<void> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function ask(provider: OpenRouterProvider, model: string, prompt: string): Promise<void> {
+async function askProvider(provider: OpenRouterProvider, model: string, prompt: string): Promise<void> {
   const stream = provider.stream(
     { messages: [{ role: "user", content: prompt }], model: model },
     {},
@@ -115,15 +133,20 @@ async function ask(provider: OpenRouterProvider, model: string, prompt: string):
 // Entry
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {
-  // Check if we have a key
-  const hasKey = !!process.env.OPENROUTER_API_KEY;
-  if (!hasKey) {
-    await onboard();
-    // Reload after onboarding
-    loadDotenv(homeEnvPath());
+  const args = process.argv.slice(2);
+
+  // --setup flag: run onboarding
+  if (args.includes("--setup")) {
+    await runSetup();
+    return;
   }
 
-  const args = process.argv.slice(2);
+  // No key found — run setup automatically on first run
+  if (!hasKey()) {
+    console.log("\nNo OpenRouter API key found.");
+    await runSetup();
+    return;
+  }
 
   let model = "anthropic/claude-haiku-4.5";
   let prompt = "";
@@ -138,13 +161,7 @@ async function main(): Promise<void> {
     }
   }
 
-  let provider: OpenRouterProvider;
-  try {
-    provider = new OpenRouterProvider();
-  } catch (e) {
-    console.error("OpenRouterProvider init error:", e);
-    process.exit(1);
-  }
+  const provider = new OpenRouterProvider();
 
   // Interactive mode if no prompt given
   if (!prompt) {
@@ -162,7 +179,7 @@ async function main(): Promise<void> {
           process.exit(0);
           return;
         }
-        ask(provider, model, a)
+        askProvider(provider, model, a)
           .then(() => console.log("\n"))
           .catch((e) => console.error("\nError:", e))
           .then(go);
@@ -170,11 +187,12 @@ async function main(): Promise<void> {
     };
     iface.on("close", () => process.exit(0));
     go();
-    await new Promise<void>(() => {});
+    await new Promise<void>(() => {}); // keep alive
     return;
   }
 
-  await ask(provider, model, prompt);
+  // Single prompt
+  await askProvider(provider, model, prompt);
 }
 
 main().catch((err) => {
