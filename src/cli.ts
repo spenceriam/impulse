@@ -3,9 +3,9 @@
  * Impulse CLI — minimal provider test runner
  *
  * Usage:
- *   npx tsx src/cli.ts                                # interactive mode (default: claude-haiku-4.5 via OpenRouter)
- *   npx tsx src/cli.ts "Say hi"                       # single prompt
- *   npx tsx src/cli.ts -m "anthropic/claude-3.5-haiku" "Say hi"
+ *   npx tsx src/cli.ts                                # interactive mode
+ *   npx tsx src/cli.ts "Say hi"                       # single prompt (default model)
+ *   npx tsx src/cli.ts -m "openai/gpt-4o" "Say hi"   # specify model
  */
 
 import { OpenRouterProvider } from "./api/providers/openrouter";
@@ -38,13 +38,62 @@ function loadDotenv(filePath: string) {
   }
 }
 
+function homeDir(): string {
+  return process.env.HOME || process.env.USERPROFILE || "";
+}
+
+function homeEnvPath(): string {
+  return path.join(homeDir(), ".impulse", ".env");
+}
+
 // Load config: project root .env > ~/.impulse/.env
 const pEnv = projectRootEnv();
 if (pEnv) {
   loadDotenv(pEnv);
 } else {
-  const homeEnv = path.join(process.env.HOME || process.env.USERPROFILE || "", ".impulse", ".env");
-  if (fs.existsSync(homeEnv)) loadDotenv(homeEnv);
+  const hEnv = homeEnvPath();
+  if (fs.existsSync(hEnv)) loadDotenv(hEnv);
+}
+
+// ---------------------------------------------------------------------------
+// First-run onboarding
+// ---------------------------------------------------------------------------
+
+async function onboard(): Promise<void> {
+  console.log("\n  Welcome to Impulse");
+  console.log("  ───────────────────");
+  console.log("  No OpenRouter API key found.");
+  console.log("  Get one at: https://openrouter.ai/keys\n");
+
+  const rl = await import("readline");
+  const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
+
+  const key = await new Promise<string>((resolve) => {
+    iface.question("  Enter your OpenRouter API key: ", (answer) => {
+      resolve(answer.trim());
+    });
+  });
+
+  if (!key || key.length < 10) {
+    console.log("\n  Invalid key. Exiting.\n");
+    process.exit(1);
+  }
+
+  // Create ~/.impulse/ and write .env
+  const dir = path.dirname(homeEnvPath());
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  fs.writeFileSync(homeEnvPath(), `OPENROUTER_API_KEY=${key}\n`);
+
+  // Mask loaded key from env
+  fs.chmodSync(homeEnvPath(), 0o600);
+
+  console.log("\n  ✓ Config saved to ~/.impulse/.env");
+  console.log("  You can edit it later with: nano ~/.impulse/.env\n");
+
+  iface.close();
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +115,14 @@ async function ask(provider: OpenRouterProvider, model: string, prompt: string):
 // Entry
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {
+  // Check if we have a key
+  const hasKey = !!process.env.OPENROUTER_API_KEY;
+  if (!hasKey) {
+    await onboard();
+    // Reload after onboarding
+    loadDotenv(homeEnvPath());
+  }
+
   const args = process.argv.slice(2);
 
   let model = "anthropic/claude-haiku-4.5";
@@ -113,11 +170,10 @@ async function main(): Promise<void> {
     };
     iface.on("close", () => process.exit(0));
     go();
-    await new Promise<void>(() => {}); // keep alive
+    await new Promise<void>(() => {});
     return;
   }
 
-  // Single prompt
   await ask(provider, model, prompt);
 }
 
