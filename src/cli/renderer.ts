@@ -11,6 +11,7 @@ import { ProcessTerminal } from "@mariozechner/pi-tui";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { StreamingBlock } from "./components/streaming-block.js";
 import { ToolBlock } from "./components/tool-block.js";
+import { Spinner } from "./spinner.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config } from "../util/config.js";
 import { SessionManager } from "../session/manager.js";
@@ -42,6 +43,7 @@ const clr = {
 export class ImpulseRenderer {
   private terminal = new ProcessTerminal();
   private loop = new AgentLoop();
+  private spinner = new Spinner();
   private contextBar!: ContextBarComponent;
   private currentStreamBlock: StreamingBlock | null = null;
   private activeToolBlocks: Map<string, ToolBlock> = new Map();
@@ -179,73 +181,105 @@ export class ImpulseRenderer {
     this.currentStreamBlock = new StreamingBlock();
     this.activeToolBlocks.clear();
 
-    process.stdout.write(`\n  ${clr.user("You")}  ${userMessage}\n\n`);
+    // ── User message block ────────────────────────────────────────────────────
+    const w = this.terminal.columns || 80;
+    process.stdout.write(`\n  ${clr.user("╭─ You " + "─".repeat(Math.max(0, w - 10)) )}\n`);
+    process.stdout.write(`  ${clr.user("│")}  ${userMessage}\n`);
+    process.stdout.write(`  ${clr.user("╰" + "─".repeat(Math.max(0, w - 4)))}\n\n`);
 
     let thinkingStarted = false;
+    let hasWrittenText = false;
 
     const events: LoopEvents = {
+      onTurnStart: () => {
+        this.spinner.start("connecting…");
+      },
       onToken: (text) => {
-        // If thinking was active, close it first
+        if (this.spinner.isActive) this.spinner.clear();
         if (thinkingStarted) {
           process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n\n`);
           thinkingStarted = false;
         }
-        process.stdout.write(text);
+        if (!hasWrittenText) {
+          process.stdout.write("  "); // indent first line
+          hasWrittenText = true;
+        }
+        process.stdout.write(text.replace(/\n/g, "\n  "));
       },
       onThinking: (text) => {
+        if (this.spinner.isActive) this.spinner.clear();
         if (!thinkingStarted) {
           process.stdout.write(`${clr.dim("┌─ Thinking ─────────────────────────────")}\n`);
           process.stdout.write(clr.dim("│ "));
           thinkingStarted = true;
         }
-        // Inline thinking — dim + prefix new lines
         process.stdout.write(ansi.dim + text.replace(/\n/g, `\n${ansi.reset}${clr.dim("│ ")}`) + ansi.reset);
       },
       onAdvisorStart: (model) => {
+        if (this.spinner.isActive) this.spinner.clear();
         const short = model.split("/").pop() ?? model;
         process.stdout.write(`\n  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
       },
-      onAdvisorToken: (_text) => {
-        // Buffer silently — one-liner summary shown on end
-      },
+      onAdvisorToken: (_text) => { /* buffered silently */ },
       onAdvisorEnd: (summary) => {
         const raw = summary.trim();
         const oneliner = raw.split(/[.!?\n]/)[0]?.trim() ?? raw;
-        const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + '…' : oneliner;
+        const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + "…" : oneliner;
         process.stdout.write(`\r\x1b[2K  ${clr.dim(`[advisor: ${truncated}]`)}\n`);
       },
       onToolStart: (_id, name, args) => {
+        if (this.spinner.isActive) this.spinner.clear();
+        if (thinkingStarted) {
+          process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n`);
+          thinkingStarted = false;
+        }
+        if (hasWrittenText) { process.stdout.write("\n"); hasWrittenText = false; }
         const argStr = this.fmtArgs(args);
         process.stdout.write(`\n  ${ansi.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\n`);
+        this.spinner.start(`running ${name}…`);
       },
       onToolEnd: (_id, _name, result, durationMs) => {
+        this.spinner.clear();
         const icon = result.success ? clr.success("✓") : clr.error("✗");
         const dur = clr.dim(`${durationMs}ms`);
-        const summary = result.output.trim().split("\n")[0]?.slice(0, 65) ?? "";
-        process.stdout.write(`  ${icon}  ${clr.dim(summary)}  ${dur}\n`);
+        const lines = result.output.trim().split("\n");
+        const preview = lines[0]?.slice(0, 65) ?? "";
+        const more = lines.length > 1 ? clr.dim(` (+${lines.length - 1} lines)`) : "";
+        process.stdout.write(`  ${icon}  ${clr.dim(preview)}${more}  ${dur}\n`);
+        if (!result.success) {
+          // Show first error line in red
+          process.stdout.write(`  ${clr.error("  " + (lines[1] ?? "").slice(0, 70))}\n`);
+        }
       },
       onPermissionRequest: (toolName, description, resolve) => {
+        this.spinner.clear();
         void this.askPermission(toolName, description).then(({ approved, always }) => {
           resolve(approved, always);
         });
       },
       onCompacting: () => {
+        this.spinner.clear();
         process.stdout.write(`\n  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}\n`);
+        this.spinner.start("compacting…");
       },
       onCompacted: (removedCount) => {
+        this.spinner.clear();
         process.stdout.write(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}\n`);
       },
       onTurnEnd: (usage) => {
+        this.spinner.clear();
         if (thinkingStarted) {
           process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n`);
           thinkingStarted = false;
         }
-        this.contextTokens = Math.round(usage.contextPct * this.contextWindow);
+        if (hasWrittenText) process.stdout.write("\n");
+        this.contextTokens = usage.inputTokens;
         this.isRunning = false;
         this.currentStreamBlock?.finalize();
-        this.printContextBar();
+        this.printContextBar(usage.tokensPerSecond, usage.durationMs);
       },
       onError: (err) => {
+        this.spinner.clear();
         this.isRunning = false;
         process.stdout.write(`\n  ${clr.error("Error:")} ${err.message}\n`);
       },
@@ -257,19 +291,19 @@ export class ImpulseRenderer {
 
   // ── Context bar ─────────────────────────────────────────────────────────────
 
-  private printContextBar(): void {
+  private printContextBar(tokensPerSecond?: number, durationMs?: number): void {
     this.contextBar.update({
       contextTokens: this.contextTokens,
       contextWindow: this.contextWindow,
       mode: this.mode,
+      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+      ...(durationMs !== undefined ? { lastTurnMs: durationMs } : {}),
     });
     const w = this.terminal.columns || 80;
     process.stdout.write(`\n${ansi.dim}${"─".repeat(w)}${ansi.reset}\n`);
     for (const l of this.contextBar.render(w)) process.stdout.write(l + "\n");
     process.stdout.write(`${ansi.dim}${"─".repeat(w)}${ansi.reset}\n\n`);
   }
-
-  // ── Permission prompt ────────────────────────────────────────────────────────
 
   private askPermission(
     toolName: string,
