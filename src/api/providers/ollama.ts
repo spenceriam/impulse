@@ -33,9 +33,10 @@ const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
  * Remove the hardcoded allowlist — always pass think:true when thinking is enabled.
  * Ollama ignores the param for models that don't support it.
  * Models known to use it: deepseek-r1, qwq, kimi-k2.6, marco-o1, openthinker, and others.
+ * @deprecated use discoverOllamaReasoning() for proper capability detection
  */
 export function ollamaSupportsReasoning(_model: string): boolean {
-  return true; // let the model decide; Ollama ignores think:true if unsupported
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

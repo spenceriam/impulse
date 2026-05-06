@@ -89,6 +89,7 @@ export interface ContextBarState {
   contextTokens: number;
   contextWindow: number;
   mode: string;
+  reasoningLevel?: string;   // "off" | "low" | "medium" | "high"
   autoCompactOff?: boolean;
   isRunning?: boolean;
   cwd?: string;
@@ -150,6 +151,11 @@ export class ContextBarComponent implements Component {
     // Mode segment
     const modeSeg = c.fg(MODE_COLOR[s.mode] ?? 34, s.mode);
 
+    // Reasoning level indicator (shown when not "off")
+    const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
+      ? sep + clr.dim(`✨ ${s.reasoningLevel}`) // ✨ sparkle = thinking active
+      : "";
+
     // Auto-compact off indicator
     const compactSeg = s.autoCompactOff ? clr.sep(" compact:OFF") : "";
 
@@ -167,7 +173,7 @@ export class ContextBarComponent implements Component {
       modelSeg + advisorSeg + sep +
       ctxSeg + sep +
       dirSeg + branchSeg + sep +
-      modeSeg + compactSeg + statsSeg;
+      modeSeg + rlSeg + compactSeg + statsSeg;
 
     // Truncate to terminal width
     return [truncateToWidth(line, width)];

@@ -7,6 +7,12 @@ import z from "zod";
 // Multi-Provider Config Schema
 // ============================================================
 
+// Reasoning/thinking level — unified across all providers
+// "off" = disabled; "low"/"medium"/"high" = enabled at that depth
+// Binary providers (Ollama, ZAI) treat any non-"off" value as on
+export type ReasoningLevel = "off" | "low" | "medium" | "high";
+const ReasoningLevelSchema = z.enum(["off", "low", "medium", "high"]);
+
 const ProviderKeySchema = z.object({
   /** API key for this provider */
   apiKey: z.string().optional(),
@@ -52,8 +58,13 @@ const ConfigSchema = z.object({
   /** Default mode: WORK, EXPLORE, PLAN, DEBUG */
   defaultMode: z.string().default("WORK").describe("Default agent mode"),
 
-  /** Enable thinking mode (GLM-specific; no-op on other providers) */
-  thinking: z.boolean().default(true).describe("Enable thinking mode"),
+  /** Reasoning/thinking level for AI responses.
+   * "off" = disabled; "low"/"medium"/"high" = enabled at that depth.
+   * Binary providers (Ollama, ZAI) treat any non-"off" as enabled. */
+  reasoningLevel: ReasoningLevelSchema.default("medium"),
+
+  /** @deprecated use reasoningLevel instead — kept for migration */
+  thinking: z.boolean().default(true).describe("Enable thinking mode (legacy)"),
 
   /** Whether user has seen the welcome screen */
   hasSeenWelcome: z.boolean().default(false),

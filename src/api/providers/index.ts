@@ -28,3 +28,14 @@ export {
   testOllamaConnection,
   type OllamaConnectionTestResult,
 } from "./ollama";
+export {
+  discoverOllamaReasoning,
+  cycleReasoningLevel,
+  getLevelsForStyle,
+  PROVIDER_REASONING_STYLE,
+  EFFORT_LEVELS,
+  BINARY_LEVELS,
+  NO_LEVELS,
+  type ReasoningCapability,
+  type ReasoningStyle,
+} from "./capabilities";
