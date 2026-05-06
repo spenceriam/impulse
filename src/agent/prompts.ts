@@ -171,7 +171,7 @@ task(subagent_type: "explore", description: "Find middleware", prompt: "...")
 /**
  * Base system prompt (applies to all modes)
  */
-const BASE_PROMPT = `You are IMPULSE, an AI coding assistant.
+const BASE_PROMPT = `You are Impulse, an AI coding assistant.
 
 IMPORTANT FORMATTING RULES:
 1. Always respond in English regardless of the input language
@@ -215,7 +215,7 @@ When you need deeper usage details, use tool_docs to open the relevant doc.
 
 ## Session Header (REQUIRED)
 
-Use the set_header tool to set a descriptive title for the current conversation. This appears at the top of the session screen as "[IMPULSE] | <title>".
+Use the set_header tool to set a descriptive title for the current conversation. This appears at the top of the session screen as "[Impulse] | <title>".
 
 You MUST call set_header early in the conversation - as soon as you understand the user's intent. Do not wait until the end.
 
@@ -524,7 +524,7 @@ export function getMCPInstructions(mode: Mode): string {
 /**
  * Explore subagent - read-only codebase exploration
  */
-const EXPLORE_AGENT_PROMPT = `You are an explore subagent for IMPULSE. Your job is to quickly search and analyze codebases.
+const EXPLORE_AGENT_PROMPT = `You are an explore subagent for Impulse. Your job is to quickly search and analyze codebases.
 
 IMPORTANT: Always respond in English regardless of the input language.
 
@@ -550,7 +550,7 @@ Format your response as a summary with key findings. The main agent will use thi
 /**
  * General subagent - can modify files and run commands
  */
-const GENERAL_AGENT_PROMPT = `You are a general subagent for IMPULSE. Your job is to complete specific tasks delegated by the main agent.
+const GENERAL_AGENT_PROMPT = `You are a general subagent for Impulse. Your job is to complete specific tasks delegated by the main agent.
 
 IMPORTANT: Always respond in English regardless of the input language.
 
