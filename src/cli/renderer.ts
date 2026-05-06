@@ -189,7 +189,7 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
   private spinStop(): void {
-    this.spinStop();
+    this.loader.stop();
     this.loader.setText("");
     this.tui.requestRender();
   }
@@ -243,7 +243,7 @@ export class ImpulseRenderer {
       (s) => A.fg(90, s),
       ""
     );
-    this.spinStop(); // belt-and-suspenders: ensure stopped at launch
+    this.loader.stop(); // ensure clean at launch (no animation, no text)
     this.tui.addChild(this.loader);
 
     // 3. Separator ABOVE input
@@ -412,8 +412,7 @@ export class ImpulseRenderer {
         if (this.streamingRaw) { this.addChatLine(""); this.streamingRaw = ""; this.streamingText = null; }
         const argStr = this.fmtArgs(args);
         this.addChatLine(`  ${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}`);
-        this.loader.setMessage(`running ${name}…`);
-        this.spinStart("working…");
+        this.spinStart(`running ${name}…`);
         this.tui.requestRender();
       },
       onToolEnd: (_id, _name, result, durationMs) => {
@@ -444,8 +443,7 @@ export class ImpulseRenderer {
       onCompacting: () => {
         this.spinStop();
         this.addChatLine(`  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
-        this.loader.setMessage("compacting…");
-        this.spinStart("working…");
+        this.spinStart("compacting…");
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
