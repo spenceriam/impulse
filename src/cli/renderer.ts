@@ -24,7 +24,8 @@ import {
 } from "@mariozechner/pi-tui";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
-import { load as loadConfig, save as saveConfig, type Config } from "../util/config.js";
+import { load as loadConfig, save as saveConfig, type Config, type ReasoningLevel } from "../util/config.js";
+import { PROVIDER_REASONING_STYLE, getLevelsForStyle, cycleReasoningLevel, discoverOllamaReasoning, type ReasoningCapability } from "../api/providers/capabilities.js";
 import { SessionManager } from "../session/manager.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
@@ -229,15 +230,15 @@ export class ImpulseRenderer {
   private contextTokens = 0;
   private contextWindow = 200000;
   private advisorModel: string | undefined;
-  private thinkingEnabled = true;
-  get _thinkingState() { return this.thinkingEnabled; } // exposed for context bar
+  private reasoningLevel: ReasoningLevel = "medium";
+  private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
 
   async start(): Promise<void> {
     const config = await loadConfig();
     this.mode = normalizeMode(config.defaultMode) as Mode;
     this.advisorModel = config.advisorModel;
-    this.thinkingEnabled = config.thinking ?? true;
+    this.reasoningLevel = config.reasoningLevel ?? (config.thinking ? "medium" : "off");
 
     setCurrentMode(this.mode);
 
@@ -284,7 +285,7 @@ export class ImpulseRenderer {
       void this.onSubmit(actual);
     };
     this.promptInput.onTabForward  = () => this.cycleMode(1);
-    this.promptInput.onTabBackward = () => this.cycleMode(-1);
+    this.promptInput.onTabBackward = () => this.cycleReasoning();
     this.promptInput.onAbort = () => {
       if (this.isRunning) {
         this.loop.abort();
@@ -311,6 +312,7 @@ export class ImpulseRenderer {
       contextTokens: 0,
       contextWindow: this.contextWindow,
       mode: this.mode,
+      reasoningLevel: this.reasoningLevel,
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
     });
     this.tui.addChild(this.contextBar);
@@ -319,6 +321,8 @@ export class ImpulseRenderer {
     this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
     this.tui.start();
+    // Discover reasoning capabilities in background (non-blocking)
+    void this.discoverReasoningCapability();
   }
 
   // ── Mode cycling ─────────────────────────────────────────────────────────
@@ -338,6 +342,44 @@ export class ImpulseRenderer {
 
   private syncModeColor(): void {
     this.promptInput.setModeColor(MODE_COLORS[this.mode] ?? 34);
+  }
+
+  /** Cycle reasoning level using provider capability (Shift+Tab) */
+  private async cycleReasoning(): Promise<void> {
+    if (this.isRunning) return;
+    const next = cycleReasoningLevel(this.reasoningLevel, this.reasoningCapability);
+    this.reasoningLevel = next;
+    const config = await loadConfig();
+    config.reasoningLevel = next;
+    config.thinking = next !== "off";
+    await saveConfig(config);
+    this.contextBar.update({ reasoningLevel: next });
+    this.addChatLine(`  ${clr.dim(`reasoning: ${next}`)}`);
+    this.tui.requestRender();
+  }
+
+  /** Discover reasoning capabilities for the current model (called after startup) */
+  private async discoverReasoningCapability(): Promise<void> {
+    try {
+      const config = await loadConfig();
+      const providerName = config.defaultProvider;
+      const style = PROVIDER_REASONING_STYLE[providerName] ?? "none";
+      // For Ollama, query /api/show to check if this specific model supports thinking
+      if (providerName === "ollama") {
+        const modelName = (config.defaultModel ?? "").replace(/^ollama\//, "");
+        const baseUrl = config.providers?.ollama?.baseUrl ?? "https://ollama.com";
+        const apiKey  = config.providers?.ollama?.apiKey;
+        this.reasoningCapability = await discoverOllamaReasoning(baseUrl, modelName, apiKey);
+      } else {
+        this.reasoningCapability = {
+          supported: style !== "none",
+          style,
+          levels: getLevelsForStyle(style),
+        };
+      }
+    } catch {
+      // Keep default binary capability if discovery fails
+    }
   }
 
 
@@ -526,7 +568,7 @@ export class ImpulseRenderer {
   private readonly SLASH_CMDS = [
     { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
     { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
-    { cmd: "/think",    hint: "on | off  toggle reasoning/thinking" },
+    { cmd: "/reason",   hint: "off | low | medium | high  set reasoning level" },
     { cmd: "/new",      hint: "[name]  start new session" },
     { cmd: "/help",     hint: "show commands" },
     { cmd: "/clear",    hint: "clear screen" },
@@ -620,7 +662,7 @@ export class ImpulseRenderer {
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
       case "mode":    this.cmdMode(arg);           break;
-      case "think":   await this.cmdThink(arg);    break;
+      case "reason":  await this.cmdReason(arg);   break;
       case "new":
         await SessionManager.createNew(arg || undefined);
         this.addChatLine(`  ${clr.success("✓")} New session started`);
@@ -710,19 +752,20 @@ export class ImpulseRenderer {
     }
   }
 
-  private async cmdThink(arg: string): Promise<void> {
-    const config = await loadConfig();
-    if (arg === "off") {
-      this.thinkingEnabled = false;
-      config.thinking = false;
-      await saveConfig(config);
-      this.addChatLine(`  ${clr.dim("thinking: OFF")}`);
-    } else {
-      this.thinkingEnabled = true;
-      config.thinking = true;
-      await saveConfig(config);
-      this.addChatLine(`  ${clr.dim("thinking: ON — model will show reasoning")}`);
+  private async cmdReason(arg: string): Promise<void> {
+    const valid: ReasoningLevel[] = ["off", "low", "medium", "high"];
+    const level = arg.toLowerCase() as ReasoningLevel;
+    if (!valid.includes(level)) {
+      this.addChatLine(`  ${clr.error("✗")} Valid levels: off · low · medium · high`);
+      return;
     }
+    this.reasoningLevel = level;
+    const config = await loadConfig();
+    config.reasoningLevel = level;
+    config.thinking = level !== "off";
+    await saveConfig(config);
+    this.contextBar.update({ reasoningLevel: level });
+    this.addChatLine(`  ${clr.dim(`reasoning: ${level}`)}`);
     this.tui.requestRender();
   }
 
@@ -735,7 +778,7 @@ export class ImpulseRenderer {
       `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
       `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
       `  ${clr.tool("/mode <MODE>")}     ${clr.dim("WORK · EXPLORE · PLAN · DEBUG")}`,
-      `  ${clr.tool("/think on|off")}   ${clr.dim("Toggle reasoning/thinking")}`,
+      `  ${clr.tool("/reason <level>")} ${clr.dim("off · low · medium · high")}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
       `  ${clr.tool("/help")}            ${clr.dim("This message")}`,
       `  ${clr.tool("/exit")}            ${clr.dim("Quit")}`,
@@ -743,7 +786,7 @@ export class ImpulseRenderer {
       `  ${clr.bold("Keyboard")}`,
       clr.dim("  ─────────────────────────────────────────"),
       `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode forward")}`,
-      `  ${clr.dim("Shift+Tab")}        ${clr.dim("Cycle mode backward")}`,
+      `  ${clr.dim("Shift+Tab")}        ${clr.dim("Cycle reasoning level (off → low → medium → high)")}`,
       `  ${clr.dim("Ctrl+C")}           ${clr.dim("Abort current turn")}`,
       `  ${clr.dim("Ctrl+D")}           ${clr.dim("Exit")}`,
       "",

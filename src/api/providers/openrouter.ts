@@ -153,8 +153,12 @@ export class OpenRouterProvider implements AIProvider {
         req.tools = options.tools as OpenAI.ChatCompletionTool[];
       if (options.tool_choice !== undefined)
         req.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
-      // OpenRouter supports reasoning for capable models
-      if (options.thinking) {
+      // OpenRouter supports reasoning effort levels
+      if (options.reasoningLevel && options.reasoningLevel !== "off") {
+        const effort = options.reasoningLevel === "low" ? "low"
+          : options.reasoningLevel === "high" ? "high" : "medium";
+        (req as unknown as Record<string, unknown>)["reasoning"] = { effort };
+      } else if (options.thinking) {
         (req as unknown as Record<string, unknown>)["reasoning"] = { effort: "high" };
       }
       return client.chat.completions.create(req);

@@ -208,6 +208,8 @@ export class AgentLoop {
           stream: true,
           signal,
           ...(config.thinking ? { thinking: { type: "enabled" as const, clear_thinking: false } } : {}),
+          // New unified reasoning level — providers map this to their own params
+          reasoningLevel: config.reasoningLevel ?? (config.thinking ? "medium" : "off"),
         };
 
         const partialToolCalls = new Map<number, PartialToolCall>();
