@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { getProviderManager } from "../api/manager";
-import type { CompletionOptions } from "../api/providers";
+import type { CompletionOptions } from "../api/provider";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
 import { getCurrentMode } from "./mode-state";

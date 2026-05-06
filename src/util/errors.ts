@@ -1,5 +1,5 @@
 import { GLMAuthError, GLMRateLimitError } from "../api/client";
-import { ProviderError } from "../api/providers";
+import { ProviderError } from "../api/provider";
 
 export class AppError extends Error {
   constructor(

@@ -279,7 +279,7 @@ async function executeWithPty(
       case "data":
         lastOutput = typeof event.output === "string" 
           ? event.output 
-          : event.output.map(line => line.map(t => t.text).join("")).join("\n");
+          : event.output.map((line: Array<{ text: string }>) => line.map((t: { text: string }) => t.text).join("")).join("\n");
         // Emit output update via Bus
         Bus.emit(PtyEvents.Output, { toolCallId, output: lastOutput });
         break;

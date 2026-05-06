@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 /**
- * Impulse CLI — minimal provider test runner
+ * Impulse CLI — provider smoke-test runner
  *
  * Usage:
- *   npx tsx src/cli.ts                                # interactive mode (default: claude-haiku-4.5 via OpenRouter)
- *   npx tsx src/cli.ts "Say hi"                       # single prompt
- *   npx tsx src/cli.ts -m "anthropic/claude-3.5-haiku" "Say hi"
- *   npx tsx src/cli.ts --setup                        # interactive API key setup
+ *   bun run src/cli.ts                          # interactive (uses config default provider)
+ *   bun run src/cli.ts "Say hi"                 # single prompt
+ *   bun run src/cli.ts -m "openrouter/claude-haiku-4.5" "Say hi"
+ *   bun run src/cli.ts --setup                  # interactive API key setup
  */
 
-import { OpenRouterProvider } from "./api/providers/openrouter";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import { getProviderManager, resetProviderManager } from "./api/manager";
+import { load as loadConfig, save as saveConfig } from "./util/config";
+import type { Config } from "./util/config";
 
 // ---------------------------------------------------------------------------
 // Portable .env loader
@@ -40,32 +42,32 @@ function loadDotenv(filePath: string) {
 }
 
 function homeDir(): string {
-  return process.env.HOME || process.env.USERPROFILE || "";
+  return process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
 }
 
 function homeEnvPath(): string {
   return path.join(homeDir(), ".impulse", ".env");
 }
 
-function loadConfig() {
+function loadEnv() {
   const pEnv = projectRootEnv();
-  if (pEnv) {
-    loadDotenv(pEnv);
-    return;
-  }
+  if (pEnv) { loadDotenv(pEnv); return; }
   const hEnv = homeEnvPath();
-  if (fs.existsSync(hEnv)) {
-    loadDotenv(hEnv);
-  }
+  if (fs.existsSync(hEnv)) loadDotenv(hEnv);
 }
 
-loadConfig();
+loadEnv();
 
 // ---------------------------------------------------------------------------
-// Key check
+// Key check (any known provider key present)
 // ---------------------------------------------------------------------------
-function hasKey(): boolean {
-  return !!(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length > 10);
+function hasAnyKey(): boolean {
+  const keys = [
+    "GLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    "OPENROUTER_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY",
+    "OLLAMA_API_KEY",
+  ];
+  return keys.some((k) => (process.env[k] ?? "").length > 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,53 +80,102 @@ async function runSetup(): Promise<void> {
     new Promise((res) => iface.question(q, (a) => res(a.trim())));
 
   console.log("\n=== IMPULSE Setup ===\n");
-  console.log("Impulse uses OpenRouter for AI model inference.");
-  console.log("Get a free key at: https://openrouter.ai/keys\n");
+  console.log("Choose a provider to configure:\n");
+  console.log("  1. Ollama Cloud  (https://ollama.com)");
+  console.log("  2. OpenRouter    (https://openrouter.ai)");
+  console.log("  3. Z.ai          (https://api.z.ai)\n");
 
-  const key = await ask("Enter your OpenRouter API key (sk-or-v1-...): ");
+  const choice = await ask("Provider [1/2/3]: ");
 
-  if (!key || key.toLowerCase().startsWith("sk-or-v1-") === false) {
-    console.log("\nThat doesn't look like a valid OpenRouter key. Aborting.");
+  let providerKey: string;
+  let envVar: string;
+  let label: string;
+  let keyHint: string;
+  let baseUrlPrompt: string | null = null;
+
+  switch (choice) {
+    case "2":
+      providerKey = "openrouter";
+      envVar = "OPENROUTER_API_KEY";
+      label = "OpenRouter";
+      keyHint = "sk-or-v1-...";
+      break;
+    case "3":
+      providerKey = "z.ai";
+      envVar = "GLM_API_KEY";
+      label = "Z.ai";
+      keyHint = "your Z.ai API key";
+      break;
+    default:
+      providerKey = "ollama";
+      envVar = "OLLAMA_API_KEY";
+      label = "Ollama Cloud";
+      keyHint = "your Ollama API key";
+      baseUrlPrompt = "Ollama endpoint URL";
+      break;
+  }
+
+  let baseUrl: string | undefined;
+  if (baseUrlPrompt !== null) {
+    baseUrl = await ask(`${baseUrlPrompt} [https://ollama.com]: `);
+    if (!baseUrl) baseUrl = "https://ollama.com";
+  }
+
+  const key = await ask(`Enter your ${label} API key (${keyHint}): `);
+  if (!key) {
+    console.log("\nNo key entered. Aborting.");
     iface.close();
     process.exit(1);
   }
 
   // Ensure ~/.impulse/ directory exists
   const dir = path.join(homeDir(), ".impulse");
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-  // Write key to ~/.impulse/.env
-  const envPath = homeEnvPath();
-  const envContent = `# Impulse CLI — OpenRouter API Key\nOPENROUTER_API_KEY=${key}\n`;
-  fs.writeFileSync(envPath, envContent, { mode: 0o600 });
+  // Persist to config file
+  const cfg: Config = await loadConfig().catch((): Config => ({
+    providers: {},
+    defaultProvider: providerKey,
+    defaultModel: providerKey === "ollama" ? "ollama/llama3.2" : `${providerKey}/default`,
+    defaultMode: "WORK",
+    thinking: true,
+    hasSeenWelcome: false,
+  }));
 
-  // Also write project-local .env if repo has one
-  const projectEnv = projectRootEnv();
-  if (projectEnv) {
-    fs.writeFileSync(projectEnv, `OPENROUTER_API_KEY=${key}\n`, { mode: 0o600 });
-  }
+  cfg.providers[providerKey as keyof Config["providers"]] = {
+    apiKey: key,
+    ...(baseUrl ? { baseUrl } : {}),
+  };
+  cfg.defaultProvider = providerKey;
+  process.env[envVar] = key;
 
-  process.env.OPENROUTER_API_KEY = key;
-  console.log("\n✅ Key saved to ~/.impulse/.env");
-  if (projectEnv) console.log(`✅ Key also saved to ${projectEnv}`);
-  console.log("\nYou're all set. Run `npx tsx src/cli.ts` to start.\n");
+  await saveConfig(cfg);
+  resetProviderManager();
+
+  // Also write ~/.impulse/.env
+  const envLines = [`${envVar}=${key}`, ...(baseUrl ? [`OLLAMA_BASE_URL=${baseUrl}`] : [])];
+  fs.writeFileSync(homeEnvPath(), envLines.join("\n") + "\n", { mode: 0o600 });
+
+  console.log(`\n✅ ${label} key saved.`);
+  if (baseUrl) console.log(`✅ Endpoint: ${baseUrl}`);
+  console.log("Run `bun run src/cli.ts` to start.\n");
 
   iface.close();
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Streaming helper
 // ---------------------------------------------------------------------------
-
-async function askProvider(provider: OpenRouterProvider, model: string, prompt: string): Promise<void> {
-  const stream = provider.stream(
-    { messages: [{ role: "user", content: prompt }], model: model },
-    {},
-  );
+async function chat(model: string, prompt: string): Promise<void> {
+  const manager = await getProviderManager();
+  const stream = manager.stream({
+    model,
+    messages: [{ role: "user", content: prompt }],
+    stream: true,
+  });
   for await (const chunk of stream) {
-    if (chunk.content) process.stdout.write(chunk.content);
+    const delta = chunk.choices[0]?.delta;
+    if (delta?.content) process.stdout.write(delta.content);
   }
   if (!process.stdout.isTTY) process.stdout.write("\n");
 }
@@ -135,38 +186,31 @@ async function askProvider(provider: OpenRouterProvider, model: string, prompt: 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
-  // --setup flag: run onboarding
-  if (args.includes("--setup")) {
+  if (args.includes("--setup")) { await runSetup(); return; }
+
+  if (!hasAnyKey()) {
+    console.log("\nNo provider API key found.");
     await runSetup();
     return;
   }
 
-  // No key found — run setup automatically on first run
-  if (!hasKey()) {
-    console.log("\nNo OpenRouter API key found.");
-    await runSetup();
-    return;
-  }
-
-  let model = "anthropic/claude-haiku-4.5";
+  const config = await loadConfig();
+  let model = config.defaultModel ?? "ollama/llama3.2";
   let prompt = "";
 
   if (args.length > 0) {
     const mi = args.indexOf("-m");
-    if (mi >= 0 && args[mi + 1]) {
-      model = args[mi + 1];
+    if (mi >= 0 && args[mi + 1] !== undefined) {
+      model = args[mi + 1]!;
       prompt = args.slice(mi + 2).join(" ");
     } else {
       prompt = args.join(" ");
     }
   }
 
-  const provider = new OpenRouterProvider();
-
-  // Interactive mode if no prompt given
   if (!prompt) {
-    console.log("\n=== IMPULSE (OpenRouter) ===");
-    console.log(`model: ${model}`);
+    console.log(`\n=== IMPULSE CLI ===`);
+    console.log(`provider: ${config.defaultProvider}  model: ${model}`);
     console.log("Type a prompt, or 'quit' to exit.\n");
 
     const rl = await import("readline");
@@ -175,13 +219,11 @@ async function main(): Promise<void> {
     const go = () => {
       iface.question("> ", (a) => {
         if (a.toLowerCase() === "quit" || a.toLowerCase() === "exit") {
-          iface.close();
-          process.exit(0);
-          return;
+          iface.close(); process.exit(0); return;
         }
-        askProvider(provider, model, a)
+        chat(model, a)
           .then(() => console.log("\n"))
-          .catch((e) => console.error("\nError:", e))
+          .catch((e: unknown) => console.error("\nError:", e))
           .then(go);
       });
     };
@@ -191,11 +233,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Single prompt
-  await askProvider(provider, model, prompt);
+  await chat(model, prompt);
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error("Fatal:", err);
   process.exit(1);
 });
