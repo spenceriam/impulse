@@ -203,14 +203,16 @@ export class ImpulseRenderer {
       },
       onAdvisorStart: (model) => {
         const short = model.split("/").pop() ?? model;
-        process.stdout.write(`\n\n${clr.advisor(ansi.bold + `┌─ Advisor [${short}] ─────────────────` + ansi.reset)}\n`);
-        process.stdout.write(clr.advisor("│ "));
+        process.stdout.write(`\n  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
       },
-      onAdvisorToken: (text) => {
-        process.stdout.write(clr.advisor(text.replace(/\n/g, `\n${clr.advisor("│ ")}`)));
+      onAdvisorToken: (_text) => {
+        // Buffer silently — one-liner summary shown on end
       },
-      onAdvisorEnd: () => {
-        process.stdout.write(`\n${clr.advisor(ansi.bold + "└────────────────────────────────────────" + ansi.reset)}\n\n`);
+      onAdvisorEnd: (summary) => {
+        const raw = summary.trim();
+        const oneliner = raw.split(/[.!?\n]/)[0]?.trim() ?? raw;
+        const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + '…' : oneliner;
+        process.stdout.write(`\r\x1b[2K  ${clr.dim(`[advisor: ${truncated}]`)}\n`);
       },
       onToolStart: (_id, name, args) => {
         const argStr = this.fmtArgs(args);
