@@ -1,78 +1,182 @@
 /**
- * CLI Renderer — wires Impulse components with plain terminal I/O.
+ * ImpulseRenderer — full TUI using @mariozechner/pi-tui
  *
- * Uses process.stdout.write for all output (append-only, no full-screen clears).
- * pi-tui is used for the ContextBarComponent's render() helpers only.
- * The main output pipeline is deliberately simple: just write tokens as they
- * arrive, update tool lines in-place, print the context bar after each turn.
+ * Layout (top → bottom, viewport shows bottom when content overflows):
+ *   chatContainer     — conversation history (grows upward as turns add content)
+ *   loaderLine        — Braille spinner while agent works (Loader component)
+ *   ── separator ──   — always visible divider
+ *   contextBar        — model │ tokens │ dir ⎇ branch │ mode │ stats
+ *   promptInput       — [MODE] › _   (Input component, Tab cycles modes)
+ *
+ * Sticky bar: pi-tui renders all children top→bottom and shows the last N
+ * lines when content exceeds terminal height, so the bar is always visible.
  */
 
-import { ProcessTerminal } from "@mariozechner/pi-tui";
+import {
+  TUI,
+  ProcessTerminal,
+  Container,
+  Text,
+  Spacer,
+  Loader,
+  Input,
+  type Component,
+  type Focusable,
+} from "@mariozechner/pi-tui";
 import { ContextBarComponent } from "./components/context-bar.js";
-import { StreamingBlock } from "./components/streaming-block.js";
-import { ToolBlock } from "./components/tool-block.js";
-import { Spinner } from "./spinner.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config } from "../util/config.js";
 import { SessionManager } from "../session/manager.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
-import * as readline from "readline";
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
-const ansi = {
+const A = {
   reset:  "\x1b[0m",
   bold:   "\x1b[1m",
   dim:    "\x1b[2m",
   fg:     (code: number, s: string) => `\x1b[${code}m${s}\x1b[0m`,
 };
 const clr = {
-  user:    (s: string) => ansi.fg(36, s),
-  success: (s: string) => ansi.fg(32, s),
-  error:   (s: string) => ansi.fg(31, s),
-  warn:    (s: string) => ansi.fg(33, s),
-  dim:     (s: string) => ansi.fg(90, s),
-  bold:    (s: string) => `${ansi.bold}${s}${ansi.reset}`,
-  advisor: (s: string) => ansi.fg(35, s),
-  tool:    (s: string) => ansi.fg(36, s),
+  user:    (s: string) => A.fg(36, s),
+  success: (s: string) => A.fg(32, s),
+  error:   (s: string) => A.fg(31, s),
+  warn:    (s: string) => A.fg(33, s),
+  dim:     (s: string) => A.fg(90, s),
+  bold:    (s: string) => `${A.bold}${s}${A.reset}`,
+  tool:    (s: string) => A.fg(36, s),
+  advisor: (s: string) => A.fg(35, s),
+  mode:    (s: string) => A.fg(34, s),
+  sep:     (s: string) => A.fg(90, s),
 };
 
-// ── Renderer ──────────────────────────────────────────────────────────────────
+// ── PromptInput: wraps pi-tui Input, intercepts special keys ─────────────────
+
+class PromptInput implements Component, Focusable {
+  focused = false;
+
+  private inner = new Input();
+  private prefix = "";
+  private _prefixWidth = 0;
+
+  onTabForward?: () => void;
+  onTabBackward?: () => void;
+  onAbort?: () => void;
+  onExit?: () => void;
+
+  get onSubmit() { return this.inner.onSubmit; }
+  set onSubmit(fn: ((v: string) => void) | undefined) {
+    if (fn !== undefined) this.inner.onSubmit = fn;
+    else this.inner.onSubmit = undefined as unknown as (value: string) => void;
+  }
+
+  setPrefix(text: string, width: number): void {
+    this.prefix = text;
+    this._prefixWidth = width;
+  }
+
+  clear(): void { this.inner.setValue(""); }
+
+  handleInput(data: string): void {
+    // Special key intercepts — consume without forwarding
+    if (data === "\t")      { this.onTabForward?.();  return; }
+    if (data === "\x1b[Z")  { this.onTabBackward?.(); return; } // Shift+Tab
+    if (data === "\x03")    { this.onAbort?.();        return; } // Ctrl+C
+    if (data === "\x04")    { this.onExit?.();         return; } // Ctrl+D
+    this.inner.handleInput(data);
+  }
+
+  invalidate(): void { this.inner.invalidate(); }
+
+  render(width: number): string[] {
+    // Inner renders within the remaining width after prefix
+    const innerLines = this.inner.render(Math.max(1, width - this._prefixWidth));
+    // Prepend prefix to first line — CURSOR_MARKER is inside innerLines[0] already
+    // so cursor will be positioned at prefix + cursor_offset, which is correct
+    return [this.prefix + (innerLines[0] ?? ""), ...innerLines.slice(1)];
+  }
+}
+
+// ── SeparatorLine: a fixed dim horizontal rule ────────────────────────────────
+
+class SeparatorLine implements Component {
+  invalidate() {}
+  render(width: number): string[] {
+    return [A.dim + "─".repeat(width) + A.reset];
+  }
+}
+
+// ── ImpulseRenderer ───────────────────────────────────────────────────────────
 
 export class ImpulseRenderer {
+  // pi-tui objects
   private terminal = new ProcessTerminal();
-  private loop = new AgentLoop();
-  private spinner = new Spinner();
-  private contextBar!: ContextBarComponent;
-  private currentStreamBlock: StreamingBlock | null = null;
-  private activeToolBlocks: Map<string, ToolBlock> = new Map();
+  private tui!: TUI;
 
+  // Layout components
+  private chat!: Container;
+  private loader!: Loader;
+  private contextBar!: ContextBarComponent;
+  private promptInput!: PromptInput;
+
+  // Streaming state: current assistant text block (updated in-place)
+  private streamingText: Text | null = null;
+  private streamingRaw = "";
+  private thinkingText: Text | null = null;
+  private thinkingRaw = "";
+  private thinkingOpen = false;
+
+  // Agent + state
+  private loop = new AgentLoop();
   private mode: Mode = "WORK";
   private contextTokens = 0;
   private contextWindow = 200000;
   private advisorModel: string | undefined;
   private isRunning = false;
 
-  private makePrompt(): string {
-    const pct = this.contextWindow > 0
-      ? Math.round((this.contextTokens / this.contextWindow) * 100) : 0;
-    return `  ${clr.dim(`[${this.mode}]`)} ${clr.dim(`${pct}%`)} ${clr.user("›")} `;
-  }
-
   async start(): Promise<void> {
     const config = await loadConfig();
     this.mode = normalizeMode(config.defaultMode) as Mode;
     this.advisorModel = config.advisorModel;
-    this.contextWindow = 200000;
 
     setCurrentMode(this.mode);
 
-    // Ensure there's an active session
     if (!SessionManager.getCurrentSession()) {
       await SessionManager.createNew();
     }
 
+    // ── Build TUI layout ──────────────────────────────────────────────────
+    this.tui = new TUI(this.terminal);
+
+    // 1. Chat history — grows as turns are added
+    this.chat = new Container();
+    this.tui.addChild(this.chat);
+
+    // Welcome message
+    this.chat.addChild(new Spacer(1));
+    this.chat.addChild(new Text(
+      `  ${clr.bold("IMPULSE")}  ${clr.dim("cli coding agent")}\n` +
+      `  ${clr.dim(`model: ${config.defaultModel}`)}\n` +
+      `  ${clr.dim("Tab/Shift-Tab: cycle mode  ·  /help: commands  ·  Ctrl+C: abort  ·  Ctrl+D: exit")}`,
+      0, 0
+    ));
+    this.chat.addChild(new Spacer(1));
+
+    // 2. Loader (spinner) — hidden until agent runs
+    this.loader = new Loader(
+      this.tui,
+      (s) => A.fg(90, s),
+      (s) => A.fg(90, s),
+      "thinking…",
+      { frames: ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"], intervalMs: 80 }
+    );
+    this.tui.addChild(this.loader);
+
+    // 3. Separator
+    this.tui.addChild(new SeparatorLine());
+
+    // 4. Context bar
     this.contextBar = new ContextBarComponent({
       workerModel: config.defaultModel,
       contextTokens: 0,
@@ -80,258 +184,279 @@ export class ImpulseRenderer {
       mode: this.mode,
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
     });
+    this.tui.addChild(this.contextBar);
 
-    this.printWelcome(config.defaultModel);
-    await this.inputLoop();
-  }
-
-  // ── Welcome banner ──────────────────────────────────────────────────────────
-
-  private printWelcome(model: string): void {
-    const w = this.terminal.columns || 80;
-    const bar = ansi.dim + "─".repeat(w) + ansi.reset;
-    process.stdout.write(`\n${clr.bold("  IMPULSE")}  ${clr.dim("cli coding agent")}\n`);
-    process.stdout.write(`  ${clr.dim(`model: ${model}  |  mode: ${this.mode}`)}\n`);
-    process.stdout.write(`  ${clr.dim("/help for commands  ·  Ctrl+C abort  ·  Ctrl+D exit")}\n`);
-    process.stdout.write(`${bar}\n\n`);
-  }
-
-  // ── Input loop ──────────────────────────────────────────────────────────────
-
-  private async inputLoop(): Promise<void> {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: true,
-      historySize: 100,
-    });
-
-    rl.on("close", () => { this.loop.abort(); process.exit(0); });
-
-    // ── Ctrl+C: abort running turn, don't exit ────────────────────────────
-    process.on("SIGINT", () => {
+    // 5. Prompt input
+    this.promptInput = new PromptInput();
+    this.promptInput.onSubmit = (value) => void this.onSubmit(value);
+    this.promptInput.onTabForward  = () => this.cycleMode(1);
+    this.promptInput.onTabBackward = () => this.cycleMode(-1);
+    this.promptInput.onAbort = () => {
       if (this.isRunning) {
         this.loop.abort();
-        process.stdout.write(`\n  ${clr.warn("⊘")}  aborted\n\n`);
+        this.loader.stop();
+        this.loader.setMessage("aborted");
+        this.addChatLine(`\n  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
         this.isRunning = false;
-      } else {
-        process.stdout.write("\n");
-        process.exit(0);
+        this.enableInput();
       }
-    });
+    };
+    this.promptInput.onExit = () => { this.tui.stop(); process.exit(0); };
+    this.updatePromptPrefix();
+    this.tui.addChild(this.promptInput);
 
-    // ── Tab / Shift-Tab: cycle modes without /mode command ────────────────
-    const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
-    readline.emitKeypressEvents(process.stdin);
-    if (process.stdin.isTTY) process.stdin.setRawMode(true);
-
-    process.stdin.on("keypress", (_ch, key) => {
-      if (!key) return;
-      // Only act when not mid-turn and readline is at the prompt
-      if (this.isRunning) return;
-
-      if (key.name === "tab" && !key.shift) {
-        // Tab → cycle forward
-        const idx = modes.indexOf(this.mode);
-        this.mode = modes[(idx + 1) % modes.length]!;
-        setCurrentMode(this.mode);
-        this.contextBar.update({ mode: this.mode });
-        // Redraw prompt
-        rl.setPrompt(this.makePrompt());
-        process.stdout.write(`\r\x1b[2K  ${clr.dim(`→ mode: ${this.mode}`)}\n`);
-        rl.prompt(true);
-      } else if (key.name === "tab" && key.shift) {
-        // Shift+Tab → cycle backward
-        const idx = modes.indexOf(this.mode);
-        this.mode = modes[(idx - 1 + modes.length) % modes.length]!;
-        setCurrentMode(this.mode);
-        this.contextBar.update({ mode: this.mode });
-        rl.setPrompt(this.makePrompt());
-        process.stdout.write(`\r\x1b[2K  ${clr.dim(`→ mode: ${this.mode}`)}\n`);
-        rl.prompt(true);
-      }
-    });
-
-    const makePrompt = () => this.makePrompt();
-
-    rl.setPrompt(makePrompt());
-    rl.prompt();
-
-    for await (const line of rl) {
-      const input = line.trim();
-      if (!input) { rl.setPrompt(makePrompt()); rl.prompt(); continue; }
-
-      if (input.startsWith("/")) {
-        await this.handleSlash(input);
-      } else {
-        rl.pause();
-        await this.runTurn(input);
-        rl.resume();
-      }
-
-      rl.setPrompt(makePrompt());
-      rl.prompt();
-    }
+    // ── Start TUI (takes over terminal raw mode) ──────────────────────────
+    this.tui.setFocus(this.promptInput);
+    this.tui.start();
   }
 
-  // ── Agent turn ──────────────────────────────────────────────────────────────
+  // ── Mode cycling ─────────────────────────────────────────────────────────
+
+  private cycleMode(dir: 1 | -1): void {
+    if (this.isRunning) return;
+    const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
+    const prev = this.mode;
+    const idx = modes.indexOf(this.mode);
+    this.mode = modes[((idx + dir) + modes.length) % modes.length]!;
+    setCurrentMode(this.mode);
+    this.contextBar.update({ mode: this.mode });
+    this.updatePromptPrefix();
+    this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(this.mode)}`)}`);
+    this.tui.requestRender();
+  }
+
+  private updatePromptPrefix(): void {
+    const prefix = `  ${clr.mode(`[${this.mode}]`)} ${clr.user("›")} `;
+    const prefixW = 6 + this.mode.length; // visible width: "  [MODE] › "
+    this.promptInput.setPrefix(prefix, prefixW);
+    this.tui.requestRender?.();
+  }
+
+  // ── Input submission ──────────────────────────────────────────────────────
+
+  private async onSubmit(value: string): Promise<void> {
+    const input = value.trim();
+    this.promptInput.clear();
+    if (!input) return;
+
+    if (input.startsWith("/")) {
+      await this.handleSlash(input);
+      this.tui.requestRender();
+      return;
+    }
+
+    await this.runTurn(input);
+  }
+
+  // ── Agent turn ────────────────────────────────────────────────────────────
 
   private async runTurn(userMessage: string): Promise<void> {
     this.isRunning = true;
-    this.currentStreamBlock = new StreamingBlock();
-    this.activeToolBlocks.clear();
+    this.disableInput();
 
-    // ── User message block ────────────────────────────────────────────────────
-    const w = this.terminal.columns || 80;
-    process.stdout.write(`\n  ${clr.user("╭─ You " + "─".repeat(Math.max(0, w - 10)) )}\n`);
-    process.stdout.write(`  ${clr.user("│")}  ${userMessage}\n`);
-    process.stdout.write(`  ${clr.user("╰" + "─".repeat(Math.max(0, w - 4)))}\n\n`);
+    // User message block
+    this.addChatLine("");
+    this.addChatLine(`  ${clr.user("╭─ You " + "─".repeat(40))}`);
+    this.addChatLine(`  ${clr.user("│")}  ${userMessage}`);
+    this.addChatLine(`  ${clr.user("╰" + "─".repeat(46))}`);
+    this.addChatLine("");
 
-    let thinkingStarted = false;
-    let hasWrittenText = false;
+    this.streamingRaw = "";
+    this.streamingText = null;
+    this.thinkingRaw = "";
+    this.thinkingText = null;
+    this.thinkingOpen = false;
+
+    const PHRASES = [
+      "composing logic…", "traversing the AST…", "reasoning about types…",
+      "consulting the docs…", "diffing reality…", "compiling intentions…",
+      "thinking in packets…", "allocating neurons…", "parsing intent…",
+      "connecting nodes…", "optimising thoughts…", "resolving dependencies…",
+    ];
+    let phraseIdx = 0;
 
     const events: LoopEvents = {
       onTurnStart: () => {
-        this.spinner.start("connecting…");
+        this.loader.setMessage(PHRASES[0]!);
+        this.loader.start();
+        this.tui.requestRender();
       },
       onToken: (text) => {
-        if (this.spinner.isActive) this.spinner.clear();
-        if (thinkingStarted) {
-          process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n\n`);
-          thinkingStarted = false;
+        this.loader.stop();
+        this.closeThinking();
+        if (!this.streamingText) {
+          this.streamingText = new Text("", 0, 0);
+          this.chat.addChild(this.streamingText);
         }
-        if (!hasWrittenText) {
-          process.stdout.write("  "); // indent first line
-          hasWrittenText = true;
-        }
-        process.stdout.write(text.replace(/\n/g, "\n  "));
+        this.streamingRaw += text;
+        this.streamingText.setText("  " + this.streamingRaw.replace(/\n/g, "\n  "));
+        this.tui.requestRender();
       },
       onThinking: (text) => {
-        if (this.spinner.isActive) this.spinner.clear();
-        if (!thinkingStarted) {
-          process.stdout.write(`${clr.dim("┌─ Thinking ─────────────────────────────")}\n`);
-          process.stdout.write(clr.dim("│ "));
-          thinkingStarted = true;
+        this.loader.stop();
+        if (!this.thinkingText) {
+          const header = new Text(clr.dim("┌─ Thinking ──────────────────────────────────────────"), 0, 0);
+          this.chat.addChild(header);
+          this.thinkingText = new Text("", 0, 0);
+          this.chat.addChild(this.thinkingText);
+          this.thinkingOpen = true;
         }
-        process.stdout.write(ansi.dim + text.replace(/\n/g, `\n${ansi.reset}${clr.dim("│ ")}`) + ansi.reset);
+        this.thinkingRaw += text;
+        this.thinkingText.setText(
+          this.thinkingRaw
+            .split("\n")
+            .map((l) => A.dim + "│ " + l + A.reset)
+            .join("\n")
+        );
+        // Cycle phrase
+        phraseIdx = (phraseIdx + 1) % PHRASES.length;
+        this.loader.setMessage(PHRASES[phraseIdx]!);
+        this.tui.requestRender();
       },
       onAdvisorStart: (model) => {
-        if (this.spinner.isActive) this.spinner.clear();
+        this.loader.stop();
         const short = model.split("/").pop() ?? model;
-        process.stdout.write(`\n  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
+        this.addChatLine(`  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
+        this.tui.requestRender();
       },
-      onAdvisorToken: (_text) => { /* buffered silently */ },
+      onAdvisorToken: (_text) => { /* buffered */ },
       onAdvisorEnd: (summary) => {
         const raw = summary.trim();
         const oneliner = raw.split(/[.!?\n]/)[0]?.trim() ?? raw;
         const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + "…" : oneliner;
-        process.stdout.write(`\r\x1b[2K  ${clr.dim(`[advisor: ${truncated}]`)}\n`);
+        // Replace last chat line with summary
+        this.addChatLine(`  ${clr.dim(`[advisor: ${truncated}]`)}`);
+        this.tui.requestRender();
       },
       onToolStart: (_id, name, args) => {
-        if (this.spinner.isActive) this.spinner.clear();
-        if (thinkingStarted) {
-          process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n`);
-          thinkingStarted = false;
-        }
-        if (hasWrittenText) { process.stdout.write("\n"); hasWrittenText = false; }
+        this.loader.stop();
+        this.closeThinking();
+        if (this.streamingRaw) { this.addChatLine(""); this.streamingRaw = ""; this.streamingText = null; }
         const argStr = this.fmtArgs(args);
-        process.stdout.write(`\n  ${ansi.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\n`);
-        this.spinner.start(`running ${name}…`);
+        this.addChatLine(`  ${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}`);
+        this.loader.setMessage(`running ${name}…`);
+        this.loader.start();
+        this.tui.requestRender();
       },
       onToolEnd: (_id, _name, result, durationMs) => {
-        this.spinner.clear();
+        this.loader.stop();
         const icon = result.success ? clr.success("✓") : clr.error("✗");
         const dur = clr.dim(`${durationMs}ms`);
         const lines = result.output.trim().split("\n");
-        const preview = lines[0]?.slice(0, 65) ?? "";
-        const more = lines.length > 1 ? clr.dim(` (+${lines.length - 1} lines)`) : "";
-        process.stdout.write(`  ${icon}  ${clr.dim(preview)}${more}  ${dur}\n`);
-        if (!result.success) {
-          // Show first error line in red
-          process.stdout.write(`  ${clr.error("  " + (lines[1] ?? "").slice(0, 70))}\n`);
+        const preview = (lines[0] ?? "").slice(0, 65);
+        const extra = lines.length > 1 ? clr.dim(` +${lines.length - 1} lines`) : "";
+        this.addChatLine(`  ${icon}  ${clr.dim(preview)}${extra}  ${dur}`);
+        if (!result.success && lines[1]) {
+          this.addChatLine(`     ${clr.error(lines[1].slice(0, 70))}`);
         }
+        this.tui.requestRender();
       },
       onPermissionRequest: (toolName, description, resolve) => {
-        this.spinner.clear();
-        void this.askPermission(toolName, description).then(({ approved, always }) => {
+        this.loader.stop();
+        this.addChatLine(`  ${clr.warn("⚠")}  ${clr.tool(toolName)}  ${clr.dim(description)}`);
+        this.addChatLine(`  ${clr.dim("[y]es  [n]o  [a]lways")}`);
+        this.tui.requestRender();
+        // Read a single keypress via stdin
+        void this.readKey().then((k) => {
+          const approved = k === "y" || k === "\r" || k === "a";
+          const always   = k === "a";
           resolve(approved, always);
         });
       },
       onCompacting: () => {
-        this.spinner.clear();
-        process.stdout.write(`\n  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}\n`);
-        this.spinner.start("compacting…");
+        this.loader.stop();
+        this.addChatLine(`  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
+        this.loader.setMessage("compacting…");
+        this.loader.start();
+        this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
-        this.spinner.clear();
-        process.stdout.write(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}\n`);
+        this.loader.stop();
+        this.addChatLine(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}`);
+        this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
-        this.spinner.clear();
-        if (thinkingStarted) {
-          process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n`);
-          thinkingStarted = false;
-        }
-        if (hasWrittenText) process.stdout.write("\n");
+        this.loader.stop();
+        this.closeThinking();
+        if (this.streamingRaw) { this.addChatLine(""); }
+        this.streamingRaw = ""; this.streamingText = null;
+        this.thinkingRaw = "";  this.thinkingText = null;
+
         this.contextTokens = usage.inputTokens;
+        this.contextBar.update({
+          contextTokens: usage.inputTokens,
+          contextWindow: this.contextWindow,
+          mode: this.mode,
+          ...(usage.tokensPerSecond > 0 ? { tokensPerSecond: usage.tokensPerSecond } : {}),
+          lastTurnMs: usage.durationMs,
+        });
+
+        this.addChatLine("");
         this.isRunning = false;
-        this.currentStreamBlock?.finalize();
-        this.printContextBar(usage.tokensPerSecond, usage.durationMs);
+        this.enableInput();
+        this.tui.requestRender();
       },
       onError: (err) => {
-        this.spinner.clear();
+        this.loader.stop();
+        this.addChatLine(`  ${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
-        process.stdout.write(`\n  ${clr.error("Error:")} ${err.message}\n`);
+        this.enableInput();
+        this.tui.requestRender();
       },
     };
 
     await this.loop.run(userMessage, this.mode, events);
-    process.stdout.write("\n");
   }
 
-  // ── Context bar ─────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private printContextBar(tokensPerSecond?: number, durationMs?: number): void {
-    this.contextBar.update({
-      contextTokens: this.contextTokens,
-      contextWindow: this.contextWindow,
-      mode: this.mode,
-      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
-      ...(durationMs !== undefined ? { lastTurnMs: durationMs } : {}),
-    });
-    const w = this.terminal.columns || 80;
-    process.stdout.write(`\n${ansi.dim}${"─".repeat(w)}${ansi.reset}\n`);
-    for (const l of this.contextBar.render(w)) process.stdout.write(l + "\n");
-    process.stdout.write(`${ansi.dim}${"─".repeat(w)}${ansi.reset}\n\n`);
+  private addChatLine(text: string): void {
+    this.chat.addChild(new Text(text, 0, 0));
   }
 
-  private askPermission(
-    toolName: string,
-    description: string
-  ): Promise<{ approved: boolean; always: boolean }> {
+  private closeThinking(): void {
+    if (this.thinkingOpen && this.thinkingText) {
+      this.chat.addChild(new Text(clr.dim("└────────────────────────────────────────────────────"), 0, 0));
+      this.chat.addChild(new Spacer(1));
+      this.thinkingOpen = false;
+    }
+  }
+
+  private disableInput(): void {
+    this.promptInput.setPrefix(
+      `  ${clr.dim(`[${this.mode}]`)} ${clr.dim("·")} `,
+      6 + this.mode.length
+    );
+  }
+
+  private enableInput(): void {
+    this.updatePromptPrefix();
+    this.tui.setFocus(this.promptInput);
+  }
+
+  private fmtArgs(args: Record<string, unknown>): string {
+    const keys = ["path","filePath","file","command","pattern","description","prompt"];
+    for (const k of keys) {
+      if (typeof args[k] === "string") {
+        const v = String(args[k]);
+        return v.length > 55 ? v.slice(0, 52) + "…" : v;
+      }
+    }
+    return Object.entries(args).slice(0, 1).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("").slice(0, 55);
+  }
+
+  /** Read a single raw keypress (used for permission prompts) */
+  private readKey(): Promise<string> {
     return new Promise((resolve) => {
-      process.stdout.write(
-        `\n  ${clr.warn("⚠")}  ${clr.tool(toolName)}  ${clr.dim(description)}\n` +
-        `  ${clr.dim("[y]es  [n]o  [a]lways  [s]ession")}  `
-      );
-
-      const onKey = (key: Buffer | string) => {
-        const k = key.toString().toLowerCase().trim();
-        process.stdin.setRawMode?.(false);
-        process.stdin.removeListener("data", onKey);
-        process.stdout.write("\n");
-        if (k === "y" || k === "\r" || k === "\n") resolve({ approved: true,  always: false });
-        else if (k === "a")                         resolve({ approved: true,  always: true  });
-        else if (k === "s")                         resolve({ approved: true,  always: false });
-        else                                        resolve({ approved: false, always: false });
+      const onData = (data: Buffer | string) => {
+        process.stdin.removeListener("data", onData);
+        resolve(data.toString().toLowerCase().trim());
       };
-
-      process.stdin.setRawMode?.(true);
-      process.stdin.once("data", onKey);
+      process.stdin.once("data", onData);
     });
   }
 
-  // ── Slash commands ───────────────────────────────────────────────────────────
+  // ── Slash commands ────────────────────────────────────────────────────────
 
   private async handleSlash(input: string): Promise<void> {
     const parts = input.slice(1).trim().split(/\s+/);
@@ -340,14 +465,26 @@ export class ImpulseRenderer {
 
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
-      case "mode":    this.cmdMode(arg);          break;
-      case "clear":   process.stdout.write("\x1b[2J\x1b[H"); break;
-      case "new":     await SessionManager.createNew(arg || undefined);
-                      process.stdout.write(`  ${clr.success("✓")} New session started\n`); break;
-      case "help":    this.printHelp();           break;
+      case "mode":    this.cmdMode(arg);           break;
+      case "new":
+        await SessionManager.createNew(arg || undefined);
+        this.addChatLine(`  ${clr.success("✓")} New session started`);
+        break;
+      case "clear":
+        // Clear chat history (keep welcome)
+        while ((this.chat as Container & { children?: Component[] }).children?.length) {
+          break; // can't easily clear — just add a separator
+        }
+        this.addChatLine(clr.dim("─".repeat(60)));
+        break;
+      case "help": this.printHelp(); break;
       case "quit":
-      case "exit":    process.exit(0);            break;
-      default:        process.stdout.write(`  ${clr.warn("?")} Unknown: /${cmd} — try /help\n`);
+      case "exit":
+        this.tui.stop();
+        process.exit(0);
+        break;
+      default:
+        this.addChatLine(`  ${clr.warn("?")} Unknown: /${cmd} — try /help`);
     }
   }
 
@@ -355,92 +492,89 @@ export class ImpulseRenderer {
     const config = await loadConfig();
 
     if (arg === "off") {
-      // Remove advisorModel from config
-      const { advisorModel: _removed, ...rest } = config;
+      const { advisorModel: _r, ...rest } = config;
       await saveConfig(rest as Config);
       this.advisorModel = undefined;
       this.contextBar.update({ workerModel: config.defaultModel, contextTokens: this.contextTokens,
         contextWindow: this.contextWindow, mode: this.mode });
-      process.stdout.write(`  ${clr.success("✓")} Advisor disabled\n`);
+      this.addChatLine(`  ${clr.success("✓")} Advisor disabled`);
       return;
     }
 
     if (arg === "on" || arg === "") {
-      process.stdout.write(`\n  ${clr.bold("Advisor model")}  ${clr.dim("(e.g. openrouter/anthropic/claude-opus-4.7)")}\n`);
-      const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
-      const answer = await new Promise<string>((res) =>
-        rl2.question(`  ${clr.user("›")} `, (a) => { rl2.close(); res(a.trim()); })
-      );
-      if (!answer) { process.stdout.write(`  ${clr.dim("Cancelled.")}\n`); return; }
-      config.advisorModel = answer;
-      await saveConfig(config);
-      this.advisorModel = answer;
-      this.contextBar.update({ advisorModel: answer });
-      process.stdout.write(`  ${clr.success("✓")} Advisor → ${answer}\n`);
+      this.addChatLine(`  ${clr.bold("Advisor model")}  ${clr.dim("e.g. openrouter/anthropic/claude-opus-4.7")}`);
+      this.addChatLine(`  ${clr.dim("Type the model string and press Enter:")}`);
+      this.tui.requestRender();
+
+      await new Promise<void>((resolve) => {
+        const prev = this.promptInput.onSubmit;
+        this.promptInput.onSubmit = (val) => {
+          this.promptInput.clear();
+          this.promptInput.onSubmit = prev;
+          if (val.trim()) {
+            config.advisorModel = val.trim();
+            void saveConfig(config).then(() => {
+              this.advisorModel = val.trim();
+              this.contextBar.update({ advisorModel: val.trim() });
+              this.addChatLine(`  ${clr.success("✓")} Advisor → ${val.trim()}`);
+              this.tui.requestRender();
+            });
+          } else {
+            this.addChatLine(`  ${clr.dim("Cancelled")}`);
+          }
+          resolve();
+        };
+      });
       return;
     }
 
-    // /advisor <model> — direct set
     config.advisorModel = arg;
     await saveConfig(config);
     this.advisorModel = arg;
     this.contextBar.update({ advisorModel: arg });
-    process.stdout.write(`  ${clr.success("✓")} Advisor → ${arg}\n`);
+    this.addChatLine(`  ${clr.success("✓")} Advisor → ${arg}`);
   }
 
   private cmdMode(arg: string): void {
     const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
     if (!arg) {
-      process.stdout.write(`  mode: ${this.mode}  options: ${modes.join(" | ")}\n`); return;
+      this.addChatLine(`  mode: ${this.mode}  |  options: ${modes.join(" · ")}`);
+      return;
     }
     const m = arg.toUpperCase() as Mode;
     if (modes.includes(m)) {
+      const prev = this.mode;
       this.mode = m;
       setCurrentMode(m);
       this.contextBar.update({ mode: m });
-      process.stdout.write(`  ${clr.success("✓")} Mode → ${m}\n`);
+      this.updatePromptPrefix();
+      this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(m)}`)}`);
     } else {
-      process.stdout.write(`  ${clr.error("✗")} Unknown mode. Options: ${modes.join(", ")}\n`);
+      this.addChatLine(`  ${clr.error("✗")} Unknown mode. Options: ${modes.join(", ")}`);
     }
-  }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-
-  private fmtArgs(args: Record<string, unknown>): string {
-    const keys = ["path", "filePath", "file", "command", "pattern", "description", "prompt"];
-    for (const k of keys) {
-      if (typeof args[k] === "string") {
-        const v = String(args[k]);
-        return v.length > 55 ? v.slice(0, 52) + "…" : v;
-      }
-    }
-    return Object.entries(args).slice(0, 1)
-      .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("").slice(0, 55);
   }
 
   private printHelp(): void {
-    process.stdout.write(`
-  ${clr.bold("Commands")}
-  ${clr.dim("─────────────────────────────────────────")}
-  ${clr.user("/advisor on")}          ${clr.dim("Pick advisor model interactively")}
-  ${clr.user("/advisor off")}         ${clr.dim("Disable advisor")}
-  ${clr.user("/advisor <model>")}     ${clr.dim("Set advisor directly")}
-  ${clr.user("/mode <MODE>")}         ${clr.dim("WORK | EXPLORE | PLAN | DEBUG")}
-  ${clr.user("/new [name]")}          ${clr.dim("Start new session")}
-  ${clr.user("/clear")}               ${clr.dim("Clear screen")}
-  ${clr.user("/help")}                ${clr.dim("This message")}
-  ${clr.user("/exit")}                ${clr.dim("Quit")}
-
-  ${clr.bold("Modes")}
-  ${clr.dim("─────────────────────────────────────────")}
-  ${clr.user("WORK")}    ${clr.dim("Full agent — reads + writes files, runs bash")}
-  ${clr.user("EXPLORE")} ${clr.dim("Read-only — no writes or bash")}
-  ${clr.user("PLAN")}    ${clr.dim("Docs/PRD writing only")}
-  ${clr.user("DEBUG")}   ${clr.dim("Like WORK, focused on debugging")}
-
-  ${clr.dim("Ctrl+C  abort current turn")}
-  ${clr.dim("Ctrl+D  exit")}
-
-`);
+    const h = [
+      "",
+      `  ${clr.bold("Commands")}`,
+      clr.dim("  ─────────────────────────────────────────"),
+      `  ${clr.tool("/advisor on")}      ${clr.dim("Set advisor model")}`,
+      `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
+      `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
+      `  ${clr.tool("/mode <MODE>")}     ${clr.dim("WORK · EXPLORE · PLAN · DEBUG")}`,
+      `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
+      `  ${clr.tool("/help")}            ${clr.dim("This message")}`,
+      `  ${clr.tool("/exit")}            ${clr.dim("Quit")}`,
+      "",
+      `  ${clr.bold("Keyboard")}`,
+      clr.dim("  ─────────────────────────────────────────"),
+      `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode forward")}`,
+      `  ${clr.dim("Shift+Tab")}        ${clr.dim("Cycle mode backward")}`,
+      `  ${clr.dim("Ctrl+C")}           ${clr.dim("Abort current turn")}`,
+      `  ${clr.dim("Ctrl+D")}           ${clr.dim("Exit")}`,
+      "",
+    ];
+    for (const line of h) this.addChatLine(line);
   }
 }
