@@ -39,7 +39,8 @@ export interface LoopEvents {
   /** Advisor model is being consulted — streams its response */
   onAdvisorStart(model: string): void;
   onAdvisorToken(text: string): void;
-  onAdvisorEnd(): void;
+  /** Called when advisor finishes — passes the full response text as summary */
+  onAdvisorEnd(summary: string): void;
   /** Tool call lifecycle */
   onToolStart(id: string, name: string, args: Record<string, unknown>): void;
   onToolEnd(id: string, name: string, result: { success: boolean; output: string }, durationMs: number): void;
@@ -384,7 +385,8 @@ export class AgentLoop {
               events,
               signal
             );
-            events.onAdvisorEnd();
+            // onAdvisorEnd already called inside runAdvisor
+            void guidance; // used in injection below
 
             // Inject advisor guidance as a system message
             const advisorInjection: Message = {
@@ -475,11 +477,12 @@ export class AgentLoop {
         }
       }
 
-      events.onAdvisorEnd();
+      events.onAdvisorEnd(advisorResponse || "(no advisor response)");
       return advisorResponse || "(no advisor response)";
     } catch (err) {
-      events.onAdvisorEnd();
-      return `(advisor error: ${err instanceof Error ? err.message : String(err)})`;
+      const errMsg = `(advisor error: ${err instanceof Error ? err.message : String(err)})`;
+      events.onAdvisorEnd(errMsg);
+      return errMsg;
     }
   }
 
