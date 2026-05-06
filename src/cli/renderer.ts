@@ -229,12 +229,15 @@ export class ImpulseRenderer {
   private contextTokens = 0;
   private contextWindow = 200000;
   private advisorModel: string | undefined;
+  private thinkingEnabled = true;
+  get _thinkingState() { return this.thinkingEnabled; } // exposed for context bar
   private isRunning = false;
 
   async start(): Promise<void> {
     const config = await loadConfig();
     this.mode = normalizeMode(config.defaultMode) as Mode;
     this.advisorModel = config.advisorModel;
+    this.thinkingEnabled = config.thinking ?? true;
 
     setCurrentMode(this.mode);
 
@@ -523,6 +526,7 @@ export class ImpulseRenderer {
   private readonly SLASH_CMDS = [
     { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
     { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
+    { cmd: "/think",    hint: "on | off  toggle reasoning/thinking" },
     { cmd: "/new",      hint: "[name]  start new session" },
     { cmd: "/help",     hint: "show commands" },
     { cmd: "/clear",    hint: "clear screen" },
@@ -616,6 +620,7 @@ export class ImpulseRenderer {
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
       case "mode":    this.cmdMode(arg);           break;
+      case "think":   await this.cmdThink(arg);    break;
       case "new":
         await SessionManager.createNew(arg || undefined);
         this.addChatLine(`  ${clr.success("✓")} New session started`);
@@ -698,10 +703,27 @@ export class ImpulseRenderer {
       this.mode = m;
       setCurrentMode(m);
       this.contextBar.update({ mode: m });
-        this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(m)}`)}`);
+      this.syncModeColor();
+      this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[m] ?? 34, m)}`);
     } else {
       this.addChatLine(`  ${clr.error("✗")} Unknown mode. Options: ${modes.join(", ")}`);
     }
+  }
+
+  private async cmdThink(arg: string): Promise<void> {
+    const config = await loadConfig();
+    if (arg === "off") {
+      this.thinkingEnabled = false;
+      config.thinking = false;
+      await saveConfig(config);
+      this.addChatLine(`  ${clr.dim("thinking: OFF")}`);
+    } else {
+      this.thinkingEnabled = true;
+      config.thinking = true;
+      await saveConfig(config);
+      this.addChatLine(`  ${clr.dim("thinking: ON — model will show reasoning")}`);
+    }
+    this.tui.requestRender();
   }
 
   private printHelp(): void {
@@ -713,6 +735,7 @@ export class ImpulseRenderer {
       `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
       `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
       `  ${clr.tool("/mode <MODE>")}     ${clr.dim("WORK · EXPLORE · PLAN · DEBUG")}`,
+      `  ${clr.tool("/think on|off")}   ${clr.dim("Toggle reasoning/thinking")}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
       `  ${clr.tool("/help")}            ${clr.dim("This message")}`,
       `  ${clr.tool("/exit")}            ${clr.dim("Quit")}`,

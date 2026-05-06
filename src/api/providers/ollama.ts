@@ -29,12 +29,13 @@ const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 16000;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
-// Models known to support extended reasoning (think: true)
-const REASONING_MODEL_PATTERNS = ["deepseek-r1", "qwq", "marco-o1", "openthinker"];
-
-export function ollamaSupportsReasoning(model: string): boolean {
-  const lower = model.toLowerCase();
-  return REASONING_MODEL_PATTERNS.some((p) => lower.includes(p));
+/**
+ * Remove the hardcoded allowlist — always pass think:true when thinking is enabled.
+ * Ollama ignores the param for models that don't support it.
+ * Models known to use it: deepseek-r1, qwq, kimi-k2.6, marco-o1, openthinker, and others.
+ */
+export function ollamaSupportsReasoning(_model: string): boolean {
+  return true; // let the model decide; Ollama ignores think:true if unsupported
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
