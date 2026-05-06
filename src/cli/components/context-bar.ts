@@ -30,6 +30,7 @@ const clr = {
   branch:  (s: string) => c.fg(35, s),   // magenta
   mode:    (s: string) => c.fg(34, s),   // blue
   advisor: (s: string) => c.fg(35, s),   // magenta
+  dim:     (s: string) => c.fg(90, s),   // dark gray (stats)
 };
 
 function shortModel(full: string): string {
@@ -86,6 +87,8 @@ export interface ContextBarState {
   autoCompactOff?: boolean;
   isRunning?: boolean;
   cwd?: string;
+  tokensPerSecond?: number;
+  lastTurnMs?: number;
 }
 
 export class ContextBarComponent implements Component {
@@ -145,11 +148,21 @@ export class ContextBarComponent implements Component {
     // Auto-compact off indicator
     const compactSeg = s.autoCompactOff ? clr.sep(" compact:OFF") : "";
 
+    // Stats: token speed + turn time
+    let statsSeg = "";
+    if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
+      statsSeg += sep + clr.dim(`${s.tokensPerSecond} tk/s`);
+    }
+    if (s.lastTurnMs !== undefined && s.lastTurnMs > 0) {
+      const secs = (s.lastTurnMs / 1000).toFixed(1);
+      statsSeg += ` ${clr.dim(`${secs}s`)}`;
+    }
+
     const line =
       modelSeg + advisorSeg + sep +
       ctxSeg + sep +
       dirSeg + branchSeg + sep +
-      modeSeg + compactSeg;
+      modeSeg + compactSeg + statsSeg;
 
     // Truncate to terminal width
     return [truncateToWidth(line, width)];

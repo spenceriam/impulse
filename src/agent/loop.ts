@@ -32,6 +32,8 @@ import type { Mode } from "../constants";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LoopEvents {
+  /** Turn is about to start (request being sent) */
+  onTurnStart(): void;
   /** Streaming text token from the worker model */
   onToken(text: string): void;
   /** Streaming thinking/reasoning token from the worker model */
@@ -50,7 +52,13 @@ export interface LoopEvents {
   onCompacting(): void;
   onCompacted(removedCount: number, summary: string): void;
   /** Turn complete */
-  onTurnEnd(usage: { inputTokens: number; outputTokens: number; contextPct: number }): void;
+  onTurnEnd(usage: {
+    inputTokens: number;
+    outputTokens: number;
+    contextPct: number;
+    tokensPerSecond: number;
+    durationMs: number;
+  }): void;
   /** Fatal error */
   onError(err: Error): void;
 }
@@ -165,6 +173,11 @@ export class AgentLoop {
       let inputTokens = 0;
       let outputTokens = 0;
       const contextWindow = session.context_window || 200000;
+      const turnStart = Date.now();
+      let firstTokenTime: number | null = null;
+      let totalStreamedTokens = 0;
+
+      events.onTurnStart();
 
       while (continueLoop && !signal.aborted) {
         // Check compaction before each iteration
@@ -215,6 +228,8 @@ export class AgentLoop {
 
           // Text token
           if (delta.content) {
+            if (firstTokenTime === null) firstTokenTime = Date.now();
+            totalStreamedTokens++;
             accumulatedText += delta.content;
             events.onToken(delta.content);
           }
@@ -406,12 +421,18 @@ export class AgentLoop {
       }
 
       // ── Final usage report ─────────────────────────────────────────────────
+      const durationMs = Date.now() - turnStart;
+      const streamMs = firstTokenTime !== null ? Date.now() - firstTokenTime : durationMs;
+      const tokensPerSecond = streamMs > 0 ? Math.round((totalStreamedTokens / streamMs) * 1000) : 0;
       const finalMessages = SessionManager.getCurrentSession()?.messages ?? [];
-      const finalTokens = estimateTokens(buildChatMessages(finalMessages, ""));
+      // Prefer actual API token count; fall back to rough estimate
+      const actualInput = inputTokens > 0 ? inputTokens : estimateTokens(buildChatMessages(finalMessages, ""));
       events.onTurnEnd({
-        inputTokens,
+        inputTokens: actualInput,
         outputTokens,
-        contextPct: Math.min(1, finalTokens / contextWindow),
+        contextPct: Math.min(1, actualInput / contextWindow),
+        tokensPerSecond,
+        durationMs,
       });
 
     } catch (err) {
