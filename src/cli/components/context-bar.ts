@@ -72,10 +72,12 @@ function gitBranch(cwd: string): string {
 function shortDir(cwd: string): string {
   const home = os.homedir();
   const rel = cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
-  // Show last two path segments: "projects/impulse"
+  // Show last 2 path segments but always keep ~/ prefix
   const parts = rel.split(path.sep).filter(Boolean);
   if (parts.length <= 2) return rel;
-  return parts.slice(-2).join(path.sep);
+  // slice(-2) drops the ~ — prepend it back explicitly
+  const last2 = parts.slice(-2).join(path.sep);
+  return cwd.startsWith(home) ? `~/${last2}` : last2;
 }
 
 export interface ContextBarState {

@@ -30,6 +30,7 @@ import { SessionManager } from "../session/manager.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
+import packageJson from "../../package.json";
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 const A = {
@@ -66,6 +67,7 @@ class PromptInput implements Component, Focusable {
   onTabBackward?: () => void;
   onAbort?:       () => void;
   onExit?:        () => void;
+  onChange?:      (value: string) => void;
 
   get onSubmit() { return this.inner.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
@@ -121,6 +123,7 @@ class PromptInput implements Component, Focusable {
     if (this._pasteContent !== null) this._pasteContent = null;
 
     this.inner.handleInput(data);
+    this.onChange?.(this.inner.getValue());
   }
 
   private _finalizePaste(): void {
@@ -147,8 +150,9 @@ class PromptInput implements Component, Focusable {
   invalidate(): void { this.inner.invalidate(); }
 
   render(width: number): string[] {
-    const ARROW = `  \x1b[36m\u203a\x1b[0m `; // "  › "
-    const ARROW_W = 4; // visible width of "  › "
+    // ❯ is U+276F — large right-pointing angle, clearly one symbol
+    const ARROW = `  \x1b[36m\u276f\x1b[0m `; // "  ❯ "
+    const ARROW_W = 4;
     const innerLines = this.inner.render(Math.max(1, width - ARROW_W));
     return [ARROW + (innerLines[0] ?? ""), ...innerLines.slice(1).map((l) => "    " + l)];
   }
@@ -175,6 +179,20 @@ export class ImpulseRenderer {
   private loader!: Loader;
   private contextBar!: ContextBarComponent;
   private promptInput!: PromptInput;
+  private autocompleteText!: Text; // slash command suggestions
+
+  // Spinner helpers — loader needs frames re-set each start since we init with none
+  private readonly SPIN_FRAMES = ["\u280b","\u2819","\u2839","\u2838","\u283c","\u2834","\u2826","\u2827","\u2807","\u280f"];
+  private spinStart(msg: string): void {
+    this.loader.setMessage(msg);
+    this.loader.setIndicator({ frames: this.SPIN_FRAMES, intervalMs: 80 });
+    this.tui.requestRender();
+  }
+  private spinStop(): void {
+    this.spinStop();
+    this.loader.setText("");
+    this.tui.requestRender();
+  }
 
   // Streaming state: current assistant text block (updated in-place)
   private streamingText: Text | null = null;
@@ -212,25 +230,28 @@ export class ImpulseRenderer {
     // Welcome message
     this.chat.addChild(new Spacer(1));
     this.chat.addChild(new Text(
-      `  ${clr.bold("IMPULSE")}  ${clr.dim("cli coding agent")}\n` +
-      `  ${clr.dim(`model: ${config.defaultModel}`)}\n` +
-      `  ${clr.dim("Tab/Shift-Tab: cycle mode  ·  /help: commands  ·  Ctrl+C: abort  ·  Ctrl+D: exit")}`,
+      `  ${clr.bold("Impulse")} ${clr.dim("|")} cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
       0, 0
     ));
     this.chat.addChild(new Spacer(1));
 
-    // 2. Loader (spinner) — hidden until agent runs
+    // 2. Loader (spinner) — starts STOPPED, only started by agent events
+    // Passing empty frames suppresses auto-start from setIndicator()
     this.loader = new Loader(
       this.tui,
       (s) => A.fg(90, s),
       (s) => A.fg(90, s),
-      "thinking…",
-      { frames: ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"], intervalMs: 80 }
+      ""
     );
+    this.spinStop(); // belt-and-suspenders: ensure stopped at launch
     this.tui.addChild(this.loader);
 
     // 3. Separator ABOVE input
     this.tui.addChild(new SeparatorLine());
+
+    // Slash command autocomplete — shown only when input starts with /
+    this.autocompleteText = new Text("", 0, 0);
+    this.tui.addChild(this.autocompleteText);
 
     // 4. Prompt input (just › , no mode label)
     this.promptInput = new PromptInput();
@@ -244,12 +265,18 @@ export class ImpulseRenderer {
     this.promptInput.onAbort = () => {
       if (this.isRunning) {
         this.loop.abort();
-        this.loader.stop();
+        this.spinStop();
         this.addChatLine(`  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
         this.isRunning = false;
+      } else {
+        // Ctrl+C while idle = exit with stats
+        this.showExitStats();
+        this.tui.stop();
+        process.exit(0);
       }
     };
-    this.promptInput.onExit = () => { this.tui.stop(); process.exit(0); };
+    this.promptInput.onExit = () => { this.showExitStats(); this.tui.stop(); process.exit(0); };
+    this.promptInput.onChange = (val) => this.updateAutocomplete(val);
     this.tui.addChild(this.promptInput);
 
     // 5. Separator BELOW input
@@ -306,11 +333,10 @@ export class ImpulseRenderer {
     this.isRunning = true;
 
 
-    // User message block
+    // User message block — left-label style, no drawn box
     this.addChatLine("");
-    this.addChatLine(`  ${clr.user("╭─ You " + "─".repeat(40))}`);
-    this.addChatLine(`  ${clr.user("│")}  ${userMessage}`);
-    this.addChatLine(`  ${clr.user("╰" + "─".repeat(46))}`);
+    this.addChatLine(`  ${clr.user("you")}  ${clr.dim("─".repeat(40))}`);
+    this.addChatLine(`  ${userMessage}`);
     this.addChatLine("");
 
     this.streamingRaw = "";
@@ -329,14 +355,14 @@ export class ImpulseRenderer {
 
     const events: LoopEvents = {
       onTurnStart: () => {
-        this.loader.setMessage(PHRASES[0]!);
-        this.loader.start();
-        this.tui.requestRender();
+        this.spinStart(PHRASES[0]!);
       },
       onToken: (text) => {
-        this.loader.stop();
+        this.spinStop();
         this.closeThinking();
         if (!this.streamingText) {
+          // Add "impulse" response header on first token
+          this.chat.addChild(new Text(`  ${clr.dim("impulse")}  ${clr.dim("─".repeat(40))}`, 0, 0));
           this.streamingText = new Text("", 0, 0);
           this.chat.addChild(this.streamingText);
         }
@@ -345,7 +371,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onThinking: (text) => {
-        this.loader.stop();
+        this.spinStop();
         if (!this.thinkingText) {
           const header = new Text(clr.dim("┌─ Thinking ──────────────────────────────────────────"), 0, 0);
           this.chat.addChild(header);
@@ -362,11 +388,11 @@ export class ImpulseRenderer {
         );
         // Cycle phrase
         phraseIdx = (phraseIdx + 1) % PHRASES.length;
-        this.loader.setMessage(PHRASES[phraseIdx]!);
+        this.spinStart(PHRASES[phraseIdx]!);
         this.tui.requestRender();
       },
       onAdvisorStart: (model) => {
-        this.loader.stop();
+        this.spinStop();
         const short = model.split("/").pop() ?? model;
         this.addChatLine(`  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
         this.tui.requestRender();
@@ -381,17 +407,17 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onToolStart: (_id, name, args) => {
-        this.loader.stop();
+        this.spinStop();
         this.closeThinking();
         if (this.streamingRaw) { this.addChatLine(""); this.streamingRaw = ""; this.streamingText = null; }
         const argStr = this.fmtArgs(args);
         this.addChatLine(`  ${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}`);
         this.loader.setMessage(`running ${name}…`);
-        this.loader.start();
+        this.spinStart("working…");
         this.tui.requestRender();
       },
       onToolEnd: (_id, _name, result, durationMs) => {
-        this.loader.stop();
+        this.spinStop();
         const icon = result.success ? clr.success("✓") : clr.error("✗");
         const dur = clr.dim(`${durationMs}ms`);
         const lines = result.output.trim().split("\n");
@@ -404,7 +430,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onPermissionRequest: (toolName, description, resolve) => {
-        this.loader.stop();
+        this.spinStop();
         this.addChatLine(`  ${clr.warn("⚠")}  ${clr.tool(toolName)}  ${clr.dim(description)}`);
         this.addChatLine(`  ${clr.dim("[y]es  [n]o  [a]lways")}`);
         this.tui.requestRender();
@@ -416,19 +442,19 @@ export class ImpulseRenderer {
         });
       },
       onCompacting: () => {
-        this.loader.stop();
+        this.spinStop();
         this.addChatLine(`  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
         this.loader.setMessage("compacting…");
-        this.loader.start();
+        this.spinStart("working…");
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
-        this.loader.stop();
+        this.spinStop();
         this.addChatLine(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}`);
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
-        this.loader.stop();
+        this.spinStop();
         this.closeThinking();
         if (this.streamingRaw) { this.addChatLine(""); }
         this.streamingRaw = ""; this.streamingText = null;
@@ -449,7 +475,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onError: (err) => {
-        this.loader.stop();
+        this.spinStop();
         this.addChatLine(`  ${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
@@ -464,6 +490,63 @@ export class ImpulseRenderer {
 
   private addChatLine(text: string): void {
     this.chat.addChild(new Text(text, 0, 0));
+  }
+
+  // ── Slash autocomplete ────────────────────────────────────────────────────
+
+  private readonly SLASH_CMDS = [
+    { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
+    { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
+    { cmd: "/new",      hint: "[name]  start new session" },
+    { cmd: "/help",     hint: "show commands" },
+    { cmd: "/clear",    hint: "clear screen" },
+    { cmd: "/exit",     hint: "quit" },
+    { cmd: "/quit",     hint: "quit" },
+  ];
+
+  private updateAutocomplete(val: string): void {
+    if (!val.startsWith("/") || val.length < 1) {
+      this.autocompleteText.setText("");
+      this.tui.requestRender();
+      return;
+    }
+    const matches = this.SLASH_CMDS.filter((c) =>
+      c.cmd.startsWith(val.split(" ")[0]!.toLowerCase())
+    );
+    if (matches.length === 0) {
+      this.autocompleteText.setText("");
+    } else {
+      const lines = matches
+        .map((m) => `  ${A.fg(36, m.cmd)}  ${A.fg(90, m.hint)}`)
+        .join("\n");
+      this.autocompleteText.setText(lines);
+    }
+    this.tui.requestRender();
+  }
+
+  // ── Exit stats ────────────────────────────────────────────────────────────
+
+  private showExitStats(): void {
+    const session = SessionManager.getCurrentSession();
+    if (!session) return;
+    const msgs    = session.messages.length;
+    const turns   = session.messages.filter((m) => m.role === "user").length;
+    const created = new Date(session.created_at);
+    const now     = new Date();
+    const diffMs  = now.getTime() - created.getTime();
+    const mins    = Math.floor(diffMs / 60000);
+    const dur     = mins < 60 ? `${mins}m` : `${Math.floor(mins/60)}h ${mins%60}m`;
+    this.addChatLine("");
+    this.addChatLine(`  ${clr.dim("─".repeat(46))}`);
+    this.addChatLine(`  ${clr.bold("Session summary")}`  );
+    this.addChatLine(`  ${clr.dim("session")}   ${session.name}`);
+    this.addChatLine(`  ${clr.dim("duration")}  ${dur}`);
+    this.addChatLine(`  ${clr.dim("turns")}     ${turns}`);
+    this.addChatLine(`  ${clr.dim("messages")}  ${msgs}`);
+    this.addChatLine(`  ${clr.dim("model")}     ${session.model || "(none)"}`);
+    this.addChatLine(`  ${clr.dim("─".repeat(46))}`);
+    this.addChatLine("");
+    this.tui.requestRender();
   }
 
   private closeThinking(): void {
@@ -521,6 +604,7 @@ export class ImpulseRenderer {
       case "help": this.printHelp(); break;
       case "quit":
       case "exit":
+        this.showExitStats();
         this.tui.stop();
         process.exit(0);
         break;
