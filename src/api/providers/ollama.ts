@@ -74,9 +74,24 @@ export async function testOllamaConnection(
       url: `${root}/v1/models`,
       label: "/v1/models",
       parse: (body) => {
-        const b = body as { data?: Array<{ id: string }>; models?: Array<{ name: string }> };
-        if (b.data && b.data.length > 0) return b.data.map((m) => m.id);
-        if (b.models && b.models.length > 0) return b.models.map((m) => m.name);
+        const b = body as {
+          data?: Array<{ id: string; created?: number }>;
+          models?: Array<{ name: string; modified_at?: string }>;
+        };
+        if (b.data && b.data.length > 0) {
+          // Sort newest first by created timestamp
+          return [...b.data]
+            .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+            .map((m) => m.id);
+        }
+        if (b.models && b.models.length > 0) {
+          // Sort newest first by modified_at
+          return [...b.models]
+            .sort((a, b2) =>
+              (b2.modified_at ?? "") > (a.modified_at ?? "") ? 1 : -1
+            )
+            .map((m) => m.name);
+        }
         return [];
       },
     },
@@ -84,8 +99,11 @@ export async function testOllamaConnection(
       url: `${root}/api/tags`,
       label: "/api/tags",
       parse: (body) => {
-        const b = body as { models?: Array<{ name: string }> };
-        return b.models ? b.models.map((m) => m.name) : [];
+        const b = body as { models?: Array<{ name: string; modified_at?: string }> };
+        if (!b.models) return [];
+        return [...b.models]
+          .sort((a, b2) => (b2.modified_at ?? "") > (a.modified_at ?? "") ? 1 : -1)
+          .map((m) => m.name);
       },
     },
     {
