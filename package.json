@@ -5,21 +5,16 @@
   "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders",
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.tsx",
+    "dev": "bun run --watch src/index.ts",
     "build": "bun run scripts/build.ts",
     "start": "bun run dist/index.js",
-    "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lydell/node-pty": "^1.2.0-beta.3",
-    "@opentui/core": "^0.1.74",
-    "@opentui/solid": "^0.1.74",
-    "@xterm/headless": "^6.0.0",
+    "@mariozechner/pi-tui": "^0.73.0",
     "diff": "^8.0.3",
     "openai": "^4.73.0",
     "semver": "^7.7.3",
-    "solid-js": "^1.9.0",
     "zod": "^3.24.0",
     "zod-to-json-schema": "^3.25.1"
   },

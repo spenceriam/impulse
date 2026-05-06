@@ -26,6 +26,7 @@ import { NousProvider } from "./providers/nous";
 import { OpenRouterProvider } from "./providers/openrouter";
 import { GroqProvider } from "./providers/groq";
 import { GeminiProvider } from "./providers/gemini";
+import { OllamaProvider } from "./providers/ollama";
 
 // Re-export all providers
 export { ZAIProvider } from "./providers/zai";
@@ -34,6 +35,7 @@ export { NousProvider } from "./providers/nous";
 export { OpenRouterProvider } from "./providers/openrouter";
 export { GroqProvider } from "./providers/groq";
 export { GeminiProvider } from "./providers/gemini";
+export { OllamaProvider } from "./providers/ollama";
 
 // Well-known provider prefixes
 export const PROVIDER_PREFIXES = [
@@ -45,6 +47,7 @@ export const PROVIDER_PREFIXES = [
   "gemini",
   "nous",
   "minimax",
+  "ollama",
 ] as const;
 
 // Aliases — maps prefix strings to their canonical provider key
@@ -103,6 +106,20 @@ function getProviderConfig(
 
   // Check new per-provider config
   const providerCfg = config.providers?.[key];
+
+  // Ollama: registered as long as a baseUrl or apiKey is present
+  if (providerKey === "ollama") {
+    if (providerCfg?.apiKey || providerCfg?.baseUrl) {
+      const result: ProviderConfig = {
+        apiKey: providerCfg.apiKey ?? "",
+        defaultModel: config.defaultModel ?? "ollama/llama3.2",
+      };
+      if (providerCfg.baseUrl) result.baseUrl = providerCfg.baseUrl;
+      return result;
+    }
+    return null;
+  }
+
   if (providerCfg?.apiKey) {
     const result: ProviderConfig = {
       apiKey: providerCfg.apiKey,
@@ -162,6 +179,7 @@ export class ProviderManager {
       { key: "openrouter", build: (cfg) => new OpenRouterProvider(cfg) },
       { key: "groq", build: (cfg) => new GroqProvider(cfg) },
       { key: "gemini", build: (cfg) => new GeminiProvider(cfg) },
+      { key: "ollama", build: (cfg) => new OllamaProvider(cfg) },
       // Anthropic uses a custom client (not OpenAI SDK)
       // Will be added in a follow-up
     ];

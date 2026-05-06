@@ -30,6 +30,8 @@ const ProvidersConfigSchema = z.object({
   gemini: ProviderKeySchema.optional(),
   /** Nous Research */
   nous: ProviderKeySchema.optional(),
+  /** Ollama Cloud (https://ollama.com) */
+  ollama: ProviderKeySchema.optional(),
 });
 
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
@@ -39,10 +41,13 @@ const ConfigSchema = z.object({
   providers: ProvidersConfigSchema.default({}),
 
   /** Default provider name (e.g. "openai", "anthropic", "z.ai", "openrouter", "groq", "gemini", "nous") */
-  defaultProvider: z.string().default("z.ai").describe("Which provider to use by default"),
+  defaultProvider: z.string().default("ollama").describe("Which provider to use by default"),
 
   /** Default model — include provider prefix when ambiguous (e.g. "openai/gpt-4o") */
-  defaultModel: z.string().default("z.ai/glm-4.7").describe("Default model to use"),
+  defaultModel: z.string().default("ollama/llama3.2").describe("Default model to use"),
+
+  /** Advisor model — optional second model for strategic guidance */
+  advisorModel: z.string().optional().describe("Advisor model for strategic guidance"),
 
   /** Default mode: WORK, EXPLORE, PLAN, DEBUG */
   defaultMode: z.string().default("WORK").describe("Default agent mode"),
@@ -83,6 +88,7 @@ const PROVIDER_ENV_VARS: Record<string, string> = {
   GEMINI_API_KEY: "gemini",
   GOOGLE_GENERATIVE_AI_API_KEY: "gemini",
   NOUS_API_KEY: "nous",
+  OLLAMA_API_KEY: "ollama",
 };
 
 async function loadEnvVars(): Promise<Partial<Config>> {

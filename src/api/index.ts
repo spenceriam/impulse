@@ -12,16 +12,14 @@
 //   for await (const chunk of provider.stream({ messages })) { ... }
 // ============================================================
 
-export {
+export type {
   // Provider abstraction
   AIProvider,
   ProviderConfig,
   CompletionOptions,
   StreamCompletionOptions,
-  ProviderError,
-  ProviderAuthError,
-  ProviderRateLimitError,
 } from "./providers";
+export { ProviderError, ProviderAuthError, ProviderRateLimitError } from "./providers";
 
 export {
   // Individual providers (for direct use if needed)
@@ -33,7 +31,12 @@ export {
   GroqProvider,
   GROQ_MODELS,
   GeminiProvider,
+  OllamaProvider,
+  OLLAMA_DEFAULT_BASE_URL,
+  ollamaSupportsReasoning,
+  testOllamaConnection,
 } from "./providers";
+export type { OllamaConnectionTestResult } from "./providers";
 
 export {
   // Provider manager
