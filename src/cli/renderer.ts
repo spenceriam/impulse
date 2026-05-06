@@ -1,0 +1,359 @@
+/**
+ * CLI Renderer — wires Impulse components with plain terminal I/O.
+ *
+ * Uses process.stdout.write for all output (append-only, no full-screen clears).
+ * pi-tui is used for the ContextBarComponent's render() helpers only.
+ * The main output pipeline is deliberately simple: just write tokens as they
+ * arrive, update tool lines in-place, print the context bar after each turn.
+ */
+
+import { ProcessTerminal } from "@mariozechner/pi-tui";
+import { ContextBarComponent } from "./components/context-bar.js";
+import { StreamingBlock } from "./components/streaming-block.js";
+import { ToolBlock } from "./components/tool-block.js";
+import { AgentLoop, type LoopEvents } from "../agent/loop.js";
+import { load as loadConfig, save as saveConfig, type Config } from "../util/config.js";
+import { SessionManager } from "../session/manager.js";
+import { setCurrentMode } from "../tools/mode-state.js";
+import type { Mode } from "../constants.js";
+import * as readline from "readline";
+
+// ── ANSI helpers ──────────────────────────────────────────────────────────────
+const ansi = {
+  reset:  "\x1b[0m",
+  bold:   "\x1b[1m",
+  dim:    "\x1b[2m",
+  fg:     (code: number, s: string) => `\x1b[${code}m${s}\x1b[0m`,
+};
+const clr = {
+  user:    (s: string) => ansi.fg(36, s),
+  success: (s: string) => ansi.fg(32, s),
+  error:   (s: string) => ansi.fg(31, s),
+  warn:    (s: string) => ansi.fg(33, s),
+  dim:     (s: string) => ansi.fg(90, s),
+  bold:    (s: string) => `${ansi.bold}${s}${ansi.reset}`,
+  advisor: (s: string) => ansi.fg(35, s),
+  tool:    (s: string) => ansi.fg(36, s),
+};
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+
+export class ImpulseRenderer {
+  private terminal = new ProcessTerminal();
+  private loop = new AgentLoop();
+  private contextBar!: ContextBarComponent;
+  private currentStreamBlock: StreamingBlock | null = null;
+  private activeToolBlocks: Map<string, ToolBlock> = new Map();
+
+  private mode: Mode = "WORK";
+  private contextTokens = 0;
+  private contextWindow = 200000;
+  private advisorModel: string | undefined;
+
+  async start(): Promise<void> {
+    const config = await loadConfig();
+    this.mode = (config.defaultMode as Mode) ?? "WORK";
+    this.advisorModel = config.advisorModel;
+    this.contextWindow = 200000;
+
+    setCurrentMode(this.mode);
+
+    // Ensure there's an active session
+    if (!SessionManager.getCurrentSession()) {
+      await SessionManager.createNew();
+    }
+
+    this.contextBar = new ContextBarComponent({
+      workerModel: config.defaultModel,
+      contextTokens: 0,
+      contextWindow: this.contextWindow,
+      mode: this.mode,
+      ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
+    });
+
+    this.printWelcome(config.defaultModel);
+    await this.inputLoop();
+  }
+
+  // ── Welcome banner ──────────────────────────────────────────────────────────
+
+  private printWelcome(model: string): void {
+    const w = this.terminal.columns || 80;
+    const bar = ansi.dim + "─".repeat(w) + ansi.reset;
+    process.stdout.write(`\n${clr.bold("  IMPULSE")}  ${clr.dim("cli coding agent")}\n`);
+    process.stdout.write(`  ${clr.dim(`model: ${model}  |  mode: ${this.mode}`)}\n`);
+    process.stdout.write(`  ${clr.dim("/help for commands  ·  Ctrl+C abort  ·  Ctrl+D exit")}\n`);
+    process.stdout.write(`${bar}\n\n`);
+  }
+
+  // ── Input loop ──────────────────────────────────────────────────────────────
+
+  private async inputLoop(): Promise<void> {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+      historySize: 100,
+    });
+
+    rl.on("close", () => { this.loop.abort(); process.exit(0); });
+
+    const makePrompt = () => {
+      const pct = this.contextWindow > 0
+        ? Math.round((this.contextTokens / this.contextWindow) * 100) : 0;
+      return `  ${clr.dim(`[${this.mode}]`)} ${clr.dim(`${pct}%`)} ${clr.user("›")} `;
+    };
+
+    rl.setPrompt(makePrompt());
+    rl.prompt();
+
+    for await (const line of rl) {
+      const input = line.trim();
+      if (!input) { rl.setPrompt(makePrompt()); rl.prompt(); continue; }
+
+      if (input.startsWith("/")) {
+        await this.handleSlash(input);
+      } else {
+        rl.pause();
+        await this.runTurn(input);
+        rl.resume();
+      }
+
+      rl.setPrompt(makePrompt());
+      rl.prompt();
+    }
+  }
+
+  // ── Agent turn ──────────────────────────────────────────────────────────────
+
+  private async runTurn(userMessage: string): Promise<void> {
+    this.currentStreamBlock = new StreamingBlock();
+    this.activeToolBlocks.clear();
+
+    process.stdout.write(`\n  ${clr.user("You")}  ${userMessage}\n\n`);
+
+    let thinkingStarted = false;
+
+    const events: LoopEvents = {
+      onToken: (text) => {
+        // If thinking was active, close it first
+        if (thinkingStarted) {
+          process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n\n`);
+          thinkingStarted = false;
+        }
+        process.stdout.write(text);
+      },
+      onThinking: (text) => {
+        if (!thinkingStarted) {
+          process.stdout.write(`${clr.dim("┌─ Thinking ─────────────────────────────")}\n`);
+          process.stdout.write(clr.dim("│ "));
+          thinkingStarted = true;
+        }
+        // Inline thinking — dim + prefix new lines
+        process.stdout.write(ansi.dim + text.replace(/\n/g, `\n${ansi.reset}${clr.dim("│ ")}`) + ansi.reset);
+      },
+      onAdvisorStart: (model) => {
+        const short = model.split("/").pop() ?? model;
+        process.stdout.write(`\n\n${clr.advisor(ansi.bold + `┌─ Advisor [${short}] ─────────────────` + ansi.reset)}\n`);
+        process.stdout.write(clr.advisor("│ "));
+      },
+      onAdvisorToken: (text) => {
+        process.stdout.write(clr.advisor(text.replace(/\n/g, `\n${clr.advisor("│ ")}`)));
+      },
+      onAdvisorEnd: () => {
+        process.stdout.write(`\n${clr.advisor(ansi.bold + "└────────────────────────────────────────" + ansi.reset)}\n\n`);
+      },
+      onToolStart: (_id, name, args) => {
+        const argStr = this.fmtArgs(args);
+        process.stdout.write(`\n  ${ansi.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\n`);
+      },
+      onToolEnd: (_id, _name, result, durationMs) => {
+        const icon = result.success ? clr.success("✓") : clr.error("✗");
+        const dur = clr.dim(`${durationMs}ms`);
+        const summary = result.output.trim().split("\n")[0]?.slice(0, 65) ?? "";
+        process.stdout.write(`  ${icon}  ${clr.dim(summary)}  ${dur}\n`);
+      },
+      onPermissionRequest: (toolName, description, resolve) => {
+        void this.askPermission(toolName, description).then(({ approved, always }) => {
+          resolve(approved, always);
+        });
+      },
+      onCompacting: () => {
+        process.stdout.write(`\n  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}\n`);
+      },
+      onCompacted: (removedCount) => {
+        process.stdout.write(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}\n`);
+      },
+      onTurnEnd: (usage) => {
+        if (thinkingStarted) {
+          process.stdout.write(`\n${clr.dim("└────────────────────────────────────────")}\n`);
+          thinkingStarted = false;
+        }
+        this.contextTokens = Math.round(usage.contextPct * this.contextWindow);
+        this.currentStreamBlock?.finalize();
+        this.printContextBar();
+      },
+      onError: (err) => {
+        process.stdout.write(`\n  ${clr.error("Error:")} ${err.message}\n`);
+      },
+    };
+
+    await this.loop.run(userMessage, this.mode, events);
+    process.stdout.write("\n");
+  }
+
+  // ── Context bar ─────────────────────────────────────────────────────────────
+
+  private printContextBar(): void {
+    this.contextBar.update({
+      contextTokens: this.contextTokens,
+      contextWindow: this.contextWindow,
+      mode: this.mode,
+    });
+    const w = this.terminal.columns || 80;
+    process.stdout.write(`\n${ansi.dim}${"─".repeat(w)}${ansi.reset}\n`);
+    for (const l of this.contextBar.render(w)) process.stdout.write(l + "\n");
+    process.stdout.write(`${ansi.dim}${"─".repeat(w)}${ansi.reset}\n\n`);
+  }
+
+  // ── Permission prompt ────────────────────────────────────────────────────────
+
+  private askPermission(
+    toolName: string,
+    description: string
+  ): Promise<{ approved: boolean; always: boolean }> {
+    return new Promise((resolve) => {
+      process.stdout.write(
+        `\n  ${clr.warn("⚠")}  ${clr.tool(toolName)}  ${clr.dim(description)}\n` +
+        `  ${clr.dim("[y]es  [n]o  [a]lways  [s]ession")}  `
+      );
+
+      const onKey = (key: Buffer | string) => {
+        const k = key.toString().toLowerCase().trim();
+        process.stdin.setRawMode?.(false);
+        process.stdin.removeListener("data", onKey);
+        process.stdout.write("\n");
+        if (k === "y" || k === "\r" || k === "\n") resolve({ approved: true,  always: false });
+        else if (k === "a")                         resolve({ approved: true,  always: true  });
+        else if (k === "s")                         resolve({ approved: true,  always: false });
+        else                                        resolve({ approved: false, always: false });
+      };
+
+      process.stdin.setRawMode?.(true);
+      process.stdin.once("data", onKey);
+    });
+  }
+
+  // ── Slash commands ───────────────────────────────────────────────────────────
+
+  private async handleSlash(input: string): Promise<void> {
+    const parts = input.slice(1).trim().split(/\s+/);
+    const cmd = parts[0]?.toLowerCase() ?? "";
+    const arg = parts.slice(1).join(" ").trim();
+
+    switch (cmd) {
+      case "advisor": await this.cmdAdvisor(arg); break;
+      case "mode":    this.cmdMode(arg);          break;
+      case "clear":   process.stdout.write("\x1b[2J\x1b[H"); break;
+      case "new":     await SessionManager.createNew(arg || undefined);
+                      process.stdout.write(`  ${clr.success("✓")} New session started\n`); break;
+      case "help":    this.printHelp();           break;
+      case "quit":
+      case "exit":    process.exit(0);            break;
+      default:        process.stdout.write(`  ${clr.warn("?")} Unknown: /${cmd} — try /help\n`);
+    }
+  }
+
+  private async cmdAdvisor(arg: string): Promise<void> {
+    const config = await loadConfig();
+
+    if (arg === "off") {
+      // Remove advisorModel from config
+      const { advisorModel: _removed, ...rest } = config;
+      await saveConfig(rest as Config);
+      this.advisorModel = undefined;
+      this.contextBar.update({ workerModel: config.defaultModel, contextTokens: this.contextTokens,
+        contextWindow: this.contextWindow, mode: this.mode });
+      process.stdout.write(`  ${clr.success("✓")} Advisor disabled\n`);
+      return;
+    }
+
+    if (arg === "on" || arg === "") {
+      process.stdout.write(`\n  ${clr.bold("Advisor model")}  ${clr.dim("(e.g. openrouter/anthropic/claude-opus-4.7)")}\n`);
+      const rl2 = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await new Promise<string>((res) =>
+        rl2.question(`  ${clr.user("›")} `, (a) => { rl2.close(); res(a.trim()); })
+      );
+      if (!answer) { process.stdout.write(`  ${clr.dim("Cancelled.")}\n`); return; }
+      config.advisorModel = answer;
+      await saveConfig(config);
+      this.advisorModel = answer;
+      this.contextBar.update({ advisorModel: answer });
+      process.stdout.write(`  ${clr.success("✓")} Advisor → ${answer}\n`);
+      return;
+    }
+
+    // /advisor <model> — direct set
+    config.advisorModel = arg;
+    await saveConfig(config);
+    this.advisorModel = arg;
+    this.contextBar.update({ advisorModel: arg });
+    process.stdout.write(`  ${clr.success("✓")} Advisor → ${arg}\n`);
+  }
+
+  private cmdMode(arg: string): void {
+    const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
+    if (!arg) {
+      process.stdout.write(`  mode: ${this.mode}  options: ${modes.join(" | ")}\n`); return;
+    }
+    const m = arg.toUpperCase() as Mode;
+    if (modes.includes(m)) {
+      this.mode = m;
+      setCurrentMode(m);
+      this.contextBar.update({ mode: m });
+      process.stdout.write(`  ${clr.success("✓")} Mode → ${m}\n`);
+    } else {
+      process.stdout.write(`  ${clr.error("✗")} Unknown mode. Options: ${modes.join(", ")}\n`);
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  private fmtArgs(args: Record<string, unknown>): string {
+    const keys = ["path", "filePath", "file", "command", "pattern", "description", "prompt"];
+    for (const k of keys) {
+      if (typeof args[k] === "string") {
+        const v = String(args[k]);
+        return v.length > 55 ? v.slice(0, 52) + "…" : v;
+      }
+    }
+    return Object.entries(args).slice(0, 1)
+      .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("").slice(0, 55);
+  }
+
+  private printHelp(): void {
+    process.stdout.write(`
+  ${clr.bold("Commands")}
+  ${clr.dim("─────────────────────────────────────────")}
+  ${clr.user("/advisor on")}          ${clr.dim("Pick advisor model interactively")}
+  ${clr.user("/advisor off")}         ${clr.dim("Disable advisor")}
+  ${clr.user("/advisor <model>")}     ${clr.dim("Set advisor directly")}
+  ${clr.user("/mode <MODE>")}         ${clr.dim("WORK | EXPLORE | PLAN | DEBUG")}
+  ${clr.user("/new [name]")}          ${clr.dim("Start new session")}
+  ${clr.user("/clear")}               ${clr.dim("Clear screen")}
+  ${clr.user("/help")}                ${clr.dim("This message")}
+  ${clr.user("/exit")}                ${clr.dim("Quit")}
+
+  ${clr.bold("Modes")}
+  ${clr.dim("─────────────────────────────────────────")}
+  ${clr.user("WORK")}    ${clr.dim("Full agent — reads + writes files, runs bash")}
+  ${clr.user("EXPLORE")} ${clr.dim("Read-only — no writes or bash")}
+  ${clr.user("PLAN")}    ${clr.dim("Docs/PRD writing only")}
+  ${clr.user("DEBUG")}   ${clr.dim("Like WORK, focused on debugging")}
+
+  ${clr.dim("Ctrl+C  abort current turn")}
+  ${clr.dim("Ctrl+D  exit")}
+
+`);
+  }
+}
