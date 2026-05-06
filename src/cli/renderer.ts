@@ -15,6 +15,7 @@ import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config } from "../util/config.js";
 import { SessionManager } from "../session/manager.js";
 import { setCurrentMode } from "../tools/mode-state.js";
+import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
 import * as readline from "readline";
 
@@ -49,10 +50,17 @@ export class ImpulseRenderer {
   private contextTokens = 0;
   private contextWindow = 200000;
   private advisorModel: string | undefined;
+  private isRunning = false;
+
+  private makePrompt(): string {
+    const pct = this.contextWindow > 0
+      ? Math.round((this.contextTokens / this.contextWindow) * 100) : 0;
+    return `  ${clr.dim(`[${this.mode}]`)} ${clr.dim(`${pct}%`)} ${clr.user("›")} `;
+  }
 
   async start(): Promise<void> {
     const config = await loadConfig();
-    this.mode = (config.defaultMode as Mode) ?? "WORK";
+    this.mode = normalizeMode(config.defaultMode) as Mode;
     this.advisorModel = config.advisorModel;
     this.contextWindow = 200000;
 
@@ -98,11 +106,51 @@ export class ImpulseRenderer {
 
     rl.on("close", () => { this.loop.abort(); process.exit(0); });
 
-    const makePrompt = () => {
-      const pct = this.contextWindow > 0
-        ? Math.round((this.contextTokens / this.contextWindow) * 100) : 0;
-      return `  ${clr.dim(`[${this.mode}]`)} ${clr.dim(`${pct}%`)} ${clr.user("›")} `;
-    };
+    // ── Ctrl+C: abort running turn, don't exit ────────────────────────────
+    process.on("SIGINT", () => {
+      if (this.isRunning) {
+        this.loop.abort();
+        process.stdout.write(`\n  ${clr.warn("⊘")}  aborted\n\n`);
+        this.isRunning = false;
+      } else {
+        process.stdout.write("\n");
+        process.exit(0);
+      }
+    });
+
+    // ── Tab / Shift-Tab: cycle modes without /mode command ────────────────
+    const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
+    readline.emitKeypressEvents(process.stdin);
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+    process.stdin.on("keypress", (_ch, key) => {
+      if (!key) return;
+      // Only act when not mid-turn and readline is at the prompt
+      if (this.isRunning) return;
+
+      if (key.name === "tab" && !key.shift) {
+        // Tab → cycle forward
+        const idx = modes.indexOf(this.mode);
+        this.mode = modes[(idx + 1) % modes.length]!;
+        setCurrentMode(this.mode);
+        this.contextBar.update({ mode: this.mode });
+        // Redraw prompt
+        rl.setPrompt(this.makePrompt());
+        process.stdout.write(`\r\x1b[2K  ${clr.dim(`→ mode: ${this.mode}`)}\n`);
+        rl.prompt(true);
+      } else if (key.name === "tab" && key.shift) {
+        // Shift+Tab → cycle backward
+        const idx = modes.indexOf(this.mode);
+        this.mode = modes[(idx - 1 + modes.length) % modes.length]!;
+        setCurrentMode(this.mode);
+        this.contextBar.update({ mode: this.mode });
+        rl.setPrompt(this.makePrompt());
+        process.stdout.write(`\r\x1b[2K  ${clr.dim(`→ mode: ${this.mode}`)}\n`);
+        rl.prompt(true);
+      }
+    });
+
+    const makePrompt = () => this.makePrompt();
 
     rl.setPrompt(makePrompt());
     rl.prompt();
@@ -127,6 +175,7 @@ export class ImpulseRenderer {
   // ── Agent turn ──────────────────────────────────────────────────────────────
 
   private async runTurn(userMessage: string): Promise<void> {
+    this.isRunning = true;
     this.currentStreamBlock = new StreamingBlock();
     this.activeToolBlocks.clear();
 
@@ -190,10 +239,12 @@ export class ImpulseRenderer {
           thinkingStarted = false;
         }
         this.contextTokens = Math.round(usage.contextPct * this.contextWindow);
+        this.isRunning = false;
         this.currentStreamBlock?.finalize();
         this.printContextBar();
       },
       onError: (err) => {
+        this.isRunning = false;
         process.stdout.write(`\n  ${clr.error("Error:")} ${err.message}\n`);
       },
     };

@@ -1,4 +1,9 @@
 import { Bus, SessionEvents } from "../bus";
+import { isDebugEnabled, logError } from "../util/debug-log";
+
+function debugLog(msg: string, ...args: unknown[]): void {
+  if (isDebugEnabled()) void logError(msg, args.map(String).join(" ") || msg);
+}
 
 class CheckpointManagerImpl {
   private static instance: CheckpointManagerImpl;
@@ -80,34 +85,34 @@ class CheckpointManagerImpl {
 
       const createResult = await this.execGit(["checkout", "-b", branchName], cwd);
       if (!createResult.success) {
-        console.error(`Failed to create branch ${branchName}:`, createResult.stderr);
+        debugLog(`Failed to create branch ${branchName}:`, createResult.stderr);
         return false;
       }
 
       const message = `glm-checkpoint: ${messageSummary ?? `message ${messageIndex}`}`;
       const addResult = await this.execGit(["add", "."], cwd);
       if (!addResult.success) {
-        console.error(`Failed to stage changes:`, addResult.stderr);
+        debugLog(`Failed to stage changes:`, addResult.stderr);
         await this.execGit(["checkout", currentBranch], cwd);
         return false;
       }
 
       const commitResult = await this.execGit(["commit", "-m", message], cwd);
       if (!commitResult.success) {
-        console.error(`Failed to commit:`, commitResult.stderr);
+        debugLog(`Failed to commit:`, commitResult.stderr);
         await this.execGit(["checkout", currentBranch], cwd);
         return false;
       }
 
       const checkoutResult = await this.execGit(["checkout", currentBranch], cwd);
       if (!checkoutResult.success) {
-        console.error(`Failed to checkout back to ${currentBranch}:`, checkoutResult.stderr);
+        debugLog(`Failed to checkout back to ${currentBranch}:`, checkoutResult.stderr);
         return false;
       }
 
       return true;
     } catch (e) {
-      console.error(`Failed to create checkpoint for session ${sessionID}:`, e);
+      debugLog(`Failed to create checkpoint for session ${sessionID}:`, e);
       return false;
     }
   }
@@ -157,7 +162,7 @@ class CheckpointManagerImpl {
     try {
       const result = await this.execGit(["checkout", target.branch], cwd);
       if (!result.success) {
-        console.error(`Failed to checkout ${target.branch}:`, result.stderr);
+        debugLog(`Failed to checkout ${target.branch}:`, result.stderr);
         return false;
       }
 
@@ -169,7 +174,7 @@ class CheckpointManagerImpl {
 
       return true;
     } catch (e) {
-      console.error(`Failed to undo to checkpoint for session ${sessionID}:`, e);
+      debugLog(`Failed to undo to checkpoint for session ${sessionID}:`, e);
       return false;
     }
   }
@@ -187,7 +192,7 @@ class CheckpointManagerImpl {
     try {
       const result = await this.execGit(["checkout", target.branch], cwd);
       if (!result.success) {
-        console.error(`Failed to checkout ${target.branch}:`, result.stderr);
+        debugLog(`Failed to checkout ${target.branch}:`, result.stderr);
         return false;
       }
 
@@ -199,7 +204,7 @@ class CheckpointManagerImpl {
 
       return true;
     } catch (e) {
-      console.error(`Failed to redo to checkpoint for session ${sessionID}:`, e);
+      debugLog(`Failed to redo to checkpoint for session ${sessionID}:`, e);
       return false;
     }
   }
@@ -211,7 +216,7 @@ class CheckpointManagerImpl {
     if (currentBranch && checkpoints.some((c) => c.branch === currentBranch)) {
       const checkoutResult = await this.execGit(["checkout", "-"], cwd);
       if (!checkoutResult.success) {
-        console.error(`Failed to checkout previous branch:`, checkoutResult.stderr);
+        debugLog(`Failed to checkout previous branch:`, checkoutResult.stderr);
         return false;
       }
     }
@@ -219,7 +224,7 @@ class CheckpointManagerImpl {
     for (const checkpoint of checkpoints) {
       const deleteResult = await this.execGit(["branch", "-D", checkpoint.branch], cwd);
       if (!deleteResult.success) {
-        console.error(`Failed to delete branch ${checkpoint.branch}:`, deleteResult.stderr);
+        debugLog(`Failed to delete branch ${checkpoint.branch}:`, deleteResult.stderr);
       }
     }
 

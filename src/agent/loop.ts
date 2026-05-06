@@ -229,17 +229,20 @@ export class AgentLoop {
             for (const tc of delta.tool_calls) {
               const idx = tc.index ?? 0;
               if (!partialToolCalls.has(idx)) {
+                // First chunk for this tool call — initialise from it, don't append
                 partialToolCalls.set(idx, {
                   index: idx,
                   id: tc.id ?? `call_${idx}_${Date.now()}`,
                   name: tc.function?.name ?? "",
-                  argumentsJson: "",
+                  argumentsJson: tc.function?.arguments ?? "",
                 });
+              } else {
+                // Subsequent chunks — append incremental fragments only
+                const partial = partialToolCalls.get(idx)!;
+                if (tc.id) partial.id = tc.id;
+                if (tc.function?.name) partial.name += tc.function.name;
+                if (tc.function?.arguments) partial.argumentsJson += tc.function.arguments;
               }
-              const partial = partialToolCalls.get(idx)!;
-              if (tc.id) partial.id = tc.id;
-              if (tc.function?.name) partial.name += tc.function.name;
-              if (tc.function?.arguments) partial.argumentsJson += tc.function.arguments;
             }
           }
 
@@ -491,9 +494,12 @@ export class AgentLoop {
     return new Promise((resolve) => {
       if (signal.aborted) { resolve(false); return; }
 
-      // Read-only tools never need permission
-      const readOnly = ["file_read", "glob", "grep", "todo_read", "tool_docs", "mcp_discover"];
-      if (readOnly.includes(toolName)) { resolve(true); return; }
+      // Read-only and utility tools never need permission
+      const noPermRequired = [
+        "file_read", "glob", "grep", "todo_read", "tool_docs", "mcp_discover",
+        "set_header", "set_mode", "question",
+      ];
+      if (noPermRequired.includes(toolName)) { resolve(true); return; }
 
       const description = String(
         args["description"] ?? args["command"] ?? args["path"] ?? toolName
