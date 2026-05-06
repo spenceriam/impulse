@@ -57,13 +57,15 @@ class PromptInput implements Component, Focusable {
   focused = false;
 
   private inner = new Input();
-  private prefix = "";
-  private _prefixWidth = 0;
+  // Paste state
+  private _pasteContent: string | null = null;
+  private _isPasting = false;
+  private _pasteBuffer = "";
 
-  onTabForward?: () => void;
+  onTabForward?:  () => void;
   onTabBackward?: () => void;
-  onAbort?: () => void;
-  onExit?: () => void;
+  onAbort?:       () => void;
+  onExit?:        () => void;
 
   get onSubmit() { return this.inner.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
@@ -71,30 +73,84 @@ class PromptInput implements Component, Focusable {
     else this.inner.onSubmit = undefined as unknown as (value: string) => void;
   }
 
-  setPrefix(text: string, width: number): void {
-    this.prefix = text;
-    this._prefixWidth = width;
+  /** Returns the real value (actual paste content if applicable) */
+  getSubmitValue(): string {
+    return this._pasteContent ?? this.inner.getValue();
   }
 
-  clear(): void { this.inner.setValue(""); }
+  clear(): void {
+    this.inner.setValue("");
+    this._pasteContent = null;
+    this._isPasting = false;
+    this._pasteBuffer = "";
+  }
 
   handleInput(data: string): void {
-    // Special key intercepts — consume without forwarding
-    if (data === "\t")      { this.onTabForward?.();  return; }
-    if (data === "\x1b[Z")  { this.onTabBackward?.(); return; } // Shift+Tab
-    if (data === "\x03")    { this.onAbort?.();        return; } // Ctrl+C
-    if (data === "\x04")    { this.onExit?.();         return; } // Ctrl+D
+    if (data === "\t")     { this.onTabForward?.();  return; }
+    if (data === "\x1b[Z") { this.onTabBackward?.(); return; }
+    if (data === "\x03")   { this.onAbort?.();        return; }
+    if (data === "\x04")   { this.onExit?.();         return; }
+
+    // ── Bracketed paste detection ──────────────────────────────────────────
+    const hasPasteStart = data.includes("\x1b[200~");
+    const hasPasteEnd   = data.includes("\x1b[201~");
+
+    if (hasPasteStart) {
+      this._isPasting = true;
+      const afterStart = data.slice(data.indexOf("\x1b[200~") + 6);
+      const content    = hasPasteEnd
+        ? afterStart.slice(0, afterStart.indexOf("\x1b[201~"))
+        : afterStart;
+      this._pasteBuffer = content;
+
+      if (hasPasteEnd) this._finalizePaste();
+      return;
+    }
+
+    if (this._isPasting) {
+      if (hasPasteEnd) {
+        this._pasteBuffer += data.slice(0, data.indexOf("\x1b[201~"));
+        this._finalizePaste();
+      } else {
+        this._pasteBuffer += data;
+      }
+      return;
+    }
+
+    // If user starts typing after a paste, clear the stored content
+    if (this._pasteContent !== null) this._pasteContent = null;
+
     this.inner.handleInput(data);
+  }
+
+  private _finalizePaste(): void {
+    this._isPasting = false;
+    const content = this._pasteBuffer;
+    this._pasteBuffer = "";
+    const lines = content.split("\n").filter((l) => l.length > 0);
+
+    if (lines.length > 1) {
+      // Multi-line paste — show indicator, store real content
+      this._pasteContent = content;
+      this.inner.setValue(`[Pasted ${lines.length} lines  ${content.length} chars]`);
+    } else if (content.length > 120) {
+      // Long single-line paste — show indicator
+      this._pasteContent = content;
+      this.inner.setValue(`[Pasted ${content.length} chars]`);
+    } else {
+      // Short paste — insert normally
+      this._pasteContent = null;
+      this.inner.handleInput("\x1b[200~" + content + "\x1b[201~");
+    }
   }
 
   invalidate(): void { this.inner.invalidate(); }
 
   render(width: number): string[] {
-    // Inner renders within the remaining width after prefix
-    const innerLines = this.inner.render(Math.max(1, width - this._prefixWidth));
-    // Prepend prefix to first line — CURSOR_MARKER is inside innerLines[0] already
-    // so cursor will be positioned at prefix + cursor_offset, which is correct
-    return [this.prefix + (innerLines[0] ?? ""), ...innerLines.slice(1)];
+    const ARROW = `  \x1b[36m\u203a\x1b[0m `; // "  › "
+    const ARROW_W = 4; // visible width of "  › "
+    const innerLines = this.inner.render(Math.max(1, width - ARROW_W));
+    return [ARROW + (innerLines[0] ?? ""), ...innerLines.slice(1).map((l) => "    " + l)];
   }
 }
 
@@ -173,10 +229,33 @@ export class ImpulseRenderer {
     );
     this.tui.addChild(this.loader);
 
-    // 3. Separator
+    // 3. Separator ABOVE input
     this.tui.addChild(new SeparatorLine());
 
-    // 4. Context bar
+    // 4. Prompt input (just › , no mode label)
+    this.promptInput = new PromptInput();
+    this.promptInput.onSubmit = (_displayedValue) => {
+      const actual = this.promptInput.getSubmitValue();
+      this.promptInput.clear();
+      void this.onSubmit(actual);
+    };
+    this.promptInput.onTabForward  = () => this.cycleMode(1);
+    this.promptInput.onTabBackward = () => this.cycleMode(-1);
+    this.promptInput.onAbort = () => {
+      if (this.isRunning) {
+        this.loop.abort();
+        this.loader.stop();
+        this.addChatLine(`  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
+        this.isRunning = false;
+      }
+    };
+    this.promptInput.onExit = () => { this.tui.stop(); process.exit(0); };
+    this.tui.addChild(this.promptInput);
+
+    // 5. Separator BELOW input
+    this.tui.addChild(new SeparatorLine());
+
+    // 6. Context bar — sticky absolute bottom
     this.contextBar = new ContextBarComponent({
       workerModel: config.defaultModel,
       contextTokens: 0,
@@ -185,25 +264,6 @@ export class ImpulseRenderer {
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
     });
     this.tui.addChild(this.contextBar);
-
-    // 5. Prompt input
-    this.promptInput = new PromptInput();
-    this.promptInput.onSubmit = (value) => void this.onSubmit(value);
-    this.promptInput.onTabForward  = () => this.cycleMode(1);
-    this.promptInput.onTabBackward = () => this.cycleMode(-1);
-    this.promptInput.onAbort = () => {
-      if (this.isRunning) {
-        this.loop.abort();
-        this.loader.stop();
-        this.loader.setMessage("aborted");
-        this.addChatLine(`\n  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
-        this.isRunning = false;
-        this.enableInput();
-      }
-    };
-    this.promptInput.onExit = () => { this.tui.stop(); process.exit(0); };
-    this.updatePromptPrefix();
-    this.tui.addChild(this.promptInput);
 
     // ── Start TUI (takes over terminal raw mode) ──────────────────────────
     this.tui.setFocus(this.promptInput);
@@ -220,23 +280,15 @@ export class ImpulseRenderer {
     this.mode = modes[((idx + dir) + modes.length) % modes.length]!;
     setCurrentMode(this.mode);
     this.contextBar.update({ mode: this.mode });
-    this.updatePromptPrefix();
     this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(this.mode)}`)}`);
     this.tui.requestRender();
   }
 
-  private updatePromptPrefix(): void {
-    const prefix = `  ${clr.mode(`[${this.mode}]`)} ${clr.user("›")} `;
-    const prefixW = 6 + this.mode.length; // visible width: "  [MODE] › "
-    this.promptInput.setPrefix(prefix, prefixW);
-    this.tui.requestRender?.();
-  }
 
   // ── Input submission ──────────────────────────────────────────────────────
 
   private async onSubmit(value: string): Promise<void> {
     const input = value.trim();
-    this.promptInput.clear();
     if (!input) return;
 
     if (input.startsWith("/")) {
@@ -252,7 +304,7 @@ export class ImpulseRenderer {
 
   private async runTurn(userMessage: string): Promise<void> {
     this.isRunning = true;
-    this.disableInput();
+
 
     // User message block
     this.addChatLine("");
@@ -393,14 +445,14 @@ export class ImpulseRenderer {
 
         this.addChatLine("");
         this.isRunning = false;
-        this.enableInput();
+        this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
       },
       onError: (err) => {
         this.loader.stop();
         this.addChatLine(`  ${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
-        this.enableInput();
+        this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
       },
     };
@@ -422,17 +474,6 @@ export class ImpulseRenderer {
     }
   }
 
-  private disableInput(): void {
-    this.promptInput.setPrefix(
-      `  ${clr.dim(`[${this.mode}]`)} ${clr.dim("·")} `,
-      6 + this.mode.length
-    );
-  }
-
-  private enableInput(): void {
-    this.updatePromptPrefix();
-    this.tui.setFocus(this.promptInput);
-  }
 
   private fmtArgs(args: Record<string, unknown>): string {
     const keys = ["path","filePath","file","command","pattern","description","prompt"];
@@ -547,8 +588,7 @@ export class ImpulseRenderer {
       this.mode = m;
       setCurrentMode(m);
       this.contextBar.update({ mode: m });
-      this.updatePromptPrefix();
-      this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(m)}`)}`);
+        this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(m)}`)}`);
     } else {
       this.addChatLine(`  ${clr.error("✗")} Unknown mode. Options: ${modes.join(", ")}`);
     }
