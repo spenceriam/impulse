@@ -18,7 +18,6 @@ import {
   Container,
   Text,
   Spacer,
-  Loader,
   Input,
   type Component,
   type Focusable,
@@ -52,12 +51,18 @@ const clr = {
   sep:     (s: string) => A.fg(90, s),
 };
 
+// ANSI color per mode — used for ❯ arrow and context bar mode label
+const MODE_COLORS: Record<string, number> = {
+  WORK: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
+};
+
 // ── PromptInput: wraps pi-tui Input, intercepts special keys ─────────────────
 
 class PromptInput implements Component, Focusable {
   focused = false;
 
   private inner = new Input();
+  private _modeColorCode = 34; // ANSI color code for the ❯ arrow (matches mode)
   // Paste state
   private _pasteContent: string | null = null;
   private _isPasting = false;
@@ -68,6 +73,8 @@ class PromptInput implements Component, Focusable {
   onAbort?:       () => void;
   onExit?:        () => void;
   onChange?:      (value: string) => void;
+
+  setModeColor(code: number): void { this._modeColorCode = code; }
 
   get onSubmit() { return this.inner.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
@@ -150,11 +157,15 @@ class PromptInput implements Component, Focusable {
   invalidate(): void { this.inner.invalidate(); }
 
   render(width: number): string[] {
-    // ❯ is U+276F — large right-pointing angle, clearly one symbol
-    const ARROW = `  \x1b[36m\u276f\x1b[0m `; // "  ❯ "
-    const ARROW_W = 4;
-    const innerLines = this.inner.render(Math.max(1, width - ARROW_W));
-    return [ARROW + (innerLines[0] ?? ""), ...innerLines.slice(1).map((l) => "    " + l)];
+    // pi-tui Input ALWAYS renders "> " (2 chars) as its own prompt prefix.
+    // We strip it and replace with our mode-colored ❯ .
+    // Pass full width so content area = width - 2 (matching the "> " overhead).
+    const innerLines = this.inner.render(width);
+    const firstLine = innerLines[0] ?? "";
+    // Strip Input's hardcoded "> " prefix
+    const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
+    const ARROW = `  \x1b[${this._modeColorCode}m\u276f\x1b[0m `;
+    return [ARROW + content, ...innerLines.slice(1).map((l) => "    " + l)];
   }
 }
 
@@ -176,21 +187,32 @@ export class ImpulseRenderer {
 
   // Layout components
   private chat!: Container;
-  private loader!: Loader;
+  private spinnerText!: Text;
   private contextBar!: ContextBarComponent;
   private promptInput!: PromptInput;
   private autocompleteText!: Text; // slash command suggestions
 
-  // Spinner helpers — loader needs frames re-set each start since we init with none
-  private readonly SPIN_FRAMES = ["\u280b","\u2819","\u2839","\u2838","\u283c","\u2834","\u2826","\u2827","\u2807","\u280f"];
+  // Manual spinner — avoids Loader auto-start issues
+  private spinnerInterval: ReturnType<typeof setInterval> | null = null;
+  private spinnerMsg = "";
+  private spinnerIdx = 0;
+  private readonly SPIN_FRAMES = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+
   private spinStart(msg: string): void {
-    this.loader.setMessage(msg);
-    this.loader.setIndicator({ frames: this.SPIN_FRAMES, intervalMs: 80 });
+    this.spinnerMsg = msg;
+    this.spinnerText.setText(`  ${A.dim}${this.SPIN_FRAMES[0]!}  ${msg}${A.reset}`);
     this.tui.requestRender();
+    if (this.spinnerInterval) return;
+    this.spinnerIdx = 0;
+    this.spinnerInterval = setInterval(() => {
+      this.spinnerIdx = (this.spinnerIdx + 1) % this.SPIN_FRAMES.length;
+      this.spinnerText.setText(`  ${A.dim}${this.SPIN_FRAMES[this.spinnerIdx]!}  ${this.spinnerMsg}${A.reset}`);
+      this.tui.requestRender();
+    }, 80);
   }
   private spinStop(): void {
-    this.loader.stop();
-    this.loader.setText("");
+    if (this.spinnerInterval) { clearInterval(this.spinnerInterval); this.spinnerInterval = null; }
+    this.spinnerText.setText("");
     this.tui.requestRender();
   }
 
@@ -227,24 +249,22 @@ export class ImpulseRenderer {
     this.chat = new Container();
     this.tui.addChild(this.chat);
 
-    // Welcome message
+    // Welcome header
     this.chat.addChild(new Spacer(1));
     this.chat.addChild(new Text(
-      `  ${clr.bold("Impulse")} ${clr.dim("|")} cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
+      `  ${clr.bold("IMPULSE")} ${A.dim}|${A.reset} cli coding agent ${A.dim}|${A.reset} ${A.fg(90, "v" + (packageJson as {version:string}).version)}`,
       0, 0
     ));
+    this.chat.addChild(new Text(
+      `  ${A.fg(90, "Tab/Shift-Tab: mode  ·  /help: commands  ·  Ctrl+C: abort  ·  Ctrl+D: exit")}`,
+      0, 0
+    ));
+    this.chat.addChild(new Text(A.dim + "─".repeat(60) + A.reset, 0, 0));
     this.chat.addChild(new Spacer(1));
 
-    // 2. Loader (spinner) — starts STOPPED, only started by agent events
-    // Passing empty frames suppresses auto-start from setIndicator()
-    this.loader = new Loader(
-      this.tui,
-      (s) => A.fg(90, s),
-      (s) => A.fg(90, s),
-      ""
-    );
-    this.loader.stop(); // ensure clean at launch (no animation, no text)
-    this.tui.addChild(this.loader);
+    // 2. Spinner — plain Text, manually animated via setInterval in spinStart/spinStop
+    this.spinnerText = new Text("", 0, 0);
+    this.tui.addChild(this.spinnerText);
 
     // 3. Separator ABOVE input
     this.tui.addChild(new SeparatorLine());
@@ -293,6 +313,7 @@ export class ImpulseRenderer {
     this.tui.addChild(this.contextBar);
 
     // ── Start TUI (takes over terminal raw mode) ──────────────────────────
+    this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
     this.tui.start();
   }
@@ -307,8 +328,13 @@ export class ImpulseRenderer {
     this.mode = modes[((idx + dir) + modes.length) % modes.length]!;
     setCurrentMode(this.mode);
     this.contextBar.update({ mode: this.mode });
-    this.addChatLine(`  ${clr.dim(`${clr.mode(prev)} → ${clr.mode(this.mode)}`)}`);
+    this.syncModeColor();
+    this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`);
     this.tui.requestRender();
+  }
+
+  private syncModeColor(): void {
+    this.promptInput.setModeColor(MODE_COLORS[this.mode] ?? 34);
   }
 
 
@@ -333,9 +359,9 @@ export class ImpulseRenderer {
     this.isRunning = true;
 
 
-    // User message block — left-label style, no drawn box
+    // User message block
     this.addChatLine("");
-    this.addChatLine(`  ${clr.user("you")}  ${clr.dim("─".repeat(40))}`);
+    this.addChatLine(`  ${A.fg(36, "you")}`);
     this.addChatLine(`  ${userMessage}`);
     this.addChatLine("");
 
@@ -361,8 +387,9 @@ export class ImpulseRenderer {
         this.spinStop();
         this.closeThinking();
         if (!this.streamingText) {
-          // Add "impulse" response header on first token
-          this.chat.addChild(new Text(`  ${clr.dim("impulse")}  ${clr.dim("─".repeat(40))}`, 0, 0));
+          // Add impulse response header on first token
+          this.chat.addChild(new Spacer(1));
+          this.chat.addChild(new Text(`  ${A.dim}impulse${A.reset}`, 0, 0));
           this.streamingText = new Text("", 0, 0);
           this.chat.addChild(this.streamingText);
         }
@@ -468,6 +495,7 @@ export class ImpulseRenderer {
         });
 
         this.addChatLine("");
+        this.chat.addChild(new Spacer(1));
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();

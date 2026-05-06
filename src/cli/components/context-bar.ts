@@ -80,6 +80,9 @@ function shortDir(cwd: string): string {
   return cwd.startsWith(home) ? `~/${last2}` : last2;
 }
 
+// Per-mode ANSI colors (must match renderer.ts MODE_COLORS)
+const MODE_COLOR: Record<string, number> = { WORK: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31 };
+
 export interface ContextBarState {
   workerModel: string;
   advisorModel?: string;
@@ -145,7 +148,7 @@ export class ContextBarComponent implements Component {
       : "";
 
     // Mode segment
-    const modeSeg = clr.mode(s.mode);
+    const modeSeg = c.fg(MODE_COLOR[s.mode] ?? 34, s.mode);
 
     // Auto-compact off indicator
     const compactSeg = s.autoCompactOff ? clr.sep(" compact:OFF") : "";
@@ -153,11 +156,11 @@ export class ContextBarComponent implements Component {
     // Stats: token speed + turn time
     let statsSeg = "";
     if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
-      statsSeg += sep + clr.dim(`${s.tokensPerSecond} tk/s`);
+      statsSeg += sep + clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`); // ⚡
     }
     if (s.lastTurnMs !== undefined && s.lastTurnMs > 0) {
       const secs = (s.lastTurnMs / 1000).toFixed(1);
-      statsSeg += ` ${clr.dim(`${secs}s`)}`;
+      statsSeg += ` ${clr.dim(`\u29d7 ${secs}s`)}`; // ◷ hourglass-style
     }
 
     const line =
