@@ -132,7 +132,7 @@ class PromptInput implements Component, Focusable {
         noMatch: (s: string) => s,
       },
     });
-    this.inner.onSubmit = undefined as unknown as (value: string) => void;
+    // Don't set onSubmit to undefined - let it be set later by the renderer
   }
 
   setModeColor(code: number): void { this._modeColorCode = code; }
@@ -405,8 +405,12 @@ export class ImpulseRenderer {
     this.autocompleteText = new Text("", 0, 0);
     this.tui.addChild(this.autocompleteText);
 
-    // Submit hint — always visible above input
-    this.submitHintText = new Text(`   ${A.fg(90, "Enter: submit | Shift+Enter: new line")}`, 0, 0);
+    // Submit hint — centered above input
+    const hintText = "Enter: submit | Shift+Enter: new line";
+    const terminalWidth = this.terminal.columns;
+    const padding = Math.max(0, Math.floor((terminalWidth - hintText.length) / 2));
+    const centeredHint = " ".repeat(padding) + A.fg(90, hintText);
+    this.submitHintText = new Text(centeredHint, 0, 0);
     this.tui.addChild(this.submitHintText);
 
     // 4. Prompt input (just › , no mode label)
