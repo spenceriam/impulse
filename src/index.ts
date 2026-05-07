@@ -193,7 +193,7 @@ async function runSetup(): Promise<void> {
 // User onboarding
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function runOnboarding(): Promise<void> {
+export async function runOnboarding(): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string): Promise<string> =>
     new Promise((res) => rl.question(q, (a) => res(a.trim())));

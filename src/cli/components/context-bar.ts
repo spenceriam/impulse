@@ -133,6 +133,12 @@ export class ContextBarComponent implements Component {
     const modelSeg = s.isRunning
       ? clr.model(`${worker}…`)
       : clr.model(worker);
+
+    // Reasoning level — right of model name in parentheses (only when not "off")
+    const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
+      ? ` (${clr.dim(s.reasoningLevel)})`
+      : "";
+
     const advisorSeg = s.advisorModel
       ? ` ${clr.advisor("◈")} ${clr.advisor(shortModel(s.advisorModel))}`
       : "";
@@ -151,11 +157,6 @@ export class ContextBarComponent implements Component {
     // Mode segment
     const modeSeg = c.fg(MODE_COLOR[s.mode] ?? 34, s.mode);
 
-    // Reasoning level indicator (shown when not "off")
-    const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
-      ? sep + clr.dim(`reasoning: ${s.reasoningLevel}`)
-      : "";
-
     // Auto-compact off indicator
     const compactSeg = s.autoCompactOff ? clr.sep(" compact:OFF") : "";
 
@@ -169,11 +170,12 @@ export class ContextBarComponent implements Component {
       statsSeg += ` ${clr.dim(`\u29d7 ${secs}s`)}`; // ◷ hourglass-style
     }
 
+    // New order: Model (reasoning) | Context | Dir Branch | Mode | Stats
     const line =
-      modelSeg + advisorSeg + sep +
+      modelSeg + rlSeg + advisorSeg + sep +
       ctxSeg + sep +
       dirSeg + branchSeg + sep +
-      modeSeg + rlSeg + compactSeg + statsSeg;
+      modeSeg + compactSeg + statsSeg;
 
     // Truncate to terminal width
     return [truncateToWidth(line, width)];
