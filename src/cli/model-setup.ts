@@ -75,6 +75,16 @@ export function maskKey(key: string | undefined): string {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
+/** Mask API key showing first 4 + asterisks + last 4 (full length) */
+export function maskKeyFull(key: string | undefined): string {
+  if (!key) return "not configured";
+  if (key.length <= 8) return "*".repeat(key.length);
+  const prefix = key.slice(0, 4);
+  const suffix = key.slice(-4);
+  const middle = "*".repeat(key.length - 8);
+  return `${prefix}${middle}${suffix}`;
+}
+
 export function modelWithProviderPrefix(providerKey: string, model: string): string {
   return model.startsWith(`${providerKey}/`) ? model : `${providerKey}/${model}`;
 }
@@ -110,7 +120,8 @@ export async function discoverModels(
       baseUrl ?? provider.defaultBaseUrl ?? provider.modelBaseUrl,
       apiKey
     );
-    return { success: result.success, message: result.message, models: result.models };
+    const sorted = await sortModels(provider.key, result.models);
+    return { success: result.success, message: result.message, models: sorted };
   }
 
   const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/$/, "");
@@ -148,12 +159,14 @@ export async function discoverModels(
       .map((m) => m.id ?? m.name)
       .filter((m): m is string => typeof m === "string" && m.length > 0);
 
+    const sorted = await sortModels(provider.key, models);
+
     return {
       success: true,
-      message: models.length > 0
-        ? `Connected - ${models.length} model${models.length === 1 ? "" : "s"} available.`
+      message: sorted.length > 0
+        ? `Connected - ${sorted.length} model${sorted.length === 1 ? "" : "s"} available.`
         : "Connected, but no models were returned.",
-      models,
+      models: sorted,
     };
   } catch (error) {
     const message = error instanceof Error && error.name === "TimeoutError"
@@ -163,6 +176,60 @@ export async function discoverModels(
         : String(error);
     return { success: false, message, models: [] };
   }
+}
+
+/**
+ * Sort models by creation date (newest first) using models.dev API.
+ * Falls back to size-based sorting if API unavailable.
+ */
+async function sortModels(providerKey: string, models: string[]): Promise<string[]> {
+  if (models.length <= 1) return models;
+
+  try {
+    // Fetch model metadata from models.dev
+    const res = await fetch(`https://models.dev/api/v1/providers/${providerKey}/models`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+
+    if (res.ok) {
+      const body = await res.json() as {
+        models?: Array<{ id?: string; created?: string | number }>;
+      };
+      const metadata = new Map<string, Date>();
+      for (const m of body.models ?? []) {
+        if (m.id && m.created) {
+          metadata.set(m.id, new Date(m.created));
+        }
+      }
+
+      // Sort by creation date (newest first)
+      if (metadata.size > 0) {
+        return [...models].sort((a, b) => {
+          const dateA = metadata.get(a);
+          const dateB = metadata.get(b);
+          if (dateA && dateB) return dateB.getTime() - dateA.getTime();
+          if (dateA) return -1;
+          if (dateB) return 1;
+          return 0;
+        });
+      }
+    }
+  } catch {
+    // Fall through to size-based sorting
+  }
+
+  // Fallback: sort by size (largest first, parsed from model name)
+  return [...models].sort((a, b) => {
+    const sizeA = extractModelSize(a);
+    const sizeB = extractModelSize(b);
+    return sizeB - sizeA;
+  });
+}
+
+/** Extract model size from name (e.g., "70b" -> 70, "13b" -> 13) */
+function extractModelSize(name: string): number {
+  const match = name.match(/(\d+\.?\d*)\s*b/i);
+  return match ? parseFloat(match[1]!) : 0;
 }
 
 export async function saveHomeEnv(

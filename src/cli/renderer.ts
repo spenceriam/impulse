@@ -33,6 +33,7 @@ import {
   MODEL_PROVIDERS,
   discoverModels,
   maskKey,
+  maskKeyFull,
   modelWithProviderPrefix,
   parseProviderChoice,
   providerConfig,
@@ -46,7 +47,6 @@ import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
 import packageJson from "../../package.json";
-import * as readline from "readline";
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 const A = {
@@ -92,6 +92,11 @@ class PromptInput implements Component, Focusable {
   onExit?:        () => void;
   onEscape?:      () => void;
   onChange?:      (value: string) => void;
+  onArrowUp?:     (() => void) | null;
+  onArrowDown?:   (() => void) | null;
+  onArrowLeft?:   (() => void) | null;
+  onArrowRight?:  (() => void) | null;
+  onEnter?:       (() => void) | null;
 
   setModeColor(code: number): void { this._modeColorCode = code; }
   setSecretMode(enabled: boolean): void { this._secretMode = enabled; }
@@ -120,6 +125,13 @@ class PromptInput implements Component, Focusable {
     if (data === "\x03")   { this.onAbort?.();        return; }
     if (data === "\x04")   { this.onExit?.();         return; }
     if (data === "\x1b")   { this.onEscape?.();       return; }
+
+    // Arrow key navigation (for model setup)
+    if (data === "\x1b[A" && this.onArrowUp)   { this.onArrowUp();   return; }
+    if (data === "\x1b[B" && this.onArrowDown) { this.onArrowDown(); return; }
+    if (data === "\x1b[D" && this.onArrowLeft) { this.onArrowLeft(); return; }
+    if (data === "\x1b[C" && this.onArrowRight){ this.onArrowRight();return; }
+    if (data === "\r" && this.onEnter)         { this.onEnter();     return; }
 
     // ── Bracketed paste detection ──────────────────────────────────────────
     const hasPasteStart = data.includes("\x1b[200~");
@@ -211,6 +223,13 @@ class SeparatorLine implements Component {
 
 type ModelSetupStep = "provider" | "baseUrl" | "apiKey" | "discovering" | "model";
 
+interface ProviderEntry {
+  provider: ModelProviderOption;
+  configured: boolean;
+  valid: boolean;  // API key validation result
+  keyPreview: string;  // Masked key preview
+}
+
 interface ModelSetupState {
   step: ModelSetupStep;
   config: Config;
@@ -222,6 +241,11 @@ interface ModelSetupState {
   models: string[];
   discovery?: ModelDiscoveryResult;
   error?: string;
+  // Navigation state
+  providers: ProviderEntry[];  // Configured providers first, then unconfigured
+  selectedIndex: number;       // Currently selected provider/model index
+  page: number;                // Current page for model list
+  modelsPerPage: number;       // Models per page (default: 20)
 }
 
 // ── ImpulseRenderer ───────────────────────────────────────────────────────────
@@ -285,6 +309,7 @@ export class ImpulseRenderer {
   private isRunning = false;
   private modelSetup: ModelSetupState | null = null;
   private userName = "you"; // User's display name (loaded from config)
+  private modeChangeText: Text | null = null; // Track mode change line for in-place updates
 
   async start(): Promise<void> {
     const config = await loadConfig();
@@ -319,7 +344,7 @@ export class ImpulseRenderer {
       0, 0
     ));
     this.chat.addChild(new Text(
-      `  ${A.fg(90, "Tab/Shift-Tab: mode  ·  /help: commands  ·  Ctrl+C: abort  ·  Ctrl+D: exit")}`,
+      `  ${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Ctrl+C: abort  |  Ctrl+D: exit")}`,
       0, 0
     ));
     this.chat.addChild(new Text(A.dim + "─".repeat(60) + A.reset, 0, 0));
@@ -369,7 +394,23 @@ export class ImpulseRenderer {
     };
     this.promptInput.onExit = () => { this.showExitStats(); this.tui.stop(); process.exit(0); };
     this.promptInput.onEscape = () => {
-      if (this.modelSetup) this.cancelModelSetup();
+      if (this.modelSetup) {
+        const state = this.modelSetup;
+        // Go back to previous step, or cancel if at first step
+        if (state.step === "model" || state.step === "discovering") {
+          state.step = "provider";
+          delete state.error;
+          this.setupModelNavigation();
+          this.renderModelSetup();
+        } else if (state.step === "apiKey" || state.step === "baseUrl") {
+          state.step = "provider";
+          delete state.error;
+          this.setupModelNavigation();
+          this.renderModelSetup();
+        } else {
+          this.cancelModelSetup();
+        }
+      }
     };
     this.promptInput.onChange = (val) => this.updateAutocomplete(val);
     this.tui.addChild(this.promptInput);
@@ -393,7 +434,7 @@ export class ImpulseRenderer {
     this.tui.setFocus(this.promptInput);
     this.tui.start();
     // Discover reasoning capabilities in background (non-blocking)
-    void this.discoverReasoningCapability();
+    void this.refreshReasoningCapability();
   }
 
   // ── Mode cycling ─────────────────────────────────────────────────────────
@@ -407,7 +448,16 @@ export class ImpulseRenderer {
     setCurrentMode(this.mode);
     this.contextBar.update({ mode: this.mode });
     this.syncModeColor();
-    this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`);
+
+    const modeLine = `  ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
+    if (this.modeChangeText) {
+      // Update existing mode change line in place
+      this.modeChangeText.setText(modeLine);
+    } else {
+      // Create new mode change line
+      this.modeChangeText = new Text(modeLine, 0, 0);
+      this.chat.addChild(this.modeChangeText);
+    }
     this.tui.requestRender();
   }
 
@@ -418,12 +468,13 @@ export class ImpulseRenderer {
   /** Cycle reasoning level using provider capability (Shift+Tab) */
   private async cycleReasoning(): Promise<void> {
     if (this.isRunning) return;
+    if (!this.reasoningCapability.supported) return; // Do nothing if model doesn't support reasoning
     const next = cycleReasoningLevel(this.reasoningLevel, this.reasoningCapability);
     await this.setReasoningLevel(next);
   }
 
-  /** Discover reasoning capabilities for the current model (called after startup) */
-  private async discoverReasoningCapability(): Promise<void> {
+  /** Refresh reasoning capabilities for the current model */
+  private async refreshReasoningCapability(): Promise<void> {
     try {
       const config = await loadConfig();
       const providerName = config.defaultProvider;
@@ -510,7 +561,7 @@ export class ImpulseRenderer {
 
   private async runTurn(userMessage: string): Promise<void> {
     this.isRunning = true;
-
+    this.modeChangeText = null; // Reset mode change tracking for new turn
 
     // User message block
     this.addChatLine("");
@@ -540,9 +591,8 @@ export class ImpulseRenderer {
         this.spinStop();
         this.closeThinking();
         if (!this.streamingText) {
-          // Add impulse response header on first token
-          this.chat.addChild(new Spacer(1));
-          this.chat.addChild(new Text(`  ${A.fg(33, "impulse")}${A.reset}`, 0, 0));
+          // Add Impulse response header on first token
+          this.chat.addChild(new Text(`  ${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
           this.streamingText = new Text("", 0, 0);
           this.chat.addChild(this.streamingText);
         }
@@ -553,8 +603,8 @@ export class ImpulseRenderer {
       onThinking: (text) => {
         this.spinStop();
         if (!this.thinkingText) {
-          const header = new Text(clr.dim("┌─ Thinking ──────────────────────────────────────────"), 0, 0);
-          this.chat.addChild(header);
+          // Gold "Thinking:" label in italics
+          this.chat.addChild(new Text(`  \x1b[33m\x1b[3mThinking:\x1b[0m`, 0, 0));
           this.thinkingText = new Text("", 0, 0);
           this.chat.addChild(this.thinkingText);
           this.thinkingOpen = true;
@@ -563,7 +613,7 @@ export class ImpulseRenderer {
         this.thinkingText.setText(
           this.thinkingRaw
             .split("\n")
-            .map((l) => A.dim + "│ " + l + A.reset)
+            .map((l) => `  \x1b[38;5;136m\x1b[3m${l}\x1b[0m`)  // dark gold + italic
             .join("\n")
         );
         // Cycle phrase
@@ -594,7 +644,8 @@ export class ImpulseRenderer {
         this.closeThinking();
         if (this.streamingRaw) { this.addChatLine(""); this.streamingRaw = ""; this.streamingText = null; }
         const argStr = this.fmtArgs(args);
-        this.addChatLine(`  ${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}`);
+        // Dark gray background for tool running
+        this.addChatLine(`  \x1b[48;5;236m${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\x1b[0m`);
         this.spinStart(`running ${name}…`);
         this.tui.requestRender();
       },
@@ -603,14 +654,16 @@ export class ImpulseRenderer {
         if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
 
         this.spinStop();
+        // Dark green for success, dark red for failure
+        const bgColor = result.success ? "\x1b[48;5;22m" : "\x1b[48;5;52m";
         const icon = result.success ? clr.success("✓") : clr.error("✗");
         const dur = clr.dim(`${durationMs}ms`);
         const lines = result.output.trim().split("\n");
         const preview = (lines[0] ?? "").slice(0, 65);
         const extra = lines.length > 1 ? clr.dim(` +${lines.length - 1} lines`) : "";
-        this.addChatLine(`  ${icon}  ${clr.dim(preview)}${extra}  ${dur}`);
+        this.addChatLine(`  ${bgColor}${icon}  ${clr.dim(preview)}${extra}  ${dur}\x1b[0m`);
         if (!result.success && lines[1]) {
-          this.addChatLine(`     ${clr.error(lines[1].slice(0, 70))}`);
+          this.addChatLine(`  ${bgColor}   ${clr.error(lines[1].slice(0, 70))}\x1b[0m`);
         }
         this.tui.requestRender();
       },
@@ -775,7 +828,6 @@ export class ImpulseRenderer {
 
   private closeThinking(): void {
     if (this.thinkingOpen && this.thinkingText) {
-      this.chat.addChild(new Text(clr.dim("└────────────────────────────────────────────────────"), 0, 0));
       this.chat.addChild(new Spacer(1));
       this.thinkingOpen = false;
     }
@@ -871,66 +923,127 @@ export class ImpulseRenderer {
       return;
     }
 
-    const lines: string[] = [
-      clr.bold("┌─ MODEL SETUP ───────────────────────────────────────────────"),
-    ];
+    const lines: string[] = [];
 
     if (state.step === "provider") {
-      lines.push(clr.dim("│ Step 1/4: Choose provider"));
-      lines.push(clr.dim("│"));
-      for (let i = 0; i < MODEL_PROVIDERS.length; i++) {
-        const provider = MODEL_PROVIDERS[i]!;
-        const stored = providerConfig(state.config, provider.key);
-        const current = provider.key === state.currentProvider ? " current" : "";
-        lines.push(`│   ${i + 1}. ${clr.tool(provider.label)} - ${clr.dim(maskKey(stored.apiKey))}${clr.success(current)}`);
+      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push("");
+
+      // Show configured providers first
+      const configured = state.providers.filter(p => p.configured);
+      const unconfigured = state.providers.filter(p => !p.configured);
+
+      if (configured.length > 0) {
+        lines.push(clr.dim("Configured Providers:"));
+        for (let i = 0; i < configured.length; i++) {
+          const entry = configured[i]!;
+          const isSelected = state.selectedIndex === i;
+          const prefix = isSelected ? "  > " : "    ";
+          const icon = entry.valid ? clr.success("✓") : clr.error("✗");
+          const label = isSelected ? A.fg(36, entry.provider.label) : entry.provider.label;
+          lines.push(`${prefix}${icon} ${label} ${clr.dim(`(${entry.keyPreview})`)}`);
+        }
+        lines.push("");
       }
+
+      // Show unconfigured providers
+      if (unconfigured.length > 0) {
+        lines.push(clr.dim("Add New Provider:"));
+        for (let i = 0; i < unconfigured.length; i++) {
+          const entry = unconfigured[i]!;
+          const idx = configured.length + i;
+          const isSelected = state.selectedIndex === idx;
+          const prefix = isSelected ? "  > " : "    ";
+          const label = isSelected ? A.fg(36, entry.provider.label) : entry.provider.label;
+          lines.push(`${prefix}${label}`);
+        }
+      }
+
+      lines.push("");
+      lines.push(clr.dim("↑↓: Navigate  Enter: Select  Esc: Cancel"));
     } else if (state.step === "baseUrl") {
-      lines.push(clr.dim(`│ Step 2/4: ${state.provider?.label ?? "Provider"} endpoint`));
-      lines.push(clr.dim("│"));
-      lines.push(`│   ${clr.dim("Enter a custom endpoint or press Enter to keep the default.")}`);
+      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push("");
+      lines.push(`${state.provider?.label ?? "Provider"} endpoint`);
+      lines.push("");
+      lines.push(clr.dim("Enter a custom endpoint or press Enter to keep the default."));
     } else if (state.step === "apiKey") {
-      lines.push(clr.dim(`│ Step 2/4: ${state.provider?.label ?? "Provider"} API key`));
-      lines.push(clr.dim("│"));
-      lines.push(`│   Existing key: ${clr.dim(maskKey(state.existing?.apiKey))}`);
-      lines.push(`│   ${clr.dim(state.existing?.apiKey ? "Press Enter to keep it, or type a replacement." : "Type the API key. Input is masked.")}`);
+      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push("");
+      lines.push(`${state.provider?.label ?? "Provider"} API key`);
+      lines.push("");
+      if (state.existing?.apiKey) {
+        const masked = maskKeyFull(state.existing.apiKey);
+        lines.push(`Existing key: ${clr.dim(masked)}`);
+        lines.push(clr.dim("Press Enter to keep it, or type a replacement."));
+      } else {
+        lines.push(clr.dim("Type the API key. Input is shown while typing."));
+      }
     } else if (state.step === "discovering") {
-      lines.push(clr.dim(`│ Step 3/4: Discovering ${state.provider?.label ?? "provider"} models`));
-      lines.push(clr.dim("│"));
-      lines.push(`│   ${clr.dim("Testing connection...")}`);
+      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push("");
+      lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
+      lines.push("");
+      lines.push(clr.dim("Testing connection..."));
     } else if (state.step === "model") {
-      lines.push(clr.dim("│ Step 4/4: Pick model"));
-      lines.push(clr.dim("│"));
+      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push("");
       if (state.discovery) {
         const marker = state.discovery.success ? clr.success("[OK]") : clr.warn("[WARN]");
-        lines.push(`│   ${marker} ${state.discovery.message}`);
+        lines.push(`${marker} ${state.discovery.message}`);
       }
-      const displayCount = Math.min(state.models.length, 20);
-      for (let i = 0; i < displayCount; i++) {
-        lines.push(`│   ${String(i + 1).padStart(2, " ")}. ${state.models[i]!}`);
+      lines.push("");
+
+      // Paginated model list
+      const start = state.page * state.modelsPerPage;
+      const end = Math.min(start + state.modelsPerPage, state.models.length);
+      const pageModels = state.models.slice(start, end);
+
+      for (let i = 0; i < pageModels.length; i++) {
+        const globalIdx = start + i;
+        const isSelected = globalIdx === state.selectedIndex;
+        const prefix = isSelected ? "  > " : "    ";
+        const label = isSelected ? A.fg(36, pageModels[i]!) : pageModels[i]!;
+        lines.push(`${prefix}${label}`);
       }
-      if (state.models.length > displayCount) {
-        lines.push(`│   ${clr.dim(`... and ${state.models.length - displayCount} more; type a full model ID if not shown`)}`);
-      }
+
       if (state.models.length === 0) {
-        lines.push(`│   ${clr.dim("No models listed; type a full model ID manually.")}`);
+        lines.push(clr.dim("    No models listed; type a full model ID manually."));
+      }
+
+      // Page indicator
+      const totalPages = Math.ceil(state.models.length / state.modelsPerPage);
+      if (totalPages > 1) {
+        lines.push("");
+        lines.push(clr.dim(`Page ${state.page + 1}/${totalPages}`));
       }
     }
 
     if (state.error) {
-      lines.push(clr.dim("│"));
-      lines.push(`│   ${clr.error(state.error)}`);
+      lines.push("");
+      lines.push(clr.error(state.error));
     }
 
-    const prompt = this.modelSetupPrompt();
-    if (prompt) {
-      lines.push(clr.dim("│"));
-      lines.push(`│ ${prompt}:`);
+    if (state.step === "provider") {
+      // Arrow navigation mode — no text input needed
+      this.promptInput.setSecretMode(false);
+    } else {
+      // Text input mode
+      const prompt = this.modelSetupPrompt();
+      if (prompt) {
+        lines.push("");
+        lines.push(`${prompt}:`);
+      }
+      lines.push("");
+      lines.push(clr.dim("Enter: continue   Esc: back/cancel"));
+      this.promptInput.setSecretMode(state.step === "apiKey");
     }
-    lines.push(clr.dim("│"));
-    lines.push(clr.dim("│ Enter: continue   Esc/Ctrl+C/cancel: cancel"));
-    lines.push(clr.bold("└─────────────────────────────────────────────────────────────"));
 
-    this.promptInput.setSecretMode(state.step === "apiKey");
     this.modelSetupText.setText(lines.join("\n"));
     this.tui.requestRender();
   }
@@ -949,6 +1062,26 @@ export class ImpulseRenderer {
     state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
   }
 
+  /** Validate API keys for configured providers */
+  private async validateProviderKeys(): Promise<void> {
+    const state = this.modelSetup;
+    if (!state || state.step !== "provider") return;
+
+    for (const entry of state.providers) {
+      if (!entry.configured) continue;
+      try {
+        const stored = providerConfig(state.config, entry.provider.key);
+        if (!stored.apiKey) { entry.valid = false; continue; }
+        // Simple validation: check if key is non-empty
+        // Full validation would require making a test API call
+        entry.valid = stored.apiKey.length > 0;
+      } catch {
+        entry.valid = false;
+      }
+    }
+    this.renderModelSetup();
+  }
+
   private currentModelForProvider(config: Config, provider: ModelProviderOption): string {
     return config.defaultModel?.startsWith(`${provider.key}/`)
       ? config.defaultModel
@@ -960,6 +1093,12 @@ export class ImpulseRenderer {
     this.modelSetupText.setText("");
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
+    // Clear navigation callbacks
+    this.promptInput.onArrowUp = null;
+    this.promptInput.onArrowDown = null;
+    this.promptInput.onArrowLeft = null;
+    this.promptInput.onArrowRight = null;
+    this.promptInput.onEnter = null;
     this.addChatLine(`  ${clr.dim("Model setup cancelled")}`);
     this.tui.requestRender();
   }
@@ -1070,7 +1209,7 @@ export class ImpulseRenderer {
 
     this.reasoningCapability = this.reasoningCapabilityForProvider(provider.key);
     await this.normalizeReasoningLevel();
-    void this.discoverReasoningCapability();
+    void this.refreshReasoningCapability();
     this.contextBar.update({
       workerModel: selectedModel,
       reasoningLevel: this.reasoningLevel,
@@ -1093,11 +1232,39 @@ export class ImpulseRenderer {
 
     const config = await loadConfig();
     const currentProvider = config.defaultProvider;
+
+    // Build provider list: configured first, then unconfigured
+    const configured: ProviderEntry[] = [];
+    const unconfigured: ProviderEntry[] = [];
+    for (const provider of MODEL_PROVIDERS) {
+      const stored = providerConfig(config, provider.key);
+      const hasKey = !!stored.apiKey;
+      if (hasKey) {
+        configured.push({
+          provider,
+          configured: true,
+          valid: true,  // Will be validated async
+          keyPreview: maskKey(stored.apiKey),
+        });
+      } else {
+        unconfigured.push({
+          provider,
+          configured: false,
+          valid: false,
+          keyPreview: "",
+        });
+      }
+    }
+
     this.modelSetup = {
       step: "provider",
       config,
       currentProvider,
       models: [],
+      providers: [...configured, ...unconfigured],
+      selectedIndex: 0,
+      page: 0,
+      modelsPerPage: 20,
     };
 
     const provider = arg ? parseProviderChoice(arg, currentProvider) : null;
@@ -1110,7 +1277,76 @@ export class ImpulseRenderer {
     this.promptInput.clear();
     this.promptInput.setSecretMode(false);
     this.autocompleteText.setText("");
+
+    // Set up arrow key navigation for provider step
+    this.setupModelNavigation();
+
     this.renderModelSetup();
+
+    // Validate configured providers async
+    void this.validateProviderKeys();
+  }
+
+  private setupModelNavigation(): void {
+    // Clear any existing navigation callbacks
+    this.promptInput.onArrowUp = null;
+    this.promptInput.onArrowDown = null;
+    this.promptInput.onArrowLeft = null;
+    this.promptInput.onArrowRight = null;
+    this.promptInput.onEnter = null;
+
+    // Set up callbacks based on current step
+    const state = this.modelSetup;
+    if (!state) return;
+
+    if (state.step === "provider") {
+      this.promptInput.onArrowUp = () => {
+        state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+        this.renderModelSetup();
+      };
+      this.promptInput.onArrowDown = () => {
+        state.selectedIndex = Math.min(state.providers.length - 1, state.selectedIndex + 1);
+        this.renderModelSetup();
+      };
+      this.promptInput.onEnter = () => {
+        const entry = state.providers[state.selectedIndex];
+        if (entry) {
+          this.selectModelSetupProvider(entry.provider);
+          this.setupModelNavigation();  // Re-setup for next step
+          this.renderModelSetup();
+        }
+      };
+    } else if (state.step === "model") {
+      this.promptInput.onArrowUp = () => {
+        state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+        this.renderModelSetup();
+      };
+      this.promptInput.onArrowDown = () => {
+        state.selectedIndex = Math.min(state.models.length - 1, state.selectedIndex + 1);
+        this.renderModelSetup();
+      };
+      this.promptInput.onArrowLeft = () => {
+        if (state.page > 0) {
+          state.page--;
+          state.selectedIndex = state.page * state.modelsPerPage;
+          this.renderModelSetup();
+        }
+      };
+      this.promptInput.onArrowRight = () => {
+        const totalPages = Math.ceil(state.models.length / state.modelsPerPage);
+        if (state.page < totalPages - 1) {
+          state.page++;
+          state.selectedIndex = state.page * state.modelsPerPage;
+          this.renderModelSetup();
+        }
+      };
+      this.promptInput.onEnter = () => {
+        const model = state.models[state.selectedIndex];
+        if (model) {
+          void this.finishModelSetup(String(state.selectedIndex + 1));
+        }
+      };
+    }
   }
 
   private async cmdAdvisor(arg: string): Promise<void> {
@@ -1194,54 +1430,38 @@ export class ImpulseRenderer {
     await this.setReasoningLevel(level);
   }
 
-  private async cmdUser(arg: string): Promise<void> {
+  private async cmdUser(_arg: string): Promise<void> {
     const config = await loadConfig();
     const profile = config.userProfile;
 
-    // If "edit" argument or no argument, show profile and offer to edit
-    if (arg === "edit" || !arg) {
-      this.addChatLine("");
-      this.addChatLine(`  ${clr.bold("User Profile")}`);
-      this.addChatLine(`  ${clr.dim("name")}         ${profile?.name || clr.dim("(not set)")}`);
-      this.addChatLine(`  ${clr.dim("preference")}   ${profile?.responsePreference || clr.dim("concise")}`);
-      this.addChatLine(`  ${clr.dim("instructions")} ${profile?.customInstructions || clr.dim("(none)")}`);
-      this.addChatLine("");
+    // Show current profile
+    this.addChatLine("");
+    this.addChatLine(`  ${clr.bold("User Profile")}`);
+    this.addChatLine(`  ${clr.dim("name")}         ${profile?.name || clr.dim("(not set)")}`);
+    this.addChatLine(`  ${clr.dim("preference")}   ${profile?.responsePreference || clr.dim("concise")}`);
+    this.addChatLine(`  ${clr.dim("instructions")} ${profile?.customInstructions || clr.dim("(none)")}`);
+    this.addChatLine("");
 
-      if (arg === "edit") {
-        // Run inline edit flow
-        this.addChatLine(`  ${clr.dim("Updating profile...")}`);
-        this.addChatLine(`  ${clr.dim("Press Enter to keep current values.")}`);
-        this.tui.requestRender();
+    // Ask if user wants to edit
+    this.addChatLine(`  ${clr.dim("Edit profile? (y/n)")}`);
+    this.tui.requestRender();
 
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const ask = (q: string): Promise<string> =>
-          new Promise((res) => rl.question(q, (a) => res(a.trim())));
-
-        const name = await ask(`  Name [${profile?.name || ""}]: `);
-        const pref = await ask(`  Preference (concise/detailed/casual/technical) [${profile?.responsePreference || "concise"}]: `);
-        const instructions = await ask(`  Custom instructions [${profile?.customInstructions || ""}]: `);
-
-        rl.close();
-
-        // Update config
-        config.userProfile = {
-          name: name || profile?.name || "",
-          responsePreference: pref || profile?.responsePreference || "concise",
-          customInstructions: instructions ?? profile?.customInstructions ?? "",
-        };
-        await saveConfig(config);
-
-        // Update local state
-        this.userName = config.userProfile.name || "you";
-
-        this.addChatLine(`  ${clr.success("✓")} Profile updated`);
-      } else {
-        this.addChatLine(`  ${clr.dim("Type /user edit to update")}`);
-      }
-      this.addChatLine("");
+    const key = await this.readKey();
+    if (key === "y" || key === "\r") {
+      // Stop TUI, run onboarding flow, restart TUI
+      this.tui.stop();
+      const { runOnboarding } = await import("../index.js");
+      await runOnboarding();
+      const newConfig = await loadConfig();
+      this.userName = newConfig.userProfile?.name || "you";
+      this.tui.start();
+      this.tui.setFocus(this.promptInput);
+      this.addChatLine(`  ${clr.success("✓")} Profile updated`);
     } else {
-      this.addChatLine(`  ${clr.dim("Usage: /user or /user edit")}`);
+      this.addChatLine(`  ${clr.dim("Profile unchanged")}`);
     }
+    this.addChatLine("");
+    this.tui.requestRender();
   }
 
   private printHelp(): void {
