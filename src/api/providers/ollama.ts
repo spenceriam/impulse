@@ -258,7 +258,7 @@ export class OllamaProvider implements AIProvider {
       };
 
       applyCommonOptions(req, options);
-      if (options.thinking && ollamaSupportsReasoning(model)) {
+      if (reasoningEnabled(options) && ollamaSupportsReasoning(model)) {
         (req as unknown as Record<string, unknown>)["think"] = true;
       }
 
@@ -283,7 +283,7 @@ export class OllamaProvider implements AIProvider {
       };
 
       applyCommonOptions(req, options);
-      if (options.thinking && ollamaSupportsReasoning(model)) {
+      if (reasoningEnabled(options) && ollamaSupportsReasoning(model)) {
         (req as unknown as Record<string, unknown>)["think"] = true;
       }
 
@@ -325,6 +325,11 @@ function applyCommonOptions(
   if (options.tools !== undefined) req.tools = options.tools as OpenAI.ChatCompletionTool[];
   if (options.tool_choice !== undefined)
     req.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
+}
+
+function reasoningEnabled(options: CompletionOptions): boolean {
+  if (options.reasoningLevel !== undefined) return options.reasoningLevel !== "off";
+  return options.thinking?.type === "enabled";
 }
 
 function transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {

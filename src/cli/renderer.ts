@@ -19,18 +19,34 @@ import {
   Text,
   Spacer,
   Input,
+  truncateToWidth,
   type Component,
   type Focusable,
 } from "@mariozechner/pi-tui";
 import { ContextBarComponent } from "./components/context-bar.js";
+import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config, type ReasoningLevel } from "../util/config.js";
 import { PROVIDER_REASONING_STYLE, getLevelsForStyle, cycleReasoningLevel, discoverOllamaReasoning, type ReasoningCapability } from "../api/providers/capabilities.js";
+import { resetProviderManager } from "../api/manager.js";
+import {
+  MODEL_PROVIDERS,
+  discoverModels,
+  maskKey,
+  modelWithProviderPrefix,
+  parseProviderChoice,
+  providerConfig,
+  saveHomeEnv,
+  type ModelDiscoveryResult,
+  type ModelProviderOption,
+  type StoredProviderConfig,
+} from "./model-setup.js";
 import { SessionManager } from "../session/manager.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
 import packageJson from "../../package.json";
+import * as readline from "readline";
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 const A = {
@@ -68,14 +84,17 @@ class PromptInput implements Component, Focusable {
   private _pasteContent: string | null = null;
   private _isPasting = false;
   private _pasteBuffer = "";
+  private _secretMode = false;
 
   onTabForward?:  () => void;
   onTabBackward?: () => void;
   onAbort?:       () => void;
   onExit?:        () => void;
+  onEscape?:      () => void;
   onChange?:      (value: string) => void;
 
   setModeColor(code: number): void { this._modeColorCode = code; }
+  setSecretMode(enabled: boolean): void { this._secretMode = enabled; }
 
   get onSubmit() { return this.inner.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
@@ -100,6 +119,7 @@ class PromptInput implements Component, Focusable {
     if (data === "\x1b[Z") { this.onTabBackward?.(); return; }
     if (data === "\x03")   { this.onAbort?.();        return; }
     if (data === "\x04")   { this.onExit?.();         return; }
+    if (data === "\x1b")   { this.onEscape?.();       return; }
 
     // ── Bracketed paste detection ──────────────────────────────────────────
     const hasPasteStart = data.includes("\x1b[200~");
@@ -160,13 +180,23 @@ class PromptInput implements Component, Focusable {
   render(width: number): string[] {
     // pi-tui Input ALWAYS renders "> " (2 chars) as its own prompt prefix.
     // We strip it and replace with our mode-colored ❯ .
-    // Pass full width so content area = width - 2 (matching the "> " overhead).
-    const innerLines = this.inner.render(width);
+    // Render it narrower so our wider replacement prefix still fits the TUI width.
+    const innerWidth = Math.max(2, width - 2);
+    const innerLines = this.inner.render(innerWidth);
     const firstLine = innerLines[0] ?? "";
     // Strip Input's hardcoded "> " prefix
     const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
     const ARROW = `  \x1b[${this._modeColorCode}m\u276f\x1b[0m `;
-    return [ARROW + content, ...innerLines.slice(1).map((l) => "    " + l)];
+    if (this._secretMode) {
+      const valueLength = this.inner.getValue().length;
+      const masked = valueLength > 0 ? "*".repeat(Math.min(valueLength, Math.max(0, width - 4))) : "";
+      return [truncateToWidth(ARROW + masked, width)];
+    }
+
+    return [
+      truncateToWidth(ARROW + content, width),
+      ...innerLines.slice(1).map((l) => truncateToWidth("    " + l, width)),
+    ];
   }
 }
 
@@ -179,6 +209,21 @@ class SeparatorLine implements Component {
   }
 }
 
+type ModelSetupStep = "provider" | "baseUrl" | "apiKey" | "discovering" | "model";
+
+interface ModelSetupState {
+  step: ModelSetupStep;
+  config: Config;
+  currentProvider: string;
+  provider?: ModelProviderOption;
+  existing?: StoredProviderConfig;
+  baseUrl?: string;
+  apiKey?: string;
+  models: string[];
+  discovery?: ModelDiscoveryResult;
+  error?: string;
+}
+
 // ── ImpulseRenderer ───────────────────────────────────────────────────────────
 
 export class ImpulseRenderer {
@@ -186,12 +231,17 @@ export class ImpulseRenderer {
   private terminal = new ProcessTerminal();
   private tui!: TUI;
 
+  // Tools that should not render output to the user
+  private static readonly SILENT_TOOLS = new Set(["set_header"]);
+
   // Layout components
   private chat!: Container;
   private spinnerText!: Text;
   private contextBar!: ContextBarComponent;
   private promptInput!: PromptInput;
   private autocompleteText!: Text; // slash command suggestions
+  private modelSetupText!: Text;
+  private bottomSpacer!: BottomAnchorSpacer;
 
   // Manual spinner — avoids Loader auto-start issues
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
@@ -233,12 +283,17 @@ export class ImpulseRenderer {
   private reasoningLevel: ReasoningLevel = "medium";
   private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
+  private modelSetup: ModelSetupState | null = null;
+  private userName = "you"; // User's display name (loaded from config)
 
   async start(): Promise<void> {
     const config = await loadConfig();
     this.mode = normalizeMode(config.defaultMode) as Mode;
     this.advisorModel = config.advisorModel;
     this.reasoningLevel = config.reasoningLevel ?? (config.thinking ? "medium" : "off");
+    this.reasoningCapability = this.reasoningCapabilityForProvider(config.defaultProvider);
+    this.userName = config.userProfile?.name || "you";
+    await this.normalizeReasoningLevel();
 
     setCurrentMode(this.mode);
 
@@ -248,6 +303,10 @@ export class ImpulseRenderer {
 
     // ── Build TUI layout ──────────────────────────────────────────────────
     this.tui = new TUI(this.terminal);
+
+    // 0. Bottom anchor spacer — pushes content down so contextBar stays at terminal bottom
+    this.bottomSpacer = new BottomAnchorSpacer(this.tui, () => this.getContentHeight());
+    this.tui.addChild(this.bottomSpacer);
 
     // 1. Chat history — grows as turns are added
     this.chat = new Container();
@@ -273,6 +332,9 @@ export class ImpulseRenderer {
     // 3. Separator ABOVE input
     this.tui.addChild(new SeparatorLine());
 
+    this.modelSetupText = new Text("", 0, 0);
+    this.tui.addChild(this.modelSetupText);
+
     // Slash command autocomplete — shown only when input starts with /
     this.autocompleteText = new Text("", 0, 0);
     this.tui.addChild(this.autocompleteText);
@@ -282,11 +344,17 @@ export class ImpulseRenderer {
     this.promptInput.onSubmit = (_displayedValue) => {
       const actual = this.promptInput.getSubmitValue();
       this.promptInput.clear();
-      void this.onSubmit(actual);
+      this.autocompleteText.setText("");
+      if (this.modelSetup) void this.handleModelSetupSubmit(actual);
+      else void this.onSubmit(actual);
     };
-    this.promptInput.onTabForward  = () => this.cycleMode(1);
-    this.promptInput.onTabBackward = () => this.cycleReasoning();
+    this.promptInput.onTabForward  = () => { if (!this.modelSetup) this.cycleMode(1); };
+    this.promptInput.onTabBackward = () => { if (!this.modelSetup) void this.cycleReasoning(); };
     this.promptInput.onAbort = () => {
+      if (this.modelSetup) {
+        this.cancelModelSetup();
+        return;
+      }
       if (this.isRunning) {
         this.loop.abort();
         this.spinStop();
@@ -300,6 +368,9 @@ export class ImpulseRenderer {
       }
     };
     this.promptInput.onExit = () => { this.showExitStats(); this.tui.stop(); process.exit(0); };
+    this.promptInput.onEscape = () => {
+      if (this.modelSetup) this.cancelModelSetup();
+    };
     this.promptInput.onChange = (val) => this.updateAutocomplete(val);
     this.tui.addChild(this.promptInput);
 
@@ -348,14 +419,7 @@ export class ImpulseRenderer {
   private async cycleReasoning(): Promise<void> {
     if (this.isRunning) return;
     const next = cycleReasoningLevel(this.reasoningLevel, this.reasoningCapability);
-    this.reasoningLevel = next;
-    const config = await loadConfig();
-    config.reasoningLevel = next;
-    config.thinking = next !== "off";
-    await saveConfig(config);
-    this.contextBar.update({ reasoningLevel: next });
-    this.addChatLine(`  ${clr.dim(`reasoning: ${next}`)}`);
-    this.tui.requestRender();
+    await this.setReasoningLevel(next);
   }
 
   /** Discover reasoning capabilities for the current model (called after startup) */
@@ -363,7 +427,6 @@ export class ImpulseRenderer {
     try {
       const config = await loadConfig();
       const providerName = config.defaultProvider;
-      const style = PROVIDER_REASONING_STYLE[providerName] ?? "none";
       // For Ollama, query /api/show to check if this specific model supports thinking
       if (providerName === "ollama") {
         const modelName = (config.defaultModel ?? "").replace(/^ollama\//, "");
@@ -371,15 +434,60 @@ export class ImpulseRenderer {
         const apiKey  = config.providers?.ollama?.apiKey;
         this.reasoningCapability = await discoverOllamaReasoning(baseUrl, modelName, apiKey);
       } else {
-        this.reasoningCapability = {
-          supported: style !== "none",
-          style,
-          levels: getLevelsForStyle(style),
-        };
+        this.reasoningCapability = this.reasoningCapabilityForProvider(providerName);
       }
+      await this.normalizeReasoningLevel();
+      this.contextBar.update({ reasoningLevel: this.reasoningLevel });
+      this.tui.requestRender();
     } catch {
       // Keep default binary capability if discovery fails
     }
+  }
+
+  private reasoningCapabilityForProvider(providerName: string): ReasoningCapability {
+    const style = PROVIDER_REASONING_STYLE[providerName] ?? "none";
+    return {
+      supported: style !== "none",
+      style,
+      levels: getLevelsForStyle(style),
+    };
+  }
+
+  private reasoningLevels(): ReasoningLevel[] {
+    return this.reasoningCapability.supported ? this.reasoningCapability.levels : ["off"];
+  }
+
+  private reasoningLevelsLabel(): string {
+    return this.reasoningLevels().join(" | ");
+  }
+
+  private async normalizeReasoningLevel(): Promise<void> {
+    const levels = this.reasoningLevels();
+    if (levels.includes(this.reasoningLevel)) return;
+
+    const next: ReasoningLevel =
+      this.reasoningLevel === "off"
+        ? "off"
+        : levels.includes("medium")
+          ? "medium"
+          : levels[0] ?? "off";
+
+    this.reasoningLevel = next;
+    const config = await loadConfig();
+    config.reasoningLevel = next;
+    config.thinking = next !== "off";
+    await saveConfig(config);
+  }
+
+  private async setReasoningLevel(level: ReasoningLevel): Promise<void> {
+    this.reasoningLevel = level;
+    const config = await loadConfig();
+    config.reasoningLevel = level;
+    config.thinking = level !== "off";
+    await saveConfig(config);
+    this.contextBar.update({ reasoningLevel: level });
+    this.addChatLine(`  ${clr.dim(`reasoning: ${level}`)}`);
+    this.tui.requestRender();
   }
 
 
@@ -406,7 +514,7 @@ export class ImpulseRenderer {
 
     // User message block
     this.addChatLine("");
-    this.addChatLine(`  ${A.fg(36, "you")}`);
+    this.addChatLine(`  ${A.fg(36, this.userName)}`);
     this.addChatLine(`  ${userMessage}`);
     this.addChatLine("");
 
@@ -434,7 +542,7 @@ export class ImpulseRenderer {
         if (!this.streamingText) {
           // Add impulse response header on first token
           this.chat.addChild(new Spacer(1));
-          this.chat.addChild(new Text(`  ${A.dim}impulse${A.reset}`, 0, 0));
+          this.chat.addChild(new Text(`  ${A.fg(33, "impulse")}${A.reset}`, 0, 0));
           this.streamingText = new Text("", 0, 0);
           this.chat.addChild(this.streamingText);
         }
@@ -479,6 +587,9 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onToolStart: (_id, name, args) => {
+        // Skip rendering for silent tools (e.g., set_header)
+        if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
+
         this.spinStop();
         this.closeThinking();
         if (this.streamingRaw) { this.addChatLine(""); this.streamingRaw = ""; this.streamingText = null; }
@@ -487,7 +598,10 @@ export class ImpulseRenderer {
         this.spinStart(`running ${name}…`);
         this.tui.requestRender();
       },
-      onToolEnd: (_id, _name, result, durationMs) => {
+      onToolEnd: (_id, name, result, durationMs) => {
+        // Skip rendering for silent tools (e.g., set_header)
+        if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
+
         this.spinStop();
         const icon = result.success ? clr.success("✓") : clr.error("✗");
         const dur = clr.dim(`${durationMs}ms`);
@@ -563,26 +677,64 @@ export class ImpulseRenderer {
     this.chat.addChild(new Text(text, 0, 0));
   }
 
+  /**
+   * Calculate total content height for bottom-anchor positioning.
+   * Returns the number of lines occupied by all TUI children except the BottomAnchorSpacer.
+   */
+  private getContentHeight(): number {
+    // Count lines from chat container's children
+    let chatLines = 0;
+    for (const child of this.chat.children) {
+      if ("render" in child && typeof child.render === "function") {
+        // Render with a safe width to count lines (actual width doesn't matter for line count)
+        const lines = child.render(80);
+        chatLines += lines.length;
+      }
+    }
+
+    // Fixed components (excluding BottomAnchorSpacer and chat):
+    // spinnerText (1) + SeparatorLine (1) + modelSetupText (1) + autocompleteText (variable) + promptInput (1) + SeparatorLine (1) + contextBar (1)
+    let otherLines = 6; // spinner + 2 separators + promptInput + contextBar + modelSetupText
+
+    // Add autocomplete lines if visible
+    if (this.autocompleteText) {
+      const acLines = this.autocompleteText.render(80);
+      otherLines += acLines.length;
+    }
+
+    return chatLines + otherLines;
+  }
+
   // ── Slash autocomplete ────────────────────────────────────────────────────
 
-  private readonly SLASH_CMDS = [
-    { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
-    { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
-    { cmd: "/reason",   hint: "off | low | medium | high  set reasoning level" },
-    { cmd: "/new",      hint: "[name]  start new session" },
-    { cmd: "/help",     hint: "show commands" },
-    { cmd: "/clear",    hint: "clear screen" },
-    { cmd: "/exit",     hint: "quit" },
-    { cmd: "/quit",     hint: "quit" },
-  ];
+  private slashCommands(): Array<{ cmd: string; hint: string }> {
+    return [
+      { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
+      { cmd: "/model",    hint: "choose provider, API key, and model" },
+      { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
+      { cmd: "/reason",   hint: `${this.reasoningLevelsLabel()}  set reasoning level` },
+      { cmd: "/new",      hint: "[name]  start new session" },
+      { cmd: "/user",     hint: "view/update name, preferences, instructions" },
+      { cmd: "/help",     hint: "show commands" },
+      { cmd: "/clear",    hint: "clear screen" },
+      { cmd: "/exit",     hint: "quit" },
+      { cmd: "/quit",     hint: "quit" },
+    ];
+  }
 
   private updateAutocomplete(val: string): void {
+    if (this.modelSetup) {
+      this.autocompleteText.setText("");
+      this.tui.requestRender();
+      return;
+    }
+
     if (!val.startsWith("/") || val.length < 1) {
       this.autocompleteText.setText("");
       this.tui.requestRender();
       return;
     }
-    const matches = this.SLASH_CMDS.filter((c) =>
+    const matches = this.slashCommands().filter((c) =>
       c.cmd.startsWith(val.split(" ")[0]!.toLowerCase())
     );
     if (matches.length === 0) {
@@ -661,8 +813,10 @@ export class ImpulseRenderer {
 
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
+      case "model":   await this.cmdModel(arg);   break;
       case "mode":    this.cmdMode(arg);           break;
       case "reason":  await this.cmdReason(arg);   break;
+      case "user":    await this.cmdUser(arg);     break;
       case "new":
         await SessionManager.createNew(arg || undefined);
         this.addChatLine(`  ${clr.success("✓")} New session started`);
@@ -684,6 +838,279 @@ export class ImpulseRenderer {
       default:
         this.addChatLine(`  ${clr.warn("?")} Unknown: /${cmd} — try /help`);
     }
+  }
+
+  private modelSetupPrompt(): string {
+    const state = this.modelSetup;
+    if (!state) return "";
+
+    switch (state.step) {
+      case "provider":
+        return `Provider number/name [${state.currentProvider}]`;
+      case "baseUrl":
+        return `Endpoint URL [${state.baseUrl ?? state.provider?.modelBaseUrl ?? ""}]`;
+      case "apiKey":
+        return state.existing?.apiKey
+          ? `API key [keep ${maskKey(state.existing.apiKey)}]`
+          : "API key";
+      case "model": {
+        const provider = state.provider;
+        const fallback = provider ? this.currentModelForProvider(state.config, provider) : "";
+        return `Model number/name [${fallback}]`;
+      }
+      default:
+        return "";
+    }
+  }
+
+  private renderModelSetup(): void {
+    const state = this.modelSetup;
+    if (!state) {
+      this.modelSetupText.setText("");
+      this.promptInput.setSecretMode(false);
+      return;
+    }
+
+    const lines: string[] = [
+      clr.bold("┌─ MODEL SETUP ───────────────────────────────────────────────"),
+    ];
+
+    if (state.step === "provider") {
+      lines.push(clr.dim("│ Step 1/4: Choose provider"));
+      lines.push(clr.dim("│"));
+      for (let i = 0; i < MODEL_PROVIDERS.length; i++) {
+        const provider = MODEL_PROVIDERS[i]!;
+        const stored = providerConfig(state.config, provider.key);
+        const current = provider.key === state.currentProvider ? " current" : "";
+        lines.push(`│   ${i + 1}. ${clr.tool(provider.label)} - ${clr.dim(maskKey(stored.apiKey))}${clr.success(current)}`);
+      }
+    } else if (state.step === "baseUrl") {
+      lines.push(clr.dim(`│ Step 2/4: ${state.provider?.label ?? "Provider"} endpoint`));
+      lines.push(clr.dim("│"));
+      lines.push(`│   ${clr.dim("Enter a custom endpoint or press Enter to keep the default.")}`);
+    } else if (state.step === "apiKey") {
+      lines.push(clr.dim(`│ Step 2/4: ${state.provider?.label ?? "Provider"} API key`));
+      lines.push(clr.dim("│"));
+      lines.push(`│   Existing key: ${clr.dim(maskKey(state.existing?.apiKey))}`);
+      lines.push(`│   ${clr.dim(state.existing?.apiKey ? "Press Enter to keep it, or type a replacement." : "Type the API key. Input is masked.")}`);
+    } else if (state.step === "discovering") {
+      lines.push(clr.dim(`│ Step 3/4: Discovering ${state.provider?.label ?? "provider"} models`));
+      lines.push(clr.dim("│"));
+      lines.push(`│   ${clr.dim("Testing connection...")}`);
+    } else if (state.step === "model") {
+      lines.push(clr.dim("│ Step 4/4: Pick model"));
+      lines.push(clr.dim("│"));
+      if (state.discovery) {
+        const marker = state.discovery.success ? clr.success("[OK]") : clr.warn("[WARN]");
+        lines.push(`│   ${marker} ${state.discovery.message}`);
+      }
+      const displayCount = Math.min(state.models.length, 20);
+      for (let i = 0; i < displayCount; i++) {
+        lines.push(`│   ${String(i + 1).padStart(2, " ")}. ${state.models[i]!}`);
+      }
+      if (state.models.length > displayCount) {
+        lines.push(`│   ${clr.dim(`... and ${state.models.length - displayCount} more; type a full model ID if not shown`)}`);
+      }
+      if (state.models.length === 0) {
+        lines.push(`│   ${clr.dim("No models listed; type a full model ID manually.")}`);
+      }
+    }
+
+    if (state.error) {
+      lines.push(clr.dim("│"));
+      lines.push(`│   ${clr.error(state.error)}`);
+    }
+
+    const prompt = this.modelSetupPrompt();
+    if (prompt) {
+      lines.push(clr.dim("│"));
+      lines.push(`│ ${prompt}:`);
+    }
+    lines.push(clr.dim("│"));
+    lines.push(clr.dim("│ Enter: continue   Esc/Ctrl+C/cancel: cancel"));
+    lines.push(clr.bold("└─────────────────────────────────────────────────────────────"));
+
+    this.promptInput.setSecretMode(state.step === "apiKey");
+    this.modelSetupText.setText(lines.join("\n"));
+    this.tui.requestRender();
+  }
+
+  private selectModelSetupProvider(provider: ModelProviderOption): void {
+    const state = this.modelSetup;
+    if (!state) return;
+
+    const existing = providerConfig(state.config, provider.key);
+    state.provider = provider;
+    state.existing = existing;
+    const baseUrl = existing.baseUrl ?? provider.defaultBaseUrl;
+    if (baseUrl) state.baseUrl = baseUrl;
+    else delete state.baseUrl;
+    delete state.error;
+    state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+  }
+
+  private currentModelForProvider(config: Config, provider: ModelProviderOption): string {
+    return config.defaultModel?.startsWith(`${provider.key}/`)
+      ? config.defaultModel
+      : provider.defaultModel;
+  }
+
+  private cancelModelSetup(): void {
+    this.modelSetup = null;
+    this.modelSetupText.setText("");
+    this.promptInput.setSecretMode(false);
+    this.promptInput.clear();
+    this.addChatLine(`  ${clr.dim("Model setup cancelled")}`);
+    this.tui.requestRender();
+  }
+
+  private async handleModelSetupSubmit(value: string): Promise<void> {
+    const state = this.modelSetup;
+    if (!state) return;
+
+    const input = value.trim();
+    if (input.toLowerCase() === "cancel") {
+      this.cancelModelSetup();
+      return;
+    }
+
+    delete state.error;
+
+    if (state.step === "provider") {
+      const provider = parseProviderChoice(input, state.currentProvider);
+      if (!provider) {
+        state.error = "Unknown provider. Enter a number or provider name.";
+        this.renderModelSetup();
+        return;
+      }
+      this.selectModelSetupProvider(provider);
+      this.renderModelSetup();
+      return;
+    }
+
+    if (state.step === "baseUrl") {
+      const provider = state.provider;
+      if (!provider) return;
+      state.baseUrl = input || state.baseUrl || provider.modelBaseUrl;
+      state.step = "apiKey";
+      this.renderModelSetup();
+      return;
+    }
+
+    if (state.step === "apiKey") {
+      const provider = state.provider;
+      if (!provider) return;
+      const apiKey = input || state.existing?.apiKey;
+      if (!apiKey) {
+        state.error = `${provider.label} requires an API key.`;
+        this.renderModelSetup();
+        return;
+      }
+      state.apiKey = apiKey;
+      state.step = "discovering";
+      this.renderModelSetup();
+      const discovery = await discoverModels(provider, apiKey, state.baseUrl);
+      state.discovery = discovery;
+      state.models = discovery.models;
+      if (!discovery.success) {
+        state.error = discovery.message;
+        state.step = "apiKey";
+        this.renderModelSetup();
+        return;
+      }
+      state.step = "model";
+      this.renderModelSetup();
+      return;
+    }
+
+    if (state.step === "model") {
+      await this.finishModelSetup(input);
+    }
+  }
+
+  private async finishModelSetup(modelChoice: string): Promise<void> {
+    const state = this.modelSetup;
+    const provider = state?.provider;
+    const apiKey = state?.apiKey;
+    if (!state || !provider || !apiKey) return;
+
+    const fallbackModel = this.currentModelForProvider(state.config, provider);
+    let selectedModel = fallbackModel;
+    const modelIdx = Number.parseInt(modelChoice, 10) - 1;
+    if (!modelChoice) {
+      selectedModel = fallbackModel;
+    } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
+      selectedModel = modelWithProviderPrefix(provider.key, state.models[modelIdx]!);
+    } else if (!modelChoice.match(/^\d+$/)) {
+      selectedModel = modelWithProviderPrefix(provider.key, modelChoice);
+    } else {
+      state.error = "Invalid model selection.";
+      this.renderModelSetup();
+      return;
+    }
+
+    const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
+    providers[provider.key] = {
+      ...(state.existing ?? {}),
+      apiKey,
+      ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+    };
+    state.config.providers = providers as Config["providers"];
+    state.config.defaultProvider = provider.key;
+    state.config.defaultModel = selectedModel;
+    process.env[provider.envVar] = apiKey;
+
+    await saveConfig(state.config);
+    await saveHomeEnv(provider, apiKey, state.baseUrl);
+    resetProviderManager();
+    SessionManager.setOptions({ defaultModel: selectedModel });
+    if (SessionManager.getCurrentSession()) {
+      await SessionManager.update({ model: selectedModel });
+    }
+
+    this.reasoningCapability = this.reasoningCapabilityForProvider(provider.key);
+    await this.normalizeReasoningLevel();
+    void this.discoverReasoningCapability();
+    this.contextBar.update({
+      workerModel: selectedModel,
+      reasoningLevel: this.reasoningLevel,
+      contextTokens: this.contextTokens,
+      contextWindow: this.contextWindow,
+      mode: this.mode,
+    });
+
+    this.modelSetup = null;
+    this.modelSetupText.setText("");
+    this.promptInput.setSecretMode(false);
+    this.promptInput.clear();
+    this.addChatLine(`  ${clr.success("[OK]")} Provider: ${provider.label}`);
+    this.addChatLine(`  ${clr.success("[OK]")} Model: ${selectedModel}`);
+    this.tui.requestRender();
+  }
+
+  private async cmdModel(arg: string): Promise<void> {
+    if (this.isRunning) return;
+
+    const config = await loadConfig();
+    const currentProvider = config.defaultProvider;
+    this.modelSetup = {
+      step: "provider",
+      config,
+      currentProvider,
+      models: [],
+    };
+
+    const provider = arg ? parseProviderChoice(arg, currentProvider) : null;
+    if (arg && !provider) {
+      this.modelSetup.error = `Unknown provider: ${arg}`;
+    } else if (provider) {
+      this.selectModelSetupProvider(provider);
+    }
+
+    this.promptInput.clear();
+    this.promptInput.setSecretMode(false);
+    this.autocompleteText.setText("");
+    this.renderModelSetup();
   }
 
   private async cmdAdvisor(arg: string): Promise<void> {
@@ -753,23 +1180,72 @@ export class ImpulseRenderer {
   }
 
   private async cmdReason(arg: string): Promise<void> {
-    const valid: ReasoningLevel[] = ["off", "low", "medium", "high"];
-    const level = arg.toLowerCase() as ReasoningLevel;
-    if (!valid.includes(level)) {
-      this.addChatLine(`  ${clr.error("✗")} Valid levels: off · low · medium · high`);
+    const valid = this.reasoningLevels();
+    if (!arg) {
+      this.addChatLine(`  reasoning: ${this.reasoningLevel}  |  options: ${this.reasoningLevelsLabel()}`);
       return;
     }
-    this.reasoningLevel = level;
+
+    const level = arg.toLowerCase() as ReasoningLevel;
+    if (!valid.includes(level)) {
+      this.addChatLine(`  ${clr.error("✗")} Valid levels: ${this.reasoningLevelsLabel()}`);
+      return;
+    }
+    await this.setReasoningLevel(level);
+  }
+
+  private async cmdUser(arg: string): Promise<void> {
     const config = await loadConfig();
-    config.reasoningLevel = level;
-    config.thinking = level !== "off";
-    await saveConfig(config);
-    this.contextBar.update({ reasoningLevel: level });
-    this.addChatLine(`  ${clr.dim(`reasoning: ${level}`)}`);
-    this.tui.requestRender();
+    const profile = config.userProfile;
+
+    // If "edit" argument or no argument, show profile and offer to edit
+    if (arg === "edit" || !arg) {
+      this.addChatLine("");
+      this.addChatLine(`  ${clr.bold("User Profile")}`);
+      this.addChatLine(`  ${clr.dim("name")}         ${profile?.name || clr.dim("(not set)")}`);
+      this.addChatLine(`  ${clr.dim("preference")}   ${profile?.responsePreference || clr.dim("concise")}`);
+      this.addChatLine(`  ${clr.dim("instructions")} ${profile?.customInstructions || clr.dim("(none)")}`);
+      this.addChatLine("");
+
+      if (arg === "edit") {
+        // Run inline edit flow
+        this.addChatLine(`  ${clr.dim("Updating profile...")}`);
+        this.addChatLine(`  ${clr.dim("Press Enter to keep current values.")}`);
+        this.tui.requestRender();
+
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const ask = (q: string): Promise<string> =>
+          new Promise((res) => rl.question(q, (a) => res(a.trim())));
+
+        const name = await ask(`  Name [${profile?.name || ""}]: `);
+        const pref = await ask(`  Preference (concise/detailed/casual/technical) [${profile?.responsePreference || "concise"}]: `);
+        const instructions = await ask(`  Custom instructions [${profile?.customInstructions || ""}]: `);
+
+        rl.close();
+
+        // Update config
+        config.userProfile = {
+          name: name || profile?.name || "",
+          responsePreference: pref || profile?.responsePreference || "concise",
+          customInstructions: instructions ?? profile?.customInstructions ?? "",
+        };
+        await saveConfig(config);
+
+        // Update local state
+        this.userName = config.userProfile.name || "you";
+
+        this.addChatLine(`  ${clr.success("✓")} Profile updated`);
+      } else {
+        this.addChatLine(`  ${clr.dim("Type /user edit to update")}`);
+      }
+      this.addChatLine("");
+    } else {
+      this.addChatLine(`  ${clr.dim("Usage: /user or /user edit")}`);
+    }
   }
 
   private printHelp(): void {
+    const reasonLevels = this.reasoningLevelsLabel();
     const h = [
       "",
       `  ${clr.bold("Commands")}`,
@@ -777,16 +1253,18 @@ export class ImpulseRenderer {
       `  ${clr.tool("/advisor on")}      ${clr.dim("Set advisor model")}`,
       `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
       `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
+      `  ${clr.tool("/model")} - ${clr.dim("Choose provider/API key/model")}`,
       `  ${clr.tool("/mode <MODE>")}     ${clr.dim("WORK · EXPLORE · PLAN · DEBUG")}`,
-      `  ${clr.tool("/reason <level>")} ${clr.dim("off · low · medium · high")}`,
+      `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels.replace(/\|/g, "·"))}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
-      `  ${clr.tool("/help")}            ${clr.dim("This message")}`,
-      `  ${clr.tool("/exit")}            ${clr.dim("Quit")}`,
+      `  ${clr.tool("/user")}            ${clr.dim("View/update profile & preferences")}`,
+      `  ${clr.tool("/help ")}${clr.dim("This message")}`,
+      `  ${clr.tool("/exit ")}${clr.dim("Quit")}`,
       "",
       `  ${clr.bold("Keyboard")}`,
       clr.dim("  ─────────────────────────────────────────"),
       `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode forward")}`,
-      `  ${clr.dim("Shift+Tab")}        ${clr.dim("Cycle reasoning level (off → low → medium → high)")}`,
+      `  ${clr.dim("Shift+Tab")}        ${clr.dim(`Cycle reasoning level (${reasonLevels})`)}`,
       `  ${clr.dim("Ctrl+C")}           ${clr.dim("Abort current turn")}`,
       `  ${clr.dim("Ctrl+D")}           ${clr.dim("Exit")}`,
       "",

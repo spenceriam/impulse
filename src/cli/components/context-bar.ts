@@ -153,7 +153,7 @@ export class ContextBarComponent implements Component {
 
     // Reasoning level indicator (shown when not "off")
     const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
-      ? sep + clr.dim(`✨ ${s.reasoningLevel}`) // ✨ sparkle = thinking active
+      ? sep + clr.dim(`reasoning: ${s.reasoningLevel}`)
       : "";
 
     // Auto-compact off indicator

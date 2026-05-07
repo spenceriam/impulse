@@ -69,11 +69,22 @@ const ConfigSchema = z.object({
   /** Whether user has seen the welcome screen */
   hasSeenWelcome: z.boolean().default(false),
 
+  /** User profile for personalization */
+  userProfile: z.object({
+    /** User's display name */
+    name: z.string().default(""),
+    /** Response style preference */
+    responsePreference: z.string().default("concise"),
+    /** Custom instructions injected into every system prompt */
+    customInstructions: z.string().default(""),
+  }).optional(),
+
   // Legacy — kept for smooth migration; prefer providers[].apiKey
   apiKey: z.string().optional().describe("Legacy: use providers[defaultProvider].apiKey instead"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type UserProfile = NonNullable<Config["userProfile"]>;
 
 const configPath = path.join(Global.Path.config, "config.json");
 
@@ -135,7 +146,14 @@ export async function load(): Promise<Config> {
 
   const fileConfig = await loadConfigFile();
   const envConfig = await loadEnvVars();
-  const merged = { ...fileConfig, ...envConfig };
+  const merged = {
+    ...fileConfig,
+    ...envConfig,
+    providers: {
+      ...(fileConfig.providers ?? {}),
+      ...(envConfig.providers ?? {}),
+    },
+  };
   cachedConfig = applyDefaults(merged);
   return cachedConfig;
 }
