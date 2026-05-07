@@ -10,6 +10,7 @@ import { MODES } from "../constants";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { load as loadConfig, type Config } from "../util/config";
 
 type Mode = typeof MODES[number];
 
@@ -457,10 +458,12 @@ function getModePromptName(mode: Mode): string {
  * Generate a system prompt for the given mode
  * @param mode - The current operating mode
  * @param cwd - The current working directory (optional, defaults to process.cwd())
+ * @param config - Optional config object (if not provided, will be loaded)
  */
-export function generateSystemPrompt(mode: Mode, cwd?: string): string {
+export async function generateSystemPrompt(mode: Mode, cwd?: string, config?: Config): Promise<string> {
   const workingDir = cwd || process.cwd();
-  
+  const cfg = config ?? await loadConfig();
+
   // Add working directory context at the start
   const cwdContext = `
 ## Working Directory
@@ -477,6 +480,18 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     getPrompt("core", "base", BASE_PROMPT),
     cwdContext,
   ];
+
+  // Add user profile context if available
+  if (cfg.userProfile?.name) {
+    const userProfileContext = `
+## User Profile
+
+The user's name is ${cfg.userProfile.name}.
+${cfg.userProfile.responsePreference ? `They prefer ${cfg.userProfile.responsePreference} responses.` : ''}
+${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile.customInstructions}` : ''}
+`;
+    parts.push(userProfileContext);
+  }
 
   const modeAddition = MODE_ADDITIONS[mode];
   if (modeAddition) {
@@ -498,7 +513,7 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   } else if (mode === "PLAN") {
     parts.push(getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH));
   }
-  
+
   return parts.join("\n").trim();
 }
 

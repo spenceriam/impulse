@@ -197,7 +197,7 @@ export class AgentLoop {
 
         // Build messages for API call
         const freshMessages = (SessionManager.getCurrentSession()?.messages ?? []);
-        const systemPrompt = await generateSystemPrompt(mode);
+        const systemPrompt = await generateSystemPrompt(mode, undefined, config);
         const chatMessages = buildChatMessages(freshMessages, systemPrompt);
 
         // ── Stream response ─────────────────────────────────────────────────

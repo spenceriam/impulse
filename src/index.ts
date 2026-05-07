@@ -72,6 +72,12 @@ if (!hasProvider) {
   await runSetup();
 }
 
+// ─── Check if user profile exists ─────────────────────────────────────────────
+const currentConfig = await loadConfig();
+if (!currentConfig.userProfile?.name) {
+  await runOnboarding();
+}
+
 // ─── Init tools & start ──────────────────────────────────────────────────────
 // Tools registered via side-effect import above
 const renderer = new ImpulseRenderer();
@@ -180,5 +186,93 @@ async function runSetup(): Promise<void> {
   fs.writeFileSync(path.join(impulseDir, ".env"), envLines.join("\n") + "\n", { mode: 0o600 });
 
   console.log(`\n  \x1b[32m✓\x1b[0m  Saved. Default model: ${defaultModel}\n`);
+  rl.close();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User onboarding
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function runOnboarding(): Promise<void> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> =>
+    new Promise((res) => rl.question(q, (a) => res(a.trim())));
+
+  console.log(`
+  \x1b[1mWelcome to Impulse\x1b[0m
+  \x1b[90m─────────────────────────────────────────\x1b[0m
+  Let's personalize your experience.
+`);
+
+  const name = await ask("  What's your name? ");
+  if (!name) {
+    console.log("  No name entered — skipping onboarding.");
+    rl.close();
+    return;
+  }
+
+  console.log(`
+  How should Impulse respond to you?
+
+    1. Concise    \x1b[90m(short, direct answers)\x1b[0m
+    2. Detailed   \x1b[90m(thorough explanations)\x1b[0m
+    3. Casual     \x1b[90m(relaxed, friendly tone)\x1b[0m
+    4. Technical   \x1b[90m(precise, code-focused)\x1b[0m
+    5. Other       \x1b[90m(describe your preference)\x1b[0m
+`);
+
+  const prefChoice = await ask("  Choice [1]: ");
+  let responsePreference: string;
+
+  switch (prefChoice) {
+    case "2":
+      responsePreference = "detailed";
+      break;
+    case "3":
+      responsePreference = "casual";
+      break;
+    case "4":
+      responsePreference = "technical";
+      break;
+    case "5": {
+      const custom = await ask("  Describe your preferred style: ");
+      responsePreference = custom || "concise";
+      break;
+    }
+    default:
+      responsePreference = "concise";
+  }
+
+  console.log(`
+  \x1b[90mCustom instructions are injected into every session's system prompt.
+  Leave blank to skip.\x1b[0m
+`);
+  const customInstructions = await ask("  Any custom instructions? (optional): ");
+
+  // Load config and save user profile
+  const cfg = await loadConfig().catch(() => ({
+    providers: {} as Record<string, unknown>,
+    defaultProvider: "ollama",
+    defaultModel: "ollama/llama3.2",
+    defaultMode: "WORK",
+    thinking: true,
+    hasSeenWelcome: true,
+    userProfile: {
+      name: "",
+      responsePreference: "concise",
+      customInstructions: "",
+    },
+  }));
+
+  cfg.userProfile = {
+    name,
+    responsePreference,
+    customInstructions: customInstructions || "",
+  };
+  cfg.hasSeenWelcome = true;
+
+  await saveConfig(cfg as Parameters<typeof saveConfig>[0]);
+
+  console.log(`\n  \x1b[32m✓\x1b[0m  Welcome, ${name}! Your preferences have been saved.\n`);
   rl.close();
 }
