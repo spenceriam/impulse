@@ -136,7 +136,7 @@ export class ContextBarComponent implements Component {
 
     // Reasoning level — right of model name in parentheses (only when not "off")
     const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
-      ? ` (${clr.dim(s.reasoningLevel)})`
+      ? ` (${clr.model(s.reasoningLevel)})`
       : "";
 
     const advisorSeg = s.advisorModel

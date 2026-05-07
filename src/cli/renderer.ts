@@ -347,7 +347,6 @@ export class ImpulseRenderer {
       `  ${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Ctrl+C: abort  |  Ctrl+D: exit")}`,
       0, 0
     ));
-    this.chat.addChild(new Text(A.dim + "─".repeat(60) + A.reset, 0, 0));
     this.chat.addChild(new Spacer(1));
 
     // 2. Spinner — plain Text, manually animated via setInterval in spinStart/spinStop
