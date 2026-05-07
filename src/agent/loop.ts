@@ -18,6 +18,18 @@ import type { ChatMessage, ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
 import { load as loadConfig } from "../util/config";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+// ── Debug logging ────────────────────────────────────────────────────────────
+const debugLogPath = path.join(os.homedir(), ".config", "impulse", "debug.log");
+
+function debugLog(msg: string): void {
+  // Always log to file for thinking tokens (can be toggled via /debug command)
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(debugLogPath, `[${timestamp}] [loop] ${msg}\n`);
+}
 import { Tool } from "../tools/registry";
 import { enableExpress } from "../permission";
 import { type Message } from "../session/store";
@@ -240,6 +252,7 @@ export class AgentLoop {
           if (delta.reasoning_content) {
             accumulatedThinking += delta.reasoning_content;
             events.onThinking(delta.reasoning_content);
+            debugLog(`thinking: ${delta.reasoning_content.length} chars`);
           }
 
           // Tool call fragments

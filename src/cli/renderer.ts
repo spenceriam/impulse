@@ -18,7 +18,7 @@ import {
   Container,
   Text,
   Spacer,
-  Input,
+  Editor,
   truncateToWidth,
   type Component,
   type Focusable,
@@ -47,6 +47,28 @@ import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
 import packageJson from "../../package.json";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+// ── Debug logging ────────────────────────────────────────────────────────────
+const debugLogPath = path.join(os.homedir(), ".config", "impulse", "debug.log");
+let debugEnabled = false;
+
+function debugLog(msg: string): void {
+  if (!debugEnabled) return;
+  const timestamp = new Date().toISOString();
+  const sessionID = SessionManager.getCurrentSessionID() ?? "no-session";
+  fs.appendFileSync(debugLogPath, `[${timestamp}] [${sessionID}] ${msg}\n`);
+}
+
+function setDebugEnabled(enabled: boolean): void {
+  debugEnabled = enabled;
+}
+
+function isDebugEnabled(): boolean {
+  return debugEnabled;
+}
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 const A = {
@@ -73,18 +95,19 @@ const MODE_COLORS: Record<string, number> = {
   WORK: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
 };
 
-// ── PromptInput: wraps pi-tui Input, intercepts special keys ─────────────────
+// ── PromptInput: wraps pi-tui Editor, intercepts special keys ────────────────
 
 class PromptInput implements Component, Focusable {
   focused = false;
 
-  private inner = new Input();
+  private inner: Editor;
   private _modeColorCode = 34; // ANSI color code for the ❯ arrow (matches mode)
   // Paste state
   private _pasteContent: string | null = null;
   private _isPasting = false;
   private _pasteBuffer = "";
   private _secretMode = false;
+  private maxHeight = 6; // Max visible lines before scrolling
 
   onTabForward?:  () => void;
   onTabBackward?: () => void;
@@ -98,6 +121,20 @@ class PromptInput implements Component, Focusable {
   onArrowRight?:  (() => void) | null;
   onEnter?:       (() => void) | null;
 
+  constructor(tui: TUI) {
+    this.inner = new Editor(tui, {
+      borderColor: (s: string) => s,  // No border styling
+      selectList: {
+        selectedPrefix: (s: string) => s,
+        selectedText: (s: string) => s,
+        description: (s: string) => s,
+        scrollInfo: (s: string) => s,
+        noMatch: (s: string) => s,
+      },
+    });
+    this.inner.onSubmit = undefined as unknown as (value: string) => void;
+  }
+
   setModeColor(code: number): void { this._modeColorCode = code; }
   setSecretMode(enabled: boolean): void { this._secretMode = enabled; }
 
@@ -109,11 +146,11 @@ class PromptInput implements Component, Focusable {
 
   /** Returns the real value (actual paste content if applicable) */
   getSubmitValue(): string {
-    return this._pasteContent ?? this.inner.getValue();
+    return this._pasteContent ?? this.inner.getText();
   }
 
   clear(): void {
-    this.inner.setValue("");
+    this.inner.setText("");
     this._pasteContent = null;
     this._isPasting = false;
     this._pasteBuffer = "";
@@ -162,8 +199,9 @@ class PromptInput implements Component, Focusable {
     // If user starts typing after a paste, clear the stored content
     if (this._pasteContent !== null) this._pasteContent = null;
 
+    // Pass everything else to Editor (handles Shift+Enter, word wrap, etc.)
     this.inner.handleInput(data);
-    this.onChange?.(this.inner.getValue());
+    this.onChange?.(this.inner.getText());
   }
 
   private _finalizePaste(): void {
@@ -175,11 +213,11 @@ class PromptInput implements Component, Focusable {
     if (lines.length > 1) {
       // Multi-line paste — show indicator, store real content
       this._pasteContent = content;
-      this.inner.setValue(`[Pasted ${lines.length} lines  ${content.length} chars]`);
+      this.inner.setText(`[Pasted ${lines.length} lines  ${content.length} chars]`);
     } else if (content.length > 120) {
       // Long single-line paste — show indicator
       this._pasteContent = content;
-      this.inner.setValue(`[Pasted ${content.length} chars]`);
+      this.inner.setText(`[Pasted ${content.length} chars]`);
     } else {
       // Short paste — insert normally
       this._pasteContent = null;
@@ -190,25 +228,23 @@ class PromptInput implements Component, Focusable {
   invalidate(): void { this.inner.invalidate(); }
 
   render(width: number): string[] {
-    // pi-tui Input ALWAYS renders "> " (2 chars) as its own prompt prefix.
-    // We strip it and replace with our mode-colored ❯ .
-    // Render it narrower so our wider replacement prefix still fits the TUI width.
-    const innerWidth = Math.max(2, width - 2);
+    const innerWidth = Math.max(2, width - 5); // Account for ❯ prefix + padding
     const innerLines = this.inner.render(innerWidth);
-    const firstLine = innerLines[0] ?? "";
-    // Strip Input's hardcoded "> " prefix
-    const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
     const ARROW = `  \x1b[${this._modeColorCode}m\u276f\x1b[0m `;
+
     if (this._secretMode) {
-      const valueLength = this.inner.getValue().length;
-      const masked = valueLength > 0 ? "*".repeat(Math.min(valueLength, Math.max(0, width - 4))) : "";
+      const valueLength = this.inner.getText().length;
+      const masked = valueLength > 0 ? "*".repeat(Math.min(valueLength, Math.max(0, width - 5))) : "";
       return [truncateToWidth(ARROW + masked, width)];
     }
 
-    return [
-      truncateToWidth(ARROW + content, width),
-      ...innerLines.slice(1).map((l) => truncateToWidth("    " + l, width)),
-    ];
+    // Limit to maxHeight visible lines (scroll internally)
+    const visibleLines = innerLines.slice(-this.maxHeight);
+
+    return visibleLines.map((line, i) => {
+      const prefix = i === 0 ? ARROW : "   ";
+      return truncateToWidth(prefix + line, width);
+    });
   }
 }
 
@@ -265,6 +301,7 @@ export class ImpulseRenderer {
   private promptInput!: PromptInput;
   private autocompleteText!: Text; // slash command suggestions
   private modelSetupText!: Text;
+  private submitHintText!: Text; // submit hint above input
   private bottomSpacer!: BottomAnchorSpacer;
 
   // Manual spinner — avoids Loader auto-start issues
@@ -326,6 +363,11 @@ export class ImpulseRenderer {
       await SessionManager.createNew();
     }
 
+    // Debug logging
+    debugLog(`Session started`);
+    debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
+    debugLog(`provider: ${config.defaultProvider}, model: ${config.defaultModel}`);
+
     // ── Build TUI layout ──────────────────────────────────────────────────
     this.tui = new TUI(this.terminal);
 
@@ -363,8 +405,12 @@ export class ImpulseRenderer {
     this.autocompleteText = new Text("", 0, 0);
     this.tui.addChild(this.autocompleteText);
 
+    // Submit hint — always visible above input
+    this.submitHintText = new Text(`   ${A.fg(90, "Enter: submit | Shift+Enter: new line")}`, 0, 0);
+    this.tui.addChild(this.submitHintText);
+
     // 4. Prompt input (just › , no mode label)
-    this.promptInput = new PromptInput();
+    this.promptInput = new PromptInput(this.tui);
     this.promptInput.onSubmit = (_displayedValue) => {
       const actual = this.promptInput.getSubmitValue();
       this.promptInput.clear();
@@ -448,12 +494,13 @@ export class ImpulseRenderer {
     this.contextBar.update({ mode: this.mode });
     this.syncModeColor();
 
-    const modeLine = `  ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
+    const modeLine = `   ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
     if (this.modeChangeText) {
       // Update existing mode change line in place
       this.modeChangeText.setText(modeLine);
     } else {
       // Create new mode change line
+      this.addChatLine("");  // Empty line before mode change
       this.modeChangeText = new Text(modeLine, 0, 0);
       this.chat.addChild(this.modeChangeText);
     }
@@ -563,8 +610,8 @@ export class ImpulseRenderer {
 
     // User message block
     this.addChatLine("");
-    this.addChatLine(`  ${A.fg(36, this.userName)}`);
-    this.addChatLine(`  ${userMessage}`);
+    this.addChatLine(`   ${A.fg(36, this.userName)}`);
+    this.addChatLine(`   ${userMessage}`);
     this.addChatLine("");
 
     this.streamingRaw = "";
@@ -590,19 +637,23 @@ export class ImpulseRenderer {
         this.closeThinking();
         if (!this.streamingText) {
           // Add Impulse response header on first token
-          this.chat.addChild(new Text(`  ${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
+          this.addChatLine("");  // Empty line before
+          this.chat.addChild(new Text(`   ${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
           this.streamingText = new Text("", 0, 0);
           this.chat.addChild(this.streamingText);
         }
         this.streamingRaw += text;
-        this.streamingText.setText("  " + this.streamingRaw.replace(/\n/g, "\n  "));
+        this.streamingText.setText("   " + this.streamingRaw.replace(/\n/g, "\n   "));
         this.tui.requestRender();
       },
       onThinking: (text) => {
+        debugLog(`onThinking: ${text.length} chars`);
         this.spinStop();
         if (!this.thinkingText) {
+          debugLog(`Thinking block started`);
           // Gold "Thinking:" label in italics
-          this.chat.addChild(new Text(`  \x1b[33m\x1b[3mThinking:\x1b[0m`, 0, 0));
+          this.addChatLine("");  // Empty line before
+          this.chat.addChild(new Text(`   \x1b[33m\x1b[3mThinking:\x1b[0m`, 0, 0));
           this.thinkingText = new Text("", 0, 0);
           this.chat.addChild(this.thinkingText);
           this.thinkingOpen = true;
@@ -611,7 +662,7 @@ export class ImpulseRenderer {
         this.thinkingText.setText(
           this.thinkingRaw
             .split("\n")
-            .map((l) => `  \x1b[38;5;136m\x1b[3m${l}\x1b[0m`)  // dark gold + italic
+            .map((l) => `   \x1b[38;5;136m\x1b[3m${l}\x1b[0m`)  // dark gold + italic
             .join("\n")
         );
         // Cycle phrase
@@ -641,9 +692,10 @@ export class ImpulseRenderer {
         this.spinStop();
         this.closeThinking();
         if (this.streamingRaw) { this.addChatLine(""); this.streamingRaw = ""; this.streamingText = null; }
+        this.addChatLine("");  // Empty line before tool call
         const argStr = this.fmtArgs(args);
         // Dark gray background for tool running
-        this.addChatLine(`  \x1b[48;5;236m${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\x1b[0m`);
+        this.addChatLine(`   \x1b[48;5;236m${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\x1b[0m`);
         this.spinStart(`running ${name}…`);
         this.tui.requestRender();
       },
@@ -659,9 +711,9 @@ export class ImpulseRenderer {
         const lines = result.output.trim().split("\n");
         const preview = (lines[0] ?? "").slice(0, 65);
         const extra = lines.length > 1 ? clr.dim(` +${lines.length - 1} lines`) : "";
-        this.addChatLine(`  ${bgColor}${icon}  ${clr.dim(preview)}${extra}  ${dur}\x1b[0m`);
+        this.addChatLine(`   ${bgColor}${icon}  ${clr.dim(preview)}${extra}  ${dur}\x1b[0m`);
         if (!result.success && lines[1]) {
-          this.addChatLine(`  ${bgColor}   ${clr.error(lines[1].slice(0, 70))}\x1b[0m`);
+          this.addChatLine(`   ${bgColor}   ${clr.error(lines[1].slice(0, 70))}\x1b[0m`);
         }
         this.tui.requestRender();
       },
@@ -766,6 +818,7 @@ export class ImpulseRenderer {
       { cmd: "/reason",   hint: `${this.reasoningLevelsLabel()}  set reasoning level` },
       { cmd: "/new",      hint: "[name]  start new session" },
       { cmd: "/user",     hint: "view/update name, preferences, instructions" },
+      { cmd: "/debug",    hint: "toggle debug logging" },
       { cmd: "/help",     hint: "show commands" },
       { cmd: "/clear",    hint: "clear screen" },
       { cmd: "/exit",     hint: "quit" },
@@ -826,6 +879,7 @@ export class ImpulseRenderer {
 
   private closeThinking(): void {
     if (this.thinkingOpen && this.thinkingText) {
+      debugLog(`Thinking block closed`);
       this.chat.addChild(new Spacer(1));
       this.thinkingOpen = false;
     }
@@ -867,6 +921,13 @@ export class ImpulseRenderer {
       case "mode":    this.cmdMode(arg);           break;
       case "reason":  await this.cmdReason(arg);   break;
       case "user":    await this.cmdUser(arg);     break;
+      case "debug":
+        setDebugEnabled(!isDebugEnabled());
+        this.addChatLine(`  ${clr.success("✓")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
+        if (isDebugEnabled()) {
+          debugLog(`Debug logging enabled`);
+        }
+        break;
       case "new":
         await SessionManager.createNew(arg || undefined);
         this.addChatLine(`  ${clr.success("✓")} New session started`);
@@ -1476,6 +1537,7 @@ export class ImpulseRenderer {
       `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels.replace(/\|/g, "·"))}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
       `  ${clr.tool("/user")}            ${clr.dim("View/update profile & preferences")}`,
+      `  ${clr.tool("/debug")}           ${clr.dim("Toggle debug logging")}`,
       `  ${clr.tool("/help ")}${clr.dim("This message")}`,
       `  ${clr.tool("/exit ")}${clr.dim("Quit")}`,
       "",
