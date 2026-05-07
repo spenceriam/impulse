@@ -536,7 +536,6 @@ export class ImpulseRenderer {
     config.thinking = level !== "off";
     await saveConfig(config);
     this.contextBar.update({ reasoningLevel: level });
-    this.addChatLine(`  ${clr.dim(`reasoning: ${level}`)}`);
     this.tui.requestRender();
   }
 

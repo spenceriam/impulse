@@ -134,9 +134,10 @@ export class ContextBarComponent implements Component {
       ? clr.model(`${worker}…`)
       : clr.model(worker);
 
-    // Reasoning level — right of model name in parentheses (only when not "off")
-    const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
-      ? ` (${clr.model(s.reasoningLevel)})`
+    // Reasoning level — right of model name in parentheses
+    const rlLabel = s.reasoningLevel === "off" ? "no think" : s.reasoningLevel;
+    const rlSeg = s.reasoningLevel
+      ? ` (${clr.model(rlLabel ?? "")})`
       : "";
 
     const advisorSeg = s.advisorModel
