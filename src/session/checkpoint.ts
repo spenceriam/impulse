@@ -7,7 +7,8 @@ function debugLog(msg: string, ...args: unknown[]): void {
 
 class CheckpointManagerImpl {
   private static instance: CheckpointManagerImpl;
-  private checkpointBranchPrefix = "glm-checkpoint-";
+  private checkpointBranchPrefix = "impulse-checkpoint-";
+  private legacyCheckpointBranchPrefix = "glm-checkpoint-";
 
   private constructor() {}
 
@@ -47,7 +48,11 @@ class CheckpointManagerImpl {
   }
 
   private parseCheckpointBranch(branch: string): { sessionID: string; messageIndex: number } | null {
-    const match = branch.match(/^glm-checkpoint-(.+)-(\d+)$/);
+    const escapedPrefixes = [
+      this.checkpointBranchPrefix,
+      this.legacyCheckpointBranchPrefix,
+    ].map((prefix) => prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const match = branch.match(new RegExp(`^(?:${escapedPrefixes.join("|")})(.+)-(\\d+)$`));
     if (!match || !match[1] || !match[2]) return null;
 
     return {
@@ -82,31 +87,21 @@ class CheckpointManagerImpl {
 
     try {
       const branchName = this.getBranchName(sessionID, messageIndex);
+      const statusResult = await this.execGit(["status", "--porcelain"], cwd);
+      if (!statusResult.success) return false;
 
-      const createResult = await this.execGit(["checkout", "-b", branchName], cwd);
+      const checkpointRef = statusResult.stdout.trim()
+        ? (await this.execGit(["stash", "create", messageSummary ?? `message ${messageIndex}`], cwd)).stdout.trim()
+        : "HEAD";
+
+      if (!checkpointRef) {
+        debugLog(`No checkpoint ref created for ${branchName}`);
+        return false;
+      }
+
+      const createResult = await this.execGit(["branch", "-f", branchName, checkpointRef], cwd);
       if (!createResult.success) {
-        debugLog(`Failed to create branch ${branchName}:`, createResult.stderr);
-        return false;
-      }
-
-      const message = `glm-checkpoint: ${messageSummary ?? `message ${messageIndex}`}`;
-      const addResult = await this.execGit(["add", "."], cwd);
-      if (!addResult.success) {
-        debugLog(`Failed to stage changes:`, addResult.stderr);
-        await this.execGit(["checkout", currentBranch], cwd);
-        return false;
-      }
-
-      const commitResult = await this.execGit(["commit", "-m", message], cwd);
-      if (!commitResult.success) {
-        debugLog(`Failed to commit:`, commitResult.stderr);
-        await this.execGit(["checkout", currentBranch], cwd);
-        return false;
-      }
-
-      const checkoutResult = await this.execGit(["checkout", currentBranch], cwd);
-      if (!checkoutResult.success) {
-        debugLog(`Failed to checkout back to ${currentBranch}:`, checkoutResult.stderr);
+        debugLog(`Failed to create/update branch ${branchName}:`, createResult.stderr);
         return false;
       }
 

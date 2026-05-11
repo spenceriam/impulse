@@ -90,17 +90,6 @@ export const MessageEvents = {
   ),
 };
 
-export const McpEvents = {
-  StatusChanged: BusEvent.define(
-    "mcp.status",
-    z.object({
-      server: z.string(),
-      status: z.enum(["connected", "failed", "disabled"]),
-      error: z.string().optional(),
-    })
-  ),
-};
-
 // Question option schema for the question tool
 const QuestionOptionSchema = z.object({
   label: z.string().describe("Display text (1-5 words, concise)"),

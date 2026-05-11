@@ -5,14 +5,14 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   ChatCompletionChunk,
-  GLMModel,
+  ZAIModel,
   ChatMessage,
   ToolDefinition,
   ThinkingConfig,
 } from "./types";
 
 /**
- * GLM API Client
+ * Legacy Z.ai API Client
  * OpenAI-compatible client for Z.AI Coding Plan API
  */
 
@@ -27,33 +27,33 @@ const MAX_BACKOFF_MS = 32000;
 // Retryable HTTP status codes
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
-export class GLMClientError extends Error {
+export class ZAIClientError extends Error {
   constructor(
     message: string,
     public readonly code?: string,
     public readonly statusCode?: number
   ) {
     super(message);
-    this.name = "GLMClientError";
+    this.name = "ZAIClientError";
   }
 }
 
-export class GLMAuthError extends GLMClientError {
+export class ZAIAuthError extends ZAIClientError {
   constructor(message: string) {
     super(message, "auth_error", 401);
-    this.name = "GLMAuthError";
+    this.name = "ZAIAuthError";
   }
 }
 
-export class GLMRateLimitError extends GLMClientError {
+export class ZAIRateLimitError extends ZAIClientError {
   constructor(message: string, public readonly retryAfter?: number) {
     super(message, "rate_limit", 429);
-    this.name = "GLMRateLimitError";
+    this.name = "ZAIRateLimitError";
   }
 }
 
 interface CompletionOptions {
-  model?: GLMModel;
+  model?: ZAIModel | string;
   messages: ChatMessage[];
   temperature?: number;
   top_p?: number;
@@ -71,7 +71,7 @@ interface StreamCompletionOptions extends Omit<CompletionOptions, "stream"> {
   stream: true;
 }
 
-class GLMClientImpl {
+class ZAIClientImpl {
   private client: OpenAI | null = null;
   private apiKey: string | null = null;
 
@@ -82,13 +82,14 @@ class GLMClientImpl {
 
     const config = await loadConfig();
     
-    if (!config.apiKey) {
-      throw new GLMAuthError("API key not configured. Set GLM_API_KEY environment variable or configure in ~/.config/impulse/config.json");
+    const apiKey = config.providers?.["z.ai"]?.apiKey ?? config.apiKey;
+    if (!apiKey) {
+      throw new ZAIAuthError("API key not configured. Set ZAI_API_KEY or legacy GLM_API_KEY, or configure providers['z.ai'].apiKey in ~/.config/impulse/config.json");
     }
 
-    this.apiKey = config.apiKey;
+    this.apiKey = apiKey;
     this.client = new OpenAI({
-      apiKey: config.apiKey,
+      apiKey,
       baseURL: BASE_URL,
       maxRetries: 0, // We handle retries ourselves
     });
@@ -126,7 +127,7 @@ class GLMClientImpl {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       // Check for abort before each attempt
       if (signal?.aborted) {
-        throw new GLMClientError("Request aborted", "aborted");
+        throw new ZAIClientError("Request aborted", "aborted");
       }
 
       try {
@@ -136,7 +137,7 @@ class GLMClientImpl {
 
         // Don't retry auth errors
         if (error instanceof OpenAI.AuthenticationError) {
-          throw new GLMAuthError(error.message);
+          throw new ZAIAuthError(error.message);
         }
 
         // Handle rate limiting
@@ -147,7 +148,7 @@ class GLMClientImpl {
           );
           
           if (attempt === MAX_RETRIES - 1) {
-            throw new GLMRateLimitError(error.message, retryAfter);
+            throw new ZAIRateLimitError(error.message, retryAfter);
           }
 
           await logger.warn(`Rate limited, waiting ${retryAfter}s before retry`);
@@ -172,7 +173,7 @@ class GLMClientImpl {
       }
     }
 
-    throw lastError ?? new GLMClientError("Unknown error during retry");
+    throw lastError ?? new ZAIClientError("Unknown error during retry");
   }
 
   /**
@@ -238,7 +239,7 @@ class GLMClientImpl {
                 arguments: tc.function.arguments,
               },
             })),
-            // Extract reasoning_content if present (GLM-specific)
+            // Extract provider reasoning content if present
             reasoning_content: (choice.message as unknown as { reasoning_content?: string }).reasoning_content,
           },
           finish_reason: finishReason,
@@ -321,7 +322,7 @@ class GLMClientImpl {
             delta: {
               role: choice.delta.role as ChatMessage["role"] | undefined,
               content: choice.delta.content,
-              // Extract reasoning_content if present (GLM-specific)
+              // Extract provider reasoning content if present
               reasoning_content: (choice.delta as unknown as { reasoning_content?: string }).reasoning_content,
               tool_calls: choice.delta.tool_calls?.map((tc) => ({
                 index: tc.index,
@@ -357,4 +358,13 @@ class GLMClientImpl {
 }
 
 // Singleton instance
-export const GLMClient = new GLMClientImpl();
+export const ZAIClient = new ZAIClientImpl();
+
+/** @deprecated Use ZAIClient or the provider manager. */
+export const GLMClient = ZAIClient;
+/** @deprecated Use ZAIClientError. */
+export { ZAIClientError as GLMClientError };
+/** @deprecated Use ZAIAuthError. */
+export { ZAIAuthError as GLMAuthError };
+/** @deprecated Use ZAIRateLimitError. */
+export { ZAIRateLimitError as GLMRateLimitError };

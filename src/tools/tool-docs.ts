@@ -28,7 +28,8 @@ const TOOL_DOCS_MAP: Record<string, string> = {
   question: "question.md",
   set_header: "set-header.md",
   set_mode: "set-mode.md",
-  mcp_discover: "mcp-discover.md",
+  web_fetch: "web-fetch.md",
+  web_search: "web-search.md",
   tool_docs: "tool-docs.md",
 };
 

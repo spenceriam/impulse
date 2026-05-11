@@ -1,9 +1,7 @@
 /**
  * System Prompt Generator
  * 
- * Generates mode-aware system prompts for the GLM agent.
- * Key design: MCP tool descriptions stay OUT of context until
- * the agent explicitly searches for them.
+ * Generates mode-aware system prompts for the coding agent.
  */
 
 import { MODES } from "../constants";
@@ -72,37 +70,26 @@ function getPrompt(category: string, name: string, fallback: string): string {
   return trimmed && trimmed.length > 0 ? trimmed : fallback.trim();
 }
 
-/**
- * MCP tool discovery instructions for execution modes
- * 
- * Uses the mcp_discover tool to find available MCP tools on-demand,
- * keeping the context window lean until tools are actually needed.
- */
-const MCP_DISCOVERY_FULL = `
-## External Capabilities via MCP
+const WEB_RESEARCH_FULL = `
+## Web Research
 
-You have access to external tools via MCP servers. Use the \`mcp_discover\` tool to find what's available.
+You have provider-neutral web tools when current information or exact URL content is needed.
 
-### Discovery Workflow
+### Research Workflow
 
-1. **List available servers**: \`mcp_discover(action: "list")\`
+1. Use \`web_search\` to discover current sources, documentation pages, repository URLs, and news.
 
-2. **Search for tools** by capability:
-   \`mcp_discover(action: "search", query: "web search")\`
+2. Use \`web_fetch\` to read exact URLs from search results or user-provided links.
 
-3. **Get tool details** before using:
-   \`mcp_discover(action: "details", server: "<server>", tool: "<tool>")\`
+3. Do not guess web content. Search first unless the user supplied a URL.
 
-Always discover first - never guess tool names or parameters.
+Legacy Z.ai web, vision, and repository-reader integrations are unavailable. Use only the built-in web tools for external research.
 `;
 
-/**
- * MCP awareness for research/planning modes (lighter touch)
- */
-const MCP_AWARENESS_RESEARCH = `
+const WEB_RESEARCH_LITE = `
 ## External Research Tools
 
-MCP tools are available for research. Use \`mcp_discover(action: "list")\` to see available servers and tools.
+Use \`web_search\` for current source discovery and \`web_fetch\` for exact URLs.
 `;
 
 /**
@@ -364,7 +351,7 @@ You CAN:
 - Read files (file_read)
 - Search codebase (glob, grep)
 - Run read-only bash commands (git log, git status, ls, cat, etc.)
-- Use web search and research tools (MCP)
+- Use web_search and web_fetch for current external research
 - Explain code, concepts, and architecture
 - Compare approaches and discuss tradeoffs
 - Help the user think through problems
@@ -507,24 +494,24 @@ ${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile
     parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
   }
 
-  // Add MCP instructions based on mode
+  // Add web research instructions based on mode
   if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
-    parts.push(getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL));
+    parts.push(getPrompt("core", "web-full", WEB_RESEARCH_FULL));
   } else if (mode === "PLAN") {
-    parts.push(getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH));
+    parts.push(getPrompt("core", "web-lite", WEB_RESEARCH_LITE));
   }
 
   return parts.join("\n").trim();
 }
 
 /**
- * Get just the MCP discovery instructions (for appending to existing prompts)
+ * Get just the web research instructions (for appending to existing prompts)
  */
-export function getMCPInstructions(mode: Mode): string {
+export function getResearchInstructions(mode: Mode): string {
   if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
-    return getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL).trim();
+    return getPrompt("core", "web-full", WEB_RESEARCH_FULL).trim();
   } else if (mode === "PLAN") {
-    return getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH).trim();
+    return getPrompt("core", "web-lite", WEB_RESEARCH_LITE).trim();
   }
   return "";
 }

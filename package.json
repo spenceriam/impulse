@@ -1,8 +1,8 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "0.36.0",
+  "version": "0.37.0",
   "private": false,
-  "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders",
+  "description": "Terminal-based provider-flexible AI coding agent for fast software development",
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mariozechner/pi-tui": "^0.73.0",
+    "agent-browser": "^0.27.0",
     "diff": "^8.0.3",
     "glob": "^13.0.6",
     "openai": "^4.73.0",
@@ -42,9 +43,9 @@
     "terminal",
     "coding",
     "agent",
-    "glm",
     "z-ai",
-    "coding-plan"
+    "coding-plan",
+    "multi-provider"
   ],
   "author": "Spencer Francisco",
   "license": "AGPL-3.0",

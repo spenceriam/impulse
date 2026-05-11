@@ -4,13 +4,13 @@
 
 ## Project Overview
 
-**IMPULSE** is a terminal-based AI coding agent powered by GLM-4.x models. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development. Powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders.
+**IMPULSE** is a provider-flexible terminal AI coding agent. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development with support for providers such as Ollama, OpenRouter, OpenAI, Groq, Gemini, Nous, and Z.ai.
 
 ### Identity
 
 - **Name:** IMPULSE
 - **Version:** v0.35.0
-- **Tagline:** Terminal-based AI coding agent powered by GLM models
+- **Tagline:** Provider-flexible terminal AI coding agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
@@ -26,7 +26,7 @@
 - [x] Task 1.5: Event Bus
 - [x] Task 1.6: Configuration System
 - [x] Task 1.7: Logger Utility
-- [x] Task 1.8: GLM API Client
+- [x] Task 1.8: Z.ai API Client
 - [x] Task 1.9: Streaming Handler
 - [x] Task 1.10: Instruction File Discovery
 - [x] Task 1.11: Design Constants File
@@ -102,7 +102,7 @@
 
 - [x] Task 8.1: Context Provider Integration
 - [x] Task 8.2: API Key Check and Welcome Screen
-- [x] Task 8.3: Input Submission to GLMClient
+- [x] Task 8.3: Input Submission to provider client
 - [x] Task 8.4: Session Manager Integration
 - [x] Task 8.5: Final Integration Testing
 
@@ -298,8 +298,8 @@ Users can always override AI agent version decisions:
 | **Runtime** | Bun / Node.js 20+ |
 | **Language** | TypeScript (strict mode) |
 | **UI Framework** | OpenTUI with SolidJS reconciler |
-| **API** | Z.AI API (OpenAI-compatible) |
-| **Endpoint** | `https://api.z.ai/api/coding/paas/v4/` |
+| **API** | Provider manager over OpenAI-compatible providers |
+| **Z.ai Endpoint** | `https://api.z.ai/api/coding/paas/v4/` |
 
 ### Dependencies
 
@@ -330,7 +330,7 @@ Users can always override AI agent version decisions:
 preload = ["@opentui/solid/preload"]
 ```
 
-## Models Supported
+## Z.ai Models Supported
 
 | Model | Type | Best For |
 |-------|------|----------|
@@ -452,7 +452,7 @@ Loading Animation (Braille Wheel):
     ┃ You                                                           12:34 PM
     ┃ Can you help me implement the API client?
     
-    ┃ GLM-4.7                                              AGENT    12:34 PM
+    ┃ provider/model                                       AGENT    12:34 PM
     ┃ I'll help you implement the API client.
     ┃
     ┃ ▶ file_write src/api/types.ts                              [OK]
@@ -465,7 +465,7 @@ Loading Animation (Braille Wheel):
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
     ┃  > _                                                                      ┃
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-    ⣾ GLM 4.7 | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
+    ⣾ provider/model | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
 ```
 
 **Notes:**
@@ -485,7 +485,7 @@ Loading Animation (Braille Wheel):
   ██║██║ ╚═╝ ██║██║     ╚██████╔╝███████╗███████║███████╗
   ╚═╝╚═╝     ╚═╝╚═╝      ╚═════╝ ╚══════╝╚══════╝╚══════╝
 
-  v0.27.11                                               GLM 4.7
+  v0.27.11                                               provider/model
   built 01-26-2026                                      ~/impulse
 
 [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
@@ -493,12 +493,12 @@ Loading Animation (Braille Wheel):
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃  > _                                                                      ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-  GLM 4.7 | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
+  provider/model | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
 ```
 
 **Status Line Format:**
 ```
-⣾ GLM 4.7 | [EXPRESS] | [ENGAGE] | WORK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
+⣾ provider/model | [EXPRESS] | [ENGAGE] | WORK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
 │     │         │         │            │              │           │         │        │          │
 │     │         │         │            │              │           │         │        │          └── Version
 │     │         │         │            │              │           │         │        └── Date
@@ -520,7 +520,7 @@ Loading Animation (Braille Wheel):
   ┌────────────────────────────────────────────────────────────────────────────────────┐
   │  1  import { OpenAI } from "openai"                                                │
   │  2                                                                                 │
-  │  3  export class GLMClient {                                                       │
+  │  3  export class ProviderClient {                                                  │
   └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -530,7 +530,7 @@ Loading Animation (Braille Wheel):
 IMPULSE SESSION COMPLETE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Session       Implementing API client
-  Model         glm-4.7
+  Model         provider/model
   Duration      1h 23m
 ───────────────────────────────────────────────────────────────────
   Tools         15 calls       12 success       3 failed
@@ -565,7 +565,7 @@ IMPULSE SESSION COMPLETE
 <text>
   <span fg="#5cffff"><strong>AGENT</strong></span>
   <span fg="#666666"> │ </span>
-  <span fg="#ffffff">GLM-4.7</span>
+  <span fg="#ffffff">provider/model</span>
 </text>
 ```
 
@@ -773,19 +773,16 @@ interface QuestionToolOutput {
 - Set `context` to explain WHY you're asking
 - Keep option labels concise (1-5 words)
 
-## MCP Servers
+## Web Research Tools
 
-5 MCP servers are configured (4 Z.AI + Context7):
+IMPULSE uses first-party, provider-neutral web tools instead of the old Z.AI MCP research path:
 
-| Server | Type | Tools |
-|--------|------|-------|
-| **Vision** | Local (stdio) | `ui_to_artifact`, `extract_text_from_screenshot`, `diagnose_error_screenshot`, `understand_technical_diagram`, `analyze_data_visualization`, `ui_diff_check`, `image_analysis`, `video_analysis` |
-| **Web Search** | Remote (HTTP) | `webSearchPrime` |
-| **Web Reader** | Remote (HTTP) | `webReader` |
-| **Zread** | Remote (HTTP) | `search_doc`, `get_repo_structure`, `read_file` |
-| **Context7** | Remote (HTTP) | `resolve-library-id`, `query-docs` |
+| Tool | Purpose |
+|------|---------|
+| `web_search` | Discover current external sources and URLs |
+| `web_fetch` | Read exact HTTP(S) URLs and return cleaned text |
 
-**Note:** The agent discovers MCP tools on-demand using `/mcp-tools search <query>` rather than preloading all tool descriptions into context. This keeps the context window lean.
+Both tools try direct web access first and fall back to bundled `agent-browser` when direct access fails or a browser session is required. The legacy Vision/Web Search/Web Reader/Zread MCP integrations are no longer part of the default tool surface.
 
 ## Commands
 
@@ -797,7 +794,7 @@ interface QuestionToolOutput {
 | `/continue` | Session picker with preview (alias: `/load`) |
 | `/undo` | Git-based revert to checkpoint |
 | `/redo` | Restore undone changes |
-| `/model` | Switch GLM model |
+| `/model` | Switch configured model |
 | `/mode` | Switch mode (alt to Tab) |
 | `/engage` | Toggle high-autonomy execution profile |
 | `/instruct` | Edit project instructions |
@@ -822,7 +819,7 @@ interface QuestionToolOutput {
 | `Esc` (2x) | Cancel / Stop operation |
 | `Ctrl+C` (2x) | Exit with summary |
 | `Ctrl+Q` | Message queue overlay |
-| `Ctrl+M` | MCP status overlay |
+| `Ctrl+M` | Reserved |
 | `Ctrl+P` | Command palette |
 | `Shift+Ctrl+C` | Copy prompt text to clipboard |
 
@@ -930,8 +927,8 @@ This ensures:
 - Solid uses underscores: `<tab_select>`, `<ascii_font>`, `<line_number>`
 - Text styling requires nested tags: `<strong>`, `<em>`, `<span fg="...">`
 
-### GLM API Specifics
-- Thinking mode enabled by default on GLM-4.7
+### Z.ai API Specifics
+- Thinking mode enabled by default on supported Z.ai GLM models
 - Must preserve `reasoning_content` in conversation history
 - Coding Plan endpoint: `https://api.z.ai/api/coding/paas/v4/`
 - No silent fallbacks - explicit error handling required
@@ -1460,10 +1457,9 @@ impulse/
 ├── src/
 │   ├── index.tsx           # CLI entry point
 │   ├── global.ts           # Global paths configuration
-│   ├── agent/              # GLM agent and subagents
+│   ├── agent/              # Agent loop and subagents
 │   ├── api/                # Z.AI API client
 │   ├── bus/                # Event bus
-│   ├── mcp/                # MCP server integrations
 │   ├── session/            # Session management
 │   ├── storage/            # File-based storage
 │   ├── tools/              # Built-in tools

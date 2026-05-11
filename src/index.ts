@@ -34,7 +34,7 @@ if (args.includes("--version") || args.includes("-v")) {
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
   impulse v${packageJson.version}
-  CLI coding agent powered by Ollama Cloud and friends.
+  Provider-flexible CLI coding agent.
 
   Usage:
     impulse                   Start interactive session
@@ -64,6 +64,7 @@ const hasProvider = (
   process.env["OLLAMA_API_KEY"] ||
   process.env["OPENROUTER_API_KEY"] ||
   process.env["OPENAI_API_KEY"] ||
+  process.env["ZAI_API_KEY"] ||
   process.env["GLM_API_KEY"]
 );
 
@@ -117,7 +118,7 @@ async function runSetup(): Promise<void> {
               defaultModel = "openrouter/anthropic/claude-haiku-4.5"; break;
     case "3": providerKey = "openai";     envVar = "OPENAI_API_KEY";     label = "OpenAI";
               defaultModel = "openai/gpt-4o-mini"; break;
-    case "4": providerKey = "z.ai";       envVar = "GLM_API_KEY";        label = "Z.ai";
+    case "4": providerKey = "z.ai";       envVar = "ZAI_API_KEY";        label = "Z.ai";
               defaultModel = "z.ai/glm-4.7"; break;
     case "5": providerKey = "groq";       envVar = "GROQ_API_KEY";       label = "Groq";
               defaultModel = "groq/llama-3.3-70b-versatile"; break;

@@ -9,7 +9,7 @@ Updated: 01-20-2026 (Visual Design System from OpenTUI + frontend-design skills)
 
 ## 1. System Overview
 
-impulse is a terminal-based AI coding agent with a brutalist, flicker-free UI. It connects to Zhipu AI's GLM models via the Coding Plan API and integrates with 4 MCP servers for extended capabilities.
+impulse is a provider-flexible terminal AI coding agent with a brutalist, flicker-free UI. It routes requests through configured model providers and provides first-party web research tools with browser fallback.
 
 ### Design Goals
 
@@ -44,16 +44,13 @@ flowchart TB
     end
 
     subgraph API["API Layer"]
-        GLM[GLM Client]
-        MCP[MCP Manager]
+        Provider[Provider Manager]
     end
 
     subgraph External["External Services"]
-        ZAPI[Z.AI API]
-        Vision[Vision MCP]
-        Search[Web Search MCP]
-        Reader[Web Reader MCP]
-        Zread[Zread MCP]
+        ModelAPI[Model Provider APIs]
+        Web[Web Search / Fetch]
+        Browser[agent-browser]
     end
 
     subgraph Storage["Storage Layer"]
@@ -72,14 +69,11 @@ flowchart TB
     App --> Mode
     Mode --> Agent
     Agent --> Tools
-    Agent --> GLM
+    Agent --> Provider
 
-    GLM --> ZAPI
-    Tools --> MCP
-    MCP --> Vision
-    MCP --> Search
-    MCP --> Reader
-    MCP --> Zread
+    Provider --> ModelAPI
+    Tools --> Web
+    Tools --> Browser
 
     Session --> Sessions
     Session --> Git
@@ -303,7 +297,7 @@ italic            AI thinking, metadata
 │     ╚═════╝ ╚══════╝╚═╝     ╚═╝       ╚═════╝╚══════╝╚═╝                                                   │
 │                                                                                                            │
 │    v0.1.0                                                              built 01-20-2026                    │
-│    Model: GLM-4.7                                                      Dir: ~/impulse                      │
+│    Model: provider/model                                               Dir: ~/impulse                      │
 │                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
@@ -314,7 +308,7 @@ italic            AI thinking, metadata
 │    What are we building, breaking, or making better?                                                       │
 │                                                                                                            │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
+provider/model │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
 ```
 
 **Elements:**
@@ -334,7 +328,7 @@ GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main
 │  ───                                                            │ Context: 42% (84k/200k)                  │
 │  Can you help me implement the API client?                      │ Cost: $0.12                              │
 │                                                                 │                                          │
-│  GLM-4.7                                          12:34 PM      │ ▼ Todo                                   │
+│  provider/model                                   12:34 PM      │ ▼ Todo                                   │
 │  ────────                                                       │ [ ] Set up project structure             │
 │  I'll help you implement the API client. Let me start by        │ [>] Implement API client                 │
 │  creating the types and then the client class.                  │ [ ] Add error handling                   │
@@ -343,7 +337,7 @@ GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main
 │  ▶ file_write src/api/client.ts                         [OK]    │ ▶ MCPs 4/4                               │
 │                                                                 │                                          │
 │  The API client is now ready. It includes:                      │ ▶ Modified Files                         │
-│  - Type definitions for all 8 GLM models                        │                                          │
+│  - Provider-prefixed model routing                              │                                          │
 │  - Retry logic with exponential backoff                         │                                          │
 │                                                                 │                                          │
 ├─────────────────────────────────────────────────────────────────┤                                          │
@@ -355,7 +349,7 @@ GLM-4.7 │ AUTO │ [░░░░░░░░░░] 0% │ ~/impulse │  main
 │ │                                                           │   │                                          │
 │ └───────────────────────────────────────────────────────────┘   │                                          │
 ├─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────┤
-│ GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026                           │
+│ provider/model │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026                     │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -374,12 +368,12 @@ MODEL │ MODE │ [PROGRESS] XX% │ DIR │  BRANCH │ MCPs: X/X │ DATE
 
 **Example:**
 ```
-GLM-4.7 │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
+provider/model │ AGENT │ [██████░░░░] 62% │ ~/impulse │  main │ MCPs: 4/4 │ 01-20-2026
 ```
 
 **During tool execution:**
 ```
-GLM-4.7 │ AGENT │ [████░░░░░░] 42% │ ~/impulse │  main │ MCPs: 4/4 │ file_write...
+provider/model │ AGENT │ [████░░░░░░] 42% │ ~/impulse │  main │ MCPs: 4/4 │ file_write...
 ```
 
 **Segments:**
@@ -404,7 +398,7 @@ Can you help me implement the API client?
 
 **Assistant Message:**
 ```
-GLM-4.7                                          12:34 PM
+provider/model                                   12:34 PM
 ────────
 I'll help you implement the API client. Let me start by
 creating the types and then the client class.
@@ -435,7 +429,7 @@ The API client is now ready.
   ┌────────────────────────────────────────────────────────────────────────────────────┐
   │  1  import { OpenAI } from "openai"                                                │
   │  2                                                                                 │
-  │  3  export class GLMClient {                                                       │
+  │  3  export class ProviderClient {                                                  │
   │  4    private client: OpenAI                                                       │
   │  ...                                                                               │
   └────────────────────────────────────────────────────────────────────────────────────┘
@@ -621,16 +615,14 @@ impulse/
 │   │   └── orchestrator.ts      # Agent coordination
 │   │
 │   ├── api/
-│   │   ├── client.ts            # GLM API client
+│   │   ├── client.ts            # Legacy Z.ai API client
 │   │   ├── stream.ts            # Streaming handler
 │   │   └── types.ts             # API types
 │   │
-│   ├── mcp/
-│   │   ├── manager.ts           # MCP connection manager
-│   │   ├── vision.ts            # Vision MCP (stdio)
-│   │   ├── web-search.ts        # Web Search MCP (HTTP)
-│   │   ├── web-reader.ts        # Web Reader MCP (HTTP)
-│   │   └── zread.ts             # Zread MCP (HTTP)
+│   ├── tools/
+│   │   ├── web-search.ts        # Provider-neutral web search
+│   │   ├── web-fetch.ts         # Exact URL fetching
+│   │   └── web-utils.ts         # Fetch/browser fallback helpers
 │   │
 │   ├── session/
 │   │   ├── manager.ts           # Session lifecycle
@@ -739,7 +731,7 @@ impulse/
 
 ### 7.2 Streaming Response Flow
 
-1. GLM API returns SSE stream
+1. Provider API returns streaming chunks
 2. Stream handler parses chunks
 3. Thinking content extracted to separate buffer
 4. Text content buffered for 16ms
@@ -1012,7 +1004,7 @@ Use nested modifier tags, not props:
 <text>
   <span fg="#5cffff"><strong>AGENT</strong></span>
   <span fg="#666666"> │ </span>
-  <span fg="#ffffff">GLM-4.7</span>
+  <span fg="#ffffff">provider/model</span>
 </text>
 
 // WRONG

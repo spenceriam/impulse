@@ -1,12 +1,11 @@
 import z from "zod";
 
 /**
- * GLM API Types
- * OpenAI-compatible types for Z.AI Coding Plan API
+ * OpenAI-compatible API types shared by provider implementations.
  */
 
-// Supported GLM models
-export const GLMModel = z.enum([
+// Supported Z.ai model IDs.
+export const ZAIModel = z.enum([
   "glm-4.7",        // Flagship - complex coding, reasoning (default)
   "glm-4.7-flash",  // Fast flagship variant
   "glm-4.6",        // Previous gen flagship
@@ -17,7 +16,12 @@ export const GLMModel = z.enum([
   "glm-4.5v",       // Vision - quick image tasks
 ]);
 
-export type GLMModel = z.infer<typeof GLMModel>;
+export type ZAIModel = z.infer<typeof ZAIModel>;
+
+/** @deprecated Use ZAIModel for Z.ai-specific model IDs or string for provider-prefixed models. */
+export const GLMModel = ZAIModel;
+/** @deprecated Use ZAIModel for Z.ai-specific model IDs or string for provider-prefixed models. */
+export type GLMModel = ZAIModel;
 
 // Chat message roles
 export const MessageRole = z.enum(["system", "user", "assistant", "tool"]);
@@ -63,7 +67,7 @@ export const ChatMessage = z.object({
   name: z.string().optional(),
   tool_calls: z.array(ToolCall).optional(),
   tool_call_id: z.string().optional(),
-  // GLM-specific: reasoning content from thinking mode
+  // Provider reasoning content from thinking mode
   reasoning_content: z.string().optional(),
 });
 
@@ -84,7 +88,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinition>;
 
 // Chat completion request
 export const ChatCompletionRequest = z.object({
-  model: GLMModel,
+  model: z.string(),
   messages: z.array(ChatMessage),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),

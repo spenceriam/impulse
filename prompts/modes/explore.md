@@ -15,7 +15,7 @@ You CAN:
 - Read files (file_read)
 - Search codebase (glob, grep)
 - Run read-only bash commands (git log, git status, ls, cat, etc.)
-- Use web search and research tools (MCP)
+- Use web_search and web_fetch for current external research
 - Explain code, concepts, and architecture
 - Compare approaches and discuss tradeoffs
 - Help the user think through problems

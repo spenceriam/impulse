@@ -535,7 +535,7 @@ export class AgentLoop {
 
       // Read-only and utility tools never need permission
       const noPermRequired = [
-        "file_read", "glob", "grep", "todo_read", "tool_docs", "mcp_discover",
+        "file_read", "glob", "grep", "todo_read", "tool_docs", "web_fetch", "web_search",
         "set_header", "set_mode", "question",
       ];
       if (noPermRequired.includes(toolName)) { resolve(true); return; }

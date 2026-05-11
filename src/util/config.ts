@@ -22,7 +22,7 @@ const ProviderKeySchema = z.object({
 
 // Provider configuration per key
 const ProvidersConfigSchema = z.object({
-  /** Z.ai / GLM models (Z.AI Coding Plan) */
+  /** Z.ai Coding Plan */
   "z.ai": ProviderKeySchema.optional(),
   /** OpenAI models (GPT-4, GPT-4o, etc.) */
   openai: ProviderKeySchema.optional(),
@@ -102,6 +102,7 @@ async function loadConfigFile(): Promise<Partial<Config>> {
 
 // Map of well-known env var names to provider keys
 const PROVIDER_ENV_VARS: Record<string, string> = {
+  ZAI_API_KEY: "z.ai",
   GLM_API_KEY: "z.ai",
   OPENAI_API_KEY: "openai",
   ANTHROPIC_API_KEY: "anthropic",
@@ -125,9 +126,10 @@ async function loadEnvVars(): Promise<Partial<Config>> {
     }
   }
 
-  // Legacy: if GLM_API_KEY was set, also set the top-level apiKey
-  if (process.env["GLM_API_KEY"]) {
-    env.apiKey = process.env["GLM_API_KEY"];
+  // Legacy: if a Z.ai key was set, also set the top-level apiKey.
+  const zaiApiKey = process.env["ZAI_API_KEY"] ?? process.env["GLM_API_KEY"];
+  if (zaiApiKey) {
+    env.apiKey = zaiApiKey;
   }
 
   return env;
@@ -146,13 +148,22 @@ export async function load(): Promise<Config> {
 
   const fileConfig = await loadConfigFile();
   const envConfig = await loadEnvVars();
+  const providerKeys = new Set([
+    ...Object.keys(fileConfig.providers ?? {}),
+    ...Object.keys(envConfig.providers ?? {}),
+  ]);
+  const providers: Record<string, unknown> = {};
+  for (const key of providerKeys) {
+    providers[key] = {
+      ...((fileConfig.providers as Record<string, unknown> | undefined)?.[key] as object | undefined),
+      ...((envConfig.providers as Record<string, unknown> | undefined)?.[key] as object | undefined),
+    };
+  }
+
   const merged = {
     ...fileConfig,
     ...envConfig,
-    providers: {
-      ...(fileConfig.providers ?? {}),
-      ...(envConfig.providers ?? {}),
-    },
+    providers,
   };
   cachedConfig = applyDefaults(merged);
   return cachedConfig;
