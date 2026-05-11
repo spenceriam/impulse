@@ -1,4 +1,4 @@
-export const GLM_MODELS = [
+export const ZAI_MODELS = [
   "glm-4.7",
   "glm-4.7-flash",
   "glm-4.6",
@@ -34,12 +34,16 @@ export function normalizeMode(mode?: string): Mode {
   return LEGACY_MODE_MAP[mode.toUpperCase()] ?? "WORK";
 }
 
-/**
- * Friendly display names for models
- * Maps API model names to user-facing display names
- * Format: "GLM X.Y" for base, "GLM X.Y-Variant" for variants
- */
+/** Friendly display names for known provider models. */
 export const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  "z.ai/glm-4.7": "Z.ai GLM 4.7",
+  "z.ai/glm-4.7-flash": "Z.ai GLM 4.7-Flash",
+  "z.ai/glm-4.6": "Z.ai GLM 4.6",
+  "z.ai/glm-4.6v": "Z.ai GLM 4.6-Vision",
+  "z.ai/glm-4.5": "Z.ai GLM 4.5",
+  "z.ai/glm-4.5-air": "Z.ai GLM 4.5-Air",
+  "z.ai/glm-4.5-flash": "Z.ai GLM 4.5-Flash",
+  "z.ai/glm-4.5v": "Z.ai GLM 4.5-Vision",
   "glm-4.7": "GLM 4.7",
   "glm-4.7-flash": "GLM 4.7-Flash",
   "glm-4.6": "GLM 4.6",
@@ -51,9 +55,10 @@ export const MODEL_DISPLAY_NAMES: Record<string, string> = {
 };
 
 /**
- * Get friendly display name for a model
- * Falls back to uppercase version of API name if not found
+ * Get friendly display name for a model.
+ * Falls back to the provider-prefixed model string if not known.
  */
 export function getModelDisplayName(model: string): string {
-  return MODEL_DISPLAY_NAMES[model.toLowerCase()] || model.toUpperCase();
+  const lower = model.toLowerCase();
+  return MODEL_DISPLAY_NAMES[lower] || model;
 }

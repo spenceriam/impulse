@@ -32,8 +32,9 @@ import "./set-mode";
 // Tool library
 import "./tool-docs";
 
-// MCP discovery
-import "./mcp-discover";
+// Web research
+import "./web-fetch";
+import "./web-search";
 
 // Re-export registry for convenience
 export { Tool } from "./registry";

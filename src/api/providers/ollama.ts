@@ -332,6 +332,15 @@ function reasoningEnabled(options: CompletionOptions): boolean {
   return options.thinking?.type === "enabled";
 }
 
+function extractReasoningContent(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const reasoningContent = record["reasoning_content"];
+  if (typeof reasoningContent === "string") return reasoningContent;
+  const reasoning = record["reasoning"];
+  return typeof reasoning === "string" ? reasoning : undefined;
+}
+
 function transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
   return {
     id: response.id,
@@ -348,9 +357,7 @@ function transformResponse(response: OpenAI.ChatCompletion): ChatCompletionRespo
           type: "function" as const,
           function: { name: tc.function.name, arguments: tc.function.arguments },
         })),
-        reasoning_content: (
-          choice.message as unknown as { reasoning_content?: string }
-        ).reasoning_content,
+        reasoning_content: extractReasoningContent(choice.message),
       },
       finish_reason:
         choice.finish_reason === "function_call"
@@ -378,9 +385,7 @@ function transformChunk(chunk: OpenAI.ChatCompletionChunk): ChatCompletionChunk 
       delta: {
         role: choice.delta.role as ChatMessage["role"] | undefined,
         content: choice.delta.content,
-        reasoning_content: (
-          choice.delta as unknown as { reasoning_content?: string }
-        ).reasoning_content,
+        reasoning_content: extractReasoningContent(choice.delta),
         tool_calls: choice.delta.tool_calls?.map((tc) => ({
           index: tc.index,
           id: tc.id,

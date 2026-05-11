@@ -9,7 +9,7 @@ import type { ChatCompletionChunk, ChatMessage, ToolCall } from "./types";
 export interface StreamState {
   // Accumulated content
   content: string;
-  // Accumulated reasoning/thinking content (GLM-specific)
+  // Accumulated provider reasoning/thinking content
   reasoningContent: string;
   // Final role (usually 'assistant')
   role: ChatMessage["role"] | null;
@@ -85,7 +85,7 @@ export function processChunk(
       events.push({ type: "content", delta: delta.content });
     }
 
-    // Process reasoning content (GLM thinking mode)
+    // Process provider reasoning content
     if (delta.reasoning_content) {
       state.reasoningContent += delta.reasoning_content;
       events.push({ type: "reasoning", delta: delta.reasoning_content });

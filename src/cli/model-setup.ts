@@ -51,7 +51,7 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
   {
     key: "z.ai",
     label: "Z.ai",
-    envVar: "GLM_API_KEY",
+    envVar: "ZAI_API_KEY",
     defaultModel: "z.ai/glm-4.7",
     modelBaseUrl: "https://api.z.ai/api/coding/paas/v4",
   },

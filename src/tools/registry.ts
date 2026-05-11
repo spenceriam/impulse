@@ -38,7 +38,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   todo_read: "read_only",
   set_header: "utility",
   set_mode: "utility",
-  mcp_discover: "read_only",
+  web_fetch: "read_only",
+  web_search: "read_only",
   tool_docs: "read_only",
   
   // Write tools (restricted in PLAN)
@@ -50,7 +51,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 };
 
 /**
- * Unknown tools default to read_only (safe fallback for dynamically registered MCP tools).
+ * Unknown tools default to read_only.
  */
 function getToolCategory(toolName: string): ToolCategory {
   return TOOL_CATEGORIES[toolName] ?? "read_only";
@@ -111,7 +112,7 @@ export namespace Tool {
 
   /**
    * Get all tools as API-compatible definitions (JSON Schema format)
-   * for passing to GLMClient.stream()
+   * for passing to provider streaming APIs.
    */
   export function getAPIDefinitions(): ToolDefinition[] {
     return Array.from(tools.values()).map((tool) => {

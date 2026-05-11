@@ -43,7 +43,7 @@ export interface Message {
   timestamp: string
   tool_calls?: ToolCall[]
   mode?: string       // Mode used when generating (for assistant messages)
-  model?: string      // Model used (e.g., "glm-4.7")
+  model?: string      // Model used (e.g., "ollama/deepseek-v4-pro")
 }
 
 export type MessageContentBlock =

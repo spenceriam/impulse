@@ -63,7 +63,7 @@ loadEnv();
 // ---------------------------------------------------------------------------
 function hasAnyKey(): boolean {
   const keys = [
-    "GLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    "ZAI_API_KEY", "GLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "OPENROUTER_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY",
     "OLLAMA_API_KEY",
   ];
@@ -102,7 +102,7 @@ async function runSetup(): Promise<void> {
       break;
     case "3":
       providerKey = "z.ai";
-      envVar = "GLM_API_KEY";
+      envVar = "ZAI_API_KEY";
       label = "Z.ai";
       keyHint = "your Z.ai API key";
       break;

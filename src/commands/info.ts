@@ -1,8 +1,5 @@
 import { CommandRegistry, CommandDefinition } from "./registry";
 import { SessionManager } from "../session/manager";
-import { mcpManager } from "../mcp/manager";
-import { MCPDiscovery } from "../mcp/discovery";
-import { MCPServerName } from "../mcp/types";
 import { load as loadConfig } from "../util/config";
 import { getClipboardHistory, clearClipboardHistory } from "../util/clipboard-history";
 
@@ -44,7 +41,7 @@ async function handleHelp() {
   const lines: string[] = [
     "IMPULSE Quick Reference",
     "",
-    "IMPULSE is an AI coding agent powered by GLM models. Use natural language",
+    "IMPULSE is a provider-flexible AI coding agent. Use natural language",
     "to build, debug, and explore codebases with full tool access.",
     "",
     "MODES (Tab to cycle)",
@@ -65,16 +62,17 @@ async function handleHelp() {
     "",
     "STATUS LINE INDICATORS",
     "─".repeat(78),
-    `${"(Thinking)".padEnd(24)}AI is using extended reasoning (GLM-4.7 feature)`,
+    `${"(Thinking)".padEnd(24)}AI is using provider-supported extended reasoning`,
     `${"[EXPRESS]".padEnd(24)}Express mode - all permissions auto-approved (orange)`,
     `${"[████░░░░] 45%".padEnd(24)}Context window usage - auto-compacts at 70%`,
-    `${"MCP: ●".padEnd(24)}Green=connected, Yellow=initializing, Red=failures`,
+    `${"web_search".padEnd(24)}Discover current external sources`,
+    `${"web_fetch".padEnd(24)}Read exact URLs from search results or user input`,
     "",
     "KEYBOARD SHORTCUTS",
     "─".repeat(78),
     `${"Tab / Shift+Tab".padEnd(24)}Cycle modes forward/backward`,
     `${"Ctrl+P".padEnd(24)}Command palette`,
-    `${"Ctrl+M".padEnd(24)}MCP status overlay`,
+    `${"Ctrl+M".padEnd(24)}Reserved`,
     `${"Ctrl+B".padEnd(24)}Toggle sidebar`,
     `${"Esc (2x)".padEnd(24)}Cancel/stop generation`,
     `${"Ctrl+C (2x)".padEnd(24)}Exit with summary`,
@@ -83,8 +81,8 @@ async function handleHelp() {
     "─".repeat(78),
     `${"/new".padEnd(14)}New session${"".padEnd(10)}${"/model".padEnd(14)}Switch model`,
     `${"/save".padEnd(14)}Save session${"".padEnd(9)}${"/mode".padEnd(14)}Switch mode`,
-    `${"/continue".padEnd(14)}Continue session${"".padEnd(5)}${"/mcp".padEnd(14)}MCP server status`,
-    `${"/compact".padEnd(14)}Summarize context${"".padEnd(4)}${"/stats".padEnd(14)}Session statistics`,
+    `${"/continue".padEnd(14)}Continue session${"".padEnd(5)}${"/stats".padEnd(14)}Session statistics`,
+    `${"/compact".padEnd(14)}Summarize context${"".padEnd(4)}${"/user".padEnd(14)}User profile`,
     `${"/quit".padEnd(14)}Exit with summary${"".padEnd(4)}${"/express".padEnd(14)}Toggle express mode`,
     `${"/engage".padEnd(14)}Toggle engage mode`,
   ];
@@ -108,13 +106,6 @@ async function handleInstruct() {
     output: "Instruct command not yet implemented",
   };
 }
-
-// Column widths for /mcp command alignment
-const MCP_STATUS_COL = 8;
-const MCP_NAME_COL = 14;
-const MCP_TYPE_COL = 8;
-// Wider error column to show full messages (was truncating at 35 chars)
-const MCP_ERROR_MAX = 60;
 
 // ============================================================================
 // /usage command - Check Z.AI Coding Plan quota and usage
@@ -268,15 +259,16 @@ async function fetchUsageData(apiKey: string): Promise<UsageData> {
 async function handleUsage(): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
     const config = await loadConfig();
+    const apiKey = config.providers?.["z.ai"]?.apiKey ?? config.apiKey;
     
-    if (!config.apiKey) {
+    if (!apiKey) {
       return {
         success: false,
-        error: "API key not configured. Set GLM_API_KEY environment variable or configure in ~/.config/impulse/config.json",
+        error: "API key not configured. Set ZAI_API_KEY (or legacy GLM_API_KEY) or configure providers['z.ai'].apiKey in ~/.config/impulse/config.json",
       };
     }
     
-    const usage = await fetchUsageData(config.apiKey);
+    const usage = await fetchUsageData(apiKey);
     
     const lines: string[] = [
       `Checked: ${usage.checkedAt}`,
@@ -359,160 +351,6 @@ async function handleUsage(): Promise<{ success: boolean; output?: string; error
     };
   }
 }
-
-
-
-async function handleMcp() {
-  const servers = mcpManager.getAllServers();
-  const summary = mcpManager.getConnectionSummary();
-  
-  // If no servers yet (still initializing)
-  if (servers.length === 0) {
-    return {
-      success: true,
-      output: "MCP servers initializing...\n\nExpected: 5 servers\nStatus: Checking connections",
-    };
-  }
-
-  // Build status output for each server with aligned columns
-  const lines: string[] = [
-    `MCP Server Status (${summary.connected}/${summary.total} connected)`,
-    "",
-    // Header row
-    `${"STATUS".padEnd(MCP_STATUS_COL)}${"SERVER".padEnd(MCP_NAME_COL)}${"TYPE".padEnd(MCP_TYPE_COL)}INFO`,
-  ];
-
-  for (const server of servers) {
-    const statusIcon = server.status === "connected" ? "[OK]" : "[FAIL]";
-    const name = server.config.name.padEnd(MCP_NAME_COL);
-    const type = server.config.type.padEnd(MCP_TYPE_COL);
-    
-    let info = "";
-    if (server.status === "failed" && server.error) {
-      // Show more of the error message (increased from 35 to 60 chars)
-      info = server.error.length > MCP_ERROR_MAX 
-        ? server.error.slice(0, MCP_ERROR_MAX - 3) + "..." 
-        : server.error;
-    } else if (server.status === "connected") {
-      info = `${server.tools.length} tools`;
-    }
-    
-    lines.push(`${statusIcon.padEnd(MCP_STATUS_COL)}${name}${type}${info}`);
-  }
-
-  // Add summary
-  lines.push("");
-  if (summary.failed > 0) {
-    lines.push(`Note: ${summary.failed} server(s) failed to connect.`);
-    lines.push("Check API key and network connectivity.");
-  } else {
-    lines.push("All servers connected successfully.");
-  }
-
-  return {
-    success: true,
-    output: lines.join("\n"),
-  };
-}
-
-async function handleMcpTools(args: string[]) {
-  // Parse args: /mcp-tools [search <query>] | [<server>] | [<server> <tool>]
-  
-  if (args.length === 0) {
-    // List all servers and tool counts
-    const tools = await MCPDiscovery.getAllTools();
-    const byServer = new Map<string, number>();
-    
-    for (const tool of tools) {
-      byServer.set(tool.server, (byServer.get(tool.server) || 0) + 1);
-    }
-    
-    const lines = ["MCP Tools Available:", ""];
-    for (const [server, count] of byServer) {
-      lines.push(`  ${server.padEnd(14)} ${count} tools`);
-    }
-    lines.push("");
-    lines.push("Usage:");
-    lines.push("  /mcp-tools search <query>    Search for tools");
-    lines.push("  /mcp-tools <server>          List tools for server");
-    lines.push("  /mcp-tools <server> <tool>   Show tool details");
-    
-    return { success: true, output: lines.join("\n") };
-  }
-  
-  // Search mode
-  if (args[0] === "search") {
-    const query = args.slice(1).join(" ");
-    if (!query) {
-      return { success: false, error: "Usage: /mcp-tools search <query>" };
-    }
-    
-    const results = await MCPDiscovery.search(query, 10);
-    
-    if (results.length === 0) {
-      return { success: true, output: `No tools found matching "${query}"` };
-    }
-    
-    const lines = [`Found ${results.length} tools matching "${query}":`, ""];
-    for (const result of results) {
-      const score = Math.round(result.score * 100);
-      lines.push(`  [${score}%] ${result.tool.server}/${result.tool.name}`);
-      lines.push(`       ${result.tool.description}`);
-    }
-    
-    return { success: true, output: lines.join("\n") };
-  }
-  
-  // Server-specific listing
-  const serverName = args[0] as MCPServerName;
-  const validServers: MCPServerName[] = ["vision", "web-search", "web-reader", "zread", "context7"];
-  
-  if (!validServers.includes(serverName)) {
-    return { 
-      success: false, 
-      error: `Unknown server: ${serverName}\nValid servers: ${validServers.join(", ")}` 
-    };
-  }
-  
-  // If tool name provided, show details
-  if (args.length >= 2) {
-    const toolName = args[1] || "";
-    const tool = await MCPDiscovery.getTool(serverName, toolName);
-    
-    if (!tool) {
-      const serverTools = await MCPDiscovery.getServerTools(serverName);
-      const toolNames = serverTools.map(t => t.name).join(", ");
-      return { 
-        success: false, 
-        error: `Tool "${toolName}" not found in ${serverName}\nAvailable: ${toolNames}` 
-      };
-    }
-    
-    const details = MCPDiscovery.formatToolDetails(tool);
-    const example = MCPDiscovery.generateExampleCall(tool);
-    
-    return { 
-      success: true, 
-      output: `${details}\n\nExample:\n  ${example}` 
-    };
-  }
-  
-  // List tools for server
-  const serverTools = await MCPDiscovery.getServerTools(serverName);
-  
-  if (serverTools.length === 0) {
-    return { success: true, output: `No tools available for ${serverName}` };
-  }
-  
-  const lines = [`Tools for ${serverName}:`, ""];
-  for (const tool of serverTools) {
-    lines.push(`  ${tool.name}`);
-    lines.push(`    ${tool.description}`);
-  }
-  
-  return { success: true, output: lines.join("\n") };
-}
-
 async function handleClipboard(args: Record<string, unknown>): Promise<{ success: boolean; output?: string; error?: string }> {
   const _ = args["_"] as string[] | undefined;
   const action = _?.[0];
@@ -599,31 +437,6 @@ export function registerInfoCommands(): void {
       description: "Edit project instructions",
       handler: handleInstruct,
       examples: ["/instruct"],
-    },
-    {
-      name: "mcp",
-      category: "info",
-      description: "Show MCP server status",
-      handler: handleMcp,
-      examples: ["/mcp"],
-    },
-
-    {
-      name: "mcp-tools",
-      category: "info",
-      description: "Search and inspect MCP tools (internal)",
-      hidden: true,  // Used by agent internally, not shown to users
-      handler: (_args: Record<string, unknown>, rawInput?: string) => {
-        // Parse args from raw input: "/mcp-tools search query" -> ["search", "query"]
-        const parts = (rawInput || "").trim().split(/\s+/).slice(1);
-        return handleMcpTools(parts);
-      },
-      examples: [
-        "/mcp-tools",
-        "/mcp-tools search web",
-        "/mcp-tools vision",
-        "/mcp-tools context7 query-docs",
-      ],
     },
     {
       name: "start",

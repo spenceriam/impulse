@@ -3,7 +3,8 @@ import { CommandRegistry, CommandDefinition } from "./registry";
 import { SessionManager } from "../session/manager";
 import { CheckpointManager } from "../session/checkpoint";
 import { CompactManager } from "../session/compact";
-import { GLM_MODELS, MODES, getModelDisplayName, normalizeMode } from "../constants";
+import { MODES, getModelDisplayName, normalizeMode } from "../constants";
+import { load as loadConfig } from "../util/config";
 import { Bus, ModeEvents } from "../bus";
 
 const UndoArgsSchema = z.object({
@@ -156,6 +157,7 @@ async function handleCompact(args: Record<string, unknown>) {
 
 async function handleModel(args: Record<string, unknown>) {
   const parsed = ModelArgsSchema.parse(args);
+  const config = await loadConfig();
   
   // Get model from named arg or first positional arg
   const modelArg = parsed.model || (parsed._ && parsed._[0]);
@@ -163,29 +165,29 @@ async function handleModel(args: Record<string, unknown>) {
   // If no model specified, show available models
   if (!modelArg) {
     const currentSession = SessionManager.getCurrentSession();
-    const currentModel = currentSession?.model || "glm-4.7";
-    
-    const modelList = GLM_MODELS.map(m => {
-      const isCurrent = m === currentModel;
-      const displayName = m.toUpperCase().replace("GLM-", "GLM-");
-      return isCurrent ? `  * ${displayName} (current)` : `    ${displayName}`;
-    }).join("\n");
+    const currentModel = currentSession?.model || config.defaultModel;
+    const configuredProviders = Object.entries(config.providers ?? {})
+      .filter(([, value]) => value?.apiKey || value?.baseUrl)
+      .map(([provider]) => provider)
+      .sort();
+    const providerLine = configuredProviders.length > 0
+      ? configuredProviders.join(", ")
+      : config.defaultProvider;
     
     return {
       success: true,
-      output: `Available models:\n${modelList}\n\nUsage: /model <model-name>`,
+      output: [
+        `Current model: ${getModelDisplayName(currentModel)}`,
+        `Default provider: ${config.defaultProvider}`,
+        `Configured providers: ${providerLine}`,
+        "",
+        "Usage: /model <provider/model>",
+        "Examples: /model ollama/deepseek-v4-pro, /model z.ai/glm-4.7, /model openai/gpt-4o-mini",
+      ].join("\n"),
     };
   }
 
-  // Normalize model name (accept GLM-4.7 or glm-4.7)
-  const normalizedModel = modelArg.toLowerCase();
-  
-  if (!GLM_MODELS.includes(normalizedModel as (typeof GLM_MODELS)[number])) {
-    return {
-      success: false,
-      error: `Invalid model: ${modelArg}\nValid models: ${GLM_MODELS.map(m => getModelDisplayName(m)).join(", ")}`,
-    };
-  }
+  const normalizedModel = normalizeModelInput(modelArg, config.defaultProvider);
 
   await SessionManager.update({ model: normalizedModel });
 
@@ -193,6 +195,14 @@ async function handleModel(args: Record<string, unknown>) {
     success: true,
     output: `Model changed to ${getModelDisplayName(normalizedModel)}`,
   };
+}
+
+function normalizeModelInput(model: string, defaultProvider: string): string {
+  const trimmed = model.trim();
+  if (trimmed.includes("/")) return trimmed;
+  return defaultProvider === "z.ai" && trimmed.toLowerCase().startsWith("glm-")
+    ? trimmed.toLowerCase()
+    : `${defaultProvider}/${trimmed}`;
 }
 
 async function handleMode(args: Record<string, unknown>) {
@@ -326,10 +336,10 @@ export function registerUtilityCommands(): void {
     {
       name: "model",
       category: "utility",
-      description: "Switch GLM model",
+      description: "Switch model",
       args: ModelArgsSchema,
       handler: handleModel,
-      examples: ["/model glm-4.7", "/model glm-4.5-air"],
+      examples: ["/model ollama/deepseek-v4-pro", "/model z.ai/glm-4.7"],
     },
     {
       name: "mode",

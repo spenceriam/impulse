@@ -49,9 +49,18 @@ export {
   type ProviderKey,
 } from "./manager";
 
-// Legacy GLMClient — kept for backward compatibility during migration
+// Legacy Z.ai client — prefer using getProviderManager() for new code.
 // Prefer using getProviderManager() for new code
-export { GLMClient, GLMClientError, GLMAuthError, GLMRateLimitError } from "./client";
+export {
+  ZAIClient,
+  ZAIClientError,
+  ZAIAuthError,
+  ZAIRateLimitError,
+  GLMClient,
+  GLMClientError,
+  GLMAuthError,
+  GLMRateLimitError,
+} from "./client";
 
 // Streaming utilities
 export {
@@ -71,6 +80,7 @@ export type {
 
 // Core types
 export type {
+  ZAIModel,
   GLMModel,
   MessageRole,
   ChatMessage,
@@ -89,6 +99,7 @@ export type {
 
 // Schemas (for validation)
 export {
+  ZAIModel as ZAIModelSchema,
   GLMModel as GLMModelSchema,
   MessageRole as MessageRoleSchema,
   ChatMessage as ChatMessageSchema,

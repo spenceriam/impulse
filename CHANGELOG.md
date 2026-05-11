@@ -5,6 +5,28 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-05-10
+
+**Type:** minor  
+**Title:** Restored TUI flow and provider-neutral web research
+
+### Added
+
+- **Provider-neutral web research tools** - Added `web_search` and `web_fetch` with direct web access first and bundled `agent-browser` fallback.
+- **Agent-browser fallback dependency** - Bundled `agent-browser` so IMPULSE can fall back to browser-backed search/fetch without requiring a global install.
+
+### Changed
+
+- **Restored bottom-anchored prompt flow** - Returned the prompt to the pre-editor single-line input style and preserved visible chat/tool streaming behavior.
+- **Thinking block polish** - Thinking now renders inline as `Thinking: <content>` with darker colors, wrapping, and continuation indentation.
+- **Provider-neutral language and model UX** - Updated active product copy, model handling, env-var messaging, and legacy Z.ai naming surfaces.
+- **Checkpoint safety** - Checkpoint creation now snapshots without checking out temporary branches and uses future `impulse-checkpoint-*` refs while still reading old refs.
+- **Web research prompts** - Replaced the old MCP discovery instructions with `web_search`/`web_fetch` guidance.
+
+### Removed
+
+- **Default Z.ai MCP research path** - Removed the unreliable default Vision/Web Search/Web Reader/Zread MCP discovery surface and related `mcp_discover` tool exposure.
+
 ## [0.35.0] - 2026-02-25
 
 **Type:** minor  
