@@ -106,6 +106,7 @@ export const grepTool: Tool<GrepInput> = Tool.define(
           type: "grep",
           pattern: input.pattern,
           path: input.path,
+          include: input.include,
           matchCount: totalFound,
           truncated: totalFound >= MAX_RESULTS,
         },

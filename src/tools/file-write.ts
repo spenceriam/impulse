@@ -6,6 +6,7 @@ import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
 import { createPatch } from "diff";
+import { createAddedFileCompactDiff, createCompactDiff } from "../util/compact-diff";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
 
@@ -117,12 +118,16 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
         await chmod(safePath, existingPermissions);
       }
 
-      // Count lines written
-      const linesWritten = input.content.split("\n").length;
+      // Count logical content lines written. Empty files have 0 lines.
+      const linesWritten = input.content.length === 0 ? 0 : input.content.split("\n").length;
       
       // Generate diff for display
       const fileName = basename(safePath);
       let diff = "";
+      let compactDiff: string[] | undefined;
+      let linesAdded = 0;
+      let linesRemoved = 0;
+      let firstChangedLine: number | undefined;
       let diffSkipped = false;
       let diffReason: string | undefined;
       if (shouldSkipDiff) {
@@ -131,9 +136,19 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       } else if (isNewFile) {
         // For new files, create a diff showing all lines as additions
         diff = createPatch(fileName, "", input.content, "", "");
+        const compact = createAddedFileCompactDiff(input.content);
+        compactDiff = compact.lines;
+        linesAdded = compact.additions;
+        linesRemoved = compact.removals;
+        firstChangedLine = compact.firstChangedLine;
       } else {
         // For overwrites, create a proper diff
         diff = createPatch(fileName, existingContent, input.content, "", "");
+        const compact = createCompactDiff(existingContent, input.content);
+        compactDiff = compact.lines;
+        linesAdded = compact.additions;
+        linesRemoved = compact.removals;
+        firstChangedLine = compact.firstChangedLine;
       }
 
       // Emit file edited event for formatters
@@ -151,6 +166,10 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           linesWritten,
           created: isNewFile,
           diff,
+          compactDiff,
+          linesAdded,
+          linesRemoved,
+          firstChangedLine,
           diffSkipped,
           diffReason,
         },

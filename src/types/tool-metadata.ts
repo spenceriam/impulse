@@ -28,6 +28,10 @@ export interface FileWriteMetadata {
   linesWritten: number;      // Number of lines in content
   created: boolean;          // True if file was created (vs overwritten)
   diff?: string;             // Unified diff (for overwrite) or content preview (for new file)
+  compactDiff?: string[];    // Compact line-numbered diff lines for terminal rendering
+  linesAdded?: number;       // Count of added lines in compact diff
+  linesRemoved?: number;     // Count of removed lines in compact diff
+  firstChangedLine?: number; // First changed line in the new file
   diffSkipped?: boolean;     // True if diff was skipped due to size
   diffReason?: string;       // Reason diff was skipped
 }
@@ -39,8 +43,11 @@ export interface FileEditMetadata {
   type: "file_edit";
   filePath: string;          // Absolute or relative path
   diff: string;              // Unified diff format string
-  linesAdded: number;        // Count of lines with + prefix
-  linesRemoved: number;      // Count of lines with - prefix
+  compactDiff?: string[];    // Compact line-numbered diff lines for terminal rendering
+  linesAdded: number;        // Count of added lines in compact diff
+  linesRemoved: number;      // Count of removed lines in compact diff
+  replacements?: number;     // Number of replacements applied
+  firstChangedLine?: number; // First changed line in the new file
   diffSkipped?: boolean;     // True if diff was skipped due to size
   diffReason?: string;       // Reason diff was skipped
 }
@@ -62,7 +69,9 @@ export interface GlobMetadata {
   type: "glob";
   pattern: string;           // Glob pattern used
   path?: string;             // Search root path if specified
-  matchCount: number;        // Number of files matched
+  matchCount: number;        // Number of files matched after result limiting
+  totalMatches?: number;     // Total matches before limiting
+  truncated?: boolean;       // True if output was limited
 }
 
 // ============================================
@@ -72,7 +81,9 @@ export interface GrepMetadata {
   type: "grep";
   pattern: string;           // Regex pattern searched
   path?: string;             // Search root path
+  include?: string;          // Include glob if specified
   matchCount: number;        // Number of matches found
+  truncated?: boolean;       // True if output was limited
 }
 
 // ============================================

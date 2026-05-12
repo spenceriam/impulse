@@ -3,6 +3,7 @@ import { Tool, ToolResult } from "./registry";
 import { readFile, writeFile } from "fs/promises";
 import { resolve, relative, isAbsolute } from "path";
 import { createPatch } from "diff";
+import { createCompactDiff } from "../util/compact-diff";
 import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
@@ -105,8 +106,10 @@ export const fileEdit: Tool<EditInput> = Tool.define(
 
       const shouldSkipDiff = Buffer.byteLength(content, "utf-8") + Buffer.byteLength(newContent, "utf-8") > MAX_DIFF_BYTES;
       let diff = "";
+      let compactDiff: string[] | undefined;
       let linesAdded = 0;
       let linesRemoved = 0;
+      let firstChangedLine: number | undefined;
       let diffSkipped = false;
       let diffReason: string | undefined;
 
@@ -123,10 +126,11 @@ export const fileEdit: Tool<EditInput> = Tool.define(
           "modified"
         );
 
-        // Count added/removed lines from diff
-        const diffLines = diff.split("\n");
-        linesAdded = diffLines.filter(l => l.startsWith("+") && !l.startsWith("+++")).length;
-        linesRemoved = diffLines.filter(l => l.startsWith("-") && !l.startsWith("---")).length;
+        const compact = createCompactDiff(content, newContent);
+        compactDiff = compact.lines;
+        linesAdded = compact.additions;
+        linesRemoved = compact.removals;
+        firstChangedLine = compact.firstChangedLine;
       }
 
       await writeFile(safePath, newContent, "utf-8");
@@ -144,9 +148,11 @@ export const fileEdit: Tool<EditInput> = Tool.define(
           type: "file_edit",
           filePath: input.filePath,
           diff,
+          compactDiff,
           linesAdded,
           linesRemoved,
           replacements: input.replaceAll ? occurrences : 1,
+          firstChangedLine,
           diffSkipped,
           diffReason,
         },

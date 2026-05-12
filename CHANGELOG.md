@@ -5,6 +5,24 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-05-12
+
+**Type:** minor
+**Title:** Compact CLI diffs and terminal-native polish
+
+### Added
+
+- **Compact file diffs** - `file_edit` and `file_write` tool rows now show compact line-numbered diffs with clearer summaries, spacing before changed lines, and red strikethrough removals.
+- **Terminal-native table rendering** - Assistant markdown tables now render as boxed tables on wide terminals and stacked records on narrow terminals.
+- **Live footer telemetry** - Context and token-speed estimates now update during active turns and reconcile with final turn usage.
+
+### Changed
+
+- **Cleaner active status line** - The main activity line no longer uses a spinner; it now shimmers/pulses with slower one-phrase rotation while tool rows keep their own slower indicators.
+- **Clearer search tool rows** - `glob` and `grep` completions now show distinct pattern, path, include, and match-count summaries.
+- **Simpler question overlay** - Questions now use visible radio/checkbox markers with arrow, space, and enter navigation instead of hidden numeric/custom hotkeys.
+- **More consistent CLI spacing** - User, assistant, thinking, and tool output gutters were tightened toward a consistent two-space layout.
+
 ## [0.38.0] - 2026-05-12
 
 **Type:** minor

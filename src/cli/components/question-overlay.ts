@@ -132,6 +132,14 @@ export class QuestionOverlay implements Component {
     this.advance();
   }
 
+  private optionMarker(selected: boolean): string {
+    if (this.currentQuestion.multiple) {
+      return selected ? A.fg(34, "[x]") : dimText("[ ]");
+    }
+
+    return selected ? A.fg(34, "(•)") : dimText("( )");
+  }
+
   handleInput(data: string): void {
     if (data.length > 1 && !data.includes("\x1b") && (data.includes("\r") || data.includes("\n"))) {
       for (const char of data) this.handleInput(char);
@@ -186,9 +194,18 @@ export class QuestionOverlay implements Component {
     }
 
     if (data === " ") {
-      if (this.currentQuestion.multiple && this.selectedOption < this.currentQuestion.options.length) {
-        this.chooseOption(this.selectedOption);
+      if (this.selectedOption >= this.currentQuestion.options.length) {
+        this.beginCustomAnswer();
+        return;
       }
+
+      if (this.currentQuestion.multiple) {
+        this.chooseOption(this.selectedOption);
+        return;
+      }
+
+      const option = this.currentQuestion.options[this.selectedOption];
+      if (option) this.setSingleAnswer(option.label);
       return;
     }
 
@@ -197,20 +214,6 @@ export class QuestionOverlay implements Component {
       return;
     }
 
-    const key = data.trim();
-    if (/^[1-9]$/.test(key)) {
-      const index = Number.parseInt(key, 10) - 1;
-      if (index <= this.maxSelectableIndex - 1) {
-        this.selectedOption = index;
-        this.chooseOption(index);
-      }
-      return;
-    }
-
-    if (key === "0") {
-      this.selectedOption = this.maxSelectableIndex;
-      this.beginCustomAnswer();
-    }
   }
 
   render(width: number): string[] {
@@ -261,23 +264,23 @@ export class QuestionOverlay implements Component {
       const option = this.currentQuestion.options[index]!;
       const pointer = index === this.selectedOption ? A.fg(39, ">") : " ";
       const selected = this.isSelected(option.label);
-      const marker = selected ? A.fg(34, "[x]") : dimText("[ ]");
-      const line = `${pointer} ${A.fg(250, `[${index + 1}]`)} ${marker} ${A.bold}${option.label}${A.reset} ${A.dim}— ${option.description}${A.reset}`;
+      const marker = this.optionMarker(selected);
+      const line = `${pointer} ${marker} ${A.bold}${option.label}${A.reset} ${A.dim}— ${option.description}${A.reset}`;
       pushWrapped(lines, line, innerWidth, boxWidth);
     }
 
     const customPointer = this.selectedOption === this.maxSelectableIndex ? A.fg(39, ">") : " ";
     pushWrapped(
       lines,
-      `${customPointer} ${A.fg(250, "[0]")} ${dimText("[ ]")} ${A.bold}Type your own answer${A.reset}`,
+      `${customPointer} ${dimText("( )")} ${A.bold}Type your own answer${A.reset}`,
       innerWidth,
       boxWidth,
     );
 
     pushBoxLine("");
     const hints = this.currentQuestion.multiple
-      ? `${A.dim}↑/↓ move   Space toggle   Tab next topic   Enter custom/select   Esc abort${A.reset}`
-      : `${A.dim}↑/↓ move   Enter select   Tab next topic   Esc abort${A.reset}`;
+      ? `${A.dim}↑/↓ move   Space toggle   Enter confirm/custom   Tab next topic   Esc abort${A.reset}`
+      : `${A.dim}↑/↓ move   Enter confirm/custom   Tab next topic   Esc abort${A.reset}`;
     pushWrapped(lines, hints, innerWidth, boxWidth);
     lines.push(bottom);
 
