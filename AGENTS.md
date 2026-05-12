@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.35.0
+- **Version:** v0.39.0
 - **Tagline:** Provider-flexible terminal AI coding agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
@@ -17,6 +17,35 @@
 ## Current State
 
 **Status:** Phase 9 COMPLETE - QoL Polish
+
+### Active Branch Context: `refactor/cli-rework` (May 2026)
+
+**Current take:** This branch is the keyboard-first CLI rework track. It uses `@mariozechner/pi-tui` for the active CLI renderer and should not be treated as the older OpenTUI/SolidJS runtime while working in `src/cli/**`. The goal is to make the CLI practical for daily coding-agent use across Windows/macOS/Linux with reliable overlays, visible tool outcomes, safe permissions, and compact terminal-native rendering.
+
+**Branch status before handoff:**
+- Current branch: `refactor/cli-rework`
+- Current release target: `0.39.0`
+- Last pre-polish checkpoint: `2a03376 feat: improve CLI status and question flow for v0.38.0`
+- Validation after the v0.39.0 polish pass: `bun run typecheck`, `bun test` (`65 pass / 0 fail`), and `bun run build`
+
+**Recently completed on this branch:**
+- Centralized tool permission flow in the CLI renderer with keyboard-first overlays above the prompt.
+- Windows-aware bash execution and permission classification, including PowerShell-safe read-only commands.
+- Packaged ripgrep via `@vscode/ripgrep` so `grep` no longer depends on a global `rg` binary.
+- Fixed hidden paste submission so speech-to-text/long paste content submits the real text, not `[Pasted N chars]` markers.
+- Added working question overlay lifecycle with Esc abort and structured answer return.
+- Improved binary reasoning display labels so user-facing UI shows `thinking` instead of internal `medium` for binary providers.
+- Added compact Pi-style diff rendering for `file_edit`/`file_write`, including blank spacing before changed lines and red strikethrough removals.
+- Reworked status/activity presentation: shimmer-only main status line, slower phase rotation, slower tool/question spinners.
+- Added distinct `glob`/`grep` tool summaries with pattern/path/count/include details.
+- Simplified question selection UI: radio markers for single choice, checkbox markers for multi-select, no hidden numeric/custom hotkeys.
+- Added terminal-native markdown table rendering with boxed wide tables and stacked narrow fallback.
+- Updated footer telemetry during active turns using deterministic local session/turn estimates, then final turn reconciliation.
+
+**Deferred / still planned:**
+- Session resume picker overlay for `/continue` remains deferred.
+- Subagent rename (`explore` -> `researcher`) remains deferred.
+- True pre-execution edit preview parity with Pi remains deferred; current diffs render after tool completion using returned metadata.
 
 ### Phase 1 Completed Tasks
 - [x] Task 1.1: Initialize Project
@@ -136,6 +165,16 @@
 - [x] Chat view now renders ordered assistant blocks (text/thinking/tools)
 - [x] Self-check panel captures Findings + Next steps from tool outcomes
 - [x] Question tool outputs render as structured summaries in tool blocks
+- [x] CLI permission/question overlays wired for `@mariozechner/pi-tui`
+- [x] Packaged ripgrep-backed grep tool works without global `rg`
+- [x] Windows PowerShell-safe bash execution and command permission heuristics
+- [x] Hidden long-paste/speech-to-text payload submits real content
+- [x] Compact Pi-style file diffs render in CLI tool rows
+- [x] Shimmer-only main activity status with slower one-line rotation
+- [x] Distinct glob/grep result summaries in tool rows
+- [x] Question overlay uses radio/checkbox selection without numeric hotkeys
+- [x] Assistant markdown tables render terminal-natively with narrow fallback
+- [x] Footer context/token-speed telemetry updates during active turns
 
 ## Version Bumping Protocol
 
@@ -1092,6 +1131,14 @@ This ensures:
 | 01-27-2026 | Tool metadata passthrough | result.metadata now passed to toolCall.metadata - enables DiffView rendering |
 | 01-27-2026 | Native OpenTUI diff component | Replaced custom DiffView with `<diff view="split">` for side-by-side display |
 | 01-27-2026 | User message background color | Changed from cyan tint (#1a2a2a) to subtle gray (#222222) for consistency |
+| 05-12-2026 | CLI rework uses pi-tui renderer | `refactor/cli-rework` active UX work targets `src/cli/**` with `@mariozechner/pi-tui`, not the older OpenTUI/SolidJS path |
+| 05-12-2026 | Centralized CLI permission overlays | Tool handlers ask through the permission module and the CLI renderer presents keyboard-first overlays above the prompt |
+| 05-12-2026 | Windows PowerShell command semantics | Bash tool execution and permission heuristics are Windows-aware; read-only PowerShell formatting commands like `Format-Table` are safe |
+| 05-12-2026 | Packaged ripgrep dependency | `grep` uses `@vscode/ripgrep` so users do not need a global `rg` install |
+| 05-12-2026 | Compact Pi-style file diffs | File edit/write tool rows render compact line-numbered diffs instead of noisy unified patch headers |
+| 05-12-2026 | Shimmer-only main activity line | Main turn status has no spinner; tool/question rows retain slower dedicated spinners |
+| 05-12-2026 | Terminal-native markdown tables | Assistant markdown tables are parsed into boxed wide tables or stacked narrow records |
+| 05-12-2026 | Question UI avoids hidden numeric shortcuts | Question overlay uses visible radio/checkbox state and arrow/space/enter navigation |
 
 ## Future Work
 

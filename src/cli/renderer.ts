@@ -28,6 +28,7 @@ import {
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { ToolBlock } from "./components/tool-block.js";
+import { MarkdownTextBlock } from "./components/markdown-text.js";
 import { PermissionOverlay } from "./components/permission-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
@@ -291,7 +292,7 @@ class ThinkingBlock implements Component {
   }
 
   render(width: number): string[] {
-    const prefix = "   ";
+    const prefix = "  ";
     const label = "Thinking:";
     const firstPrefix = `${prefix}\x1b[38;5;94m${label}\x1b[0m `;
     const continuationPrefix = " ".repeat(prefix.length + label.length + 1);
@@ -376,7 +377,9 @@ export class ImpulseRenderer {
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
   private spinnerMsg = "";
   private spinnerFlavor = "";
-  private readonly SPIN_FRAMES = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+  private spinnerPhase: "action" | "flavor" = "action";
+  private spinnerPhaseStartedAt = 0;
+  private readonly STATUS_ROTATE_MS = 4200;
   private readonly STATUS_FLAVORS = [
     "warming up the neurons…",
     "herding the tokens…",
@@ -386,6 +389,8 @@ export class ImpulseRenderer {
     "asking nicely…",
     "untangling the context…",
     "lining up the bytes…",
+    "tracing the path…",
+    "stitching it together…",
   ];
 
   private pickBusyFlavor(action: string): string {
@@ -413,28 +418,62 @@ export class ImpulseRenderer {
     return flavor ?? "working…";
   }
 
+  private currentBusyMessage(): string {
+    if (!this.spinnerFlavor || this.spinnerPhase === "action") {
+      return this.spinnerMsg;
+    }
+    return this.spinnerFlavor;
+  }
+
+  private resetBusyCycle(msg: string): void {
+    this.spinnerMsg = msg;
+    this.spinnerFlavor = this.pickBusyFlavor(msg);
+    this.spinnerPhase = "action";
+    this.spinnerPhaseStartedAt = Date.now();
+  }
+
+  private advanceBusyCycle(now = Date.now()): void {
+    if (!this.spinnerFlavor) return;
+    if (now - this.spinnerPhaseStartedAt < this.STATUS_ROTATE_MS) return;
+
+    this.spinnerPhase = this.spinnerPhase === "action" ? "flavor" : "action";
+    this.spinnerPhaseStartedAt = now;
+  }
+
+  private shimmerBusyText(message: string): string {
+    const chars = Array.from(message);
+    if (chars.length === 0) return "";
+
+    const head = Math.floor(Date.now() / 180) % chars.length;
+    return chars.map((char, index) => {
+      if (/\s/.test(char)) return char;
+      const distance = Math.min(Math.abs(index - head), chars.length - Math.abs(index - head));
+      if (distance === 0) return A.fg(37, `${A.bold}${char}${A.reset}`);
+      if (distance === 1) return A.fg(36, char);
+      return A.fg(90, char);
+    }).join("");
+  }
+
   private renderBusyLine(): void {
     if (!this.spinnerMsg) {
       this.spinnerText.setText("");
       return;
     }
 
-    const frameIndex = Math.floor(Date.now() / 160) % this.SPIN_FRAMES.length;
-    const frame = this.SPIN_FRAMES[frameIndex] ?? this.SPIN_FRAMES[0] ?? "…";
-    const flavor = this.spinnerFlavor ? `${A.dim}${this.spinnerFlavor}${A.reset}  ` : "";
-    this.spinnerText.setText(`  ${A.dim}${frame}${A.reset}  ${flavor}${this.spinnerMsg}`);
+    const message = this.currentBusyMessage();
+    this.spinnerText.setText(`  ${this.shimmerBusyText(message)}`);
   }
 
   private spinStart(msg: string): void {
-    this.spinnerMsg = msg;
-    this.spinnerFlavor = this.pickBusyFlavor(msg);
+    this.resetBusyCycle(msg);
     this.renderBusyLine();
     this.tui.requestRender();
     if (this.spinnerInterval) return;
     this.spinnerInterval = setInterval(() => {
+      this.advanceBusyCycle();
       this.renderBusyLine();
       this.tui.requestRender();
-    }, 80);
+    }, 160);
   }
 
   private spinStop(): void {
@@ -444,6 +483,8 @@ export class ImpulseRenderer {
     }
     this.spinnerMsg = "";
     this.spinnerFlavor = "";
+    this.spinnerPhase = "action";
+    this.spinnerPhaseStartedAt = 0;
     this.spinnerText.setText("");
     this.tui.requestRender();
   }
@@ -458,8 +499,7 @@ export class ImpulseRenderer {
       return;
     }
 
-    this.spinnerMsg = msg;
-    this.spinnerFlavor = this.pickBusyFlavor(msg);
+    this.resetBusyCycle(msg);
     this.renderBusyLine();
     this.tui.requestRender();
   }
@@ -575,7 +615,7 @@ export class ImpulseRenderer {
   }
 
   // Streaming state: current assistant text block (updated in-place)
-  private streamingText: Text | null = null;
+  private streamingText: MarkdownTextBlock | null = null;
   private streamingRaw = "";
   private thinkingText: ThinkingBlock | null = null;
   private thinkingRaw = "";
@@ -588,6 +628,9 @@ export class ImpulseRenderer {
   private questionOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private turnPhraseIndex = 0;
+  private liveTurnStartedAt = 0;
+  private liveGeneratedChars = 0;
+  private lastLiveMetricsAt = 0;
 
   // Agent + state
   private loop = new AgentLoop();
@@ -884,6 +927,37 @@ export class ImpulseRenderer {
     return Math.ceil(JSON.stringify(session.messages).length / 4);
   }
 
+  private resetLiveMetrics(): void {
+    this.liveTurnStartedAt = Date.now();
+    this.liveGeneratedChars = 0;
+    this.lastLiveMetricsAt = 0;
+  }
+
+  private updateLiveMetrics(extraContextChars = 0, force = false): void {
+    const now = Date.now();
+    if (!force && now - this.lastLiveMetricsAt < 250) return;
+
+    this.lastLiveMetricsAt = now;
+    const liveChars = this.streamingRaw.length + this.thinkingRaw.length + extraContextChars;
+    const localContextTokens = this.estimateCurrentSessionTokens() + Math.ceil(liveChars / 4);
+    const generatedTokens = Math.ceil(this.liveGeneratedChars / 4);
+    const elapsedMs = Math.max(1, now - this.liveTurnStartedAt);
+    const tokensPerSecond = generatedTokens > 0 ? Math.round((generatedTokens / elapsedMs) * 1000) : undefined;
+
+    this.contextTokens = localContextTokens;
+    this.contextBar.update({
+      contextTokens: localContextTokens,
+      contextWindow: this.contextWindow,
+      isRunning: this.isRunning,
+      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+    });
+  }
+
+  private noteLiveGeneration(text: string): void {
+    this.liveGeneratedChars += text.length;
+    this.updateLiveMetrics();
+  }
+
   private toolBusyStatus(name: string): string {
     switch (name) {
       case "question":
@@ -922,8 +996,8 @@ export class ImpulseRenderer {
 
     // User message block
     this.addSectionGap();
-    this.addChatLine(`   ${A.fg(36, this.userName)}`);
-    this.addChatLine(`   ${userMessage}`);
+    this.addChatLine(`  ${A.fg(36, this.userName)}`);
+    this.addChatLine(`  ${userMessage}`);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -931,6 +1005,7 @@ export class ImpulseRenderer {
     this.thinkingRaw = "";
     this.thinkingText = null;
     this.thinkingOpen = false;
+    this.resetLiveMetrics();
     this.contextBar.update({
       isRunning: true,
       mode: this.mode,
@@ -947,6 +1022,7 @@ export class ImpulseRenderer {
           mode: this.mode,
           isRunning: true,
         });
+        this.updateLiveMetrics(0, true);
         this.setBusyStatus("thinking…");
       },
       onToken: (text) => {
@@ -955,14 +1031,15 @@ export class ImpulseRenderer {
         if (!this.streamingText) {
           // Add Impulse response header on first token
           this.addSectionGap();
-          this.chat.addChild(new Text(`   ${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
+          this.chat.addChild(new Text(`  ${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
           this.hasTrailingGap = false;
-          this.streamingText = new Text("", 0, 0);
+          this.streamingText = new MarkdownTextBlock("  ");
           this.chat.addChild(this.streamingText);
           this.hasTrailingGap = false;
         }
         this.streamingRaw += text;
-        this.streamingText.setText("   " + this.streamingRaw.replace(/\n/g, "\n   "));
+        this.streamingText.setText(this.streamingRaw);
+        this.noteLiveGeneration(text);
         this.tui.requestRender();
       },
       onThinking: (text) => {
@@ -982,6 +1059,7 @@ export class ImpulseRenderer {
         }
         this.thinkingRaw += text;
         this.thinkingText.setText(this.thinkingRaw);
+        this.noteLiveGeneration(text);
         this.tui.requestRender();
       },
       onAdvisorStart: (model) => {
@@ -1013,6 +1091,7 @@ export class ImpulseRenderer {
         this.hasTrailingGap = false;
 
         this.setBusyStatus(this.toolBusyStatus(name));
+        this.updateLiveMetrics(0, true);
         this.tui.requestRender();
       },
       onToolEnd: (id, name, result, durationMs) => {
@@ -1029,6 +1108,7 @@ export class ImpulseRenderer {
           return;
         }
         this.setBusyStatus(name === "question" ? "responding…" : "waiting for model…");
+        this.updateLiveMetrics(result.output.length, true);
         this.tui.requestRender();
       },
       onCompacting: () => {

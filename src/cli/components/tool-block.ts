@@ -9,6 +9,10 @@
 import { truncateToWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import {
   TypeGuards,
+  type FileEditMetadata,
+  type FileWriteMetadata,
+  type GlobMetadata,
+  type GrepMetadata,
   type ToolMetadata,
   type TodoMetadata,
 } from "../../types/tool-metadata.js";
@@ -34,8 +38,8 @@ const clr = {
 
 const TOOL_SPINNER = ["··●", "·●·", "●··", "·●·"];
 const QUESTION_SPINNER = [">--", "->-", "-->", "--<", "-<-", "<--"];
-const TOOL_FRAME_MS = 80;
-const QUESTION_FRAME_MS = 60;
+const TOOL_FRAME_MS = 180;
+const QUESTION_FRAME_MS = 160;
 const MAX_OUTPUT_ROWS = 30;
 const MAX_TODO_ROWS = 12;
 
@@ -63,6 +67,19 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
   if (name === "task") {
     const description = typeof args["description"] === "string" ? String(args["description"]) : "delegating subagent task";
     return description.length > 70 ? `${description.slice(0, 67)}…` : description;
+  }
+
+  if (name === "glob") {
+    const pattern = typeof args["pattern"] === "string" ? String(args["pattern"]) : "pattern";
+    const path = typeof args["path"] === "string" ? ` in ${String(args["path"])}` : "";
+    return `${pattern}${path}`.slice(0, 70);
+  }
+
+  if (name === "grep") {
+    const pattern = typeof args["pattern"] === "string" ? String(args["pattern"]) : "pattern";
+    const path = typeof args["path"] === "string" ? ` in ${String(args["path"])}` : "";
+    const include = typeof args["include"] === "string" ? ` (${String(args["include"])})` : "";
+    return `${pattern}${path}${include}`.slice(0, 70);
   }
 
   const keys = ["path", "filePath", "file", "command", "pattern", "query", "description", "prompt", "url"];
@@ -135,6 +152,122 @@ function renderTodoList(metadata: TodoMetadata, width: number): string[] {
   return lines;
 }
 
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
+}
+
+function replaceTabs(text: string): string {
+  return text.replace(/\t/g, "   ");
+}
+
+function colorCompactDiffLine(line: string): string {
+  const display = replaceTabs(line);
+  if (display.startsWith("+")) return clr.success(display);
+  if (display.startsWith("-")) return `\x1b[31m${c.strike}${display}${c.reset}`;
+  return clr.dim(display);
+}
+
+function renderCompactDiffLines(diffLines: string[], width: number, maxRows = MAX_OUTPUT_ROWS): string[] {
+  if (diffLines.length === 0) return [];
+
+  const visible = diffLines.slice(0, maxRows).map((line) => {
+    return truncateToWidth(`     ${colorCompactDiffLine(line)}`, width);
+  });
+
+  if (diffLines.length > maxRows) {
+    visible.push(truncateToWidth(`     ${clr.dim(`… ${diffLines.length - maxRows} more diff lines`)}`, width));
+  }
+
+  return visible;
+}
+
+function renderLegacyDiff(diff: string, width: number): string[] {
+  const meaningfulLines = diff
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((line) => {
+      if (line.startsWith("Index:")) return false;
+      if (line.startsWith("===") || line.startsWith("---") || line.startsWith("+++")) return false;
+      return line.length > 0;
+    });
+
+  return renderCompactDiffLines(meaningfulLines, width);
+}
+
+function renderDiffSkipped(reason: string | undefined, width: number): string[] {
+  return [truncateToWidth(`     ${clr.dim(`diff skipped: ${reason ?? "not available"}`)}`, width)];
+}
+
+function renderFileEditMetadata(metadata: FileEditMetadata, width: number): string[] {
+  if (metadata.diffSkipped) {
+    return renderDiffSkipped(metadata.diffReason, width);
+  }
+
+  const replacements = metadata.replacements ?? 1;
+  const lines = [
+    truncateToWidth(
+      `     ${clr.dim("~")} ${clr.dim(`${replacements} ${pluralize(replacements, "replacement")},`)} ${clr.success(`+${metadata.linesAdded}`)} ${clr.error(`-${metadata.linesRemoved}`)}`,
+      width,
+    ),
+  ];
+
+  if (metadata.compactDiff && metadata.compactDiff.length > 0) {
+    lines.push("     ");
+    lines.push(...renderCompactDiffLines(metadata.compactDiff, width));
+  } else if (metadata.diff) {
+    lines.push("     ");
+    lines.push(...renderLegacyDiff(metadata.diff, width));
+  } else {
+    lines.push(truncateToWidth(`     ${clr.dim("no visible diff")}`, width));
+  }
+
+  return lines;
+}
+
+function renderFileWriteMetadata(metadata: FileWriteMetadata, width: number): string[] {
+  const linesAdded = metadata.linesAdded ?? 0;
+  const linesRemoved = metadata.linesRemoved ?? 0;
+  const summary = metadata.created
+    ? `${clr.success("+")} ${clr.success(`${metadata.linesWritten} ${pluralize(metadata.linesWritten, "line")} created`)}`
+    : `${clr.dim("~")} ${clr.dim("overwritten,")} ${clr.success(`+${linesAdded}`)} ${clr.error(`-${linesRemoved}`)}`;
+  const lines = [truncateToWidth(`     ${summary}`, width)];
+
+  if (metadata.diffSkipped) {
+    lines.push(...renderDiffSkipped(metadata.diffReason, width));
+    return lines;
+  }
+
+  if (metadata.compactDiff && metadata.compactDiff.length > 0) {
+    lines.push("     ");
+    lines.push(...renderCompactDiffLines(metadata.compactDiff, width));
+  } else if (metadata.diff) {
+    lines.push("     ");
+    lines.push(...renderLegacyDiff(metadata.diff, width));
+  } else if (!metadata.created && linesAdded === 0 && linesRemoved === 0) {
+    lines.push(truncateToWidth(`     ${clr.dim("no content changes")}`, width));
+  }
+
+  return lines;
+}
+
+function renderGlobMetadata(metadata: GlobMetadata, width: number): string[] {
+  const total = metadata.totalMatches ?? metadata.matchCount;
+  const countText = metadata.truncated
+    ? `${metadata.matchCount}/${total} matches shown`
+    : `${metadata.matchCount} ${pluralize(metadata.matchCount, "match", "matches")}`;
+  const path = metadata.path ? `  path ${metadata.path}` : "";
+  return [truncateToWidth(`     ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}`, width)];
+}
+
+function renderGrepMetadata(metadata: GrepMetadata, width: number): string[] {
+  const countText = `${metadata.matchCount} ${pluralize(metadata.matchCount, "match", "matches")}`;
+  const path = metadata.path ? `  path ${metadata.path}` : "";
+  const include = metadata.include ? `  include ${metadata.include}` : "";
+  const suffix = metadata.truncated ? "  truncated" : "";
+  return [truncateToWidth(`     ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}${include}${suffix}`, width)];
+}
+
 function classifyOutcome(result: RenderedResult): Outcome {
   if (result.success) return "success";
 
@@ -160,6 +293,10 @@ function outcomeLabel(outcome: Outcome): string {
 }
 
 function formatDuration(durationMs: number): string {
+  if (durationMs < 100) {
+    return `${Math.max(0, Math.round(durationMs))}ms`;
+  }
+
   return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
@@ -181,6 +318,22 @@ function renderMetadata(metadata: ToolMetadata | null, output: string, success: 
       actions.push(truncateToWidth(`     ${clr.dim(`… ${metadata.actions.length - 6} more actions`)}`, width));
     }
     return actions;
+  }
+
+  if (success && metadata && TypeGuards.isFileEdit(metadata)) {
+    return renderFileEditMetadata(metadata, width);
+  }
+
+  if (success && metadata && TypeGuards.isFileWrite(metadata)) {
+    return renderFileWriteMetadata(metadata, width);
+  }
+
+  if (success && metadata && TypeGuards.isGlob(metadata)) {
+    return renderGlobMetadata(metadata, width);
+  }
+
+  if (success && metadata && TypeGuards.isGrep(metadata)) {
+    return renderGrepMetadata(metadata, width);
   }
 
   if (!success) {
