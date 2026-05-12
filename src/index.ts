@@ -167,6 +167,7 @@ async function runSetup(): Promise<void> {
     defaultModel,
     defaultMode: "WORK",
     thinking: true,
+    maxOutputTokens: 32000,
     hasSeenWelcome: true,
   }));
 
@@ -257,6 +258,7 @@ export async function runOnboarding(): Promise<void> {
     defaultModel: "ollama/llama3.2",
     defaultMode: "WORK",
     thinking: true,
+    maxOutputTokens: 32000,
     hasSeenWelcome: true,
     userProfile: {
       name: "",

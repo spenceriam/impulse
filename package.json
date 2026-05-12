@@ -1,6 +1,6 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "0.37.0",
+  "version": "0.38.0",
   "private": false,
   "description": "Terminal-based provider-flexible AI coding agent for fast software development",
   "type": "module",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mariozechner/pi-tui": "^0.73.0",
+    "@vscode/ripgrep": "^1.18.0",
     "agent-browser": "^0.27.0",
     "diff": "^8.0.3",
     "glob": "^13.0.6",

@@ -23,12 +23,24 @@ import {
   wrapTextWithAnsi,
   type Component,
   type Focusable,
+  type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
+import { ToolBlock } from "./components/tool-block.js";
+import { PermissionOverlay } from "./components/permission-overlay.js";
+import { QuestionOverlay } from "./components/question-overlay.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config, type ReasoningLevel } from "../util/config.js";
-import { PROVIDER_REASONING_STYLE, getLevelsForStyle, cycleReasoningLevel, discoverOllamaReasoning, type ReasoningCapability } from "../api/providers/capabilities.js";
+import {
+  PROVIDER_REASONING_STYLE,
+  getLevelsForStyle,
+  cycleReasoningLevel,
+  formatReasoningLevelForDisplay,
+  discoverOllamaReasoning,
+  discoverOllamaMaxOutputTokens,
+  type ReasoningCapability,
+} from "../api/providers/capabilities.js";
 import { resetProviderManager } from "../api/manager.js";
 import {
   MODEL_PROVIDERS,
@@ -43,7 +55,12 @@ import {
   type ModelProviderOption,
   type StoredProviderConfig,
 } from "./model-setup.js";
+import { Bus } from "../bus/index.js";
+import { QuestionEvents } from "../bus/events.js";
+import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
+import { abortCurrentBashExecution } from "../tools/bash.js";
+import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
@@ -98,13 +115,14 @@ const MODE_COLORS: Record<string, number> = {
 
 // ── PromptInput: wraps pi-tui Input, intercepts special keys ─────────────────
 
-class PromptInput implements Component, Focusable {
+export class PromptInput implements Component, Focusable {
   focused = false;
 
   private inner = new Input();
   private _modeColorCode = 34; // ANSI color code for the ❯ arrow (matches mode)
   // Paste state
   private _pasteContent: string | null = null;
+  private _pasteDisplay: string | null = null;
   private _isPasting = false;
   private _pasteBuffer = "";
   private _secretMode = false;
@@ -132,12 +150,20 @@ class PromptInput implements Component, Focusable {
 
   /** Returns the real value (actual paste content if applicable) */
   getSubmitValue(): string {
-    return this._pasteContent ?? this.inner.getValue();
+    const displayed = this.inner.getValue();
+    if (this._pasteContent !== null && this._pasteDisplay !== null) {
+      if (displayed.includes(this._pasteDisplay)) {
+        return displayed.replace(this._pasteDisplay, this._pasteContent);
+      }
+      return this._pasteContent;
+    }
+    return displayed;
   }
 
   clear(): void {
     this.inner.setValue("");
     this._pasteContent = null;
+    this._pasteDisplay = null;
     this._isPasting = false;
     this._pasteBuffer = "";
   }
@@ -187,10 +213,17 @@ class PromptInput implements Component, Focusable {
       return;
     }
 
-    // If user starts typing after a paste, clear the stored content
-    if (this._pasteContent !== null) this._pasteContent = null;
+    const pasteDisplayBeforeInput = this._pasteDisplay;
 
     this.inner.handleInput(data);
+
+    // If the visible paste token was edited away, drop the hidden payload.
+    // Do this AFTER inner.handleInput so Enter can still submit the real paste.
+    if (pasteDisplayBeforeInput !== null && !this.inner.getValue().includes(pasteDisplayBeforeInput)) {
+      this._pasteContent = null;
+      this._pasteDisplay = null;
+    }
+
     this.onChange?.(this.inner.getValue());
   }
 
@@ -203,14 +236,17 @@ class PromptInput implements Component, Focusable {
     if (lines.length > 1) {
       // Multi-line paste — show indicator, store real content
       this._pasteContent = content;
-      this.inner.setValue(`[Pasted ${lines.length} lines  ${content.length} chars]`);
+      this._pasteDisplay = `[Pasted ${lines.length} lines  ${content.length} chars]`;
+      this.inner.handleInput(this._pasteDisplay);
     } else if (content.length > 120) {
       // Long single-line paste — show indicator
       this._pasteContent = content;
-      this.inner.setValue(`[Pasted ${content.length} chars]`);
+      this._pasteDisplay = `[Pasted ${content.length} chars]`;
+      this.inner.handleInput(this._pasteDisplay);
     } else {
       // Short paste — insert normally
       this._pasteContent = null;
+      this._pasteDisplay = null;
       this.inner.handleInput("\x1b[200~" + content + "\x1b[201~");
     }
   }
@@ -336,36 +372,205 @@ export class ImpulseRenderer {
   private modelSetupText!: Text;
   private bottomSpacer!: BottomAnchorSpacer;
 
-  // Manual spinner — avoids Loader auto-start issues
+  // Manual turn-status spinner + render ticker
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
   private spinnerMsg = "";
-  private spinnerIdx = 0;
+  private spinnerFlavor = "";
   private readonly SPIN_FRAMES = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+  private readonly STATUS_FLAVORS = [
+    "warming up the neurons…",
+    "herding the tokens…",
+    "poking the shell…",
+    "keeping the checklist honest…",
+    "checking the wires…",
+    "asking nicely…",
+    "untangling the context…",
+    "lining up the bytes…",
+  ];
+
+  private pickBusyFlavor(action: string): string {
+    const normalized = action.toLowerCase();
+    if (normalized.includes("question") || normalized.includes("answer") || normalized.includes("user")) {
+      return "asking nicely…";
+    }
+    if (normalized.includes("bash") || normalized.includes("shell") || normalized.includes("command")) {
+      return "poking the shell…";
+    }
+    if (normalized.includes("todo")) {
+      return "keeping the checklist honest…";
+    }
+    if (normalized.includes("compact")) {
+      return "untangling the context…";
+    }
+    if (normalized.includes("respond") || normalized.includes("model")) {
+      return "herding the tokens…";
+    }
+    if (normalized.includes("think")) {
+      return "warming up the neurons…";
+    }
+    const flavor = this.STATUS_FLAVORS[this.turnPhraseIndex % this.STATUS_FLAVORS.length];
+    this.turnPhraseIndex += 1;
+    return flavor ?? "working…";
+  }
+
+  private renderBusyLine(): void {
+    if (!this.spinnerMsg) {
+      this.spinnerText.setText("");
+      return;
+    }
+
+    const frameIndex = Math.floor(Date.now() / 160) % this.SPIN_FRAMES.length;
+    const frame = this.SPIN_FRAMES[frameIndex] ?? this.SPIN_FRAMES[0] ?? "…";
+    const flavor = this.spinnerFlavor ? `${A.dim}${this.spinnerFlavor}${A.reset}  ` : "";
+    this.spinnerText.setText(`  ${A.dim}${frame}${A.reset}  ${flavor}${this.spinnerMsg}`);
+  }
 
   private spinStart(msg: string): void {
     this.spinnerMsg = msg;
-    this.spinnerText.setText(`  ${A.dim}${this.SPIN_FRAMES[0]!}  ${msg}${A.reset}`);
+    this.spinnerFlavor = this.pickBusyFlavor(msg);
+    this.renderBusyLine();
     this.tui.requestRender();
     if (this.spinnerInterval) return;
-    this.spinnerIdx = 0;
     this.spinnerInterval = setInterval(() => {
-      this.spinnerIdx = (this.spinnerIdx + 1) % this.SPIN_FRAMES.length;
-      this.spinnerText.setText(`  ${A.dim}${this.SPIN_FRAMES[this.spinnerIdx]!}  ${this.spinnerMsg}${A.reset}`);
+      this.renderBusyLine();
       this.tui.requestRender();
     }, 80);
   }
-  private spinUpdate(msg: string): void {
-    this.spinnerMsg = msg;
+
+  private spinStop(): void {
+    if (this.spinnerInterval) {
+      clearInterval(this.spinnerInterval);
+      this.spinnerInterval = null;
+    }
+    this.spinnerMsg = "";
+    this.spinnerFlavor = "";
+    this.spinnerText.setText("");
+    this.tui.requestRender();
+  }
+
+  private setBusyStatus(msg: string): void {
+    if (this.spinnerInterval && this.spinnerMsg === msg) {
+      return;
+    }
+
     if (!this.spinnerInterval) {
       this.spinStart(msg);
       return;
     }
-    this.spinnerText.setText(`  ${A.dim}${this.SPIN_FRAMES[this.spinnerIdx]!}  ${msg}${A.reset}`);
+
+    this.spinnerMsg = msg;
+    this.spinnerFlavor = this.pickBusyFlavor(msg);
+    this.renderBusyLine();
     this.tui.requestRender();
   }
-  private spinStop(): void {
-    if (this.spinnerInterval) { clearInterval(this.spinnerInterval); this.spinnerInterval = null; }
-    this.spinnerText.setText("");
+
+  private enqueuePermissionRequest(request: PermissionRequest): void {
+    if (this.activePermission?.id === request.id || this.permissionQueue.some((item) => item.id === request.id)) {
+      return;
+    }
+
+    this.permissionQueue.push(request);
+    this.showNextPermissionOverlay();
+  }
+
+  private showNextPermissionOverlay(): void {
+    if (!this.tui || this.activePermission || this.permissionQueue.length === 0) {
+      return;
+    }
+
+    const request = this.permissionQueue.shift()!;
+    this.activePermission = request;
+    this.setBusyStatus("waiting for your approval…");
+
+    const overlay = new PermissionOverlay(request);
+    overlay.onDecision = (response) => {
+      const permissionID = request.id;
+      const resumeStatus = `running ${request.permission}…`;
+      this.dismissPermissionOverlay(resumeStatus);
+      respond({ permissionID, response });
+    };
+
+    this.permissionOverlayHandle = this.tui.showOverlay(overlay, {
+      anchor: "bottom-center",
+      offsetY: -4,
+      width: "92%",
+      minWidth: 60,
+      maxHeight: 10,
+      margin: { left: 2, right: 2, bottom: 4 },
+    });
+    this.permissionOverlayHandle.focus();
+    this.tui.requestRender();
+  }
+
+  private dismissPermissionOverlay(resumeStatus?: string): void {
+    this.permissionOverlayHandle?.hide();
+    this.permissionOverlayHandle = null;
+    this.activePermission = null;
+
+    if (this.permissionQueue.length > 0) {
+      this.showNextPermissionOverlay();
+      return;
+    }
+
+    if (resumeStatus && this.isRunning) {
+      this.setBusyStatus(resumeStatus);
+    }
+
+    this.tui.setFocus(this.promptInput);
+    this.tui.requestRender();
+  }
+
+  private showQuestionOverlay(context: string | undefined, questions: Question[]): void {
+    if (!this.tui) return;
+
+    this.dismissQuestionOverlay(false);
+    this.setBusyStatus("waiting for your answer…");
+
+    const overlay = new QuestionOverlay({ context, questions });
+    overlay.onSubmit = (answers) => {
+      this.dismissQuestionOverlay(false);
+      resolveQuestion(answers);
+      if (this.isRunning) {
+        this.setBusyStatus("responding…");
+      }
+    };
+    overlay.onAbort = () => {
+      this.abortCurrentTurn();
+    };
+
+    this.questionOverlayHandle = this.tui.showOverlay(overlay, {
+      anchor: "bottom-center",
+      offsetY: -4,
+      width: "92%",
+      minWidth: 70,
+      maxHeight: 18,
+      margin: { left: 2, right: 2, bottom: 4 },
+    });
+    this.questionOverlayHandle.focus();
+    this.tui.requestRender();
+  }
+
+  private dismissQuestionOverlay(restoreFocus = true): void {
+    this.questionOverlayHandle?.hide();
+    this.questionOverlayHandle = null;
+    if (restoreFocus) {
+      this.tui.setFocus(this.promptInput);
+    }
+    this.tui.requestRender();
+  }
+
+  private abortCurrentTurn(): void {
+    if (!this.isRunning) return;
+
+    rejectQuestion(new Error("Question cancelled by user"));
+    this.dismissQuestionOverlay(false);
+    abortCurrentBashExecution();
+    this.loop.abort();
+    this.spinStop();
+    this.isRunning = false;
+    this.contextBar.update({ isRunning: false });
+    this.addChatLine(`  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
+    this.tui.setFocus(this.promptInput);
     this.tui.requestRender();
   }
 
@@ -376,6 +581,13 @@ export class ImpulseRenderer {
   private thinkingRaw = "";
   private thinkingOpen = false;
   private hasTrailingGap = false;
+  private toolBlocks = new Map<string, ToolBlock>();
+  private permissionQueue: PermissionRequest[] = [];
+  private activePermission: PermissionRequest | null = null;
+  private permissionOverlayHandle: OverlayHandle | null = null;
+  private questionOverlayHandle: OverlayHandle | null = null;
+  private busUnsubscribe: (() => void) | null = null;
+  private turnPhraseIndex = 0;
 
   // Agent + state
   private loop = new AgentLoop();
@@ -405,6 +617,9 @@ export class ImpulseRenderer {
       await SessionManager.createNew();
     }
 
+    this.contextWindow = SessionManager.getCurrentSession()?.context_window ?? this.contextWindow;
+    this.contextTokens = this.estimateCurrentSessionTokens();
+
     // Debug logging
     debugLog(`Session started`);
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
@@ -412,6 +627,19 @@ export class ImpulseRenderer {
 
     // ── Build TUI layout ──────────────────────────────────────────────────
     this.tui = new TUI(this.terminal);
+
+    this.busUnsubscribe?.();
+    this.busUnsubscribe = Bus.subscribe((event) => {
+      if (event.type === PermissionEvents.Asked.name) {
+        this.enqueuePermissionRequest(event.properties as PermissionRequest);
+        return;
+      }
+
+      if (event.type === QuestionEvents.Asked.name) {
+        const payload = event.properties as { context?: string; questions: Question[] };
+        this.showQuestionOverlay(payload.context, payload.questions);
+      }
+    });
 
     // 0. Bottom anchor spacer — pushes content down so contextBar stays at terminal bottom
     this.bottomSpacer = new BottomAnchorSpacer(this.tui, () => this.getContentHeight());
@@ -428,12 +656,13 @@ export class ImpulseRenderer {
       0, 0
     ));
     this.chat.addChild(new Text(
-      `  ${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Ctrl+C: abort  |  Ctrl+D: exit")}`,
+      `  ${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit")}`,
       0, 0
     ));
     this.chat.addChild(new Spacer(1));
 
-    // 2. Spinner — plain Text, manually animated via setInterval in spinStart/spinStop
+    // 2. Spacer + turn-status line above the prompt
+    this.tui.addChild(new Spacer(1));
     this.spinnerText = new Text("", 0, 0);
     this.tui.addChild(this.spinnerText);
 
@@ -464,10 +693,7 @@ export class ImpulseRenderer {
         return;
       }
       if (this.isRunning) {
-        this.loop.abort();
-        this.spinStop();
-        this.addChatLine(`  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
-        this.isRunning = false;
+        this.abortCurrentTurn();
       } else {
         // Ctrl+C while idle = exit with stats
         this.showExitStats();
@@ -493,6 +719,11 @@ export class ImpulseRenderer {
         } else {
           this.cancelModelSetup();
         }
+        return;
+      }
+
+      if (this.isRunning) {
+        this.abortCurrentTurn();
       }
     };
     this.promptInput.onChange = (val) => this.updateAutocomplete(val);
@@ -504,10 +735,10 @@ export class ImpulseRenderer {
     // 6. Context bar — sticky absolute bottom
     this.contextBar = new ContextBarComponent({
       workerModel: config.defaultModel,
-      contextTokens: 0,
+      contextTokens: this.contextTokens,
       contextWindow: this.contextWindow,
       mode: this.mode,
-      reasoningLevel: this.reasoningLevel,
+      reasoningLevel: this.reasoningDisplayLabel(),
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
     });
     this.tui.addChild(this.contextBar);
@@ -568,11 +799,17 @@ export class ImpulseRenderer {
         const baseUrl = config.providers?.ollama?.baseUrl ?? "https://ollama.com";
         const apiKey  = config.providers?.ollama?.apiKey;
         this.reasoningCapability = await discoverOllamaReasoning(baseUrl, modelName, apiKey);
+
+        const explicitMaxOutput = await discoverOllamaMaxOutputTokens(baseUrl, modelName, apiKey);
+        if (explicitMaxOutput !== undefined && explicitMaxOutput !== config.maxOutputTokens) {
+          config.maxOutputTokens = explicitMaxOutput;
+          await saveConfig(config);
+        }
       } else {
         this.reasoningCapability = this.reasoningCapabilityForProvider(providerName);
       }
       await this.normalizeReasoningLevel();
-      this.contextBar.update({ reasoningLevel: this.reasoningLevel });
+      this.contextBar.update({ reasoningLevel: this.reasoningDisplayLabel() });
       this.tui.requestRender();
     } catch {
       // Keep default binary capability if discovery fails
@@ -592,8 +829,25 @@ export class ImpulseRenderer {
     return this.reasoningCapability.supported ? this.reasoningCapability.levels : ["off"];
   }
 
+  private reasoningDisplayLabel(level: ReasoningLevel = this.reasoningLevel): string {
+    return formatReasoningLevelForDisplay(level, this.reasoningCapability);
+  }
+
   private reasoningLevelsLabel(): string {
-    return this.reasoningLevels().join(" | ");
+    return this.reasoningLevels()
+      .map((level) => this.reasoningDisplayLabel(level))
+      .join(" | ");
+  }
+
+  private parseReasoningLevel(input: string): ReasoningLevel | null {
+    const normalized = input.toLowerCase().trim();
+    if (normalized === "thinking" || normalized === "think" || normalized === "on") {
+      return this.reasoningCapability.style === "binary" ? "medium" : null;
+    }
+    if (normalized === "off" || normalized === "low" || normalized === "medium" || normalized === "high") {
+      return normalized;
+    }
+    return null;
   }
 
   private async normalizeReasoningLevel(): Promise<void> {
@@ -620,10 +874,30 @@ export class ImpulseRenderer {
     config.reasoningLevel = level;
     config.thinking = level !== "off";
     await saveConfig(config);
-    this.contextBar.update({ reasoningLevel: level });
+    this.contextBar.update({ reasoningLevel: this.reasoningDisplayLabel(level) });
     this.tui.requestRender();
   }
 
+  private estimateCurrentSessionTokens(): number {
+    const session = SessionManager.getCurrentSession();
+    if (!session) return 0;
+    return Math.ceil(JSON.stringify(session.messages).length / 4);
+  }
+
+  private toolBusyStatus(name: string): string {
+    switch (name) {
+      case "question":
+        return "waiting for your answer…";
+      case "todo_write":
+        return "updating todos…";
+      case "todo_read":
+        return "reading todos…";
+      case "task":
+        return "running subagent…";
+      default:
+        return `running ${name}…`;
+    }
+  }
 
   // ── Input submission ──────────────────────────────────────────────────────
 
@@ -657,21 +931,26 @@ export class ImpulseRenderer {
     this.thinkingRaw = "";
     this.thinkingText = null;
     this.thinkingOpen = false;
-
-    const PHRASES = [
-      "composing logic…", "traversing the AST…", "reasoning about types…",
-      "consulting the docs…", "diffing reality…", "compiling intentions…",
-      "thinking in packets…", "allocating neurons…", "parsing intent…",
-      "connecting nodes…", "optimising thoughts…", "resolving dependencies…",
-    ];
-    let phraseIdx = 0;
+    this.contextBar.update({
+      isRunning: true,
+      mode: this.mode,
+      contextTokens: this.contextTokens,
+      contextWindow: this.contextWindow,
+    });
 
     const events: LoopEvents = {
       onTurnStart: () => {
-        this.spinStart(PHRASES[0]!);
+        this.contextTokens = this.estimateCurrentSessionTokens();
+        this.contextBar.update({
+          contextTokens: this.contextTokens,
+          contextWindow: this.contextWindow,
+          mode: this.mode,
+          isRunning: true,
+        });
+        this.setBusyStatus("thinking…");
       },
       onToken: (text) => {
-        this.spinStop();
+        this.setBusyStatus("responding…");
         this.closeThinking();
         if (!this.streamingText) {
           // Add Impulse response header on first token
@@ -687,6 +966,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onThinking: (text) => {
+        this.setBusyStatus("thinking…");
         debugLog(`onThinking: ${text.length} chars`);
         if (!this.thinkingOpen) {
           this.thinkingRaw = "";
@@ -702,14 +982,11 @@ export class ImpulseRenderer {
         }
         this.thinkingRaw += text;
         this.thinkingText.setText(this.thinkingRaw);
-        // Cycle phrase
-        phraseIdx = (phraseIdx + 1) % PHRASES.length;
-        this.spinUpdate(PHRASES[phraseIdx]!);
         this.tui.requestRender();
       },
       onAdvisorStart: (model) => {
-        this.spinStop();
         const short = model.split("/").pop() ?? model;
+        this.setBusyStatus(`consulting ${short}…`);
         this.addChatLine(`  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
         this.tui.requestRender();
       },
@@ -722,63 +999,51 @@ export class ImpulseRenderer {
         this.addChatLine(`  ${clr.dim(`[advisor: ${truncated}]`)}`);
         this.tui.requestRender();
       },
-      onToolStart: (_id, name, args) => {
+      onToolStart: (id, name, args) => {
         // Skip rendering for silent tools (e.g., set_header)
         if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
 
-        this.spinStop();
         this.closeThinking();
         if (this.streamingRaw) { this.addSectionGap(); this.streamingRaw = ""; this.streamingText = null; }
         this.addSectionGap();
-        const argStr = this.fmtArgs(args);
-        // Dark gray background for tool running
-        this.addChatLine(`   \x1b[48;5;236m${A.fg(33, "▶")}  ${clr.tool(name)}  ${clr.dim(argStr)}\x1b[0m`);
-        this.spinStart(`running ${name}…`);
+
+        const block = new ToolBlock(name, args);
+        this.toolBlocks.set(id, block);
+        this.chat.addChild(block);
+        this.hasTrailingGap = false;
+
+        this.setBusyStatus(this.toolBusyStatus(name));
         this.tui.requestRender();
       },
-      onToolEnd: (_id, name, result, durationMs) => {
+      onToolEnd: (id, name, result, durationMs) => {
         // Skip rendering for silent tools (e.g., set_header)
         if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
 
-        this.spinStop();
-        // Dark green for success, dark red for failure
-        const bgColor = result.success ? "\x1b[48;5;22m" : "\x1b[48;5;52m";
-        const icon = result.success ? clr.success("✓") : clr.error("✗");
-        const dur = clr.dim(`${durationMs}ms`);
-        const lines = result.output.trim().split("\n");
-        const preview = (lines[0] ?? "").slice(0, 65);
-        const extra = lines.length > 1 ? clr.dim(` +${lines.length - 1} lines`) : "";
-        this.addChatLine(`   ${bgColor}${icon}  ${clr.dim(preview)}${extra}  ${dur}\x1b[0m`);
-        if (!result.success && lines[1]) {
-          this.addChatLine(`   ${bgColor}   ${clr.error(lines[1].slice(0, 70))}\x1b[0m`);
+        const block = this.toolBlocks.get(id);
+        if (block) {
+          block.setDone(result, durationMs);
+          this.toolBlocks.delete(id);
         }
+        if (!this.isRunning) {
+          this.tui.requestRender();
+          return;
+        }
+        this.setBusyStatus(name === "question" ? "responding…" : "waiting for model…");
         this.tui.requestRender();
-      },
-      onPermissionRequest: (toolName, description, resolve) => {
-        this.spinStop();
-        this.addChatLine(`  ${clr.warn("⚠")}  ${clr.tool(toolName)}  ${clr.dim(description)}`);
-        this.addChatLine(`  ${clr.dim("[y]es  [n]o  [a]lways")}`);
-        this.tui.requestRender();
-        // Read a single keypress via stdin
-        void this.readKey().then((k) => {
-          const approved = k === "y" || k === "\r" || k === "a";
-          const always   = k === "a";
-          resolve(approved, always);
-        });
       },
       onCompacting: () => {
-        this.spinStop();
         this.addChatLine(`  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
-        this.spinStart("compacting…");
+        this.setBusyStatus("compacting context…");
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
-        this.spinStop();
         this.addChatLine(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}`);
+        this.setBusyStatus("thinking…");
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
         this.spinStop();
+        this.dismissQuestionOverlay(false);
         this.closeThinking();
         if (this.streamingRaw) { this.addSectionGap(); }
         this.streamingRaw = ""; this.streamingText = null;
@@ -789,6 +1054,7 @@ export class ImpulseRenderer {
           contextTokens: usage.inputTokens,
           contextWindow: this.contextWindow,
           mode: this.mode,
+          isRunning: false,
           ...(usage.tokensPerSecond > 0 ? { tokensPerSecond: usage.tokensPerSecond } : {}),
           lastTurnMs: usage.durationMs,
         });
@@ -800,6 +1066,8 @@ export class ImpulseRenderer {
       },
       onError: (err) => {
         this.spinStop();
+        this.dismissQuestionOverlay(false);
+        this.contextBar.update({ isRunning: false });
         this.addChatLine(`  ${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
@@ -841,8 +1109,9 @@ export class ImpulseRenderer {
     }
 
     // Fixed components (excluding BottomAnchorSpacer and chat):
-    // spinnerText (1) + SeparatorLine (1) + modelSetupText (1) + autocompleteText (variable) + promptInput (1) + SeparatorLine (1) + contextBar (1)
-    let otherLines = 6; // spinner + 2 separators + promptInput + contextBar + modelSetupText
+    // status spacer (1) + spinnerText (1) + SeparatorLine (1) + modelSetupText (1)
+    // + autocompleteText (variable) + promptInput (1) + SeparatorLine (1) + contextBar (1)
+    let otherLines = 7;
 
     // Add autocomplete lines if visible
     if (this.autocompleteText) {
@@ -930,17 +1199,6 @@ export class ImpulseRenderer {
     }
   }
 
-
-  private fmtArgs(args: Record<string, unknown>): string {
-    const keys = ["path","filePath","file","command","pattern","description","prompt"];
-    for (const k of keys) {
-      if (typeof args[k] === "string") {
-        const v = String(args[k]);
-        return v.length > 55 ? v.slice(0, 52) + "…" : v;
-      }
-    }
-    return Object.entries(args).slice(0, 1).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("").slice(0, 55);
-  }
 
   /** Read a single raw keypress (used for permission prompts) */
   private readKey(): Promise<string> {
@@ -1316,7 +1574,7 @@ export class ImpulseRenderer {
     void this.refreshReasoningCapability();
     this.contextBar.update({
       workerModel: selectedModel,
-      reasoningLevel: this.reasoningLevel,
+      reasoningLevel: this.reasoningDisplayLabel(),
       contextTokens: this.contextTokens,
       contextWindow: this.contextWindow,
       mode: this.mode,
@@ -1522,12 +1780,12 @@ export class ImpulseRenderer {
   private async cmdReason(arg: string): Promise<void> {
     const valid = this.reasoningLevels();
     if (!arg) {
-      this.addChatLine(`  reasoning: ${this.reasoningLevel}  |  options: ${this.reasoningLevelsLabel()}`);
+      this.addChatLine(`  reasoning: ${this.reasoningDisplayLabel()}  |  options: ${this.reasoningLevelsLabel()}`);
       return;
     }
 
-    const level = arg.toLowerCase() as ReasoningLevel;
-    if (!valid.includes(level)) {
+    const level = this.parseReasoningLevel(arg);
+    if (level === null || !valid.includes(level)) {
       this.addChatLine(`  ${clr.error("✗")} Valid levels: ${this.reasoningLevelsLabel()}`);
       return;
     }

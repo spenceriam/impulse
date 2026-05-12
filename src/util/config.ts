@@ -63,6 +63,10 @@ const ConfigSchema = z.object({
    * Binary providers (Ollama, ZAI) treat any non-"off" as enabled. */
   reasoningLevel: ReasoningLevelSchema.default("medium"),
 
+  /** Default max output tokens for model responses.
+   * Providers may clamp this lower; 32000 is the safe project default for cloud-hosted models. */
+  maxOutputTokens: z.number().int().positive().default(32000),
+
   /** @deprecated use reasoningLevel instead — kept for migration */
   thinking: z.boolean().default(true).describe("Enable thinking mode (legacy)"),
 

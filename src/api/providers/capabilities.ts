@@ -60,11 +60,54 @@ export function cycleReasoningLevel(
   return levels[(idx + 1) % levels.length] ?? "off";
 }
 
+/** User-facing label for a reasoning level.
+ * Binary providers use internal "medium" to mean thinking enabled, but the UI
+ * should label that as "thinking" rather than implying a real medium tier. */
+export function formatReasoningLevelForDisplay(
+  level: ReasoningLevel,
+  capability: ReasoningCapability
+): string {
+  if (capability.style === "binary" && level !== "off") {
+    return "thinking";
+  }
+  return level;
+}
+
 // ── Ollama capability discovery via /api/show ────────────────────────────────
 
 interface OllamaShowResponse {
   capabilities?: string[];
   details?: { families?: string[] };
+}
+
+const OLLAMA_MAX_OUTPUT_TOKEN_KEYS = new Set([
+  "max_output_tokens",
+  "max_completion_tokens",
+]);
+
+export function extractExplicitMaxOutputTokens(payload: unknown): number | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const found = extractExplicitMaxOutputTokens(item);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+
+  for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+    if (OLLAMA_MAX_OUTPUT_TOKEN_KEYS.has(key) && typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+
+  for (const value of Object.values(payload as Record<string, unknown>)) {
+    const found = extractExplicitMaxOutputTokens(value);
+    if (found !== undefined) return found;
+  }
+
+  return undefined;
 }
 
 /**
@@ -103,16 +146,17 @@ export async function discoverOllamaReasoning(
     // fall back to a heuristic on the model name
   }
 
-  // Heuristic fallback: model names that are known reasoning models
+  // Heuristic fallback: stay conservative unless the model name clearly signals
+  // a dedicated reasoning family. Do NOT broadly assume all DeepSeek/Kimi models
+  // support thinking — hosted/cloud variants may not expose it.
   const lower = modelName.toLowerCase();
   const likelyReasoning =
-    lower.includes("thinking") ||
-    lower.includes("r1")       ||
-    lower.includes("qwq")      ||
-    lower.includes("k2")       || // kimi-k2.x family
-    lower.includes("kimi")     ||
-    lower.includes("deepseek") ||
-    lower.includes("marco-o1") ||
+    lower.includes("thinking")    ||
+    lower.includes("deepseek-r1") ||
+    /(^|[^a-z0-9])r1([^a-z0-9]|$)/.test(lower) ||
+    lower.includes("qwq")         ||
+    lower.includes("kimi-k2")     ||
+    lower.includes("marco-o1")    ||
     lower.includes("openthinker");
 
   return {
@@ -120,6 +164,62 @@ export async function discoverOllamaReasoning(
     style:     "binary",
     levels:    likelyReasoning ? BINARY_LEVELS : NO_LEVELS,
   };
+}
+
+/**
+ * Best-effort discovery of explicit max output tokens for an Ollama-hosted model.
+ * Returns undefined when the provider does not expose the value.
+ */
+export async function discoverOllamaMaxOutputTokens(
+  baseUrl: string,
+  modelName: string,
+  apiKey?: string
+): Promise<number | undefined> {
+  const root = baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const tryExtract = async (
+    input: string | URL,
+    init?: RequestInit,
+    matcher?: (payload: unknown) => unknown
+  ): Promise<number | undefined> => {
+    try {
+      const res = await fetch(input, { ...init, signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return undefined;
+      const payload = await res.json();
+      const matched = matcher ? matcher(payload) : payload;
+      return extractExplicitMaxOutputTokens(matched);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const fromModelList = await tryExtract(`${root}/v1/models`, { headers }, (payload) => {
+    const body = payload as {
+      data?: Array<Record<string, unknown>>;
+      models?: Array<Record<string, unknown>>;
+    };
+    const entries = body.data ?? body.models ?? [];
+    return entries.find((entry) => entry["id"] === modelName || entry["name"] === modelName) ?? payload;
+  });
+  if (fromModelList !== undefined) return fromModelList;
+
+  const fromApiModels = await tryExtract(`${root}/api/models`, { headers }, (payload) => {
+    const body = payload as {
+      data?: Array<Record<string, unknown>>;
+      models?: Array<Record<string, unknown>>;
+    };
+    const entries = body.data ?? body.models ?? [];
+    return entries.find((entry) => entry["id"] === modelName || entry["name"] === modelName) ?? payload;
+  });
+  if (fromApiModels !== undefined) return fromApiModels;
+
+  return tryExtract(`${root}/api/show`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model: modelName }),
+  });
 }
 
 // ── Map ReasoningLevel to provider parameters ────────────────────────────────

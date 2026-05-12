@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rgPath } from "@vscode/ripgrep";
 import { Tool, ToolResult } from "./registry";
 import { sanitizePath } from "../util/path";
 
@@ -39,7 +40,7 @@ export const grepTool: Tool<GrepInput> = Tool.define(
 
       // Build command args properly as array elements
       const cmd = [
-        "rg",
+        rgPath,
         "--line-number", // Ensure line numbers in output
         "--no-heading", // One result per line (file:line:content)
         "--max-count",
@@ -68,23 +69,18 @@ export const grepTool: Tool<GrepInput> = Tool.define(
 
       for (const line of outputLines) {
         // ripgrep output format: file:line:content
-        const colonIndex = line.indexOf(":");
-        if (colonIndex === -1) continue;
+        // Use a greedy file capture so Windows drive letters (C:\...) work.
+        const match = line.match(/^(.*):(\d+):(.*)$/);
+        if (!match) continue;
 
-        const file = line.slice(0, colonIndex);
-        const rest = line.slice(colonIndex + 1);
+        const [, file, lineText, content] = match;
+        const lineNum = Number.parseInt(lineText ?? "", 10);
 
-        const secondColonIndex = rest.indexOf(":");
-        if (secondColonIndex === -1) continue;
-
-        const lineNum = parseInt(rest.slice(0, secondColonIndex), 10);
-        const content = rest.slice(secondColonIndex + 1);
-
-        if (!isNaN(lineNum)) {
+        if (!Number.isNaN(lineNum)) {
           matches.push({
-            file,
+            file: file ?? "",
             line: lineNum,
-            content: truncateContent(content.trim(), MAX_CONTENT_LENGTH),
+            content: truncateContent((content ?? "").trim(), MAX_CONTENT_LENGTH),
           });
         }
 

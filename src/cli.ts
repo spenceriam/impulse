@@ -140,6 +140,7 @@ async function runSetup(): Promise<void> {
     defaultMode: "WORK",
     thinking: true,
     reasoningLevel: "medium",
+    maxOutputTokens: 32000,
     hasSeenWelcome: false,
   }));
 
