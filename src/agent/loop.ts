@@ -8,7 +8,7 @@
  * Features:
  *  - Streaming tokens + thinking/reasoning blocks
  *  - Tool call accumulation across stream chunks
- *  - Inline permission prompts (yes/no/always/session)
+ *  - Centralized permission flow via the permission module
  *  - Auto-compaction at 85% context fill
  *  - Advisor model consultation (on-demand + auto-stuck detection)
  *  - Abort via AbortController
@@ -31,7 +31,6 @@ function debugLog(msg: string): void {
   fs.appendFileSync(debugLogPath, `[${timestamp}] [loop] ${msg}\n`);
 }
 import { Tool } from "../tools/registry";
-import { enableExpress } from "../permission";
 import { type Message } from "../session/store";
 import { SessionManager } from "../session/manager";
 import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
@@ -57,9 +56,12 @@ export interface LoopEvents {
   onAdvisorEnd(summary: string): void;
   /** Tool call lifecycle */
   onToolStart(id: string, name: string, args: Record<string, unknown>): void;
-  onToolEnd(id: string, name: string, result: { success: boolean; output: string }, durationMs: number): void;
-  /** Permission required before a tool runs */
-  onPermissionRequest(toolName: string, description: string, resolve: (approved: boolean, always?: boolean) => void): void;
+  onToolEnd(
+    id: string,
+    name: string,
+    result: { success: boolean; output: string; metadata?: Record<string, unknown> },
+    durationMs: number
+  ): void;
   /** Context compaction */
   onCompacting(): void;
   onCompacted(removedCount: number, summary: string): void;
@@ -182,12 +184,24 @@ export class AgentLoop {
 
       // ── Agentic loop ───────────────────────────────────────────────────────
       let continueLoop = true;
-      let inputTokens = 0;
       let outputTokens = 0;
       const contextWindow = session.context_window || 200000;
       const turnStart = Date.now();
-      let firstTokenTime: number | null = null;
-      let totalStreamedTokens = 0;
+      let firstGenerationTime: number | null = null;
+      let lastGeneratedAt: number | null = null;
+      let activeStreamingMs = 0;
+      let estimatedGeneratedTokens = 0;
+      let lastSystemPrompt = "";
+
+      const noteGeneratedChunk = (text: string): void => {
+        const now = Date.now();
+        if (firstGenerationTime === null) firstGenerationTime = now;
+        estimatedGeneratedTokens += Math.max(1, Math.ceil(text.length / 4));
+        if (lastGeneratedAt !== null) {
+          activeStreamingMs += Math.min(now - lastGeneratedAt, 250);
+        }
+        lastGeneratedAt = now;
+      };
 
       events.onTurnStart();
 
@@ -210,6 +224,7 @@ export class AgentLoop {
         // Build messages for API call
         const freshMessages = (SessionManager.getCurrentSession()?.messages ?? []);
         const systemPrompt = await generateSystemPrompt(mode, undefined, config);
+        lastSystemPrompt = systemPrompt;
         const chatMessages = buildChatMessages(freshMessages, systemPrompt);
 
         // ── Stream response ─────────────────────────────────────────────────
@@ -219,6 +234,7 @@ export class AgentLoop {
           ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
           stream: true,
           signal,
+          max_tokens: config.maxOutputTokens,
           ...(config.thinking ? { thinking: { type: "enabled" as const, clear_thinking: false } } : {}),
           // New unified reasoning level — providers map this to their own params
           reasoningLevel: config.reasoningLevel ?? (config.thinking ? "medium" : "off"),
@@ -228,7 +244,6 @@ export class AgentLoop {
         let accumulatedText = "";
         let accumulatedThinking = "";
         let finishReason: string | null = null;
-        let chunkInputTokens = 0;
         let chunkOutputTokens = 0;
 
         for await (const chunk of manager.stream(streamOptions)) {
@@ -242,14 +257,14 @@ export class AgentLoop {
 
           // Text token
           if (delta.content) {
-            if (firstTokenTime === null) firstTokenTime = Date.now();
-            totalStreamedTokens++;
+            noteGeneratedChunk(delta.content);
             accumulatedText += delta.content;
             events.onToken(delta.content);
           }
 
           // Thinking token
           if (delta.reasoning_content) {
+            noteGeneratedChunk(delta.reasoning_content);
             accumulatedThinking += delta.reasoning_content;
             events.onThinking(delta.reasoning_content);
             debugLog(`thinking: ${delta.reasoning_content.length} chars`);
@@ -279,14 +294,12 @@ export class AgentLoop {
 
           // Token usage
           if (chunk.usage) {
-            chunkInputTokens = chunk.usage.prompt_tokens ?? 0;
             chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
           }
         }
 
         if (signal.aborted) break;
 
-        inputTokens += chunkInputTokens;
         outputTokens += chunkOutputTokens;
 
         // ── Persist assistant message ───────────────────────────────────────
@@ -359,21 +372,8 @@ export class AgentLoop {
             continue;
           }
 
-          // Standard tool — check permission
-          const permCheck = await this.checkPermission(tc.name, args, events, signal);
-          if (!permCheck) {
-            const deniedMsg = {
-              role: "tool" as const,
-              content: `Tool execution denied by user.`,
-              tool_call_id: tc.id,
-              timestamp: new Date().toISOString(),
-            };
-            await SessionManager.addMessage(deniedMsg as unknown as Message);
-            allSucceeded = false;
-            continue;
-          }
-
-          // Execute
+          // Execute — individual tools are responsible for invoking the
+          // centralized permission module when approval is required.
           const toolStart = Date.now();
           events.onToolStart(tc.id, tc.name, args);
 
@@ -435,17 +435,26 @@ export class AgentLoop {
         session = SessionManager.getCurrentSession()!;
       }
 
+      if (signal.aborted) {
+        return;
+      }
+
       // ── Final usage report ─────────────────────────────────────────────────
       const durationMs = Date.now() - turnStart;
-      const streamMs = firstTokenTime !== null ? Date.now() - firstTokenTime : durationMs;
-      const tokensPerSecond = streamMs > 0 ? Math.round((totalStreamedTokens / streamMs) * 1000) : 0;
+      const generationMs = activeStreamingMs > 0
+        ? activeStreamingMs
+        : firstGenerationTime !== null
+          ? Math.max(120, Date.now() - firstGenerationTime)
+          : 0;
+      const tokensPerSecond = generationMs > 0
+        ? Math.round((estimatedGeneratedTokens / generationMs) * 1000)
+        : 0;
       const finalMessages = SessionManager.getCurrentSession()?.messages ?? [];
-      // Prefer actual API token count; fall back to rough estimate
-      const actualInput = inputTokens > 0 ? inputTokens : estimateTokens(buildChatMessages(finalMessages, ""));
+      const estimatedContextTokens = estimateTokens(buildChatMessages(finalMessages, lastSystemPrompt));
       events.onTurnEnd({
-        inputTokens: actualInput,
+        inputTokens: estimatedContextTokens,
         outputTokens,
-        contextPct: Math.min(1, actualInput / contextWindow),
+        contextPct: Math.min(1, estimatedContextTokens / contextWindow),
         tokensPerSecond,
         durationMs,
       });
@@ -522,35 +531,4 @@ export class AgentLoop {
     }
   }
 
-  // ─── Permission check ───────────────────────────────────────────────────
-
-  private checkPermission(
-    toolName: string,
-    args: Record<string, unknown>,
-    events: LoopEvents,
-    signal: AbortSignal
-  ): Promise<boolean> {
-    return new Promise((resolve) => {
-      if (signal.aborted) { resolve(false); return; }
-
-      // Read-only and utility tools never need permission
-      const noPermRequired = [
-        "file_read", "glob", "grep", "todo_read", "tool_docs", "web_fetch", "web_search",
-        "set_header", "set_mode", "question",
-      ];
-      if (noPermRequired.includes(toolName)) { resolve(true); return; }
-
-      const description = String(
-        args["description"] ?? args["command"] ?? args["path"] ?? toolName
-      );
-
-      events.onPermissionRequest(toolName, description, (approved, always) => {
-        if (always) {
-          // In future: persist to .impulse/permissions.json
-          enableExpress();
-        }
-        resolve(approved);
-      });
-    });
-  }
 }

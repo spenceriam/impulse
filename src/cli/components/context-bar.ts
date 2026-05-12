@@ -46,6 +46,13 @@ function formatTokens(n: number): string {
   return `${(n / 1000000).toFixed(1)}M`;
 }
 
+function formatPercent(pct: number): string {
+  const percent = Math.max(0, pct * 100);
+  if (percent === 0) return "0%";
+  if (percent < 10) return `${percent.toFixed(1)}%`;
+  return `${Math.round(percent)}%`;
+}
+
 function contextBar(pct: number, width = 12): string {
   const filled = Math.round(pct * width);
   const empty = width - filled;
@@ -89,7 +96,7 @@ export interface ContextBarState {
   contextTokens: number;
   contextWindow: number;
   mode: string;
-  reasoningLevel?: string;   // "off" | "low" | "medium" | "high"
+  reasoningLevel?: string;   // display label: "off", "thinking", "low", "medium", "high"
   autoCompactOff?: boolean;
   isRunning?: boolean;
   cwd?: string;
@@ -124,8 +131,8 @@ export class ContextBarComponent implements Component {
       this.branchCwd = cwd;
     }
 
-    const pct = s.contextWindow > 0 ? s.contextTokens / s.contextWindow : 0;
-    const pctStr = `${Math.round(pct * 100)}%`;
+    const pct = s.contextWindow > 0 ? Math.max(0, Math.min(1, s.contextTokens / s.contextWindow)) : 0;
+    const pctStr = formatPercent(pct);
     const tokStr = `${formatTokens(s.contextTokens)}/${formatTokens(s.contextWindow)}`;
 
     // Model segment
@@ -134,7 +141,7 @@ export class ContextBarComponent implements Component {
       ? clr.model(`${worker}…`)
       : clr.model(worker);
 
-    // Reasoning level — right of model name in parentheses (hidden when off)
+    // Reasoning label — right of model name in parentheses (hidden when off)
     const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
       ? ` (${clr.model(s.reasoningLevel)})`
       : "";

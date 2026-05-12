@@ -1,51 +1,193 @@
 /**
- * ToolBlock — renders a tool call (name, args summary, result).
- * Updates in-place: shows spinner while running, result when done.
+ * ToolBlock — renders a tool call in-place.
+ *
+ * Running tools animate with lightweight spinners. Completed tools keep a
+ * visible summary, while noisy raw output is suppressed unless the tool failed
+ * or returns structured metadata worth showing (todos, task actions).
  */
 
-import type { Component } from "@mariozechner/pi-tui";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import {
+  TypeGuards,
+  type ToolMetadata,
+  type TodoMetadata,
+} from "../../types/tool-metadata.js";
 
 const c = {
   reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  strike: "\x1b[9m",
   fg: (code: number, s: string) => `\x1b[${code}m${s}\x1b[0m`,
 };
 
 const clr = {
-  toolName:   (s: string) => c.fg(36, s),   // cyan
-  args:       (s: string) => c.fg(90, s),   // dark gray
-  success:    (s: string) => c.fg(32, s),   // green
-  error:      (s: string) => c.fg(31, s),   // red
-  running:    (s: string) => c.fg(33, s),   // yellow
-  dim:        (s: string) => c.fg(90, s),   // dark gray
-  duration:   (s: string) => c.fg(90, s),   // dark gray
-  permission: (s: string) => c.fg(33, s),   // yellow (warning)
+  toolName: (s: string) => c.fg(36, s),
+  args: (s: string) => c.fg(90, s),
+  success: (s: string) => c.fg(32, s),
+  error: (s: string) => c.fg(31, s),
+  running: (s: string) => c.fg(33, s),
+  dim: (s: string) => c.fg(90, s),
+  duration: (s: string) => c.fg(90, s),
+  pending: (s: string) => c.fg(90, s),
 };
 
-const SPINNER = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
-let spinnerFrame = 0;
+const TOOL_SPINNER = ["··●", "·●·", "●··", "·●·"];
+const QUESTION_SPINNER = [">--", "->-", "-->", "--<", "-<-", "<--"];
+const TOOL_FRAME_MS = 80;
+const QUESTION_FRAME_MS = 60;
+const MAX_OUTPUT_ROWS = 30;
+const MAX_TODO_ROWS = 12;
+
+type RenderedResult = {
+  success: boolean;
+  output: string;
+  metadata?: Record<string, unknown>;
+};
 
 export type ToolBlockState =
-  | { status: "running";    name: string; argsSummary: string }
-  | { status: "done";       name: string; argsSummary: string; success: boolean; outputSummary: string; durationMs: number }
-  | { status: "permission"; name: string; argsSummary: string; description: string };
+  | { status: "running"; name: string; argsSummary: string }
+  | { status: "done"; name: string; argsSummary: string; result: RenderedResult; durationMs: number };
 
-function argsSummary(args: Record<string, unknown>): string {
-  // Show the most meaningful arg value
-  const keys = ["path", "filePath", "file", "command", "pattern", "query", "description", "prompt"];
-  for (const k of keys) {
-    if (args[k] && typeof args[k] === "string") {
-      const v = String(args[k]);
-      return v.length > 50 ? v.slice(0, 47) + "…" : v;
+type Outcome = "success" | "failed" | "blocked" | "aborted";
+
+function summarizeArgs(name: string, args: Record<string, unknown>): string {
+  if (name === "question") {
+    const context = typeof args["context"] === "string" ? String(args["context"]) : "";
+    return context.length > 0 ? context.slice(0, 70) : "waiting for your answer…";
+  }
+
+  if (name === "todo_write") return "updating todos";
+  if (name === "todo_read") return "reading todos";
+
+  if (name === "task") {
+    const description = typeof args["description"] === "string" ? String(args["description"]) : "delegating subagent task";
+    return description.length > 70 ? `${description.slice(0, 67)}…` : description;
+  }
+
+  const keys = ["path", "filePath", "file", "command", "pattern", "query", "description", "prompt", "url"];
+  for (const key of keys) {
+    if (typeof args[key] === "string") {
+      const value = String(args[key]);
+      return value.length > 70 ? `${value.slice(0, 67)}…` : value;
     }
   }
-  const entries = Object.entries(args).slice(0, 2);
-  return entries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ").slice(0, 50);
+
+  return Object.entries(args)
+    .slice(0, 1)
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .join("")
+    .slice(0, 70);
 }
 
-function outputSummary(output: string): string {
-  const first = output.trim().split("\n")[0] ?? "";
-  return first.length > 60 ? first.slice(0, 57) + "…" : first;
+function asToolMetadata(value: Record<string, unknown> | undefined): ToolMetadata | null {
+  if (!value || typeof value["type"] !== "string") return null;
+  return value as unknown as ToolMetadata;
+}
+
+function wrapPrefixed(prefix: string, text: string, width: number): string[] {
+  const available = Math.max(8, width - prefix.length);
+  const wrapped = wrapTextWithAnsi(text.length > 0 ? text : " ", available);
+  return wrapped.map((line) => truncateToWidth(`${prefix}${line}`, width));
+}
+
+function renderTrimmedOutput(output: string, width: number, maxRows: number): string[] {
+  const normalized = output.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
+  if (!normalized) return [];
+
+  const rendered: string[] = [];
+  for (const rawLine of normalized.split("\n")) {
+    rendered.push(...wrapPrefixed("     ", rawLine, width));
+  }
+
+  if (rendered.length <= maxRows) {
+    return rendered;
+  }
+
+  const hidden = rendered.length - maxRows;
+  return [
+    ...rendered.slice(0, maxRows),
+    truncateToWidth(`     ${clr.dim(`… ${hidden} more lines`)}`, width),
+  ];
+}
+
+function todoLine(todo: TodoMetadata["todos"][number]): string {
+  switch (todo.status) {
+    case "in_progress":
+      return `${clr.running("[>]")} ${todo.content}`;
+    case "completed":
+      return `${clr.dim("[✓]")} ${c.dim}${c.strike}${todo.content}${c.reset}`;
+    case "cancelled":
+      return `${clr.dim("[-]")} ${c.dim}${c.strike}${todo.content}${c.reset}`;
+    default:
+      return `${clr.pending("[ ]")} ${todo.content}`;
+  }
+}
+
+function renderTodoList(metadata: TodoMetadata, width: number): string[] {
+  const visibleTodos = metadata.todos.slice(0, MAX_TODO_ROWS);
+  const lines = visibleTodos.flatMap((todo) => wrapPrefixed("     ", todoLine(todo), width));
+
+  if (metadata.todos.length > MAX_TODO_ROWS) {
+    lines.push(truncateToWidth(`     ${clr.dim(`… ${metadata.todos.length - MAX_TODO_ROWS} more items`)}`, width));
+  }
+
+  return lines;
+}
+
+function classifyOutcome(result: RenderedResult): Outcome {
+  if (result.success) return "success";
+
+  const output = result.output.toLowerCase();
+  if (output.includes("[user decision]") || output.includes("permission denied")) {
+    return "blocked";
+  }
+  if (output.includes("aborted") || output.includes("cancelled") || output.includes("canceled")) {
+    return "aborted";
+  }
+  return "failed";
+}
+
+function outcomeLabel(outcome: Outcome): string {
+  switch (outcome) {
+    case "blocked":
+      return clr.dim("[blocked]");
+    case "aborted":
+      return clr.dim("[aborted]");
+    default:
+      return "";
+  }
+}
+
+function formatDuration(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function currentSpinner(name: string): string {
+  const frames = name === "question" ? QUESTION_SPINNER : TOOL_SPINNER;
+  const frameMs = name === "question" ? QUESTION_FRAME_MS : TOOL_FRAME_MS;
+  const index = Math.floor(Date.now() / frameMs) % frames.length;
+  return frames[index] ?? frames[0] ?? "...";
+}
+
+function renderMetadata(metadata: ToolMetadata | null, output: string, success: boolean, width: number): string[] {
+  if (metadata && TypeGuards.isTodo(metadata)) {
+    return renderTodoList(metadata, width);
+  }
+
+  if (metadata && TypeGuards.isTask(metadata) && metadata.actions.length > 0) {
+    const actions = metadata.actions.slice(0, 6).flatMap((action) => wrapPrefixed("     - ", action, width));
+    if (metadata.actions.length > 6) {
+      actions.push(truncateToWidth(`     ${clr.dim(`… ${metadata.actions.length - 6} more actions`)}`, width));
+    }
+    return actions;
+  }
+
+  if (!success) {
+    return renderTrimmedOutput(output, width, MAX_OUTPUT_ROWS);
+  }
+
+  return [];
 }
 
 export class ToolBlock implements Component {
@@ -55,55 +197,38 @@ export class ToolBlock implements Component {
     this.state = {
       status: "running",
       name,
-      argsSummary: argsSummary(args),
+      argsSummary: summarizeArgs(name, args),
     };
   }
 
-  setDone(success: boolean, output: string, durationMs: number): void {
+  setDone(result: RenderedResult, durationMs: number): void {
     this.state = {
       status: "done",
       name: this.state.name,
       argsSummary: this.state.argsSummary,
-      success,
-      outputSummary: outputSummary(output),
+      result,
       durationMs,
-    };
-  }
-
-  setPermissionPrompt(description: string): void {
-    this.state = {
-      status: "permission",
-      name: this.state.name,
-      argsSummary: this.state.argsSummary,
-      description,
     };
   }
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    const s = this.state;
-    spinnerFrame = (spinnerFrame + 1) % SPINNER.length;
+    const state = this.state;
 
-    if (s.status === "running") {
-      const spinner = clr.running(SPINNER[spinnerFrame] ?? "…");
-      const line = `  ${spinner} ${clr.toolName(s.name)}  ${clr.args(s.argsSummary)}`;
-      return [truncateToWidth(line, width)];
+    if (state.status === "running") {
+      const spinner = clr.running(currentSpinner(state.name));
+      return [truncateToWidth(`  ${spinner} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}`, width)];
     }
 
-    if (s.status === "permission") {
-      const line = `  ${clr.permission("⚠")}  ${clr.toolName(s.name)}  ${clr.args(s.description)}`;
-      const hint = `     ${clr.dim("[y]es  [n]o  [a]lways  [s]ession")}`;
-      return [truncateToWidth(line, width), hint];
-    }
-
-    // done
-    const icon = s.success ? clr.success("✓") : clr.error("✗");
-    const dur = clr.duration(`${s.durationMs}ms`);
-    const summary = s.outputSummary ? clr.args(`  ${s.outputSummary}`) : "";
-    const line = `  ${icon}  ${clr.toolName(s.name)}  ${clr.args(s.argsSummary)}  ${dur}`;
-    const lines = [truncateToWidth(line, width)];
-    if (summary) lines.push(truncateToWidth(`     ${summary}`, width));
+    const outcome = classifyOutcome(state.result);
+    const icon = outcome === "success" ? clr.success("✓") : clr.error("✗");
+    const label = outcomeLabel(outcome);
+    const duration = clr.duration(formatDuration(state.durationMs));
+    const suffix = label.length > 0 ? `  ${label}` : "";
+    const lines = [truncateToWidth(`  ${icon} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`, width)];
+    const metadata = asToolMetadata(state.result.metadata);
+    lines.push(...renderMetadata(metadata, state.result.output, state.result.success, width));
     return lines;
   }
 }

@@ -5,6 +5,30 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-05-12
+
+**Type:** minor
+**Title:** Clearer CLI activity, working question overlays, and bundled grep
+
+### Added
+
+- **Bundled ripgrep dependency** - IMPULSE now ships with packaged ripgrep so `grep` works without requiring a separate system install.
+- **Question overlay component** - Added a dedicated keyboard-driven question overlay so question prompts can actually render and collect answers in the CLI.
+- **CLI regression coverage** - Added tests for tool-row formatting, question overlay interaction, packaged grep, and PowerShell permission classification.
+
+### Changed
+
+- **Active turn status line stays visible** - The spinner/comment line above the prompt now persists for the full AI turn with clearer phase text and extra spacing from the chat stream.
+- **Tool rows are easier to scan** - Running tools use lightweight animated indicators, durations display in seconds, question calls are quieter, and successful tools avoid dumping low-value raw output by default.
+- **Todo completion styling is clearer** - Completed todos now render with a checkmark, and the in-progress marker is visually highlighted.
+- **Footer telemetry is more legible** - Low-percentage context usage now formats more consistently and token-speed reporting is less jumpy.
+
+### Fixed
+
+- **Question flow lifecycle bugs** - Question calls no longer get stuck invisibly after launch/cancel, and `Esc` now aborts the active turn cleanly.
+- **Windows grep path parsing** - Bundled ripgrep results now parse correctly even when absolute Windows paths include drive letters.
+- **PowerShell safety false positive** - Read-only `Select-String ... | Format-Table` commands no longer trigger destructive-command permission prompts.
+
 ## [0.37.0] - 2026-05-10
 
 **Type:** minor  

@@ -4,6 +4,7 @@ import { getProviderManager } from "../api/manager";
 import type { CompletionOptions } from "../api/provider";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
+import { ask as askPermission } from "../permission";
 import { getCurrentMode } from "./mode-state";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
@@ -229,6 +230,18 @@ export const taskTool: Tool<TaskInput> = Tool.define(
           output: `PLAN mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`,
         };
       }
+
+      await askPermission({
+        sessionID: "current",
+        permission: "task",
+        patterns: [`${input.subagent_type}:${input.description}`],
+        message: `Launch ${input.subagent_type} subagent: ${input.description}`,
+        metadata: {
+          subagentType: input.subagent_type,
+          description: input.description,
+          promptPreview: input.prompt.slice(0, 200),
+        },
+      });
 
       const result = await executeSubagent(
         input.subagent_type,
