@@ -1906,9 +1906,18 @@ export class ImpulseRenderer {
 
     // Advisor mode: only save advisorModel, don't change default provider/model
     if (state.isAdvisorMode) {
+      // Save API key to providers config
+      const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
+      providers[provider.key] = {
+        ...(state.existing ?? {}),
+        apiKey,
+        ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+      };
+      state.config.providers = providers as Config["providers"];
       state.config.advisorModel = selectedModel;
       state.config.advisorMode = true;
       await saveConfig(state.config);
+      await saveHomeEnv(provider, apiKey, state.baseUrl);
       this.advisorModel = selectedModel;
       if (reasoningLevel) void this.setReasoningLevel(reasoningLevel);
       this.contextBar.update({ advisorModel: selectedModel, reasoningLevel: this.reasoningDisplayLabel(reasoningLevel) });
