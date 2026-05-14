@@ -25,6 +25,7 @@ import {
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import { Editor, type EditorTheme } from "@mariozechner/pi-tui";
+import { GUTTER, gutterSeparator } from "./gutter.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { ToolBlock } from "./components/tool-block.js";
@@ -278,7 +279,7 @@ export class PromptInput implements Component, Focusable {
       .map((l) => l.replace(/_pi:c/g, ""));
     const firstLine = innerLines[0] ?? "";
     const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
-    const ARROW = `  \x1b[${this._modeColorCode}m\u276f\x1b[0m `;
+    const ARROW = `${GUTTER}\x1b[${this._modeColorCode}m\u276f\x1b[0m `;
 
     if (this._secretMode) {
       const valueLength = this.editor.getText().length;
@@ -288,7 +289,7 @@ export class PromptInput implements Component, Focusable {
 
     return [
       truncateToWidth(ARROW + content, width, ""),
-      ...innerLines.slice(1).map((line) => truncateToWidth("    " + line, width, "")),
+      ...innerLines.slice(1).map((line) => truncateToWidth(GUTTER + line, width, "")),
     ];
   }
 }
@@ -298,7 +299,7 @@ export class PromptInput implements Component, Focusable {
 class SeparatorLine implements Component {
   invalidate() {}
   render(width: number): string[] {
-    return [A.dim + "─".repeat(width) + A.reset];
+    return [A.dim + gutterSeparator(width) + A.reset];
   }
 }
 
@@ -310,7 +311,7 @@ class ThinkingBlock implements Component {
   }
 
   render(width: number): string[] {
-    const prefix = "  ";
+    const prefix = GUTTER;
     const label = "Thinking:";
     const firstPrefix = `${prefix}\x1b[38;5;94m${label}\x1b[0m `;
     const continuationPrefix = " ".repeat(prefix.length + label.length + 1);
@@ -345,7 +346,7 @@ class ThinkingBlock implements Component {
   invalidate() {}
 }
 
-type ModelSetupStep = "provider" | "baseUrl" | "apiKey" | "discovering" | "model";
+type ModelSetupStep = "provider" | "baseUrl" | "apiKey" | "discovering" | "model" | "reasoning";
 
 interface ProviderEntry {
   provider: ModelProviderOption;
@@ -364,6 +365,8 @@ interface ModelSetupState {
   apiKey?: string;
   models: string[];
   discovery?: ModelDiscoveryResult;
+  isAdvisorMode?: boolean;  // true when picking advisor model vs switching provider
+  selectedModel?: string;   // Model selected in "model" step, used in reasoning step
   error?: string;
   // Navigation state
   providers: ProviderEntry[];  // Configured providers first, then unconfigured
@@ -393,105 +396,95 @@ export class ImpulseRenderer {
 
   // Manual turn-status spinner + render ticker
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
-  private spinnerMsg = "";
-  private spinnerFlavor = "";
-  private spinnerPhase: "action" | "flavor" = "action";
-  private spinnerPhaseStartedAt = 0;
-  private readonly STATUS_ROTATE_MS = 4200;
-  private readonly STATUS_FLAVORS = [
-    "warming up the neurons…",
-    "herding the tokens…",
-    "poking the shell…",
-    "keeping the checklist honest…",
-    "checking the wires…",
-    "asking nicely…",
-    "untangling the context…",
-    "lining up the bytes…",
-    "tracing the path…",
-    "stitching it together…",
+  private currentStatusPhrase = "";
+  private statusPhraseIndex = 0;
+  private static readonly STATUS_PHRASES = [
+    "...i'm on it...",
+    "...handling that now...",
+    "...let me look into that...",
+    "...let's see what we have here...",
+    "...digging into it now...",
+    "...let's break this down...",
+    "...parsing that now...",
+    "...let's get a clear read on this...",
+    "...reading the prompt...",
+    "...checking the request...",
+    "...analyzing the context...",
+    "...reviewing the files...",
+    "...looking at the workspace...",
+    "...let me review this...",
+    "...checking the details...",
+    "...scanning the input...",
+    "...thinking this through...",
+    "...mapping it out...",
+    "...sorting through the request...",
+    "...putting the pieces together...",
+    "...getting a handle on this...",
+    "...let's run the numbers...",
+    "...running the calculations...",
+    "...evaluating the options...",
+    "...formulating a response...",
+    "...putting a thought together...",
+    "...working on an answer...",
+    "...let me map this out...",
+    "...let's take a look...",
+    "...inspecting the request...",
+    "...reading the lines...",
+    "...gathering the context...",
+    "...breaking down the steps...",
+    "...organizing the response...",
+    "...processing the input...",
+    "...checking the structure...",
+    "...lining things up...",
+    "...focusing on this...",
+    "...getting a clear picture...",
+    "...working the problem...",
+    "...holding for the model...",
+    "...awaiting response...",
+    "...processing feedback...",
+    "...interpreting....",
   ];
 
-  private pickBusyFlavor(action: string): string {
-    const normalized = action.toLowerCase();
-    if (normalized.includes("question") || normalized.includes("answer") || normalized.includes("user")) {
-      return "asking nicely…";
-    }
-    if (normalized.includes("bash") || normalized.includes("shell") || normalized.includes("command")) {
-      return "poking the shell…";
-    }
-    if (normalized.includes("todo")) {
-      return "keeping the checklist honest…";
-    }
-    if (normalized.includes("compact")) {
-      return "untangling the context…";
-    }
-    if (normalized.includes("respond") || normalized.includes("model")) {
-      return "herding the tokens…";
-    }
-    if (normalized.includes("think")) {
-      return "warming up the neurons…";
-    }
-    const flavor = this.STATUS_FLAVORS[this.turnPhraseIndex % this.STATUS_FLAVORS.length];
-    this.turnPhraseIndex += 1;
-    return flavor ?? "working…";
-  }
-
-  private currentBusyMessage(): string {
-    if (!this.spinnerFlavor || this.spinnerPhase === "action") {
-      return this.spinnerMsg;
-    }
-    return this.spinnerFlavor;
-  }
-
-  private resetBusyCycle(msg: string): void {
-    this.spinnerMsg = msg;
-    this.spinnerFlavor = this.pickBusyFlavor(msg);
-    this.spinnerPhase = "action";
-    this.spinnerPhaseStartedAt = Date.now();
-  }
-
-  private advanceBusyCycle(now = Date.now()): void {
-    if (!this.spinnerFlavor) return;
-    if (now - this.spinnerPhaseStartedAt < this.STATUS_ROTATE_MS) return;
-
-    this.spinnerPhase = this.spinnerPhase === "action" ? "flavor" : "action";
-    this.spinnerPhaseStartedAt = now;
+  /** Pick a phrase index from STATUS_PHRASES based on the current action */
+  private pickPhraseIndex(msg: string): number {
+    const normalized = msg.toLowerCase();
+    if (normalized.includes("think")) return 16;             // "...thinking this through..."
+    if (normalized.includes("respond")) return 25;            // "...putting a thought together..."
+    if (normalized.includes("bash") || normalized.includes("shell")) return 22; // "...running the calculations..."
+    if (normalized.includes("question") || normalized.includes("approval")) return 41; // "...awaiting response..."
+    if (normalized.includes("waiting")) return 40;            // "...holding for the model..."
+    if (normalized.includes("compact")) return 33;            // "...organizing the response..."
+    if (normalized.includes("todo")) return 5;                // "...let's break this down..."
+    if (normalized.includes("consult")) return 1;             // "...handling that now..."
+    // Fallback: pick a random phrase so the same action shows variety
+    const available = ImpulseRenderer.STATUS_PHRASES.filter((_, i) => i !== this.statusPhraseIndex);
+    return available.length > 0
+      ? ImpulseRenderer.STATUS_PHRASES.indexOf(available[Math.floor(Math.random() * available.length)]!)
+      : Math.floor(Math.random() * ImpulseRenderer.STATUS_PHRASES.length);
   }
 
   private shimmerBusyText(message: string): string {
     const chars = Array.from(message);
     if (chars.length === 0) return "";
 
-    const head = Math.floor(Date.now() / 180) % chars.length;
+    // Head advances every 80ms (2x faster than previous 180ms)
+    const head = Math.floor(Date.now() / 80) % chars.length;
     return chars.map((char, index) => {
       if (/\s/.test(char)) return char;
       const distance = Math.min(Math.abs(index - head), chars.length - Math.abs(index - head));
-      if (distance === 0) return A.fg(37, `${A.bold}${char}${A.reset}`);
-      if (distance === 1) return A.fg(36, char);
-      return A.fg(90, char);
+      // Neutral grayscale tones — no cyan/white — Cursor/Claude Code style
+      if (distance === 0) return A.fg(248, `${A.bold}${char}${A.reset}`);
+      if (distance === 1) return A.fg(244, char);
+      return A.fg(234, char);
     }).join("");
   }
 
   private renderBusyLine(): void {
-    if (!this.spinnerMsg) {
+    if (!this.currentStatusPhrase) {
       this.spinnerText.setText("");
       return;
     }
-
-    const message = this.currentBusyMessage();
-    this.spinnerText.setText(`  ${this.shimmerBusyText(message)}`);
-  }
-
-  private spinStart(msg: string): void {
-    this.resetBusyCycle(msg);
-    this.renderBusyLine();
-    this.tui.requestRender();
-    if (this.spinnerInterval) return;
-    this.spinnerInterval = setInterval(() => {
-      this.advanceBusyCycle();
-      this.renderBusyLine();
-      this.tui.requestRender();
-    }, 160);
+    this.spinnerText.setText(`${GUTTER}${this.shimmerBusyText(this.currentStatusPhrase)}`);
   }
 
   private spinStop(): void {
@@ -499,27 +492,28 @@ export class ImpulseRenderer {
       clearInterval(this.spinnerInterval);
       this.spinnerInterval = null;
     }
-    this.spinnerMsg = "";
-    this.spinnerFlavor = "";
-    this.spinnerPhase = "action";
-    this.spinnerPhaseStartedAt = 0;
+    this.currentStatusPhrase = "";
     this.spinnerText.setText("");
     this.tui.requestRender();
   }
 
   private setBusyStatus(msg: string): void {
-    if (this.spinnerInterval && this.spinnerMsg === msg) {
+    if (this.spinnerInterval && this.currentStatusPhrase && msg === "thinking…") {
+      // Don't re-set the phrase during continuous thinking/streaming
       return;
     }
 
-    if (!this.spinnerInterval) {
-      this.spinStart(msg);
-      return;
-    }
-
-    this.resetBusyCycle(msg);
+    this.statusPhraseIndex = this.pickPhraseIndex(msg);
+    this.currentStatusPhrase = ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "working…";
     this.renderBusyLine();
     this.tui.requestRender();
+
+    if (!this.spinnerInterval) {
+      this.spinnerInterval = setInterval(() => {
+        this.renderBusyLine();
+        this.tui.requestRender();
+      }, 80);
+    }
   }
 
   private enqueuePermissionRequest(request: PermissionRequest): void {
@@ -645,7 +639,6 @@ export class ImpulseRenderer {
   private permissionOverlayHandle: OverlayHandle | null = null;
   private questionOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
-  private turnPhraseIndex = 0;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
   private lastLiveMetricsAt = 0;
@@ -713,11 +706,11 @@ export class ImpulseRenderer {
     // Welcome header
     this.chat.addChild(new Spacer(1));
     this.chat.addChild(new Text(
-      `  ${clr.bold("IMPULSE")} ${A.dim}|${A.reset} cli coding agent ${A.dim}|${A.reset} ${A.fg(90, "v" + (packageJson as {version:string}).version)}`,
+      `${GUTTER}${clr.bold("IMPULSE")} ${A.dim}|${A.reset} cli coding agent ${A.dim}|${A.reset} ${A.fg(90, "v" + (packageJson as {version:string}).version)}`,
       0, 0
     ));
     this.chat.addChild(new Text(
-      `  ${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit")}`,
+      `${GUTTER}${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit")}`,
       0, 0
     ));
     this.chat.addChild(new Spacer(1));
@@ -823,7 +816,7 @@ export class ImpulseRenderer {
     this.contextBar.update({ mode: this.mode });
     this.syncModeColor();
 
-    const modeLine = `   ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
+    const modeLine = `${GUTTER}${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
     if (this.modeChangeText) {
       // Update existing mode change line in place
       this.modeChangeText.setText(modeLine);
@@ -1014,8 +1007,8 @@ export class ImpulseRenderer {
 
     // User message block
     this.addSectionGap();
-    this.addChatLine(`  ${A.fg(36, this.userName)}`);
-    this.addChatLine(`  ${userMessage}`);
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(`${userMessage}`);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -1049,9 +1042,9 @@ export class ImpulseRenderer {
         if (!this.streamingText) {
           // Add Impulse response header on first token
           this.addSectionGap();
-          this.chat.addChild(new Text(`  ${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
+          this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
           this.hasTrailingGap = false;
-          this.streamingText = new MarkdownTextBlock("  ");
+          this.streamingText = new MarkdownTextBlock(GUTTER);
           this.chat.addChild(this.streamingText);
           this.hasTrailingGap = false;
         }
@@ -1083,7 +1076,7 @@ export class ImpulseRenderer {
       onAdvisorStart: (model) => {
         const short = model.split("/").pop() ?? model;
         this.setBusyStatus(`consulting ${short}…`);
-        this.addChatLine(`  ${clr.dim(`[advisor • consulting ${short}…]`)}`);
+        this.addChatLine(`${clr.dim(`[advisor • consulting ${short}…]`)}`);
         this.tui.requestRender();
       },
       onAdvisorToken: (_text) => { /* buffered */ },
@@ -1092,7 +1085,7 @@ export class ImpulseRenderer {
         const oneliner = raw.split(/[.!?\n]/)[0]?.trim() ?? raw;
         const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + "…" : oneliner;
         // Replace last chat line with summary
-        this.addChatLine(`  ${clr.dim(`[advisor: ${truncated}]`)}`);
+        this.addChatLine(`${clr.dim(`[advisor: ${truncated}]`)}`);
         this.tui.requestRender();
       },
       onToolStart: (id, name, args) => {
@@ -1130,12 +1123,12 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onCompacting: () => {
-        this.addChatLine(`  ${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
+        this.addChatLine(`${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
         this.setBusyStatus("compacting context…");
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
-        this.addChatLine(`  ${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}`);
+        this.addChatLine(`${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}`);
         this.setBusyStatus("thinking…");
         this.tui.requestRender();
       },
@@ -1166,7 +1159,7 @@ export class ImpulseRenderer {
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.contextBar.update({ isRunning: false });
-        this.addChatLine(`  ${clr.error("Error:")} ${err.message}`);
+        this.addChatLine(`${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
@@ -1179,7 +1172,7 @@ export class ImpulseRenderer {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   private addChatLine(text: string): void {
-    this.chat.addChild(new Text(text, 0, 0));
+    this.chat.addChild(new Text(GUTTER + text, 0, 0));
     this.hasTrailingGap = false;
   }
 
@@ -1208,8 +1201,8 @@ export class ImpulseRenderer {
 
     // Fixed components (excluding BottomAnchorSpacer and chat):
     // status spacer (1) + spinnerText (1) + SeparatorLine (1) + modelSetupText (1)
-    // + autocompleteText (variable) + promptInput (1) + SeparatorLine (1) + contextBar (1)
-    let otherLines = 7;
+    // + autocompleteText (variable) + promptInput (1) + SeparatorLine (1) + contextBar (3)
+    let otherLines = 9;
 
     // Add autocomplete lines if visible
     if (this.autocompleteText) {
@@ -1277,14 +1270,14 @@ export class ImpulseRenderer {
     const mins    = Math.floor(diffMs / 60000);
     const dur     = mins < 60 ? `${mins}m` : `${Math.floor(mins/60)}h ${mins%60}m`;
     this.addChatLine("");
-    this.addChatLine(`  ${clr.dim("─".repeat(46))}`);
-    this.addChatLine(`  ${clr.bold("Session summary")}`  );
-    this.addChatLine(`  ${clr.dim("session")}   ${session.name}`);
-    this.addChatLine(`  ${clr.dim("duration")}  ${dur}`);
-    this.addChatLine(`  ${clr.dim("turns")}     ${turns}`);
-    this.addChatLine(`  ${clr.dim("messages")}  ${msgs}`);
-    this.addChatLine(`  ${clr.dim("model")}     ${session.model || "(none)"}`);
-    this.addChatLine(`  ${clr.dim("─".repeat(46))}`);
+    this.addChatLine(`${clr.dim("─".repeat(46))}`);
+    this.addChatLine(`${clr.bold("Session summary")}`);
+    this.addChatLine(`${clr.dim("session")}   ${session.name}`);
+    this.addChatLine(`${clr.dim("duration")}  ${dur}`);
+    this.addChatLine(`${clr.dim("turns")}     ${turns}`);
+    this.addChatLine(`${clr.dim("messages")}  ${msgs}`);
+    this.addChatLine(`${clr.dim("model")}     ${session.model || "(none)"}`);
+    this.addChatLine(`${clr.dim("─".repeat(46))}`);
     this.addChatLine("");
     this.tui.requestRender();
   }
@@ -1324,14 +1317,14 @@ export class ImpulseRenderer {
       case "user":    await this.cmdUser(arg);     break;
       case "debug":
         setDebugEnabled(!isDebugEnabled());
-        this.addChatLine(`  ${clr.success("✓")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
+        this.addChatLine(`${clr.success("✓")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
         if (isDebugEnabled()) {
           debugLog(`Debug logging enabled`);
         }
         break;
       case "new":
         await SessionManager.createNew(arg || undefined);
-        this.addChatLine(`  ${clr.success("✓")} New session started`);
+        this.addChatLine(`${clr.success("✓")} New session started`);
         break;
       case "clear":
         // Clear chat history (keep welcome)
@@ -1348,7 +1341,7 @@ export class ImpulseRenderer {
         process.exit(0);
         break;
       default:
-        this.addChatLine(`  ${clr.warn("?")} Unknown: /${cmd} — try /help`);
+        this.addChatLine(`${clr.warn("?")} Unknown: /${cmd} — try /help`);
     }
   }
 
@@ -1443,14 +1436,16 @@ export class ImpulseRenderer {
         lines.push(clr.dim("Type the API key. Input is shown while typing."));
       }
     } else if (state.step === "discovering") {
-      lines.push(clr.bold("MODEL SETUP"));
+      const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
+      lines.push(clr.bold(title));
       lines.push(clr.dim("─────────────────────────────────────────────────"));
       lines.push("");
       lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
       lines.push("");
       lines.push(clr.dim("Testing connection..."));
     } else if (state.step === "model") {
-      lines.push(clr.bold("MODEL SETUP"));
+      const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
+      lines.push(clr.bold(title));
       lines.push(clr.dim("─────────────────────────────────────────────────"));
       lines.push("");
       if (state.discovery) {
@@ -1482,6 +1477,24 @@ export class ImpulseRenderer {
         lines.push("");
         lines.push(clr.dim(`Page ${state.page + 1}/${totalPages}`));
       }
+    } else if (state.step === "reasoning") {
+      const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
+      lines.push(clr.bold(title));
+      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push("");
+      lines.push(`${clr.success("[OK]")} ${state.selectedModel ?? ""}`);
+      lines.push("");
+      lines.push("Select reasoning level:");
+      lines.push("");
+      const levels = this.reasoningLevels();
+      for (let i = 0; i < levels.length; i++) {
+        const isSelected = state.selectedIndex === i;
+        const label = this.reasoningDisplayLabel(levels[i]!);
+        const prefix = isSelected ? "  > " : "    ";
+        lines.push(`${prefix}${i + 1}. ${isSelected ? A.fg(36, label) : label}`);
+      }
+      lines.push("");
+      lines.push(clr.dim("↑↓: Navigate  Enter: Select (default: medium)  Esc: back/cancel"));
     }
 
     if (state.error) {
@@ -1508,7 +1521,7 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private selectModelSetupProvider(provider: ModelProviderOption): void {
+  private async selectModelSetupProvider(provider: ModelProviderOption): Promise<void> {
     const state = this.modelSetup;
     if (!state) return;
 
@@ -1519,6 +1532,30 @@ export class ImpulseRenderer {
     if (baseUrl) state.baseUrl = baseUrl;
     else delete state.baseUrl;
     delete state.error;
+
+    // If API key already configured, skip to model discovery
+    if (existing?.apiKey) {
+      state.apiKey = existing.apiKey;
+      state.step = "discovering";
+      this.renderModelSetup();
+      const discovery = await discoverModels(provider, existing.apiKey, state.baseUrl);
+      if (!this.modelSetup || this.modelSetup.provider !== provider) return; // cancelled
+      state.discovery = discovery;
+      state.models = discovery.models;
+      if (!discovery.success) {
+        state.error = discovery.message;
+        state.step = "apiKey";
+        this.renderModelSetup();
+        return;
+      }
+      state.step = "model";
+      state.page = 0;
+      state.selectedIndex = 0;
+      this.setupModelNavigation();
+      this.renderModelSetup();
+      return;
+    }
+
     state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
   }
 
@@ -1549,16 +1586,14 @@ export class ImpulseRenderer {
   }
 
   private cancelModelSetup(): void {
+    if (this.modelSetupInputListener) {
+      this.modelSetupInputListener();
+      this.modelSetupInputListener = null;
+    }
     this.modelSetup = null;
     this.modelSetupText.setText("");
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
-    // Clear navigation callbacks
-    this.promptInput.onArrowUp = null;
-    this.promptInput.onArrowDown = null;
-    this.promptInput.onArrowLeft = null;
-    this.promptInput.onArrowRight = null;
-    this.promptInput.onEnter = null;
     this.addChatLine(`  ${clr.dim("Model setup cancelled")}`);
     this.tui.requestRender();
   }
@@ -1582,7 +1617,7 @@ export class ImpulseRenderer {
         this.renderModelSetup();
         return;
       }
-      this.selectModelSetupProvider(provider);
+      await this.selectModelSetupProvider(provider);
       this.renderModelSetup();
       return;
     }
@@ -1623,11 +1658,48 @@ export class ImpulseRenderer {
     }
 
     if (state.step === "model") {
-      await this.finishModelSetup(input);
+      // Store selected model and prompt for reasoning level
+      const fallbackModel = this.currentModelForProvider(state.config, state.provider!);
+      const modelIdx = Number.parseInt(input, 10) - 1;
+      if (!input) {
+        state.selectedModel = fallbackModel;
+      } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
+        state.selectedModel = modelWithProviderPrefix(state.provider!.key, state.models[modelIdx]!);
+      } else if (!input.match(/^\d+$/)) {
+        state.selectedModel = modelWithProviderPrefix(state.provider!.key, input);
+      } else {
+        state.error = "Invalid model selection.";
+        this.renderModelSetup();
+        return;
+      }
+      state.step = "reasoning";
+      state.selectedIndex = this.reasoningLevels().indexOf(this.reasoningLevel);
+      if (state.selectedIndex < 0) state.selectedIndex = 1; // default to medium
+      this.setupModelNavigation();
+      this.renderModelSetup();
+      return;
+    }
+
+    if (state.step === "reasoning") {
+      const levels = this.reasoningLevels();
+      const idx = Number.parseInt(input, 10) - 1;
+      let selectedLevel: ReasoningLevel = "medium";
+      if (!input) {
+        selectedLevel = "medium";
+      } else if (!Number.isNaN(idx) && levels[idx]) {
+        selectedLevel = levels[idx]!;
+      } else {
+        const match = levels.find(l => l && input.toLowerCase() === l);
+        if (match) selectedLevel = match;
+        else selectedLevel = "medium";
+      }
+      if (state.selectedModel) {
+        await this.finishModelSetup(state.selectedModel, selectedLevel);
+      }
     }
   }
 
-  private async finishModelSetup(modelChoice: string): Promise<void> {
+  private async finishModelSetup(modelChoice: string, reasoningLevel?: ReasoningLevel): Promise<void> {
     const state = this.modelSetup;
     const provider = state?.provider;
     const apiKey = state?.apiKey;
@@ -1645,6 +1717,27 @@ export class ImpulseRenderer {
     } else {
       state.error = "Invalid model selection.";
       this.renderModelSetup();
+      return;
+    }
+
+    // Advisor mode: only save advisorModel, don't change default provider/model
+    if (state.isAdvisorMode) {
+      state.config.advisorModel = selectedModel;
+      state.config.advisorMode = true;
+      await saveConfig(state.config);
+      this.advisorModel = selectedModel;
+      if (reasoningLevel) void this.setReasoningLevel(reasoningLevel);
+      this.contextBar.update({ advisorModel: selectedModel, reasoningLevel: this.reasoningDisplayLabel(reasoningLevel) });
+      if (this.modelSetupInputListener) {
+        this.modelSetupInputListener();
+        this.modelSetupInputListener = null;
+      }
+      this.modelSetup = null;
+      this.modelSetupText.setText("");
+      this.promptInput.setSecretMode(false);
+      this.promptInput.clear();
+      this.addChatLine(`${clr.success("✓")} Advisor → ${selectedModel}`);
+      this.tui.requestRender();
       return;
     }
 
@@ -1670,20 +1763,29 @@ export class ImpulseRenderer {
     this.reasoningCapability = this.reasoningCapabilityForProvider(provider.key);
     await this.normalizeReasoningLevel();
     void this.refreshReasoningCapability();
+    // Save reasoning level if provided
+    if (reasoningLevel) {
+      void this.setReasoningLevel(reasoningLevel);
+    }
+
     this.contextBar.update({
       workerModel: selectedModel,
-      reasoningLevel: this.reasoningDisplayLabel(),
+      reasoningLevel: this.reasoningDisplayLabel(reasoningLevel),
       contextTokens: this.contextTokens,
       contextWindow: this.contextWindow,
       mode: this.mode,
     });
 
+    if (this.modelSetupInputListener) {
+      this.modelSetupInputListener();
+      this.modelSetupInputListener = null;
+    }
     this.modelSetup = null;
     this.modelSetupText.setText("");
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
-    this.addChatLine(`  ${clr.success("[OK]")} Provider: ${provider.label}`);
-    this.addChatLine(`  ${clr.success("[OK]")} Model: ${selectedModel}`);
+    const reasonLabel = reasoningLevel ? ` (${this.reasoningDisplayLabel(reasoningLevel)})` : "";
+    this.addChatLine(`${clr.success("✓")} Model changed to: ${selectedModel}${reasonLabel}`);
     this.tui.requestRender();
   }
 
@@ -1731,7 +1833,7 @@ export class ImpulseRenderer {
     if (arg && !provider) {
       this.modelSetup.error = `Unknown provider: ${arg}`;
     } else if (provider) {
-      this.selectModelSetupProvider(provider);
+      await this.selectModelSetupProvider(provider);
     }
 
     this.promptInput.clear();
@@ -1747,84 +1849,140 @@ export class ImpulseRenderer {
     void this.validateProviderKeys();
   }
 
-  private setupModelNavigation(): void {
-    // Clear any existing navigation callbacks
-    this.promptInput.onArrowUp = null;
-    this.promptInput.onArrowDown = null;
-    this.promptInput.onArrowLeft = null;
-    this.promptInput.onArrowRight = null;
-    this.promptInput.onEnter = null;
+  private modelSetupInputListener: (() => void) | null = null;
 
-    // Set up callbacks based on current step
+  private setupModelNavigation(): void {
+    // Remove old listener
+    if (this.modelSetupInputListener) {
+      this.modelSetupInputListener();
+      this.modelSetupInputListener = null;
+    }
+
     const state = this.modelSetup;
     if (!state) return;
 
-    if (state.step === "provider") {
-      this.promptInput.onArrowUp = () => {
-        state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-        this.renderModelSetup();
-      };
-      this.promptInput.onArrowDown = () => {
-        state.selectedIndex = Math.min(state.providers.length - 1, state.selectedIndex + 1);
-        this.renderModelSetup();
-      };
-      this.promptInput.onEnter = () => {
-        const entry = state.providers[state.selectedIndex];
-        if (entry) {
-          this.selectModelSetupProvider(entry.provider);
-          this.setupModelNavigation();  // Re-setup for next step
+    // Use tui.addInputListener to intercept arrow/enter keys globally.
+    // This is needed because pi-tui's Editor consumes arrow keys internally
+    // before PromptInput.handleInput sees them.
+    const handleModelNav = (data: string) => {
+      if (data === "\x1b[A") {
+        if (state.step === "provider") {
+          state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+          this.renderModelSetup();
+        } else if (state.step === "model") {
+          state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+          this.renderModelSetup();
+        } else if (state.step === "reasoning") {
+          state.selectedIndex = Math.max(0, state.selectedIndex - 1);
           this.renderModelSetup();
         }
-      };
-    } else if (state.step === "model") {
-      this.promptInput.onArrowUp = () => {
-        state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-        this.renderModelSetup();
-      };
-      this.promptInput.onArrowDown = () => {
-        state.selectedIndex = Math.min(state.models.length - 1, state.selectedIndex + 1);
-        this.renderModelSetup();
-      };
-      this.promptInput.onArrowLeft = () => {
-        if (state.page > 0) {
+        return { consume: true };
+      }
+      if (data === "\x1b[B") {
+        if (state.step === "provider") {
+          state.selectedIndex = Math.min(state.providers.length - 1, state.selectedIndex + 1);
+          this.renderModelSetup();
+        } else if (state.step === "model") {
+          state.selectedIndex = Math.min(state.models.length - 1, state.selectedIndex + 1);
+          this.renderModelSetup();
+        } else if (state.step === "reasoning") {
+          state.selectedIndex = Math.min(this.reasoningLevels().length - 1, state.selectedIndex + 1);
+          this.renderModelSetup();
+        }
+        return { consume: true };
+      }
+      if (data === "\x1b[D") {
+        if (state.step === "model" && state.page > 0) {
           state.page--;
           state.selectedIndex = state.page * state.modelsPerPage;
           this.renderModelSetup();
         }
-      };
-      this.promptInput.onArrowRight = () => {
-        const totalPages = Math.ceil(state.models.length / state.modelsPerPage);
-        if (state.page < totalPages - 1) {
-          state.page++;
-          state.selectedIndex = state.page * state.modelsPerPage;
-          this.renderModelSetup();
+        return { consume: true };
+      }
+      if (data === "\x1b[C") {
+        if (state.step === "model") {
+          const totalPages = Math.ceil(state.models.length / state.modelsPerPage);
+          if (state.page < totalPages - 1) {
+            state.page++;
+            state.selectedIndex = state.page * state.modelsPerPage;
+            this.renderModelSetup();
+          }
         }
-      };
-      this.promptInput.onEnter = () => {
-        const model = state.models[state.selectedIndex];
-        if (model) {
-          void this.finishModelSetup(String(state.selectedIndex + 1));
+        return { consume: true };
+      }
+      if (data === "\r") {
+        if (state.step === "provider") {
+          const entry = state.providers[state.selectedIndex];
+          if (entry) {
+            void this.selectModelSetupProvider(entry.provider).then(() => {
+              this.setupModelNavigation();
+              this.renderModelSetup();
+            });
+          }
+          return { consume: true };
         }
-      };
-    }
+        if (state.step === "model") {
+          const model = state.models[state.selectedIndex];
+          if (model) void this.finishModelSetup(String(state.selectedIndex + 1));
+          return { consume: true };
+        }
+        if (state.step === "reasoning") {
+          void this.handleModelSetupSubmit(String(state.selectedIndex + 1));
+          return { consume: true };
+        }
+      }
+      return undefined;
+    };
+
+    this.modelSetupInputListener = this.tui.addInputListener(handleModelNav);
   }
 
   private async cmdAdvisor(arg: string): Promise<void> {
+    if (this.isRunning) return;
     const config = await loadConfig();
 
+    // /advisor off — toggle OFF
     if (arg === "off") {
-      const { advisorModel: _r, ...rest } = config;
-      await saveConfig(rest as Config);
+      config.advisorModel = undefined;
+      config.advisorMode = false;
+      await saveConfig(config);
       this.advisorModel = undefined;
-      this.contextBar.update({ workerModel: config.defaultModel, contextTokens: this.contextTokens,
-        contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(`  ${clr.success("✓")} Advisor disabled`);
+      this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
+        contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
+      this.addChatLine(`${clr.success("✓")} Advisor mode disabled`);
       return;
     }
 
-    if (arg === "on" || arg === "") {
-      this.addChatLine(`  ${clr.bold("Advisor model")}  ${clr.dim("e.g. openrouter/anthropic/claude-opus-4.7")}`);
-      this.addChatLine(`  ${clr.dim("Type the model string and press Enter:")}`);
+    // If already ON, /advisor or /advisor on toggles it OFF
+    if (config.advisorMode && (arg === "" || arg === "on")) {
+      config.advisorMode = false;
+      await saveConfig(config);
+      this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
+        contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
+      this.addChatLine(`${clr.success("✓")} Advisor mode disabled`);
+      return;
+    }
+
+    // Direct model string: /advisor openrouter/anthropic/claude-opus-4.7
+    if (arg && arg !== "on") {
+      config.advisorModel = arg;
+      config.advisorMode = true;
+      await saveConfig(config);
+      this.advisorModel = arg;
+      this.contextBar.update({ advisorModel: arg });
+      this.addChatLine(`${clr.success("✓")} Advisor → ${arg}  (mode ON)`);
+      return;
+    }
+
+    // /advisor or /advisor on — activate. Check if already configured.
+    if (config.advisorModel) {
+      const parts = config.advisorModel.split("/");
+      const modelName = parts[parts.length - 1] ?? config.advisorModel;
+      const providerName = parts.slice(0, -1).join("/") || config.defaultProvider;
+      // Ask user: keep current or change?
+      this.addChatLine(`${clr.bold("Advisor Mode")}`);
+      this.addChatLine(`Current Advisor: ${modelName} via ${providerName}`);
+      this.addChatLine(`Change configuration? (y/N)`);
       this.tui.requestRender();
 
       await new Promise<void>((resolve) => {
@@ -1832,28 +1990,83 @@ export class ImpulseRenderer {
         this.promptInput.onSubmit = (val) => {
           this.promptInput.clear();
           this.promptInput.onSubmit = prev;
-          if (val.trim()) {
-            config.advisorModel = val.trim();
-            void saveConfig(config).then(() => {
-              this.advisorModel = val.trim();
-              this.contextBar.update({ advisorModel: val.trim() });
-              this.addChatLine(`  ${clr.success("✓")} Advisor → ${val.trim()}`);
-              this.tui.requestRender();
-            });
+          const answer = val.trim().toLowerCase();
+          if (answer === "y" || answer === "yes") {
+            // Enter configuration setup
+            void this.startAdvisorSetup(config).then(resolve);
           } else {
-            this.addChatLine(`  ${clr.dim("Cancelled")}`);
+            // Activate with current config
+            config.advisorMode = true;
+            void saveConfig(config).then(() => {
+              this.addChatLine(`${clr.success("✓")} Advisor mode ON — ${modelName} via ${providerName}`);
+              this.tui.requestRender();
+              resolve();
+            });
           }
-          resolve();
         };
       });
       return;
     }
 
-    config.advisorModel = arg;
-    await saveConfig(config);
-    this.advisorModel = arg;
-    this.contextBar.update({ advisorModel: arg });
-    this.addChatLine(`  ${clr.success("✓")} Advisor → ${arg}`);
+    // Not configured — force setup
+    this.addChatLine(`${clr.bold("Advisor Mode")} — no advisor configured. Let's set one up.`);
+    await this.startAdvisorSetup(config);
+  }
+
+  /** Start advisor model setup (pick model from current provider, save to advisorModel) */
+  private async startAdvisorSetup(config: Config): Promise<void> {
+    const currentProvider = config.defaultProvider;
+    const stored = providerConfig(config, currentProvider);
+    if (!stored?.apiKey) {
+      this.addChatLine(`${clr.warn("!")} No API key configured for ${currentProvider}. Use /model first.`);
+      return;
+    }
+
+    const provider = parseProviderChoice(currentProvider, currentProvider);
+    if (!provider) {
+      this.addChatLine(`${clr.warn("!")} Unknown provider: ${currentProvider}`);
+      return;
+    }
+
+    const baseUrl = stored.baseUrl ?? provider.defaultBaseUrl;
+
+    this.modelSetup = {
+      step: "discovering",
+      config,
+      currentProvider,
+      provider,
+      existing: stored,
+      ...(baseUrl ? { baseUrl } : {}),
+      apiKey: stored.apiKey,
+      models: [],
+      providers: [],
+      selectedIndex: 0,
+      page: 0,
+      modelsPerPage: 20,
+      isAdvisorMode: true,
+    };
+
+    this.promptInput.clear();
+    this.promptInput.setSecretMode(false);
+    this.autocompleteText.setText("");
+    this.renderModelSetup();
+
+    const discovery = await discoverModels(provider, stored.apiKey, stored.baseUrl ?? provider.defaultBaseUrl);
+    const state = this.modelSetup;
+    if (!state) return;
+
+    state.discovery = discovery;
+    state.models = discovery.models;
+    if (!discovery.success) {
+      state.error = discovery.message;
+      this.renderModelSetup();
+      return;
+    }
+    state.step = "model";
+    state.page = 0;
+    state.selectedIndex = 0;
+    this.setupModelNavigation();
+    this.renderModelSetup();
   }
 
   private cmdMode(arg: string): void {

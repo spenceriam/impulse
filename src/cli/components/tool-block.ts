@@ -7,6 +7,7 @@
  */
 
 import { truncateToWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import { GUTTER } from "../gutter.js";
 import {
   TypeGuards,
   type FileEditMetadata,
@@ -383,7 +384,7 @@ export class ToolBlock implements Component {
 
     if (state.status === "running") {
       const spinner = clr.running(currentSpinner(state.name));
-      return [truncateToWidth(`    ${spinner} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}`, width)];
+      return [truncateToWidth(`${GUTTER}${spinner} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}`, width)];
     }
 
     const outcome = classifyOutcome(state.result);
@@ -391,7 +392,7 @@ export class ToolBlock implements Component {
     const label = outcomeLabel(outcome);
     const duration = clr.duration(formatDuration(state.durationMs));
     const suffix = label.length > 0 ? `  ${label}` : "";
-    const lines = [truncateToWidth(`    ${icon} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`, width)];
+    const lines = [truncateToWidth(`${GUTTER}${icon} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`, width)];
     const metadata = asToolMetadata(state.result.metadata);
     lines.push(...renderMetadata(metadata, state.result.output, state.result.success, width));
     return lines;

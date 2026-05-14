@@ -55,6 +55,9 @@ const ConfigSchema = z.object({
   /** Advisor model — optional second model for strategic guidance */
   advisorModel: z.string().optional().describe("Advisor model for strategic guidance"),
 
+  /** Advisor mode — toggle for advisor/executor pattern */
+  advisorMode: z.boolean().default(false).describe("Whether advisor mode is active"),
+
   /** Default mode: AGENT, EXPLORE, PLAN, DEBUG */
   defaultMode: z.string().default("AGENT").describe("Default agent mode"),
 
