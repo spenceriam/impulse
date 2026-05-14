@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { testOllamaConnection } from "../api/providers/ollama.js";
+import type { Editor } from "@mariozechner/pi-tui";
+import { fuzzyFilter } from "@mariozechner/pi-tui";
 import type { Config } from "../util/config.js";
 
 export interface ModelProviderOption {
@@ -151,10 +153,28 @@ export async function discoverModels(
     }
 
     const body = await res.json() as {
-      data?: Array<{ id?: string; name?: string }>;
-      models?: Array<{ id?: string; name?: string }>;
+      data?: Array<{ id?: string; name?: string; created?: number }>;
+      models?: Array<{ id?: string; name?: string; created?: number }>;
     };
     const entries = body.data ?? body.models ?? [];
+
+    // OpenRouter returns creation timestamps — sort by created (newest first) inline
+    if (provider.key === "openrouter" && entries.length > 1) {
+      const sorted = entries
+        .slice()
+        .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+        .map((m) => m.id ?? m.name)
+        .filter((m): m is string => typeof m === "string" && m.length > 0);
+
+      return {
+        success: true,
+        message: sorted.length > 0
+          ? `Connected - ${sorted.length} model${sorted.length === 1 ? "" : "s"} available.`
+          : "Connected, but no models were returned.",
+        models: sorted,
+      };
+    }
+
     const models = entries
       .map((m) => m.id ?? m.name)
       .filter((m): m is string => typeof m === "string" && m.length > 0);
@@ -262,4 +282,42 @@ export async function saveHomeEnv(
 
   const lines = [...values.entries()].map(([key, value]) => `${key}=${value}`);
   await fs.writeFile(envPath, `${lines.join("\n")}\n`, { mode: 0o600 });
+}
+
+/** Wire up fuzzy model autocomplete on the pi-tui Editor during model selection */
+export function setModelAutocomplete(editor: Editor, models: string[]): void {
+  editor.setAutocompleteProvider({
+    async getSuggestions(lines, cursorLine, cursorCol, _opts) {
+      const line = lines[cursorLine] ?? "";
+      const prefix = line.slice(0, cursorCol);
+
+      if (prefix.length === 0) {
+        // Show first 30 models when input is empty
+        return {
+          items: models.slice(0, 30).map((m) => ({ value: m, label: m })),
+          prefix: "",
+        };
+      }
+
+      const filtered = fuzzyFilter(models, prefix, (m) => m).slice(0, 30);
+      if (filtered.length === 0) return null;
+
+      return {
+        items: filtered.map((m) => ({ value: m, label: m })),
+        prefix,
+      };
+    },
+
+    applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+      const line = lines[cursorLine] ?? "";
+      const before = line.slice(0, cursorCol - prefix.length);
+      const after = line.slice(cursorCol);
+      const newLine = before + item.value + after;
+      return {
+        lines: lines.map((l, i) => (i === cursorLine ? newLine : l)),
+        cursorLine,
+        cursorCol: before.length + item.value.length,
+      };
+    },
+  });
 }
