@@ -321,7 +321,7 @@ Be natural about this - don't suggest switches for every message, only at clear 
  * Mode-specific additions
  */
 const MODE_ADDITIONS: Record<Mode, string> = {
-  WORK: `
+  AGENT: `
 ## Mode: WORK
 
 Primary execution mode. You can read, write, and run commands to complete tasks end-to-end.
@@ -432,8 +432,8 @@ Systematic debugging mode. Follow the 7-step debugging process:
 
 function getModePromptName(mode: Mode): string {
   switch (mode) {
-    case "WORK":
-      return "work";
+    case "AGENT":
+      return "agent";
     case "PLAN":
       return "plan";
     default:
@@ -509,7 +509,7 @@ ${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile
   }
 
   // Add web research instructions based on mode
-  if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
+  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE") {
     parts.push(getPrompt("core", "web-full", WEB_RESEARCH_FULL));
   } else if (mode === "PLAN") {
     parts.push(getPrompt("core", "web-lite", WEB_RESEARCH_LITE));
@@ -522,7 +522,7 @@ ${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile
  * Get just the web research instructions (for appending to existing prompts)
  */
 export function getResearchInstructions(mode: Mode): string {
-  if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
+  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE") {
     return getPrompt("core", "web-full", WEB_RESEARCH_FULL).trim();
   } else if (mode === "PLAN") {
     return getPrompt("core", "web-lite", WEB_RESEARCH_LITE).trim();

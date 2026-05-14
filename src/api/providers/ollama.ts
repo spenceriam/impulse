@@ -258,9 +258,7 @@ export class OllamaProvider implements AIProvider {
       };
 
       applyCommonOptions(req, options);
-      if (reasoningEnabled(options) && ollamaSupportsReasoning(model)) {
-        (req as unknown as Record<string, unknown>)["think"] = true;
-      }
+      (req as unknown as Record<string, unknown>)["think"] = reasoningEnabled(options);
 
       return client.chat.completions.create(req);
     }, options.signal);
@@ -283,9 +281,7 @@ export class OllamaProvider implements AIProvider {
       };
 
       applyCommonOptions(req, options);
-      if (reasoningEnabled(options) && ollamaSupportsReasoning(model)) {
-        (req as unknown as Record<string, unknown>)["think"] = true;
-      }
+      (req as unknown as Record<string, unknown>)["think"] = reasoningEnabled(options);
 
       return client.chat.completions.create(req);
     }, options.signal);

@@ -15,7 +15,7 @@ class SessionManagerImpl {
   private sessionHistory: Session[] = [];
   private options: Required<SessionManagerOptions> = {
     defaultModel: "",
-    defaultMode: "WORK",
+    defaultMode: "AGENT",
     initialContextWindow: 200000,
   };
 

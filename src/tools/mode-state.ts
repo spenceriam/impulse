@@ -12,7 +12,7 @@ import type { MODES } from "../constants";
 
 type Mode = typeof MODES[number];
 
-let currentMode: Mode = "WORK";
+let currentMode: Mode = "AGENT";
 
 /**
  * Set the current mode (called by App.tsx before API calls)
@@ -47,7 +47,7 @@ export function resetAutoApproval(): void {
  * Check if the current mode allows write operations
  */
 export function canWriteFiles(): boolean {
-  return currentMode === "WORK" || currentMode === "DEBUG";
+  return currentMode === "AGENT" || currentMode === "DEBUG";
 }
 
 /**
@@ -72,7 +72,7 @@ export function validateWritePath(filePath: string): string | null {
   const mode = getCurrentMode();
   
   // Execution modes can write anywhere
-  if (mode === "WORK" || mode === "DEBUG") {
+  if (mode === "AGENT" || mode === "DEBUG") {
     return null;
   }
   

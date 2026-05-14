@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
+import { Bus } from "../bus/bus";
+import { SubagentEvents } from "../bus/events";
 import { getProviderManager } from "../api/manager";
 import type { CompletionOptions } from "../api/provider";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
@@ -170,6 +172,7 @@ async function executeSubagent(
         // Add to summary
         const argSummary = extractArgSummary(args);
         actionSummary.push(`${toolName}${argSummary ? ` ${argSummary}` : ""}`);
+        Bus.publish(SubagentEvents.Progress, { type: "tool", content: `${toolName}${argSummary ? " " + argSummary : ""}` });
         
         toolResults.push({
           tool_call_id: toolCall.id,
@@ -231,7 +234,8 @@ export const taskTool: Tool<TaskInput> = Tool.define(
         };
       }
 
-      await askPermission({
+      if (input.subagent_type !== "explore") {
+        await askPermission({
         sessionID: "current",
         permission: "task",
         patterns: [`${input.subagent_type}:${input.description}`],
@@ -242,6 +246,7 @@ export const taskTool: Tool<TaskInput> = Tool.define(
           promptPreview: input.prompt.slice(0, 200),
         },
       });
+      }
 
       const result = await executeSubagent(
         input.subagent_type,

@@ -152,7 +152,7 @@ export async function discoverOllamaReasoning(
   const lower = modelName.toLowerCase();
   const likelyReasoning =
     lower.includes("thinking")    ||
-    lower.includes("deepseek-r1") ||
+    lower.includes("deepseek") ||
     /(^|[^a-z0-9])r1([^a-z0-9]|$)/.test(lower) ||
     lower.includes("qwq")         ||
     lower.includes("kimi-k2")     ||

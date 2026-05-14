@@ -43,6 +43,7 @@ export class QuestionOverlay implements Component {
   private answers: string[][];
   private customMode = false;
   private customInput = "";
+  private reviewMode = false;
 
   onSubmit?: (answers: string[][]) => void;
   onAbort?: () => void;
@@ -90,6 +91,14 @@ export class QuestionOverlay implements Component {
       return;
     }
 
+    this.customMode = false;
+    this.customInput = "";
+    this.reviewMode = true;
+  }
+
+  private submit(): void {
+    this.customMode = false;
+    this.customInput = "";
     this.onSubmit?.(this.answers.map((answer) => [...answer]));
   }
 
@@ -128,8 +137,12 @@ export class QuestionOverlay implements Component {
       return;
     }
 
+    // Single-choice: if already selected, advance; otherwise just select
+    if (this.isSelected(option.label)) {
+      this.advance();
+      return;
+    }
     this.setSingleAnswer(option.label);
-    this.advance();
   }
 
   private optionMarker(selected: boolean): string {
@@ -148,6 +161,24 @@ export class QuestionOverlay implements Component {
 
     if (data === "\x03" || data === "\x1b") {
       this.onAbort?.();
+      return;
+    }
+
+    if (this.reviewMode) {
+      if (data === "\r") {
+        this.submit();
+        return;
+      }
+      if (data === "e" || data === "E") {
+        this.reviewMode = false;
+        this.selectedTopic = 0;
+        this.selectedOption = 0;
+        return;
+      }
+      if (data === "\x1b") {
+        this.reviewMode = false;
+        return;
+      }
       return;
     }
 
@@ -230,6 +261,21 @@ export class QuestionOverlay implements Component {
       lines.push(bgLine(`│ ${padded} │`, boxWidth));
     };
 
+    if (this.reviewMode) {
+      pushWrapped(lines, `${A.bold}${A.fg(39, "Review your answers")}${A.reset}`, innerWidth, boxWidth);
+      pushBoxLine("");
+      for (let i = 0; i < this.questions.length; i++) {
+        const q = this.questions[i]!;
+        const answer = (this.answers[i] ?? []).join(", ") || A.dim + "(no answer)" + A.reset;
+        pushWrapped(lines, `${A.fg(39, "[" + (i + 1) + "]")} ${q.question}`, innerWidth, boxWidth);
+        pushWrapped(lines, `  ${A.bold}→${A.reset} ${answer}`, innerWidth, boxWidth);
+        pushBoxLine("");
+      }
+      pushWrapped(lines, `${A.dim}Enter submit  e edit  Esc go back${A.reset}`, innerWidth, boxWidth);
+      lines.push(bottom);
+      return lines;
+    }
+
     if (this.context) {
       pushWrapped(lines, `${A.dim}Context:${A.reset} ${this.context}`, innerWidth, boxWidth);
       pushBoxLine("");
@@ -280,7 +326,7 @@ export class QuestionOverlay implements Component {
     pushBoxLine("");
     const hints = this.currentQuestion.multiple
       ? `${A.dim}↑/↓ move   Space toggle   Enter confirm/custom   Tab next topic   Esc abort${A.reset}`
-      : `${A.dim}↑/↓ move   Enter confirm/custom   Tab next topic   Esc abort${A.reset}`;
+      : `${A.dim}↑/↓ move   Enter select/advance   Space select   Tab next topic   Esc abort${A.reset}`;
     pushWrapped(lines, hints, innerWidth, boxWidth);
     lines.push(bottom);
 

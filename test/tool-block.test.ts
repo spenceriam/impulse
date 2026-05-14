@@ -88,7 +88,7 @@ describe("ToolBlock", () => {
     const plainLines = rawLines.map(stripAnsi);
     const output = plainLines.join("\n");
     expect(output).toContain("1 replacement, +1 -1");
-    expect(plainLines).toContain("     ");
+    expect(plainLines).toContain("       ");
     expect(output).toContain("-22 Value:100");
     expect(output).toContain("+22 Value:999|Modified:true");
     expect(rawLines.join("\n")).toContain("\x1b[9m-22 Value:100");
@@ -116,7 +116,7 @@ describe("ToolBlock", () => {
     const plainLines = renderPlain(block);
     const output = plainLines.join("\n");
     expect(output).toContain("18 lines created");
-    expect(plainLines).toContain("     ");
+    expect(plainLines).toContain("       ");
     expect(output).toContain("+ 1 import { run } from \"./run\";");
   });
 

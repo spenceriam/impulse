@@ -217,7 +217,7 @@ async function handleMode(args: Record<string, unknown>) {
     const currentMode = normalizeMode(currentSession?.mode);
     
     const modeDescriptions: Record<string, string> = {
-      WORK: "Full execution mode",
+      AGENT: "Full execution mode",
       EXPLORE: "Read-only understanding",
       PLAN: "Planning and documentation",
       DEBUG: "7-step systematic debugging",
@@ -347,7 +347,7 @@ export function registerUtilityCommands(): void {
       description: "Switch AI mode",
       args: ModeArgsSchema,
       handler: handleMode,
-      examples: ["/mode WORK", "/mode EXPLORE", "/mode PLAN", "/mode DEBUG"],
+      examples: ["/mode AGENT", "/mode EXPLORE", "/mode PLAN", "/mode DEBUG"],
     },
     {
       name: "think",

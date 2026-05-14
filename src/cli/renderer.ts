@@ -18,13 +18,13 @@ import {
   Container,
   Text,
   Spacer,
-  Input,
   truncateToWidth,
   wrapTextWithAnsi,
   type Component,
   type Focusable,
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
+import { Editor, type EditorTheme } from "@mariozechner/pi-tui";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { ToolBlock } from "./components/tool-block.js";
@@ -111,15 +111,31 @@ const clr = {
 
 // ANSI color per mode — used for ❯ arrow and context bar mode label
 const MODE_COLORS: Record<string, number> = {
-  WORK: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
+  AGENT: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
 };
 
-// ── PromptInput: wraps pi-tui Input, intercepts special keys ─────────────────
+const EDITOR_THEME: EditorTheme = {
+  borderColor: (s: string) => s,
+  selectList: {
+    selectedPrefix: (s: string) => s,
+    selectedText: (s: string) => s,
+    description: (s: string) => s,
+    scrollInfo: (s: string) => s,
+    noMatch: (s: string) => s,
+  },
+};
+
+// ── PromptInput: wraps pi-tui Editor, intercepts special keys ─────────────────
 
 export class PromptInput implements Component, Focusable {
   focused = false;
 
-  private inner = new Input();
+  private editor: Editor;
+
+  constructor(tui?: any) {
+    const t = tui || { terminal: { rows: 24, columns: 80 } };
+    this.editor = new Editor(t, EDITOR_THEME, { paddingX: 0 });
+  }
   private _modeColorCode = 34; // ANSI color code for the ❯ arrow (matches mode)
   // Paste state
   private _pasteContent: string | null = null;
@@ -143,15 +159,15 @@ export class PromptInput implements Component, Focusable {
   setModeColor(code: number): void { this._modeColorCode = code; }
   setSecretMode(enabled: boolean): void { this._secretMode = enabled; }
 
-  get onSubmit() { return this.inner.onSubmit; }
+  get onSubmit() { return this.editor.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
-    if (fn !== undefined) this.inner.onSubmit = fn;
-    else this.inner.onSubmit = undefined as unknown as (value: string) => void;
+    if (fn !== undefined) this.editor.onSubmit = fn;
+    else this.editor.onSubmit = undefined as unknown as (value: string) => void;
   }
 
   /** Returns the real value (actual paste content if applicable) */
   getSubmitValue(): string {
-    const displayed = this.inner.getValue();
+    const displayed = this.editor.getText();
     if (this._pasteContent !== null && this._pasteDisplay !== null) {
       if (displayed.includes(this._pasteDisplay)) {
         return displayed.replace(this._pasteDisplay, this._pasteContent);
@@ -162,7 +178,7 @@ export class PromptInput implements Component, Focusable {
   }
 
   clear(): void {
-    this.inner.setValue("");
+    this.editor.setText("");
     this._pasteContent = null;
     this._pasteDisplay = null;
     this._isPasting = false;
@@ -216,16 +232,16 @@ export class PromptInput implements Component, Focusable {
 
     const pasteDisplayBeforeInput = this._pasteDisplay;
 
-    this.inner.handleInput(data);
+    this.editor.handleInput(data);
 
     // If the visible paste token was edited away, drop the hidden payload.
     // Do this AFTER inner.handleInput so Enter can still submit the real paste.
-    if (pasteDisplayBeforeInput !== null && !this.inner.getValue().includes(pasteDisplayBeforeInput)) {
+    if (pasteDisplayBeforeInput !== null && !this.editor.getText().includes(pasteDisplayBeforeInput)) {
       this._pasteContent = null;
       this._pasteDisplay = null;
     }
 
-    this.onChange?.(this.inner.getValue());
+    this.onChange?.(this.editor.getText());
   }
 
   private _finalizePaste(): void {
@@ -238,39 +254,41 @@ export class PromptInput implements Component, Focusable {
       // Multi-line paste — show indicator, store real content
       this._pasteContent = content;
       this._pasteDisplay = `[Pasted ${lines.length} lines  ${content.length} chars]`;
-      this.inner.handleInput(this._pasteDisplay);
+      this.editor.handleInput(this._pasteDisplay);
     } else if (content.length > 120) {
       // Long single-line paste — show indicator
       this._pasteContent = content;
       this._pasteDisplay = `[Pasted ${content.length} chars]`;
-      this.inner.handleInput(this._pasteDisplay);
+      this.editor.handleInput(this._pasteDisplay);
     } else {
       // Short paste — insert normally
       this._pasteContent = null;
       this._pasteDisplay = null;
-      this.inner.handleInput("\x1b[200~" + content + "\x1b[201~");
+      this.editor.handleInput("\x1b[200~" + content + "\x1b[201~");
     }
   }
 
-  invalidate(): void { this.inner.invalidate(); }
+  invalidate(): void { this.editor.invalidate(); }
 
   render(width: number): string[] {
     // pi-tui Input renders its own "> " prefix; replace it with the mode-colored arrow.
-    const innerWidth = Math.max(2, width - 2);
-    const innerLines = this.inner.render(innerWidth);
+    const editorWidth = Math.max(1, width - 5);
+    const rawLines = this.editor.render(editorWidth);
+    const innerLines = (rawLines.length > 2 ? rawLines.slice(1, -1) : rawLines)
+      .map((l) => l.replace(/_pi:c/g, ""));
     const firstLine = innerLines[0] ?? "";
     const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
     const ARROW = `  \x1b[${this._modeColorCode}m\u276f\x1b[0m `;
 
     if (this._secretMode) {
-      const valueLength = this.inner.getValue().length;
+      const valueLength = this.editor.getText().length;
       const masked = valueLength > 0 ? "*".repeat(Math.min(valueLength, Math.max(0, width - 4))) : "";
       return [truncateToWidth(ARROW + masked, width)];
     }
 
     return [
-      truncateToWidth(ARROW + content, width),
-      ...innerLines.slice(1).map((line) => truncateToWidth("    " + line, width)),
+      truncateToWidth(ARROW + content, width, ""),
+      ...innerLines.slice(1).map((line) => truncateToWidth("    " + line, width, "")),
     ];
   }
 }
@@ -634,7 +652,7 @@ export class ImpulseRenderer {
 
   // Agent + state
   private loop = new AgentLoop();
-  private mode: Mode = "WORK";
+  private mode: Mode = "AGENT";
   private contextTokens = 0;
   private contextWindow = 200000;
   private advisorModel: string | undefined;
@@ -720,13 +738,12 @@ export class ImpulseRenderer {
     this.tui.addChild(this.autocompleteText);
 
     // 4. Prompt input (just › , no mode label)
-    this.promptInput = new PromptInput();
-    this.promptInput.onSubmit = (_displayedValue) => {
-      const actual = this.promptInput.getSubmitValue();
+    this.promptInput = new PromptInput(this.tui);
+    this.promptInput.onSubmit = (value) => {
       this.promptInput.clear();
       this.autocompleteText.setText("");
-      if (this.modelSetup) void this.handleModelSetupSubmit(actual);
-      else void this.onSubmit(actual);
+      if (this.modelSetup) void this.handleModelSetupSubmit(value);
+      else void this.onSubmit(value);
     };
     this.promptInput.onTabForward  = () => { if (!this.modelSetup) this.cycleMode(1); };
     this.promptInput.onTabBackward = () => { if (!this.modelSetup) void this.cycleReasoning(); };
@@ -798,7 +815,7 @@ export class ImpulseRenderer {
 
   private cycleMode(dir: 1 | -1): void {
     if (this.isRunning) return;
-    const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
+    const modes: Mode[] = ["AGENT", "EXPLORE", "PLAN", "DEBUG"];
     const prev = this.mode;
     const idx = modes.indexOf(this.mode);
     this.mode = modes[((idx + dir) + modes.length) % modes.length]!;
@@ -924,6 +941,7 @@ export class ImpulseRenderer {
   private estimateCurrentSessionTokens(): number {
     const session = SessionManager.getCurrentSession();
     if (!session) return 0;
+    if (!session.messages || session.messages.length === 0) return 0;
     return Math.ceil(JSON.stringify(session.messages).length / 4);
   }
 
@@ -1839,7 +1857,7 @@ export class ImpulseRenderer {
   }
 
   private cmdMode(arg: string): void {
-    const modes: Mode[] = ["WORK", "EXPLORE", "PLAN", "DEBUG"];
+    const modes: Mode[] = ["EXPLORE", "PLAN", "DEBUG"];
     if (!arg) {
       this.addChatLine(`  mode: ${this.mode}  |  options: ${modes.join(" · ")}`);
       return;
@@ -1916,7 +1934,7 @@ export class ImpulseRenderer {
       `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
       `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
       `  ${clr.tool("/model")} - ${clr.dim("Choose provider/API key/model")}`,
-      `  ${clr.tool("/mode <MODE>")}     ${clr.dim("WORK · EXPLORE · PLAN · DEBUG")}`,
+      `  ${clr.tool("/mode <MODE>")}     ${clr.dim("EXPLORE · PLAN · DEBUG")}`,
       `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels.replace(/\|/g, "·"))}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
       `  ${clr.tool("/user")}            ${clr.dim("View/update profile & preferences")}`,

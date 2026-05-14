@@ -55,8 +55,8 @@ const ConfigSchema = z.object({
   /** Advisor model — optional second model for strategic guidance */
   advisorModel: z.string().optional().describe("Advisor model for strategic guidance"),
 
-  /** Default mode: WORK, EXPLORE, PLAN, DEBUG */
-  defaultMode: z.string().default("WORK").describe("Default agent mode"),
+  /** Default mode: AGENT, EXPLORE, PLAN, DEBUG */
+  defaultMode: z.string().default("AGENT").describe("Default agent mode"),
 
   /** Reasoning/thinking level for AI responses.
    * "off" = disabled; "low"/"medium"/"high" = enabled at that depth.
