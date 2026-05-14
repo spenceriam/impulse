@@ -1094,7 +1094,7 @@ export class ImpulseRenderer {
       return;
     }
     if (config.advisorMode && config.advisorModel) {
-      const providerKey = config.advisorModel.split("/").slice(0, -1).join("/") || config.defaultProvider;
+      const providerKey = config.advisorModel.split("/")[0] ?? config.defaultProvider;
       const stored = providerConfig(config, providerKey);
       if (!stored?.apiKey) {
         this.addChatLine(`${clr.warn("!")} Advisor provider (${providerKey}) has no API key. Use /advisor to reconfigure.`);
@@ -2155,7 +2155,7 @@ export class ImpulseRenderer {
     if (config.advisorModel) {
       const parts = config.advisorModel.split("/");
       const modelName = parts[parts.length - 1] ?? config.advisorModel;
-      const providerName = parts.slice(0, -1).join("/") || config.defaultProvider;
+      const providerName = parts[0] ?? config.defaultProvider;
       // Ask user: keep current or change?
       this.addChatLine(`${clr.bold("Advisor Mode")}`);
       this.addChatLine(`Current Advisor: ${modelName} via ${providerName}`);
