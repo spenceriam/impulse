@@ -497,6 +497,88 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
+  /** Check if advisor mode should be turned off (all tasks complete) */
+  private async checkAutoOffSuggestion(): Promise<void> {
+    const config = await loadConfig();
+    if (!config.advisorMode || !this.tui) return;
+
+    // Check if todos are all complete
+    const session = SessionManager.getCurrentSession();
+    if (!session?.messages) return;
+
+    // Look for todo_write completions in recent tool calls
+    let allTodosComplete = false;
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      const msg = session.messages[i]!;
+      if (msg.role === "assistant" && msg.content && typeof msg.content === "string" && msg.content.includes("- [") && msg.content.includes("- [x]")) {
+        // Check if all items are completed
+        const items = msg.content.match(/- \[([ x])\]/g);
+        if (items && items.every(it => it.includes("[x]"))) {
+          allTodosComplete = true;
+          break;
+        }
+      }
+    }
+
+    if (!allTodosComplete) return;
+
+    // Show auto-off overlay
+    const lines = [
+      `${clr.bold("Strategy Complete")}`,
+      `${clr.dim("─".repeat(40))}`,
+      `All tasks from the advisor plan are complete.`,
+      `The main agent suggests advisor mode is no longer needed.`,
+      "",
+      `${clr.dim("Enter: Keep ON  |  D: Deactivate Advisor  |  Esc: Dismiss")}`,
+    ];
+
+    const overlayContent: Component = {
+      invalidate() {},
+      render(_width: number): string[] { return lines; },
+    };
+
+    type AutoOffDecision = "keep" | "deactivate" | "dismiss";
+    const result = await new Promise<AutoOffDecision>((resolve) => {
+      const handle = this.tui.showOverlay(overlayContent, {
+        anchor: "center",
+        width: "80%",
+        minWidth: 50,
+        maxHeight: 8,
+        margin: { left: 2, right: 2, bottom: 4 },
+      });
+      handle.focus();
+
+      const cleanup = this.tui.addInputListener((data: string) => {
+        if (data === "\r") {
+          cleanup();
+          handle.hide();
+          resolve("keep");
+          return { consume: true };
+        }
+        if (data === "d" || data === "D") {
+          cleanup();
+          handle.hide();
+          resolve("deactivate");
+          return { consume: true };
+        }
+        if (data === "\x1b") {
+          cleanup();
+          handle.hide();
+          resolve("dismiss");
+          return { consume: true };
+        }
+        return undefined;
+      });
+    });
+
+    if (result === "deactivate") {
+      config.advisorMode = false;
+      await saveConfig(config);
+      this.addChatLine(`${clr.success("✓")} Advisor mode disabled — all tasks complete`);
+      this.tui.requestRender();
+    }
+  }
+
   private setBusyStatus(msg: string): void {
     if (this.spinnerInterval && this.currentStatusPhrase && msg === "thinking…") {
       // Don't re-set the phrase during continuous thinking/streaming
@@ -653,6 +735,7 @@ export class ImpulseRenderer {
   private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
   private modelSetup: ModelSetupState | null = null;
+  private pendingPlanApproval: { planPath: string; summary: string } | null = null;
   private userName = "you"; // User's display name (loaded from config)
   private modeChangeText: Text | null = null; // Track mode change line for in-place updates
 
@@ -1002,6 +1085,23 @@ export class ImpulseRenderer {
   // ── Agent turn ────────────────────────────────────────────────────────────
 
   private async runTurn(userMessage: string): Promise<void> {
+    // Mid-turn config validation: advisor mode ON but config missing?
+    const config = await loadConfig();
+    if (config.advisorMode && !config.advisorModel) {
+      this.addChatLine(`${clr.warn("!")} Advisor Mode is ON but no advisor model is configured.`);
+      this.addChatLine(`${clr.dim("Use /advisor to reconfigure or /advisor off to disable.")}`);
+      this.tui.requestRender();
+      return;
+    }
+    if (config.advisorMode && config.advisorModel) {
+      const providerKey = config.advisorModel.split("/").slice(0, -1).join("/") || config.defaultProvider;
+      const stored = providerConfig(config, providerKey);
+      if (!stored?.apiKey) {
+        this.addChatLine(`${clr.warn("!")} Advisor provider (${providerKey}) has no API key. Use /advisor to reconfigure.`);
+        this.tui.requestRender();
+        return;
+      }
+    }
     this.isRunning = true;
     this.modeChangeText = null; // Reset mode change tracking for new turn
 
@@ -1118,6 +1218,16 @@ export class ImpulseRenderer {
           this.tui.requestRender();
           return;
         }
+
+        // Detect advisor plan for approval overlay
+        if (name === "consult_advisor" && result.success) {
+          try {
+            const parsed = JSON.parse(result.output) as { plan_path?: string; summary?: string };
+            if (parsed.plan_path && parsed.summary) {
+              this.pendingPlanApproval = { planPath: parsed.plan_path, summary: parsed.summary };
+            }
+          } catch { /* not JSON, skip */ }
+        }
         this.setBusyStatus(name === "question" ? "responding…" : "waiting for model…");
         this.updateLiveMetrics(result.output.length, true);
         this.tui.requestRender();
@@ -1167,6 +1277,15 @@ export class ImpulseRenderer {
     };
 
     await this.loop.run(userMessage, this.mode, events);
+
+    // Show plan approval overlay if advisor was consulted
+    if (this.pendingPlanApproval) {
+      await this.showPlanApprovalOverlay();
+      this.pendingPlanApproval = null;
+    }
+
+    // Auto-off suggestion: all todos complete + advisor mode ON
+    await this.checkAutoOffSuggestion();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -1180,6 +1299,64 @@ export class ImpulseRenderer {
     if (this.hasTrailingGap) return;
     this.chat.addChild(new Spacer(1));
     this.hasTrailingGap = true;
+  }
+
+  /** Show approval overlay after advisor produces a plan */
+  private async showPlanApprovalOverlay(): Promise<void> {
+    if (!this.tui || !this.pendingPlanApproval) return;
+
+    const { planPath, summary } = this.pendingPlanApproval;
+    const shortPath = planPath.replace(new RegExp(`^${os.homedir()}`), "~");
+
+    // Build a simple approval component
+    const lines = [
+      `${clr.bold("Plan Ready")}`,
+      `${clr.dim("─".repeat(40))}`,
+      `${clr.dim("Path:")} ${shortPath}`,
+      `${clr.dim("Summary:")} ${summary.slice(0, 120)}`,
+      "",
+      `${clr.dim("Press Enter to proceed, Esc to decline")}`,
+    ];
+
+    const overlayContent: Component = {
+      invalidate() {},
+      render(_width: number): string[] { return lines; },
+    };
+
+    type PlanDecision = "proceed" | "decline";
+    const result = await new Promise<PlanDecision>((resolve) => {
+      const handle = this.tui.showOverlay(overlayContent, {
+        anchor: "center",
+        width: "80%",
+        minWidth: 50,
+        maxHeight: 8,
+        margin: { left: 2, right: 2, bottom: 4 },
+      });
+      handle.focus();
+
+      const cleanup = this.tui.addInputListener((data: string) => {
+        if (data === "\r") {
+          cleanup();
+          handle.hide();
+          resolve("proceed");
+          return { consume: true };
+        }
+        if (data === "\x1b") {
+          cleanup();
+          handle.hide();
+          resolve("decline");
+          return { consume: true };
+        }
+        return undefined;
+      });
+    });
+
+    if (result === "proceed") {
+      this.addChatLine(`${clr.success("✓")} Plan approved — executing`);
+    } else {
+      this.addChatLine(`${clr.dim("Plan declined — awaiting new instructions")}`);
+    }
+    this.tui.requestRender();
   }
 
   /**
