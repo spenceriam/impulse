@@ -2013,33 +2013,26 @@ export class ImpulseRenderer {
     await this.startAdvisorSetup(config);
   }
 
-  /** Start advisor model setup (pick model from current provider, save to advisorModel) */
+  /** Start advisor model setup — show provider picker, then model list */
   private async startAdvisorSetup(config: Config): Promise<void> {
-    const currentProvider = config.defaultProvider;
-    const stored = providerConfig(config, currentProvider);
-    if (!stored?.apiKey) {
-      this.addChatLine(`${clr.warn("!")} No API key configured for ${currentProvider}. Use /model first.`);
-      return;
+    // Build provider list: configured first, then unconfigured
+    const configured: ProviderEntry[] = [];
+    const unconfigured: ProviderEntry[] = [];
+    for (const provider of MODEL_PROVIDERS) {
+      const stored = providerConfig(config, provider.key);
+      if (stored?.apiKey) {
+        configured.push({ provider, configured: true, valid: true, keyPreview: maskKey(stored.apiKey) });
+      } else {
+        unconfigured.push({ provider, configured: false, valid: false, keyPreview: "" });
+      }
     }
-
-    const provider = parseProviderChoice(currentProvider, currentProvider);
-    if (!provider) {
-      this.addChatLine(`${clr.warn("!")} Unknown provider: ${currentProvider}`);
-      return;
-    }
-
-    const baseUrl = stored.baseUrl ?? provider.defaultBaseUrl;
 
     this.modelSetup = {
-      step: "discovering",
+      step: "provider",
       config,
-      currentProvider,
-      provider,
-      existing: stored,
-      ...(baseUrl ? { baseUrl } : {}),
-      apiKey: stored.apiKey,
+      currentProvider: config.defaultProvider,
       models: [],
-      providers: [],
+      providers: [...configured, ...unconfigured],
       selectedIndex: 0,
       page: 0,
       modelsPerPage: 20,
@@ -2049,24 +2042,9 @@ export class ImpulseRenderer {
     this.promptInput.clear();
     this.promptInput.setSecretMode(false);
     this.autocompleteText.setText("");
-    this.renderModelSetup();
-
-    const discovery = await discoverModels(provider, stored.apiKey, stored.baseUrl ?? provider.defaultBaseUrl);
-    const state = this.modelSetup;
-    if (!state) return;
-
-    state.discovery = discovery;
-    state.models = discovery.models;
-    if (!discovery.success) {
-      state.error = discovery.message;
-      this.renderModelSetup();
-      return;
-    }
-    state.step = "model";
-    state.page = 0;
-    state.selectedIndex = 0;
     this.setupModelNavigation();
     this.renderModelSetup();
+    void this.validateProviderKeys();
   }
 
   private cmdMode(arg: string): void {
