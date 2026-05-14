@@ -10,7 +10,7 @@ export const ZAI_MODELS = [
 ] as const;
 
 export const MODES = [
-  "WORK",
+  "AGENT",
   "EXPLORE",
   "PLAN",
   "DEBUG",
@@ -19,19 +19,19 @@ export const MODES = [
 export type Mode = typeof MODES[number];
 
 const LEGACY_MODE_MAP: Record<string, Mode> = {
-  AUTO: "WORK",
-  AGENT: "WORK",
+  AUTO: "AGENT",
+  AGENT: "AGENT",
   PLANNER: "PLAN",
   "PLAN-PRD": "PLAN",
-  WORK: "WORK",
+  WORK: "AGENT",
   EXPLORE: "EXPLORE",
   PLAN: "PLAN",
   DEBUG: "DEBUG",
 };
 
 export function normalizeMode(mode?: string): Mode {
-  if (!mode) return "WORK";
-  return LEGACY_MODE_MAP[mode.toUpperCase()] ?? "WORK";
+  if (!mode) return "AGENT";
+  return LEGACY_MODE_MAP[mode.toUpperCase()] ?? "AGENT";
 }
 
 /** Friendly display names for known provider models. */

@@ -62,7 +62,7 @@ function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: 
     return true;
   }
 
-  if (mode === "WORK" || mode === "DEBUG") {
+  if (mode === "AGENT" || mode === "DEBUG") {
     return true;
   }
 

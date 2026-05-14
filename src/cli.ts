@@ -137,7 +137,7 @@ async function runSetup(): Promise<void> {
     providers: {},
     defaultProvider: providerKey,
     defaultModel: providerKey === "ollama" ? "ollama/llama3.2" : `${providerKey}/default`,
-    defaultMode: "WORK",
+    defaultMode: "AGENT",
     thinking: true,
     reasoningLevel: "medium",
     maxOutputTokens: 32000,

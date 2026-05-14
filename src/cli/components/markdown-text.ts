@@ -8,6 +8,8 @@ import {
 const A = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
+  bold: "\x1b[1m",
+  italic: "\x1b[3m",
   fg: (code: number, s: string) => `\x1b[${code}m${s}\x1b[0m`,
 };
 
@@ -155,11 +157,23 @@ function renderTable(table: MarkdownTable, width: number): string[] {
   return renderStackedTable(table, width);
 }
 
+function formatMarkdownLine(line: string): string {
+  let result = line;
+  // ### Header -> bold
+  result = result.replace(/^#{1,4}\s+(.+)$/, (_, text) => A.bold + text + A.reset);
+  // **bold** -> ANSI bold
+  result = result.replace(/\*\*(.+?)\*\*/g, (_, text) => A.bold + text + A.reset);
+  // *italic* -> ANSI italic (but not ** which is already handled)
+  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_, text) => A.italic + text + A.reset);
+  // `code` -> dim
+  result = result.replace(/`([^`]+)`/g, (_, text) => A.dim + text + A.reset);
+  return result;
+}
+
 export class MarkdownTextBlock implements Component {
   private raw = "";
   private readonly indent: string;
-
-  constructor(indent = "  ") {
+  constructor(indent = "    ") {
     this.indent = indent;
   }
 
@@ -191,7 +205,8 @@ export class MarkdownTextBlock implements Component {
         continue;
       }
 
-      for (const line of wrapTextWithAnsi(rawLine, innerWidth)) {
+      const formatted = formatMarkdownLine(rawLine);
+      for (const line of wrapTextWithAnsi(formatted, innerWidth)) {
         rendered.push(truncateToWidth(`${this.indent}${line}`, width));
       }
       index += 1;

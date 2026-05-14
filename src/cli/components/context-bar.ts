@@ -88,7 +88,7 @@ function shortDir(cwd: string): string {
 }
 
 // Per-mode ANSI colors (must match renderer.ts MODE_COLORS)
-const MODE_COLOR: Record<string, number> = { WORK: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31 };
+const MODE_COLOR: Record<string, number> = { AGENT: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31 };
 
 export interface ContextBarState {
   workerModel: string;
@@ -162,7 +162,7 @@ export class ContextBarComponent implements Component {
       : "";
 
     // Mode segment
-    const modeSeg = c.fg(MODE_COLOR[s.mode] ?? 34, s.mode);
+    const modeSeg = s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode);
 
     // Auto-compact off indicator
     const compactSeg = s.autoCompactOff ? clr.sep(" compact:OFF") : "";
@@ -179,10 +179,7 @@ export class ContextBarComponent implements Component {
 
     // New order: Model (reasoning) | Context | Dir Branch | Mode | Stats
     const line =
-      modelSeg + rlSeg + advisorSeg + sep +
-      ctxSeg + sep +
-      dirSeg + branchSeg + sep +
-      modeSeg + compactSeg + statsSeg;
+      [modelSeg + rlSeg + advisorSeg, ctxSeg, dirSeg + branchSeg, modeSeg + compactSeg + statsSeg].filter(s => s.trim()).join(sep);
 
     // Truncate to terminal width
     return [truncateToWidth(line, width)];

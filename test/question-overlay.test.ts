@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { QuestionOverlay } from "../src/cli/components/question-overlay";
 
 describe("QuestionOverlay", () => {
-  test("submits the selected option on enter", () => {
+  test("selects on enter, submits after review", () => {
     const overlay = new QuestionOverlay({
       context: undefined,
       questions: [
@@ -22,6 +22,13 @@ describe("QuestionOverlay", () => {
       answers = value;
     };
 
+    // First Enter: selects (no advance)
+    overlay.handleInput("\r");
+    expect(answers).toBeNull();
+    // Second Enter: advance to review (single question)
+    overlay.handleInput("\r");
+    expect(answers).toBeNull();
+    // Third Enter: submit from review
     overlay.handleInput("\r");
     expect(answers).toEqual([["Windows"]]);
   });

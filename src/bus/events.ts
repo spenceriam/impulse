@@ -127,7 +127,7 @@ export const ModeEvents = {
   Changed: BusEvent.define(
     "mode.changed",
     z.object({
-      mode: z.enum(["WORK", "EXPLORE", "PLAN", "DEBUG"]),
+      mode: z.enum(["AGENT", "EXPLORE", "PLAN", "DEBUG"]),
       reason: z.string().optional().describe("Brief explanation of why mode was changed"),
     })
   ),
@@ -150,6 +150,18 @@ const QueueMessageSchema = z.object({
   content: z.string().describe("The message content"),
   timestamp: z.number().describe("Unix timestamp when message was queued"),
 });
+
+
+
+export const SubagentEvents = {
+  Progress: BusEvent.define(
+    "subagent.progress",
+    z.object({
+      type: z.enum(["text", "tool", "thinking"]),
+      content: z.string(),
+    })
+  ),
+};
 
 export const QueueEvents = {
   Added: BusEvent.define(

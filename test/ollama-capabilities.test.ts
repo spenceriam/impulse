@@ -27,14 +27,14 @@ describe("discoverOllamaReasoning fallback heuristic", () => {
     expect(extractExplicitMaxOutputTokens({ details: { context_length: 200000 } })).toBeUndefined();
   });
 
-  test("stays conservative for deepseek-v4-pro when API metadata is unavailable", async () => {
+  test("enables reasoning for deepseek-v4-pro when API metadata is unavailable", async () => {
     globalThis.fetch = async () => {
       throw new Error("offline");
     };
 
     const capability = await discoverOllamaReasoning("https://ollama.com", "deepseek-v4-pro");
-    expect(capability.supported).toBe(false);
-    expect(capability.levels).toEqual(["off"]);
+    expect(capability.supported).toBe(true);
+    expect(capability.levels).toEqual(["off", "medium"]);
   });
 
   test("still enables known reasoning families without API metadata", async () => {
