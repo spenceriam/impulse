@@ -17,6 +17,7 @@
 import type { ChatMessage, ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
+import { runAdvisorConsultation } from "./advisor.js";
 import { load as loadConfig } from "../util/config";
 import * as fs from "fs";
 import * as os from "os";
@@ -155,28 +156,34 @@ export class AgentLoop {
       // ── Tool definitions ───────────────────────────────────────────────────
       const toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
 
-      // Add consult_advisor tool if advisor model is configured
-      if (config.advisorModel) {
+      // Add consult_advisor tool if advisor model is configured and mode is ON
+      if (config.advisorModel && config.advisorMode) {
         toolDefs.push({
           type: "function",
           function: {
             name: "consult_advisor",
             description:
-              "Ask the advisor model for strategic guidance when you are stuck, " +
-              "unsure of approach, or need a second opinion before taking a significant action.",
+              "Consult the strategic advisor model before executing. The advisor will review the full conversation " +
+              "and produce a structured plan saved to .impulse/advisor-plans/. " +
+              "MUST be called before any file writes, edits, bash execution, or subagent launches.",
             parameters: {
               type: "object",
               properties: {
-                question: {
+                topic: {
                   type: "string",
-                  description: "Specific question or situation to get guidance on",
+                  description: "Brief topic for the plan filename (3-8 words, e.g. 'refactor-auth-module')",
                 },
                 context: {
                   type: "string",
-                  description: "Brief summary of what you have tried and what failed",
+                  description: "Full context: project map, relevant files, recent output, what you need guidance on",
+                },
+                type: {
+                  type: "string",
+                  enum: ["plan", "advisory"],
+                  description: "'plan' for new work / greenfield builds. 'advisory' for course corrections / error recovery",
                 },
               },
-              required: ["question"],
+              required: ["topic", "context"],
             },
           },
         });
@@ -329,6 +336,10 @@ export class AgentLoop {
 
         // ── Execute tool calls ──────────────────────────────────────────────
         let allSucceeded = true;
+        let advisorCalledThisTurn = false;
+
+        // Hard tool gate: block write/edit/bash/task/todo_write until advisor consulted
+        const BLOCKED_BEFORE_ADVISOR = new Set(["file_write", "file_edit", "task", "todo_write"]);
 
         for (const tc of toolCalls) {
           if (signal.aborted) break;
@@ -340,35 +351,98 @@ export class AgentLoop {
             args = { raw: tc.argumentsJson };
           }
 
+          // Tool gate enforcement
+          if (config.advisorMode && !advisorCalledThisTurn) {
+            if (BLOCKED_BEFORE_ADVISOR.has(tc.name)) {
+              events.onToolStart(tc.id, tc.name, args);
+              events.onToolEnd(tc.id, tc.name, {
+                success: false,
+                output: "[GATE] Advisor Mode is active. Call consult_advisor before making changes.",
+              }, 0);
+              allSucceeded = false;
+
+              const blockedMsg = {
+                role: "tool" as const,
+                content: "[GATE] Advisor Mode is active. Call consult_advisor before making changes.",
+                tool_call_id: tc.id,
+                timestamp: new Date().toISOString(),
+              } as unknown as Message;
+              await SessionManager.addMessage(blockedMsg as unknown as Message);
+              continue;
+            }
+            if (tc.name === "bash" && typeof args["command"] === "string") {
+              // Allow read-only bash commands
+              const cmd = (args["command"] as string).toLowerCase().trim();
+              const isReadOnly = /^(ls|dir|cat|head|tail|wc|grep|find|which|where|type|pwd|echo|printenv|env|whoami|date|uname|git\s+status|git\s+log|git\s+branch|git\s+diff)/i.test(cmd);
+              if (!isReadOnly) {
+                events.onToolStart(tc.id, tc.name, args);
+                events.onToolEnd(tc.id, tc.name, {
+                  success: false,
+                  output: "[GATE] Advisor Mode is active. Call consult_advisor before executing write commands.",
+                }, 0);
+                allSucceeded = false;
+
+                const blockedMsg = {
+                  role: "tool" as const,
+                  content: "[GATE] Advisor Mode is active. Call consult_advisor before executing write commands.",
+                  tool_call_id: tc.id,
+                  timestamp: new Date().toISOString(),
+                } as unknown as Message;
+                await SessionManager.addMessage(blockedMsg as unknown as Message);
+                continue;
+              }
+            }
+          }
+
           // Handle advisor tool specially
           if (tc.name === "consult_advisor" && config.advisorModel) {
             const toolStart = Date.now();
             events.onToolStart(tc.id, "consult_advisor", args);
 
-            const advisorResult = await this.runAdvisor(
-              config.advisorModel,
-              chatMessages,
-              String(args["question"] ?? ""),
-              String(args["context"] ?? ""),
+            // Get full system prompt and tool def summaries
+            const fullSystemPrompt = (session as { system?: string }).system ?? "";
+            const toolDefSummaries = toolDefs.map((t) => ({
+              type: t.type,
+              function: { name: t.function.name, description: t.function.description ?? "" },
+            }));
+
+            const advisorResult = await runAdvisorConsultation({
+              advisorModel: config.advisorModel,
+              fullSystemPrompt,
+              toolDefinitions: toolDefSummaries,
+              fullHistory: chatMessages,
+              topic: String(args["topic"] ?? "advisor-consult"),
+              context: String(args["context"] ?? ""),
+              callType: (args["type"] === "advisory" ? "advisory" : "plan"),
               events,
-              signal
-            );
+              signal,
+            });
+
+            const resultText = advisorResult.success
+              ? JSON.stringify({
+                  summary: advisorResult.summary,
+                  plan_path: advisorResult.planPath,
+                  advisor_model: advisorResult.advisorModel,
+                  self_check_passed: advisorResult.selfCheckPassed,
+                })
+              : `Advisor error: ${advisorResult.error ?? "unknown error"}`;
 
             events.onToolEnd(
               tc.id,
               "consult_advisor",
-              { success: true, output: advisorResult },
+              { success: advisorResult.success, output: resultText },
               Date.now() - toolStart
             );
 
-            // Add tool result to session
             const advisorToolMsg = {
               role: "tool" as const,
-              content: advisorResult,
+              content: resultText,
               tool_call_id: tc.id,
               timestamp: new Date().toISOString(),
-            };
+            } as unknown as Message;
             await SessionManager.addMessage(advisorToolMsg as unknown as Message);
+
+            advisorCalledThisTurn = true;
             continue;
           }
 
@@ -405,23 +479,33 @@ export class AgentLoop {
             !signal.aborted
           ) {
             this.consecutiveFailures = 0;
-            const stuckQuestion = `I've failed ${this.MAX_CONSECUTIVE_FAILURES} times in a row. The last error was: ${result.output}. What should I do differently?`;
+            const stuckContext = `Auto-stuck detection: failed ${this.MAX_CONSECUTIVE_FAILURES} times in a row. Last error: ${result.output}. Need corrective guidance.`;
             events.onAdvisorStart(config.advisorModel);
-            const guidance = await this.runAdvisor(
-              config.advisorModel,
-              chatMessages,
-              stuckQuestion,
-              "",
-              events,
-              signal
-            );
-            // onAdvisorEnd already called inside runAdvisor
-            void guidance; // used in injection below
 
-            // Inject advisor guidance as a system message
+            const toolDefSummaries = toolDefs.map((t) => ({
+              type: t.type,
+              function: { name: t.function.name, description: t.function.description ?? "" },
+            }));
+
+            const fullSystemPrompt = (session as { system?: string }).system ?? "";
+
+            const advisorResult = await runAdvisorConsultation({
+              advisorModel: config.advisorModel,
+              fullSystemPrompt,
+              toolDefinitions: toolDefSummaries,
+              fullHistory: chatMessages,
+              topic: "auto-stuck-recovery",
+              context: stuckContext,
+              callType: "advisory",
+              events,
+              signal,
+            });
+
+            const guidance = advisorResult.success ? advisorResult.summary : `Advisor error: ${advisorResult.error ?? "unknown"}`;
+
             const advisorInjection: Message = {
               role: "assistant",
-              content: `[Advisor guidance received: ${guidance}]`,
+              content: `[Advisor guidance: ${guidance}]`,
               timestamp: new Date().toISOString(),
             };
             await SessionManager.addMessage(advisorInjection);
@@ -469,66 +553,6 @@ export class AgentLoop {
 
   abort(): void {
     this.abortController?.abort();
-  }
-
-  // ─── Advisor invocation ─────────────────────────────────────────────────
-
-  private async runAdvisor(
-    advisorModel: string,
-    workerContext: ChatMessage[],
-    question: string,
-    context: string,
-    events: LoopEvents,
-    signal: AbortSignal
-  ): Promise<string> {
-    try {
-      const manager = await getProviderManager();
-      events.onAdvisorStart(advisorModel);
-
-      const advisorMessages: ChatMessage[] = [
-        {
-          role: "system",
-          content:
-            "You are a strategic advisor for an AI coding agent. " +
-            "Review the worker's context and question, then provide concise, actionable guidance. " +
-            "Focus on approach and strategy — not implementation details. " +
-            "Keep your response under 300 words.",
-        },
-        {
-          role: "user",
-          content:
-            `Worker context summary (last ${Math.min(6, workerContext.length)} messages):\n` +
-            workerContext
-              .slice(-6)
-              .map((m) => `[${m.role}]: ${typeof m.content === "string" ? m.content.slice(0, 400) : ""}`)
-              .join("\n") +
-            `\n\nQuestion: ${question}` +
-            (context ? `\n\nContext: ${context}` : ""),
-        },
-      ];
-
-      let advisorResponse = "";
-      for await (const chunk of manager.stream({
-        model: advisorModel,
-        messages: advisorMessages,
-        stream: true,
-        signal,
-      })) {
-        if (signal.aborted) break;
-        const text = chunk.choices[0]?.delta?.content ?? "";
-        if (text) {
-          advisorResponse += text;
-          events.onAdvisorToken(text);
-        }
-      }
-
-      events.onAdvisorEnd(advisorResponse || "(no advisor response)");
-      return advisorResponse || "(no advisor response)";
-    } catch (err) {
-      const errMsg = `(advisor error: ${err instanceof Error ? err.message : String(err)})`;
-      events.onAdvisorEnd(errMsg);
-      return errMsg;
-    }
   }
 
 }
