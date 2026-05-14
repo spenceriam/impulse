@@ -1,0 +1,6 @@
+Hello from Impulse!
+This is line 2.
+This is line 3 with some data: 42
+Line 4: the quick brown fox
+Line 5: jumps over the lazy dog
+Line 6: #DONE: validated file_edit tool

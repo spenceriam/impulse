@@ -1,12 +1,16 @@
 /**
  * ContextBar — footer component shown at the bottom of every turn.
  *
- * Layout (Option A):
- *   worker-model ◈ advisor | 68k/200k 34% ████████░░░░ | dir ⎇ branch | MODE
+ * Layout (wide):
+ *   model | 68k/200k 34% ████████░░░░ | dir ⎇ branch | mode | ⚡ tk/s ◷ secs
+ *
+ * Narrow viewport: stats move to row 2, then mode, then dir/branch are dropped
+ * from row 1 to keep the model name visible without truncation.
  */
 
 import type { Component } from "@mariozechner/pi-tui";
 import { truncateToWidth } from "@mariozechner/pi-tui";
+import { GUTTER, GUTTER_WIDTH } from "../gutter.js";
 import * as os from "os";
 import * as path from "path";
 import { execSync } from "child_process";
@@ -32,6 +36,11 @@ const clr = {
   advisor: (s: string) => c.fg(35, s),   // magenta
   dim:     (s: string) => c.fg(90, s),   // dark gray (stats)
 };
+
+/** Visible width of an ANSI-encoded string (strips escape sequences) */
+function visibleWidth(s: string): number {
+  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").length;
+}
 
 function shortModel(full: string): string {
   // "openrouter/anthropic/claude-opus-4.7" → "claude-opus-4.7"
@@ -92,7 +101,7 @@ const MODE_COLOR: Record<string, number> = { AGENT: 34, EXPLORE: 32, PLAN: 33, D
 
 export interface ContextBarState {
   workerModel: string;
-  advisorModel?: string;
+  advisorModel?: string | undefined;
   contextTokens: number;
   contextWindow: number;
   mode: string;
@@ -135,53 +144,116 @@ export class ContextBarComponent implements Component {
     const pctStr = formatPercent(pct);
     const tokStr = `${formatTokens(s.contextTokens)}/${formatTokens(s.contextWindow)}`;
 
-    // Model segment
-    const worker = shortModel(s.workerModel);
-    const modelSeg = s.isRunning
-      ? clr.model(`${worker}…`)
-      : clr.model(worker);
-
-    // Reasoning label — right of model name in parentheses (hidden when off)
-    const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
-      ? ` (${clr.model(s.reasoningLevel)})`
-      : "";
-
-    const advisorSeg = s.advisorModel
-      ? ` ${clr.advisor("◈")} ${clr.advisor(shortModel(s.advisorModel))}`
-      : "";
+    // --- Build segments ---
 
     const sep = clr.sep(" │ ");
+    const sepWidth = visibleWidth(sep);
 
-    // Context segment
+    // Model + reasoning + advisor (never truncated)
+    const worker = shortModel(s.workerModel);
+    const modelSeg = clr.model(worker);
+    const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
+      ? ` (${clr.model(s.reasoningLevel)})` : "";
+    const advisorSeg = s.advisorModel
+      ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))} ${clr.advisor("(adv)")}` : "";
+    const modelFull = modelSeg + rlSeg + advisorSeg;
+    const modelWidth = visibleWidth(modelFull);
+
+    // Context: "68k/200k 34% ████░░░░"
     const ctxSeg = `${clr.ctx(tokStr)} ${clr.ctx(pctStr)} ${contextBar(pct)}`;
+    const ctxWidth = visibleWidth(ctxSeg);
 
-    // Dir + branch segment
+    // Dir + branch (optional — may be dropped)
     const dirSeg = clr.dir(shortDir(cwd));
-    const branchSeg = this.cachedBranch
-      ? ` ${clr.branch("⎇")} ${clr.branch(this.cachedBranch)}`
-      : "";
+    const branchSeg = this.cachedBranch ? ` ${clr.branch("⎇")} ${clr.branch(this.cachedBranch)}` : "";
+    const dirBranchFull = dirSeg + branchSeg;
+    const dirBranchWidth = visibleWidth(dirBranchFull);
 
-    // Mode segment
-    const modeSeg = s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode);
+    // Mode (optional — hidden for AGENT)
+    const modeFull = (s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode))
+      + (s.autoCompactOff ? clr.sep(" compact:OFF") : "");
+    const modeWidth = visibleWidth(modeFull);
 
-    // Auto-compact off indicator
-    const compactSeg = s.autoCompactOff ? clr.sep(" compact:OFF") : "";
-
-    // Stats: token speed + turn time
-    let statsSeg = "";
+    // Stats (always last — moved to row 2 in narrow viewports)
+    let statsFull = "";
     if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
-      statsSeg += sep + clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`); // ⚡
+      statsFull += clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`); // ⚡
     }
     if (s.lastTurnMs !== undefined && s.lastTurnMs > 0) {
       const secs = (s.lastTurnMs / 1000).toFixed(1);
-      statsSeg += ` ${clr.dim(`\u29d7 ${secs}s`)}`; // ◷ hourglass-style
+      statsFull += ` ${clr.dim(`\u29d7 ${secs}s`)}`; // ◷
+    }
+    const statsWidth = visibleWidth(statsFull);
+    const hasStats = statsWidth > 0;
+
+    // Available width (accounting for left gutter)
+    const avail = width - GUTTER_WIDTH;
+
+    // --- Layout strategy ---
+
+    // Always build a single row if possible. Model name is never truncated.
+    // Strategy: progressively drop segments from primary row, moving stats
+    // to row 2, then mode, then dir/branch.
+
+    // Estimate space needed per segment (including separators between them)
+    const segmentWidths = [modelWidth, ctxWidth, dirBranchWidth, modeWidth];
+    const segmentCount = [modelFull, ctxSeg, dirBranchFull, modeFull].filter(s => visibleWidth(s.trim()) > 0).length;
+    const totalSepWidth = segmentCount > 0 ? (segmentCount - 1) * sepWidth : 0;
+    const primarySegWidth = segmentWidths.reduce((a, b) => a + b, 0);
+    const totalPrimaryWidth = primarySegWidth + totalSepWidth;
+
+    // Option A: Everything on one row (with stats after mode)
+    const oneRowWidth = totalPrimaryWidth + (statsWidth > 0 ? sepWidth + statsWidth : 0);
+
+    if (oneRowWidth <= avail) {
+      // Everything fits — one row
+      const parts = [modelFull, ctxSeg, dirBranchFull, modeFull + (hasStats ? sep + statsFull : "")].filter(s => visibleWidth(s.trim()) > 0);
+      return [truncateToWidth(GUTTER + parts.join(sep), width), "", ""];
     }
 
-    // New order: Model (reasoning) | Context | Dir Branch | Mode | Stats
-    const line =
-      [modelSeg + rlSeg + advisorSeg, ctxSeg, dirSeg + branchSeg, modeSeg + compactSeg + statsSeg].filter(s => s.trim()).join(sep);
+    // Narrow viewport layout
 
-    // Truncate to terminal width
-    return [truncateToWidth(line, width)];
+    // Option B: Stats on row 2
+    if (hasStats && totalPrimaryWidth + (modeWidth > 0 ? 0 : 0) <= avail) {
+      // Remove stats from mode, put on row 2
+      const row1Parts = [modelFull, ctxSeg, dirBranchFull, modeFull].filter(s => visibleWidth(s.trim()) > 0);
+      return [
+        truncateToWidth(GUTTER + row1Parts.join(sep), width),
+        truncateToWidth(GUTTER + statsFull, width),
+        "",
+      ];
+    }
+
+    // Option C: Remove dir/branch from row 1, put stats on row 2
+    const withoutDir = modelWidth + ctxWidth + (modeWidth > 0 ? sepWidth + modeWidth : 0);
+    if (withoutDir <= avail) {
+      const row1Parts = [modelFull, ctxSeg, modeFull].filter(s => visibleWidth(s.trim()) > 0);
+      const row2Parts = [dirBranchFull, statsFull].filter(s => visibleWidth(s.trim()) > 0);
+      return [
+        truncateToWidth(GUTTER + row1Parts.join(sep), width),
+        truncateToWidth(GUTTER + row2Parts.join(sep), width),
+        "",
+      ];
+    }
+
+    // Option D: Remove mode from row 1 too
+    const withoutMode = modelWidth + ctxWidth;
+    if (withoutMode <= avail) {
+      const row1Parts = [modelFull, ctxSeg].filter(s => visibleWidth(s.trim()) > 0);
+      const row2Parts = [modeFull, dirBranchFull, statsFull].filter(s => visibleWidth(s.trim()) > 0);
+      return [
+        truncateToWidth(GUTTER + row1Parts.join(sep), width),
+        truncateToWidth(GUTTER + row2Parts.join(sep), width),
+        "",
+      ];
+    }
+
+    // Option E: Model alone on row 1 (never truncate), everything else on row 2
+    const row2Parts = [ctxSeg, dirBranchFull, modeFull, statsFull].filter(s => visibleWidth(s.trim()) > 0);
+    return [
+      truncateToWidth(GUTTER + modelFull, width),
+      truncateToWidth(GUTTER + row2Parts.join(sep), width),
+      "",
+    ];
   }
 }
