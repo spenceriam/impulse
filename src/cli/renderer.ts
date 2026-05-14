@@ -26,6 +26,7 @@ import {
 } from "@mariozechner/pi-tui";
 import { Editor, type EditorTheme } from "@mariozechner/pi-tui";
 import { GUTTER, gutterSeparator } from "./gutter.js";
+import { setModelAutocomplete } from "./model-setup.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { ToolBlock } from "./components/tool-block.js";
@@ -159,6 +160,7 @@ export class PromptInput implements Component, Focusable {
 
   setModeColor(code: number): void { this._modeColorCode = code; }
   setSecretMode(enabled: boolean): void { this._secretMode = enabled; }
+  getEditor(): Editor { return this.editor; }
 
   get onSubmit() { return this.editor.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
@@ -1694,7 +1696,7 @@ export class ImpulseRenderer {
       this.promptInput.setSecretMode(state.step === "apiKey");
     }
 
-    this.modelSetupText.setText(lines.join("\n"));
+    this.modelSetupText.setText(lines.map(l => GUTTER + l).join("\n"));
     this.tui.requestRender();
   }
 
@@ -1728,6 +1730,7 @@ export class ImpulseRenderer {
       state.step = "model";
       state.page = 0;
       state.selectedIndex = 0;
+      setModelAutocomplete(this.promptInput.getEditor(), state.models);
       this.setupModelNavigation();
       this.renderModelSetup();
       return;
@@ -1830,6 +1833,10 @@ export class ImpulseRenderer {
         return;
       }
       state.step = "model";
+      state.page = 0;
+      state.selectedIndex = 0;
+      setModelAutocomplete(this.promptInput.getEditor(), state.models);
+      this.setupModelNavigation();
       this.renderModelSetup();
       return;
     }
