@@ -8,6 +8,9 @@
 
 import { truncateToWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import { GUTTER } from "../gutter.js";
+
+/** Sub-indent for continuation lines under a tool block (GUTTER + 3 more spaces) */
+const SUB_INDENT = GUTTER + "   ";
 import {
   TypeGuards,
   type FileEditMetadata,
@@ -117,7 +120,7 @@ function renderTrimmedOutput(output: string, width: number, maxRows: number): st
 
   const rendered: string[] = [];
   for (const rawLine of normalized.split("\n")) {
-    rendered.push(...wrapPrefixed("       ", rawLine, width));
+    rendered.push(...wrapPrefixed(SUB_INDENT, rawLine, width));
   }
 
   if (rendered.length <= maxRows) {
@@ -146,7 +149,7 @@ function todoLine(todo: TodoMetadata["todos"][number]): string {
 
 function renderTodoList(metadata: TodoMetadata, width: number): string[] {
   const visibleTodos = metadata.todos.slice(0, MAX_TODO_ROWS);
-  const lines = visibleTodos.flatMap((todo) => wrapPrefixed("       ", todoLine(todo), width));
+  const lines = visibleTodos.flatMap((todo) => wrapPrefixed(SUB_INDENT, todoLine(todo), width));
 
   if (metadata.todos.length > MAX_TODO_ROWS) {
     lines.push(truncateToWidth(`       ${clr.dim(`… ${metadata.todos.length - MAX_TODO_ROWS} more items`)}`, width));
@@ -216,10 +219,10 @@ function renderFileEditMetadata(metadata: FileEditMetadata, width: number): stri
   ];
 
   if (metadata.compactDiff && metadata.compactDiff.length > 0) {
-    lines.push("       ");
+    lines.push(SUB_INDENT);
     lines.push(...renderCompactDiffLines(metadata.compactDiff, width));
   } else if (metadata.diff) {
-    lines.push("       ");
+    lines.push(SUB_INDENT);
     lines.push(...renderLegacyDiff(metadata.diff, width));
   } else {
     lines.push(truncateToWidth(`       ${clr.dim("no visible diff")}`, width));
@@ -242,10 +245,10 @@ function renderFileWriteMetadata(metadata: FileWriteMetadata, width: number): st
   }
 
   if (metadata.compactDiff && metadata.compactDiff.length > 0) {
-    lines.push("       ");
+    lines.push(SUB_INDENT);
     lines.push(...renderCompactDiffLines(metadata.compactDiff, width));
   } else if (metadata.diff) {
-    lines.push("       ");
+    lines.push(SUB_INDENT);
     lines.push(...renderLegacyDiff(metadata.diff, width));
   } else if (!metadata.created && linesAdded === 0 && linesRemoved === 0) {
     lines.push(truncateToWidth(`       ${clr.dim("no content changes")}`, width));
