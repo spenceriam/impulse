@@ -27,6 +27,7 @@ import { OpenRouterProvider } from "./providers/openrouter";
 import { GroqProvider } from "./providers/groq";
 import { GeminiProvider } from "./providers/gemini";
 import { OllamaProvider } from "./providers/ollama";
+import { AnthropicProvider } from "./providers/anthropic";
 
 // Re-export all providers
 export { ZAIProvider } from "./providers/zai";
@@ -36,6 +37,7 @@ export { OpenRouterProvider } from "./providers/openrouter";
 export { GroqProvider } from "./providers/groq";
 export { GeminiProvider } from "./providers/gemini";
 export { OllamaProvider } from "./providers/ollama";
+export { AnthropicProvider } from "./providers/anthropic";
 
 // Well-known provider prefixes
 export const PROVIDER_PREFIXES = [
@@ -71,17 +73,26 @@ export interface ModelInfo {
  * Parse a model string into its provider and model name.
  * "openai/gpt-4o" → { provider: "openai", model: "gpt-4o" }
  * "gpt-4o"        → { provider: defaultProvider, model: "gpt-4o" }
+ * "my-custom/gpt-4o" → { provider: "my-custom", model: "gpt-4o" } (custom)
  */
 export function parseModelString(model: string, defaultProvider: string): ModelInfo {
   const parts = model.split("/");
   if (parts.length >= 2) {
-    // Check known prefixes OR aliases (e.g. "minimax" → "nous", "xiaomi" → "nous")
     const prefix = parts[0]!;
+    // Known providers or aliases
     if (PROVIDER_PREFIXES.includes(prefix as ProviderKey) || PROVIDER_ALIASES.has(prefix)) {
       const resolvedProvider = PROVIDER_ALIASES.get(prefix) ?? prefix;
       return {
         full: model,
         provider: resolvedProvider,
+        model: parts.slice(1).join("/"),
+      };
+    }
+    // Unknown prefix — treat as custom provider key if it looks like one
+    if (/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(prefix)) {
+      return {
+        full: model,
+        provider: prefix,
         model: parts.slice(1).join("/"),
       };
     }
@@ -102,10 +113,8 @@ function getProviderConfig(
   providerKey: string,
   config: Config
 ): ProviderConfig | null {
-  const key = providerKey as keyof Config["providers"];
-
-  // Check new per-provider config
-  const providerCfg = config.providers?.[key];
+  const providers = config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string } | undefined>;
+  const providerCfg = providers[providerKey];
 
   // Ollama: registered as long as a baseUrl or apiKey is present
   if (providerKey === "ollama") {
@@ -180,15 +189,38 @@ export class ProviderManager {
       { key: "groq", build: (cfg) => new GroqProvider(cfg) },
       { key: "gemini", build: (cfg) => new GeminiProvider(cfg) },
       { key: "ollama", build: (cfg) => new OllamaProvider(cfg) },
-      // Anthropic uses a custom client (not OpenAI SDK)
-      // Will be added in a follow-up
+      { key: "anthropic", build: (cfg) => new AnthropicProvider(cfg) },
     ];
+
+    const handledKeys = new Set<string>();
 
     for (const { key, build } of providerBuilders) {
       const providerConfig = getProviderConfig(key, this.config);
       if (providerConfig?.apiKey) {
         const provider = build(providerConfig);
         this.providers.set(key, provider);
+        handledKeys.add(key);
+      }
+    }
+
+    // Register custom/dynamic providers from config
+    const providers = this.config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;
+    for (const [key, providerCfg] of Object.entries(providers)) {
+      if (handledKeys.has(key)) continue;
+      if (!providerCfg?.apiKey) continue;
+
+      const providerConfig: ProviderConfig = {
+        apiKey: providerCfg.apiKey,
+        defaultModel: this.config.defaultModel ?? `${key}/default`,
+        ...(providerCfg.baseUrl ? { baseUrl: providerCfg.baseUrl } : {}),
+      };
+
+      const type = providerCfg.type;
+      if (type === "anthropic-compatible") {
+        this.providers.set(key, new AnthropicProvider(providerConfig));
+      } else {
+        // Default: OpenAI-compatible (or no type specified)
+        this.providers.set(key, new OpenAIProvider(providerConfig));
       }
     }
 
