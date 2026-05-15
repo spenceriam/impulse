@@ -407,7 +407,7 @@ class ThinkingBlock implements Component {
   invalidate() {}
 }
 
-type ModelSetupStep = "provider" | "baseUrl" | "apiKey" | "discovering" | "model" | "reasoning";
+type ModelSetupStep = "provider" | "providerName" | "baseUrl" | "apiKey" | "discovering" | "model" | "reasoning";
 
 interface ProviderEntry {
   provider: ModelProviderOption;
@@ -428,6 +428,7 @@ interface ModelSetupState {
   discovery?: ModelDiscoveryResult;
   isAdvisorMode?: boolean;  // true when picking advisor model vs switching provider
   selectedModel?: string;   // Model selected in "model" step, used in reasoning step
+  customProviderName?: string;  // Slug for custom providers (e.g. "my-llm")
   error?: string;
   // Navigation state
   providers: ProviderEntry[];  // Configured providers first, then unconfigured
@@ -904,12 +905,28 @@ export class ImpulseRenderer {
         const state = this.modelSetup;
         // Go back to previous step, or cancel if at first step
         if (state.step === "model" || state.step === "discovering") {
-          state.step = "provider";
+          state.step = state.provider?.isCustom ? "provider" : "provider";
           delete state.error;
           this.setupModelNavigation();
           this.renderModelSetup();
-        } else if (state.step === "apiKey" || state.step === "baseUrl") {
-          state.step = "provider";
+        } else if (state.step === "providerName") {
+          state.step = state.provider?.isCustom ? "providerName" : "provider";
+          delete state.error;
+          this.setupModelNavigation();
+          this.renderModelSetup();
+        } else if (state.step === "apiKey") {
+          if (state.provider?.isCustom) {
+            state.step = "baseUrl";
+          } else if (state.provider?.needsBaseUrl) {
+            state.step = "baseUrl";
+          } else {
+            state.step = "provider";
+          }
+          delete state.error;
+          this.setupModelNavigation();
+          this.renderModelSetup();
+        } else if (state.step === "baseUrl") {
+          state.step = state.provider?.isCustom ? "providerName" : "provider";
           delete state.error;
           this.setupModelNavigation();
           this.renderModelSetup();
@@ -993,8 +1010,8 @@ export class ImpulseRenderer {
       // For Ollama, query /api/show to check if this specific model supports thinking
       if (providerName === "ollama") {
         const modelName = (config.defaultModel ?? "").replace(/^ollama\//, "");
-        const baseUrl = config.providers?.ollama?.baseUrl ?? "https://ollama.com";
-        const apiKey  = config.providers?.ollama?.apiKey;
+        const baseUrl = (config.providers as Record<string, { baseUrl?: string }>)?.["ollama"]?.baseUrl ?? "https://ollama.com";
+        const apiKey  = (config.providers as Record<string, { apiKey?: string }>)?.["ollama"]?.apiKey;
         this.reasoningCapability = await discoverOllamaReasoning(baseUrl, modelName, apiKey);
 
         const explicitMaxOutput = await discoverOllamaMaxOutputTokens(baseUrl, modelName, apiKey);
@@ -1590,6 +1607,8 @@ export class ImpulseRenderer {
     if (!state) return "";
 
     switch (state.step) {
+      case "providerName":
+        return "Provider name (slug)";
       case "provider":
         return `Provider number/name [${state.currentProvider}]`;
       case "baseUrl":

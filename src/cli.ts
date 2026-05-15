@@ -15,6 +15,8 @@ import { fileURLToPath } from "url";
 import { getProviderManager, resetProviderManager } from "./api/manager";
 import { load as loadConfig, save as saveConfig } from "./util/config";
 import type { Config } from "./util/config";
+import { testOllamaConnection } from "./api/providers/ollama.js";
+import { discoverModels, parseProviderChoice } from "./cli/model-setup.js";
 
 // ---------------------------------------------------------------------------
 // Portable .env loader
@@ -83,15 +85,18 @@ async function runSetup(): Promise<void> {
   console.log("Choose a provider to configure:\n");
   console.log("  1. Ollama Cloud  (https://ollama.com)");
   console.log("  2. OpenRouter    (https://openrouter.ai)");
-  console.log("  3. Z.ai          (https://api.z.ai)\n");
+  console.log("  3. Custom (OpenAI-compatible)");
+  console.log("  4. Custom (Anthropic-compatible)\n");
 
-  const choice = await ask("Provider [1/2/3]: ");
+  const choice = await ask("Provider [1/2/3/4]: ");
 
-  let providerKey: string;
+  let providerKey = "";
   let envVar: string;
   let label: string;
   let keyHint: string;
   let baseUrlPrompt: string | null = null;
+  let isCustom = false;
+  let customType: "openai-compatible" | "anthropic-compatible" | undefined;
 
   switch (choice) {
     case "2":
@@ -101,10 +106,18 @@ async function runSetup(): Promise<void> {
       keyHint = "sk-or-v1-...";
       break;
     case "3":
-      providerKey = "z.ai";
-      envVar = "ZAI_API_KEY";
-      label = "Z.ai";
-      keyHint = "your Z.ai API key";
+      isCustom = true;
+      customType = "openai-compatible";
+      envVar = "";
+      label = "Custom (OpenAI)";
+      keyHint = "your API key";
+      break;
+    case "4":
+      isCustom = true;
+      customType = "anthropic-compatible";
+      envVar = "";
+      label = "Custom (Anthropic)";
+      keyHint = "sk-ant-...";
       break;
     default:
       providerKey = "ollama";
@@ -115,10 +128,30 @@ async function runSetup(): Promise<void> {
       break;
   }
 
+  if (isCustom) {
+    const name = await ask("Provider name (slug, e.g. my-llm): ");
+    if (!name || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) {
+      console.log("\nInvalid or empty name. Aborting.");
+      iface.close();
+      process.exit(1);
+    }
+    providerKey = name;
+  }
+
   let baseUrl: string | undefined;
   if (baseUrlPrompt !== null) {
     baseUrl = await ask(`${baseUrlPrompt} [https://ollama.com]: `);
     if (!baseUrl) baseUrl = "https://ollama.com";
+  } else if (isCustom) {
+    const defaultUrl = customType === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "";
+    const prompt = defaultUrl ? `Endpoint URL [${defaultUrl}]: ` : "Endpoint URL: ";
+    baseUrl = await ask(prompt);
+    if (!baseUrl && defaultUrl) baseUrl = defaultUrl;
+    if (!baseUrl) {
+      console.log("\nNo endpoint URL entered. Aborting.");
+      iface.close();
+      process.exit(1);
+    }
   }
 
   const key = await ask(`Enter your ${label} API key (${keyHint}): `);
@@ -126,6 +159,64 @@ async function runSetup(): Promise<void> {
     console.log("\nNo key entered. Aborting.");
     iface.close();
     process.exit(1);
+  }
+
+  let defaultModel = `${providerKey}/default`;
+
+  // Test connection for Ollama
+  if (providerKey === "ollama") {
+    process.stdout.write("Testing connection…");
+    const result = await testOllamaConnection(baseUrl ?? "https://ollama.com", key);
+    if (result.success) {
+      console.log(` OK — ${result.models.length} models found`);
+      if (result.models.length > 0) {
+        console.log("\nAvailable models:");
+        result.models.slice(0, 10).forEach((m, i) => console.log(`  ${i + 1}. ${m}`));
+        if (result.models.length > 10) console.log(`  … and ${result.models.length - 10} more`);
+        const modelChoice = await ask("\nPick a model (number or full name) [1]: ");
+        const idx = parseInt(modelChoice) - 1;
+        if (!isNaN(idx) && result.models[idx]) {
+          defaultModel = `ollama/${result.models[idx]}`;
+        } else if (modelChoice && !modelChoice.match(/^\d+$/)) {
+          defaultModel = modelChoice.startsWith("ollama/") ? modelChoice : `ollama/${modelChoice}`;
+        }
+      }
+    } else {
+      console.log(` FAIL — ${result.message}`);
+    }
+  } else if (isCustom) {
+    process.stdout.write("Discovering models…");
+    try {
+      const provider = parseProviderChoice(providerKey, providerKey);
+      if (provider && baseUrl) {
+        const discovery = await discoverModels(
+          { ...provider, isCustom, ...(customType ? { customType } : {}), modelBaseUrl: baseUrl, key: providerKey, label, envVar: "", defaultModel, defaultBaseUrl: baseUrl, needsBaseUrl: true },
+          key,
+          baseUrl
+        );
+        if (discovery.success && discovery.models.length > 0) {
+          console.log(` OK — ${discovery.models.length} models found`);
+          console.log("\nAvailable models:");
+          discovery.models.slice(0, 10).forEach((m, i) => console.log(`  ${i + 1}. ${m}`));
+          if (discovery.models.length > 10) console.log(`  … and ${discovery.models.length - 10} more`);
+          const modelChoice = await ask("\nPick a model (number or full name) [1]: ");
+          const idx = parseInt(modelChoice) - 1;
+          if (!isNaN(idx) && discovery.models[idx]) {
+            defaultModel = `${providerKey}/${discovery.models[idx]}`;
+          } else if (modelChoice && !modelChoice.match(/^\d+$/)) {
+            defaultModel = modelChoice.includes("/") ? modelChoice : `${providerKey}/${modelChoice}`;
+          }
+        } else {
+          console.log(` FAIL — ${discovery.message}`);
+          const manual = await ask("Enter model ID manually: ");
+          if (manual) {
+            defaultModel = manual.includes("/") ? manual : `${providerKey}/${manual}`;
+          }
+        }
+      }
+    } catch {
+      console.log(" FAIL");
+    }
   }
 
   // Ensure ~/.impulse/ directory exists
@@ -136,7 +227,7 @@ async function runSetup(): Promise<void> {
   const cfg: Config = await loadConfig().catch((): Config => ({
     providers: {},
     defaultProvider: providerKey,
-    defaultModel: providerKey === "ollama" ? "ollama/llama3.2" : `${providerKey}/default`,
+    defaultModel,
     defaultMode: "AGENT",
     thinking: true,
     reasoningLevel: "medium",
@@ -148,15 +239,17 @@ async function runSetup(): Promise<void> {
   cfg.providers[providerKey as keyof Config["providers"]] = {
     apiKey: key,
     ...(baseUrl ? { baseUrl } : {}),
+    ...(customType ? { type: customType } as any : {}),
   };
   cfg.defaultProvider = providerKey;
-  process.env[envVar] = key;
+  cfg.defaultModel = defaultModel;
+  if (envVar) process.env[envVar] = key;
 
   await saveConfig(cfg);
   resetProviderManager();
 
   // Also write ~/.impulse/.env
-  const envLines = [`${envVar}=${key}`, ...(baseUrl ? [`OLLAMA_BASE_URL=${baseUrl}`] : [])];
+  const envLines = [...(envVar ? [`${envVar}=${key}`] : []), ...(baseUrl && providerKey === "ollama" ? [`OLLAMA_BASE_URL=${baseUrl}`] : [])];
   fs.writeFileSync(homeEnvPath(), envLines.join("\n") + "\n", { mode: 0o600 });
 
   console.log(`\n✅ ${label} key saved.`);
