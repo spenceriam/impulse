@@ -138,10 +138,9 @@ export class PromptInput implements Component, Focusable {
     const t = tui || { terminal: { rows: 24, columns: 80 } };
     this.editor = new Editor(t, EDITOR_THEME, { paddingX: 0 });
   }
-  private _modeColorCode = 34; // ANSI color code for the ❯ arrow (matches mode)
-  // Paste state
-  private _pasteContent: string | null = null;
-  private _pasteDisplay: string | null = null;
+  private _modeColorCode = 34;
+  // Paste state — array supports multiple sequential pastes
+  private _pasteGroups: Array<{ display: string; content: string }> = [];
   private _isPasting = false;
   private _pasteBuffer = "";
   private _secretMode = false;
@@ -164,28 +163,35 @@ export class PromptInput implements Component, Focusable {
 
   get onSubmit() { return this.editor.onSubmit; }
   set onSubmit(fn: ((v: string) => void) | undefined) {
-    if (fn !== undefined) this.editor.onSubmit = fn;
-    else this.editor.onSubmit = undefined as unknown as (value: string) => void;
+    if (fn !== undefined) {
+      this.editor.onSubmit = () => fn(this._submitCache);
+    } else {
+      this.editor.onSubmit = undefined as unknown as (value: string) => void;
+    }
   }
+  private _submitCache = "";
 
   /** Returns the real value (actual paste content if applicable) */
   getSubmitValue(): string {
-    const displayed = this.editor.getText();
-    if (this._pasteContent !== null && this._pasteDisplay !== null) {
-      if (displayed.includes(this._pasteDisplay)) {
-        return displayed.replace(this._pasteDisplay, this._pasteContent);
+    let displayed = this.editor.getText();
+    // Editor clears text before onSubmit fires — use cached value if available
+    if (displayed.length === 0 && this._submitCache.length > 0) {
+      return this._submitCache;
+    }
+    for (const group of this._pasteGroups) {
+      if (displayed.includes(group.display)) {
+        displayed = displayed.replace(group.display, group.content);
       }
-      return this._pasteContent;
     }
     return displayed;
   }
 
   clear(): void {
     this.editor.setText("");
-    this._pasteContent = null;
-    this._pasteDisplay = null;
+    this._pasteGroups = [];
     this._isPasting = false;
     this._pasteBuffer = "";
+    this._submitCache = "";
   }
 
   handleInput(data: string): void {
@@ -206,6 +212,11 @@ export class PromptInput implements Component, Focusable {
     if (data === "\x1b[D" && this.onArrowLeft) { this.onArrowLeft(); return; }
     if (data === "\x1b[C" && this.onArrowRight){ this.onArrowRight();return; }
     if (data === "\r" && this.onEnter)         { this.onEnter();     return; }
+
+    // Cache expanded paste value before Editor clears it on submit
+    if (data === "\r") {
+      this._submitCache = this.getSubmitValue();
+    }
 
     // ── Bracketed paste detection ──────────────────────────────────────────
     const hasPasteStart = data.includes("\x1b[200~");
@@ -233,15 +244,16 @@ export class PromptInput implements Component, Focusable {
       return;
     }
 
-    const pasteDisplayBeforeInput = this._pasteDisplay;
+    const anyPasteDisplayBeforeInput = this._pasteGroups.length > 0
+      ? this._pasteGroups[this._pasteGroups.length - 1]!.display
+      : null;
 
     this.editor.handleInput(data);
+    this._submitCache = ""; // reset cache on non-submit input
 
-    // If the visible paste token was edited away, drop the hidden payload.
-    // Do this AFTER inner.handleInput so Enter can still submit the real paste.
-    if (pasteDisplayBeforeInput !== null && !this.editor.getText().includes(pasteDisplayBeforeInput)) {
-      this._pasteContent = null;
-      this._pasteDisplay = null;
+    // If any visible paste token was edited away, drop that group's hidden payload
+    if (anyPasteDisplayBeforeInput !== null && !this.editor.getText().includes(anyPasteDisplayBeforeInput)) {
+      this._pasteGroups.pop();
     }
 
     this.onChange?.(this.editor.getText());
@@ -254,19 +266,15 @@ export class PromptInput implements Component, Focusable {
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (lines.length > 1) {
-      // Multi-line paste — show indicator, store real content
-      this._pasteContent = content;
-      this._pasteDisplay = `[Pasted ${lines.length} lines  ${content.length} chars]`;
-      this.editor.handleInput(this._pasteDisplay);
+      const display = `[Pasted ${lines.length} lines  ${content.length} chars]`;
+      this._pasteGroups.push({ display, content });
+      this.editor.handleInput(display);
     } else if (content.length > 120) {
-      // Long single-line paste — show indicator
-      this._pasteContent = content;
-      this._pasteDisplay = `[Pasted ${content.length} chars]`;
-      this.editor.handleInput(this._pasteDisplay);
+      const display = `[Pasted ${content.length} chars]`;
+      this._pasteGroups.push({ display, content });
+      this.editor.handleInput(display);
     } else {
       // Short paste — insert normally
-      this._pasteContent = null;
-      this._pasteDisplay = null;
       this.editor.handleInput("\x1b[200~" + content + "\x1b[201~");
     }
   }
@@ -1770,6 +1778,7 @@ export class ImpulseRenderer {
       this.modelSetupInputListener();
       this.modelSetupInputListener = null;
     }
+    this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
     this.modelSetup = null;
     this.modelSetupText.setText("");
     this.promptInput.setSecretMode(false);
@@ -1925,7 +1934,8 @@ export class ImpulseRenderer {
         this.modelSetupInputListener();
         this.modelSetupInputListener = null;
       }
-      this.modelSetup = null;
+      this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
+    this.modelSetup = null;
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
@@ -1973,6 +1983,7 @@ export class ImpulseRenderer {
       this.modelSetupInputListener();
       this.modelSetupInputListener = null;
     }
+    this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
     this.modelSetup = null;
     this.modelSetupText.setText("");
     this.promptInput.setSecretMode(false);
@@ -2043,6 +2054,12 @@ export class ImpulseRenderer {
   }
 
   private modelSetupInputListener: (() => void) | null = null;
+
+  /** No-op autocomplete provider to clear model search after setup */
+  private static readonly VOID_AUTOCOMPLETE = {
+    getSuggestions: async () => null,
+    applyCompletion: (ls: string[], cl: number, cc: number) => ({ lines: ls, cursorLine: cl, cursorCol: cc }),
+  } as any;
 
   private setupModelNavigation(): void {
     // Remove old listener

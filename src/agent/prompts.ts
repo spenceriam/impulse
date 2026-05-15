@@ -494,6 +494,18 @@ ${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile
     parts.push(userProfileContext);
   }
 
+  // Add advisor mode directive if active
+  if (cfg.advisorMode && cfg.advisorModel) {
+    const advisorName = cfg.advisorModel.split("/").pop() ?? cfg.advisorModel;
+    parts.push(`## Advisor Mode (ACTIVE)
+
+You are operating in Advisor/Executor mode with ${advisorName} as your strategic advisor.
+Access it via the \`consult_advisor\` tool.
+
+**MANDATORY:** Call consult_advisor before any file writes, edits, bash execution, or subagent launches. The system will reject your tool calls until you've consulted.
+**On errors:** DO NOT GUESS at fixes. Re-consult the advisor with error context.`);
+  }
+
   const modeAddition = MODE_ADDITIONS[mode];
   if (modeAddition) {
     parts.push(getPrompt("modes", getModePromptName(mode), modeAddition));
