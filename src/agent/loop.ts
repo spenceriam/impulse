@@ -647,6 +647,21 @@ export class AgentLoop {
         }
 
         const description = result.trim() || "(no description)";
+
+        // Add assistant message with tool_call before the tool result
+        const assistantMsg: Message = {
+          role: "assistant" as any,
+          content: null,
+          tool_calls: [{
+            id: toolId,
+            tool: "vision_translate",
+            arguments: { image: `Image ${i + 1}` },
+            timestamp: new Date().toISOString(),
+          }],
+          timestamp: new Date().toISOString(),
+        } as unknown as Message;
+        await SessionManager.addMessage(assistantMsg);
+
         const toolMsg: Message = {
           role: "tool" as any,
           content: `[Image ${i + 1}]: ${description}`,
