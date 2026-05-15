@@ -13,6 +13,7 @@ import { registerCrashRecoveryHandlers } from "./util/crash-recovery.js";
 import { load as loadConfig, save as saveConfig } from "./util/config.js";
 import { resetProviderManager } from "./api/manager.js";
 import { testOllamaConnection } from "./api/providers/ollama.js";
+import { discoverModels, parseProviderChoice } from "./cli/model-setup.js";
 import "./tools/init.js";
 import { ImpulseRenderer } from "./cli/renderer.js";
 import packageJson from "../package.json";
@@ -54,13 +55,7 @@ if (args.includes("--setup")) {
 // ─── Check if any provider is configured ────────────────────────────────────
 const config = await loadConfig();
 const hasProvider = (
-  config.providers?.ollama?.apiKey ||
-  config.providers?.ollama?.baseUrl ||
-  config.providers?.openrouter?.apiKey ||
-  config.providers?.["z.ai"]?.apiKey ||
-  config.providers?.openai?.apiKey ||
-  config.providers?.groq?.apiKey ||
-  config.providers?.gemini?.apiKey ||
+  Object.values(config.providers ?? {}).some((p) => p?.apiKey || p?.baseUrl) ||
   process.env["OLLAMA_API_KEY"] ||
   process.env["OPENROUTER_API_KEY"] ||
   process.env["OPENAI_API_KEY"] ||
@@ -95,41 +90,73 @@ async function runSetup(): Promise<void> {
 
   console.log(`
   \x1b[1mImpulse Setup\x1b[0m
-  \x1b[90m─────────────────────────────────────────\x1b[0m
+  \x1b[90m-----------------------------------------\x1b[0m
   Choose a provider:
 
     1. Ollama Cloud   \x1b[90m(https://ollama.com)\x1b[0m
     2. OpenRouter     \x1b[90m(https://openrouter.ai)\x1b[0m
-    3. OpenAI         \x1b[90m(https://platform.openai.com)\x1b[0m
-    4. Z.ai           \x1b[90m(https://api.z.ai)\x1b[0m
-    5. Groq           \x1b[90m(https://console.groq.com)\x1b[0m
+    3. Custom (OpenAI-compatible)   \x1b[90m(any OpenAI-compatible endpoint)\x1b[0m
+    4. Custom (Anthropic-compatible) \x1b[90m(any Anthropic-compatible endpoint)\x1b[0m
 `);
 
-  const choice = await ask("  Provider [1-5]: ");
+  const choice = await ask("  Provider [1-4]: ");
 
-  let providerKey: string;
+  let providerKey = "";
   let envVar: string;
   let label: string;
   let defaultModel: string;
   let needsBaseUrl = false;
+  let isCustom = false;
+  let customType: "openai-compatible" | "anthropic-compatible" | undefined;
 
   switch (choice) {
-    case "2": providerKey = "openrouter"; envVar = "OPENROUTER_API_KEY"; label = "OpenRouter";
-              defaultModel = "openrouter/anthropic/claude-haiku-4.5"; break;
-    case "3": providerKey = "openai";     envVar = "OPENAI_API_KEY";     label = "OpenAI";
-              defaultModel = "openai/gpt-4o-mini"; break;
-    case "4": providerKey = "z.ai";       envVar = "ZAI_API_KEY";        label = "Z.ai";
-              defaultModel = "z.ai/glm-4.7"; break;
-    case "5": providerKey = "groq";       envVar = "GROQ_API_KEY";       label = "Groq";
-              defaultModel = "groq/llama-3.3-70b-versatile"; break;
-    default:  providerKey = "ollama";     envVar = "OLLAMA_API_KEY";     label = "Ollama Cloud";
-              defaultModel = "ollama/llama3.2"; needsBaseUrl = true; break;
+    case "2":
+      providerKey = "openrouter";
+      envVar = "OPENROUTER_API_KEY";
+      label = "OpenRouter";
+      defaultModel = "openrouter/anthropic/claude-haiku-4.5";
+      break;
+    case "3":
+      isCustom = true;
+      customType = "openai-compatible";
+      envVar = "";
+      label = "Custom (OpenAI)";
+      needsBaseUrl = true;
+      defaultModel = "";
+      break;
+    case "4":
+      isCustom = true;
+      customType = "anthropic-compatible";
+      envVar = "";
+      label = "Custom (Anthropic)";
+      needsBaseUrl = true;
+      defaultModel = "anthropic/claude-sonnet-4-20250514";
+      break;
+    default:
+      providerKey = "ollama";
+      envVar = "OLLAMA_API_KEY";
+      label = "Ollama Cloud";
+      defaultModel = "ollama/llama3.2";
+      needsBaseUrl = true;
+      break;
+  }
+
+  if (isCustom) {
+    const name = await ask("  Provider name (slug, e.g. my-llm): ");
+    if (!name || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) {
+      console.log("  Invalid or empty name — aborting.");
+      rl.close();
+      return;
+    }
+    providerKey = name;
   }
 
   let baseUrl: string | undefined;
   if (needsBaseUrl) {
-    const entered = await ask(`  Endpoint URL [https://ollama.com]: `);
-    baseUrl = entered || "https://ollama.com";
+    const defaultUrl = customType === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "https://ollama.com";
+    const prompt = isCustom ? `  Endpoint URL [${defaultUrl}]: ` : `  Endpoint URL [https://ollama.com]: `;
+    const entered = await ask(prompt);
+    baseUrl = entered || defaultUrl;
   }
 
   const key = await ask(`  ${label} API key: `);
@@ -158,6 +185,35 @@ async function runSetup(): Promise<void> {
       console.log(` \x1b[33m⚠\x1b[0m  ${result.message}`);
       console.log("  Saving config anyway — you can fix the endpoint later with --setup.\n");
     }
+  } else if (isCustom) {
+    // Try model discovery for custom providers
+    process.stdout.write("  Discovering models…");
+    const provider = parseProviderChoice(providerKey, providerKey);
+    if (provider) {
+      const discovery = await discoverModels({ ...provider, isCustom, ...(customType ? { customType } : {}), modelBaseUrl: baseUrl ?? "", key: providerKey, label, envVar: "", defaultModel, ...(baseUrl ? { defaultBaseUrl: baseUrl } : {}), needsBaseUrl }, key, baseUrl);
+      if (discovery.success && discovery.models.length > 0) {
+        console.log(` \x1b[32m✓\x1b[0m  ${discovery.message}`);
+        console.log(`\n  Available models:`);
+        discovery.models.slice(0, 10).forEach((m, i) => console.log(`    ${i + 1}. ${m}`));
+        if (discovery.models.length > 10) console.log(`    … and ${discovery.models.length - 10} more`);
+        const modelChoice = await ask(`\n  Pick a model (number or full name) [1]: `);
+        const idx = parseInt(modelChoice) - 1;
+        if (!isNaN(idx) && discovery.models[idx]) {
+          defaultModel = `${providerKey}/${discovery.models[idx]}`;
+        } else if (modelChoice && !modelChoice.match(/^\d+$/)) {
+          defaultModel = modelChoice.includes("/") ? modelChoice : `${providerKey}/${modelChoice}`;
+        }
+      } else {
+        console.log(` \x1b[33m⚠\x1b[0m  ${discovery.message}`);
+        const manual = await ask("  Enter model ID manually: ");
+        if (manual) {
+          defaultModel = manual.includes("/") ? manual : `${providerKey}/${manual}`;
+        }
+      }
+    }
+    if (!defaultModel) {
+      defaultModel = `${providerKey}/default`;
+    }
   }
 
   // Save config
@@ -172,10 +228,14 @@ async function runSetup(): Promise<void> {
   }));
 
   const providers = cfg.providers as Record<string, unknown>;
-  providers[providerKey] = { apiKey: key, ...(baseUrl ? { baseUrl } : {}) };
+  providers[providerKey] = {
+    apiKey: key,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(customType ? { type: customType } : {}),
+  };
   cfg.defaultProvider = providerKey;
   cfg.defaultModel = defaultModel;
-  process.env[envVar] = key;
+  if (envVar) process.env[envVar] = key;
 
   await saveConfig(cfg as Parameters<typeof saveConfig>[0]);
   resetProviderManager();
@@ -184,7 +244,7 @@ async function runSetup(): Promise<void> {
   const homeDir = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
   const impulseDir = path.join(homeDir, ".impulse");
   if (!fs.existsSync(impulseDir)) fs.mkdirSync(impulseDir, { recursive: true });
-  const envLines = [`${envVar}=${key}`, ...(baseUrl ? [`OLLAMA_BASE_URL=${baseUrl}`] : [])];
+  const envLines = [...(envVar ? [`${envVar}=${key}`] : []), ...(baseUrl && providerKey === "ollama" ? [`OLLAMA_BASE_URL=${baseUrl}`] : [])];
   fs.writeFileSync(path.join(impulseDir, ".env"), envLines.join("\n") + "\n", { mode: 0o600 });
 
   console.log(`\n  \x1b[32m✓\x1b[0m  Saved. Default model: ${defaultModel}\n`);
@@ -202,7 +262,7 @@ export async function runOnboarding(): Promise<void> {
 
   console.log(`
   \x1b[1mWelcome to Impulse\x1b[0m
-  \x1b[90m─────────────────────────────────────────\x1b[0m
+  \x1b[90m-----------------------------------------\x1b[0m
   Let's personalize your experience.
 `);
 
