@@ -13,11 +13,14 @@ export interface ModelProviderOption {
   modelBaseUrl: string;
   defaultBaseUrl?: string;
   needsBaseUrl?: boolean;
+  isCustom?: boolean;
+  customType?: "openai-compatible" | "anthropic-compatible";
 }
 
 export interface StoredProviderConfig {
   apiKey?: string;
   baseUrl?: string;
+  type?: "openai-compatible" | "anthropic-compatible";
 }
 
 export interface ModelDiscoveryResult {
@@ -25,6 +28,10 @@ export interface ModelDiscoveryResult {
   message: string;
   models: string[];
 }
+
+export const KNOWN_PROVIDER_KEYS = new Set([
+  "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
+]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
   {
@@ -44,25 +51,25 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     modelBaseUrl: "https://openrouter.ai/api/v1",
   },
   {
-    key: "openai",
-    label: "OpenAI",
-    envVar: "OPENAI_API_KEY",
-    defaultModel: "openai/gpt-4o-mini",
-    modelBaseUrl: "https://api.openai.com/v1",
+    key: "__custom_openai__",
+    label: "Custom Provider (OpenAI-compatible)",
+    envVar: "",
+    defaultModel: "",
+    modelBaseUrl: "",
+    needsBaseUrl: true,
+    isCustom: true,
+    customType: "openai-compatible",
   },
   {
-    key: "z.ai",
-    label: "Z.ai",
-    envVar: "ZAI_API_KEY",
-    defaultModel: "z.ai/glm-4.7",
-    modelBaseUrl: "https://api.z.ai/api/coding/paas/v4",
-  },
-  {
-    key: "groq",
-    label: "Groq",
-    envVar: "GROQ_API_KEY",
-    defaultModel: "groq/llama-3.3-70b-versatile",
-    modelBaseUrl: "https://api.groq.com/openai/v1",
+    key: "__custom_anthropic__",
+    label: "Custom Provider (Anthropic-compatible)",
+    envVar: "",
+    defaultModel: "anthropic/claude-sonnet-4-20250514",
+    modelBaseUrl: "https://api.anthropic.com/v1",
+    defaultBaseUrl: "https://api.anthropic.com/v1",
+    needsBaseUrl: true,
+    isCustom: true,
+    customType: "anthropic-compatible",
   },
 ];
 
@@ -127,8 +134,18 @@ export async function discoverModels(
   }
 
   const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/$/, "");
+
+  // Anthropic-compatible uses x-api-key header instead of Bearer
+  const isAnthropic = provider.customType === "anthropic-compatible";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  if (apiKey) {
+    if (isAnthropic) {
+      headers["x-api-key"] = apiKey;
+      headers["anthropic-version"] = "2023-06-01";
+    } else {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+  }
 
   try {
     const res = await fetch(`${root}/models`, {
@@ -144,6 +161,14 @@ export async function discoverModels(
       };
     }
 
+    if (res.status === 404) {
+      return {
+        success: false,
+        message: `Model discovery not supported by this endpoint (HTTP 404).`,
+        models: [],
+      };
+    }
+
     if (!res.ok) {
       return {
         success: false,
@@ -153,16 +178,20 @@ export async function discoverModels(
     }
 
     const body = await res.json() as {
-      data?: Array<{ id?: string; name?: string; created?: number }>;
-      models?: Array<{ id?: string; name?: string; created?: number }>;
+      data?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
+      models?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
     };
     const entries = body.data ?? body.models ?? [];
 
-    // OpenRouter returns creation timestamps — sort by created (newest first) inline
-    if (provider.key === "openrouter" && entries.length > 1) {
+    // Sort by creation date if available (OpenRouter, Anthropic)
+    if (entries.length > 1 && entries.some((e) => e.created !== undefined || e.created_at !== undefined)) {
       const sorted = entries
         .slice()
-        .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+        .sort((a, b) => {
+          const aCreated = a.created ?? (a.created_at ? new Date(a.created_at).getTime() / 1000 : 0);
+          const bCreated = b.created ?? (b.created_at ? new Date(b.created_at).getTime() / 1000 : 0);
+          return (bCreated as number) - (aCreated as number);
+        })
         .map((m) => m.id ?? m.name)
         .filter((m): m is string => typeof m === "string" && m.length > 0);
 
@@ -204,6 +233,15 @@ export async function discoverModels(
  */
 async function sortModels(providerKey: string, models: string[]): Promise<string[]> {
   if (models.length <= 1) return models;
+
+  // Skip models.dev lookup for custom/sentinel keys
+  if (providerKey.startsWith("__")) {
+    return [...models].sort((a, b) => {
+      const sizeA = extractModelSize(a);
+      const sizeB = extractModelSize(b);
+      return sizeB - sizeA;
+    });
+  }
 
   try {
     // Fetch model metadata from models.dev
@@ -252,6 +290,16 @@ function extractModelSize(name: string): number {
   return match ? parseFloat(match[1]!) : 0;
 }
 
+/** Validate a custom provider name — must be a clean slug */
+export function validateProviderName(name: string): string | null {
+  if (!name || name.length === 0) return "Name is required.";
+  if (name.length > 30) return "Name must be 30 characters or fewer.";
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) return "Name must start with a letter or number and contain only letters, numbers, hyphens, and underscores.";
+  if (name.startsWith("__")) return "Name cannot start with '__' (reserved).";
+  if (KNOWN_PROVIDER_KEYS.has(name.toLowerCase())) return `'${name}' conflicts with a built-in provider. Choose a different name.`;
+  return null;
+}
+
 export async function saveHomeEnv(
   provider: ModelProviderOption,
   apiKey: string,
@@ -277,7 +325,7 @@ export async function saveHomeEnv(
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  values.set(provider.envVar, apiKey);
+  if (provider.envVar) values.set(provider.envVar, apiKey);
   if (provider.key === "ollama" && baseUrl) values.set("OLLAMA_BASE_URL", baseUrl);
 
   const lines = [...values.entries()].map(([key, value]) => `${key}=${value}`);

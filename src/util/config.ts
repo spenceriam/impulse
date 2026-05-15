@@ -18,27 +18,12 @@ const ProviderKeySchema = z.object({
   apiKey: z.string().optional(),
   /** Default base URL (optional — most providers have sensible defaults) */
   baseUrl: z.string().optional(),
+  /** Provider type for custom endpoints: OpenAI-compatible or Anthropic-compatible */
+  type: z.enum(["openai-compatible", "anthropic-compatible"]).optional(),
 });
 
-// Provider configuration per key
-const ProvidersConfigSchema = z.object({
-  /** Z.ai Coding Plan */
-  "z.ai": ProviderKeySchema.optional(),
-  /** OpenAI models (GPT-4, GPT-4o, etc.) */
-  openai: ProviderKeySchema.optional(),
-  /** Anthropic models (Claude 3.5, etc.) */
-  anthropic: ProviderKeySchema.optional(),
-  /** OpenRouter — aggregates 100+ models behind OpenAI-compatible API */
-  openrouter: ProviderKeySchema.optional(),
-  /** Groq — fast inference (Llama, Mistral, etc.) */
-  groq: ProviderKeySchema.optional(),
-  /** Google Gemini */
-  gemini: ProviderKeySchema.optional(),
-  /** Nous Research */
-  nous: ProviderKeySchema.optional(),
-  /** Ollama Cloud (https://ollama.com) */
-  ollama: ProviderKeySchema.optional(),
-});
+// Provider configuration per key — dynamic keys allow custom providers
+const ProvidersConfigSchema = z.record(z.string(), ProviderKeySchema);
 
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 
@@ -172,7 +157,7 @@ export async function load(): Promise<Config> {
     ...envConfig,
     providers,
   };
-  cachedConfig = applyDefaults(merged);
+  cachedConfig = applyDefaults(merged as Partial<Config>);
   return cachedConfig;
 }
 

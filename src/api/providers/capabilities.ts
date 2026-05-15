@@ -35,6 +35,9 @@ export const PROVIDER_REASONING_STYLE: Record<string, ReasoningStyle> = {
   "groq":       "none",     // Groq models don't support thinking yet
   "gemini":     "budget",
   "nous":       "none",
+  // Custom provider sentinels (used during setup)
+  "__custom_openai__":     "effort",
+  "__custom_anthropic__":  "budget",
 };
 
 export const EFFORT_LEVELS: ReasoningLevel[] = ["off", "low", "medium", "high"];
@@ -45,7 +48,7 @@ export function getLevelsForStyle(style: ReasoningStyle): ReasoningLevel[] {
   switch (style) {
     case "effort": return EFFORT_LEVELS;
     case "binary": return BINARY_LEVELS;
-    case "budget": return EFFORT_LEVELS; // budget maps low→2k, medium→8k, high→16k
+    case "budget": return EFFORT_LEVELS; // budget maps low->2k, medium->8k, high->16k
     default:       return NO_LEVELS;
   }
 }
