@@ -3,7 +3,7 @@
 [cmd]: https://commandcode.ai/
 
 # workflow
-- When requirements are ambiguous, ask clarifying questions rather than implementing based on assumptions. Confidence: 0.85
+- When requirements are ambiguous, ask clarifying questions rather than implementing based on assumptions — especially for UI/UX and unclear concepts. Confidence: 0.90
 
 # ui-ux
 - Use accessible, non-technical language in user-facing UI overlays and prompts — avoid jargon that assumes AI coding tool familiarity. Confidence: 0.80

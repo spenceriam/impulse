@@ -141,6 +141,7 @@ export class PromptInput implements Component, Focusable {
   private _modeColorCode = 34;
   // Paste state — array supports multiple sequential pastes
   private _pasteGroups: Array<{ display: string; content: string }> = [];
+  private _detectedImages: string[] = []; // base64 URIs or file paths
   private _isPasting = false;
   private _pasteBuffer = "";
   private _secretMode = false;
@@ -189,9 +190,37 @@ export class PromptInput implements Component, Focusable {
   clear(): void {
     this.editor.setText("");
     this._pasteGroups = [];
+    this._detectedImages = [];
     this._isPasting = false;
     this._pasteBuffer = "";
     this._submitCache = "";
+  }
+
+  /** Returns images detected in the current input */
+  getImages(): string[] { return this._detectedImages; }
+
+  private _detectImages(content: string): void {
+    // Base64 data URIs: data:image/png;base64,iVBOR...
+    const base64Regex = /data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[A-Za-z0-9+/=]+/gi;
+    const base64Matches = content.match(base64Regex);
+    if (base64Matches) {
+      for (const match of base64Matches) {
+        if (!this._detectedImages.includes(match)) {
+          this._detectedImages.push(match);
+        }
+      }
+    }
+
+    // File paths to image files: /tmp/screenshot.png, /home/user/photo.jpg, etc.
+    const fileRegex = /(\/(?:tmp|home|var|Users)\/[^\s\n]*\.(?:png|jpg|jpeg|gif|webp|bmp))/gi;
+    const fileMatches = content.match(fileRegex);
+    if (fileMatches) {
+      for (const match of fileMatches) {
+        if (!this._detectedImages.includes(match)) {
+          this._detectedImages.push(match);
+        }
+      }
+    }
   }
 
   handleInput(data: string): void {
@@ -263,6 +292,10 @@ export class PromptInput implements Component, Focusable {
     this._isPasting = false;
     const content = this._pasteBuffer;
     this._pasteBuffer = "";
+
+    // Detect images in pasted content
+    this._detectImages(content);
+
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (lines.length > 1) {
@@ -1089,12 +1122,13 @@ export class ImpulseRenderer {
       return;
     }
 
-    await this.runTurn(input);
+    const images = this.promptInput.getImages();
+    await this.runTurn(input, images);
   }
 
   // ── Agent turn ────────────────────────────────────────────────────────────
 
-  private async runTurn(userMessage: string): Promise<void> {
+  private async runTurn(userMessage: string, images: string[] = []): Promise<void> {
     // Mid-turn config validation: advisor mode ON but config missing?
     const config = await loadConfig();
     if (config.advisorMode && !config.advisorModel) {
@@ -1127,6 +1161,7 @@ export class ImpulseRenderer {
     this.thinkingText = null;
     this.thinkingOpen = false;
     this.resetLiveMetrics();
+    this.loop.setImages(images);
     this.contextBar.update({
       isRunning: true,
       mode: this.mode,

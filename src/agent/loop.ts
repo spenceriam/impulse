@@ -18,6 +18,7 @@ import type { ChatMessage, ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
 import { runAdvisorConsultation } from "./advisor.js";
+import { providerConfig, parseProviderChoice, discoverModels } from "../cli/model-setup.js";
 import { load as loadConfig } from "../util/config";
 import * as fs from "fs";
 import * as os from "os";
@@ -125,6 +126,10 @@ export class AgentLoop {
   private abortController: AbortController | null = null;
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
+  private pendingImages: string[] = [];
+
+  /** Set images to translate before next turn */
+  setImages(images: string[]): void { this.pendingImages = images; }
 
   async run(userMessage: string, mode: Mode, events: LoopEvents): Promise<void> {
     this.abortController = new AbortController();
@@ -152,6 +157,12 @@ export class AgentLoop {
       };
       await SessionManager.addMessage(userMsg);
       session = SessionManager.getCurrentSession()!;
+
+      // ── Image translation (vision model) ───────────────────────────────────
+      if (this.pendingImages.length > 0 && !this.modelSupportsVision(model)) {
+        await this.translateImages(config, events, signal);
+      }
+      this.pendingImages = [];
 
       // ── Tool definitions ───────────────────────────────────────────────────
       const toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
@@ -553,6 +564,109 @@ export class AgentLoop {
 
   abort(): void {
     this.abortController?.abort();
+  }
+
+  /** Check if current main model supports vision natively */
+  private modelSupportsVision(_model: string): boolean {
+    // Known vision models — extend this list as needed
+    const VISION_MODELS = [
+      "gpt-4o", "gpt-4o-mini", "gpt-4-turbo",
+      "claude-3", "claude-3.5", "claude-3.7", "claude-4", "claude-opus", "claude-sonnet",
+      "gemini-2", "gemini-2.5", "gemini-flash",
+      "llama-3.2-vision", "llava", "bakllava",
+      "pixtral", "qwen2-vl", "cogvlm", "cogvlm2",
+    ];
+    const lower = _model.toLowerCase();
+    return VISION_MODELS.some((v) => lower.includes(v));
+  }
+
+  /** Auto-detect a vision-capable model from configured providers */
+  private async findVisionModel(config: any): Promise<string | null> {
+    // Check advisor model first
+    if (config.advisorModel && this.modelSupportsVision(config.advisorModel)) {
+      return config.advisorModel;
+    }
+    // Check providers for known vision models
+    const providerKey = config.defaultProvider;
+    const stored = providerConfig(config, providerKey);
+    if (stored?.apiKey) {
+      // Try to discover models and find a vision-capable one
+      try {
+        const provider = parseProviderChoice(providerKey, providerKey);
+        if (provider) {
+          const discovery = await discoverModels(provider, stored.apiKey, stored.baseUrl);
+          for (const m of discovery.models) {
+            if (this.modelSupportsVision(m)) {
+              return `${provider.key}/${m}`;
+            }
+          }
+        }
+      } catch { /* ignore discovery failure */ }
+    }
+    return null;
+  }
+
+  /** Translate images via vision model, inject as tool calls in session */
+  private async translateImages(config: any, events: LoopEvents, signal: AbortSignal): Promise<void> {
+    const visionModel = await this.findVisionModel(config);
+    if (!visionModel) {
+      // No vision model available — inject a warning
+      const warningMsg: Message = {
+        role: "assistant" as any,
+        content: "[Image detected but no vision model available. Configure a vision-capable model to process images.]",
+        timestamp: new Date().toISOString(),
+      } as unknown as Message;
+      await SessionManager.addMessage(warningMsg);
+      return;
+    }
+
+    const manager = await getProviderManager();
+
+    for (let i = 0; i < this.pendingImages.length; i++) {
+      const imageUrl = this.pendingImages[i]!;
+      const toolId = `vision_${Date.now()}_${i}`;
+
+      // Fire tool start event for UI
+      events.onToolStart(toolId, "vision_translate", { image: `Image ${i + 1}` });
+
+      try {
+        const visionMessages: ChatMessage[] = [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Describe this image in detail. Focus on visible text, UI elements, code, errors, layout, and anything relevant to a coding task. Be concise but thorough." },
+              { type: "image_url", image_url: { url: imageUrl } },
+            ] as any,
+          },
+        ];
+
+        let result = "";
+        for await (const chunk of manager.stream({ model: visionModel, messages: visionMessages, stream: true, signal })) {
+          if (signal.aborted) break;
+          result += chunk.choices[0]?.delta?.content ?? "";
+        }
+
+        const description = result.trim() || "(no description)";
+        const toolMsg: Message = {
+          role: "tool" as any,
+          content: `[Image ${i + 1}]: ${description}`,
+          tool_call_id: toolId,
+          timestamp: new Date().toISOString(),
+        } as unknown as Message;
+        await SessionManager.addMessage(toolMsg);
+
+        events.onToolEnd(toolId, "vision_translate", {
+          success: true,
+          output: `[Image ${i + 1}]: ${description.slice(0, 200)}`,
+        }, 0);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        events.onToolEnd(toolId, "vision_translate", {
+          success: false,
+          output: `Vision translation failed: ${errMsg}`,
+        }, 0);
+      }
+    }
   }
 
 }
