@@ -142,6 +142,7 @@ export class PromptInput implements Component, Focusable {
   // Paste state — array supports multiple sequential pastes
   private _pasteGroups: Array<{ display: string; content: string }> = [];
   private _detectedImages: string[] = []; // base64 URIs or file paths
+  private _nextImageIndex = 1; // cumulative image counter
   private _isPasting = false;
   private _pasteBuffer = "";
   private _secretMode = false;
@@ -191,6 +192,7 @@ export class PromptInput implements Component, Focusable {
     this.editor.setText("");
     this._pasteGroups = [];
     this._detectedImages = [];
+    this._nextImageIndex = 1;
     this._isPasting = false;
     this._pasteBuffer = "";
     this._submitCache = "";
@@ -199,7 +201,9 @@ export class PromptInput implements Component, Focusable {
   /** Returns images detected in the current input */
   getImages(): string[] { return this._detectedImages; }
 
-  private _detectImages(content: string): void {
+  private _detectImages(content: string): number {
+    let found = 0;
+
     // Base64 data URIs: data:image/png;base64,iVBOR...
     const base64Regex = /data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[A-Za-z0-9+/=]+/gi;
     const base64Matches = content.match(base64Regex);
@@ -207,20 +211,24 @@ export class PromptInput implements Component, Focusable {
       for (const match of base64Matches) {
         if (!this._detectedImages.includes(match)) {
           this._detectedImages.push(match);
+          found++;
         }
       }
     }
 
-    // File paths to image files: /tmp/screenshot.png, /home/user/photo.jpg, etc.
+    // File paths to image files
     const fileRegex = /(\/(?:tmp|home|var|Users)\/[^\s\n]*\.(?:png|jpg|jpeg|gif|webp|bmp))/gi;
     const fileMatches = content.match(fileRegex);
     if (fileMatches) {
       for (const match of fileMatches) {
         if (!this._detectedImages.includes(match)) {
           this._detectedImages.push(match);
+          found++;
         }
       }
     }
+
+    return found;
   }
 
   handleInput(data: string): void {
@@ -293,12 +301,22 @@ export class PromptInput implements Component, Focusable {
     const content = this._pasteBuffer;
     this._pasteBuffer = "";
 
-    // Detect images in pasted content
-    this._detectImages(content);
+    // Detect images in pasted content before building display label
+    const imageCount = this._detectImages(content);
 
     const lines = content.split("\n").filter((l) => l.length > 0);
 
-    if (lines.length > 1) {
+    if (imageCount > 0) {
+      // Image paste — cumulative user-friendly label
+      const startIndex = this._nextImageIndex;
+      const endIndex = startIndex + imageCount - 1;
+      const label = imageCount === 1
+        ? `[Pasted image #${startIndex}]`
+        : `[Pasted images #${startIndex}-#${endIndex}]`;
+      this._nextImageIndex += imageCount;
+      this._pasteGroups.push({ display: label, content });
+      this.editor.handleInput(label);
+    } else if (lines.length > 1) {
       const display = `[Pasted ${lines.length} lines  ${content.length} chars]`;
       this._pasteGroups.push({ display, content });
       this.editor.handleInput(display);
