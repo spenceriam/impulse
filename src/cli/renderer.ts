@@ -1840,6 +1840,7 @@ export class ImpulseRenderer {
   }
 
   private currentModelForProvider(config: Config, provider: ModelProviderOption): string {
+    if (provider.isCustom) return "";
     return config.defaultModel?.startsWith(`${provider.key}/`)
       ? config.defaultModel
       : provider.defaultModel;
@@ -1926,12 +1927,19 @@ export class ImpulseRenderer {
       // Store selected model and prompt for reasoning level
       const fallbackModel = this.currentModelForProvider(state.config, state.provider!);
       const modelIdx = Number.parseInt(input, 10) - 1;
+      const ek = state.provider!.isCustom ? (state.customProviderName ?? state.provider!.key) : state.provider!.key;
       if (!input) {
+        if (state.models.length === 0 && state.provider?.isCustom) {
+          state.error = "Enter a model ID (e.g. moonshot-v1-auto).";
+          this.renderModelSetup();
+          return;
+        }
         state.selectedModel = fallbackModel;
       } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
-        state.selectedModel = modelWithProviderPrefix(state.provider!.key, state.models[modelIdx]!);
+        const ek = state.provider!.isCustom ? (state.customProviderName ?? state.provider!.key) : state.provider!.key;
+        state.selectedModel = modelWithProviderPrefix(ek, state.models[modelIdx]!);
       } else if (!input.match(/^\d+$/)) {
-        state.selectedModel = modelWithProviderPrefix(state.provider!.key, input);
+        state.selectedModel = modelWithProviderPrefix(ek, input);
       } else {
         state.error = "Invalid model selection.";
         this.renderModelSetup();
