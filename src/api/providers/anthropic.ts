@@ -370,7 +370,7 @@ export class AnthropicProvider implements AIProvider {
     const request = this.buildRequest({ ...options, stream: true });
 
     const res = await this.executeWithRetry(async () => {
-      const r = await fetch(`${baseUrl.replace(/\/$/, "")}/messages`, {
+      const res = await fetch(`${baseUrl.replace(/\/$/, "")}/messages`, {
         method: "POST",
         headers: this.buildHeaders(),
         body: JSON.stringify(request),
@@ -384,7 +384,7 @@ export class AnthropicProvider implements AIProvider {
         throw new Error(`HTTP ${res.status}: ${text}`);
       }
 
-      return r;
+      return res;
     }, options.signal);
 
     if (!res.body) {
