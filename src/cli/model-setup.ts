@@ -147,84 +147,126 @@ export async function discoverModels(
     }
   }
 
-  try {
-    const res = await fetch(`${root}/models`, {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    });
+  // For custom providers, try both auth methods (some endpoints expect Bearer even for Anthropic)
+  const isCustomProv = provider.isCustom || provider.key.startsWith("__");
+  const authMethods: Array<{ name: string; headers: Record<string, string> }> = [];
 
-    if (res.status === 401 || res.status === 403) {
-      return {
-        success: false,
-        message: `Authentication failed (HTTP ${res.status}). Check the ${provider.label} API key.`,
-        models: [],
-      };
+  if (isAnthropic) {
+    // Primary: Anthropic auth
+    const h1: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) { h1["x-api-key"] = apiKey; h1["anthropic-version"] = "2023-06-01"; }
+    authMethods.push({ name: "x-api-key", headers: h1 });
+    // Fallback: Bearer auth (for endpoints that serve /models with OpenAI auth)
+    if (isCustomProv && apiKey) {
+      const h2: Record<string, string> = { "Content-Type": "application/json" };
+      h2["Authorization"] = `Bearer ${apiKey}`;
+      authMethods.push({ name: "Bearer (fallback)", headers: h2 });
     }
-
-    if (res.status === 404) {
-      return {
-        success: false,
-        message: `Model discovery not supported by this endpoint (HTTP 404).`,
-        models: [],
-      };
+  } else {
+    // Primary: Bearer auth
+    const h1: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) h1["Authorization"] = `Bearer ${apiKey}`;
+    authMethods.push({ name: "Bearer", headers: h1 });
+    // Fallback: Anthropic auth (for custom providers)
+    if (isCustomProv && apiKey) {
+      const h2: Record<string, string> = { "Content-Type": "application/json" };
+      h2["x-api-key"] = apiKey;
+      h2["anthropic-version"] = "2023-06-01";
+      authMethods.push({ name: "x-api-key (fallback)", headers: h2 });
     }
+  }
 
-    if (!res.ok) {
-      return {
-        success: false,
-        message: `Model discovery failed (HTTP ${res.status}).`,
-        models: [],
+  let lastError: ModelDiscoveryResult | null = null;
+
+  for (const method of authMethods) {
+    try {
+      const res = await fetch(`${root}/models`, {
+        headers: method.headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        lastError = {
+          success: false,
+          message: `Authentication failed (HTTP ${res.status}). Check the ${provider.label} API key.`,
+          models: [],
+        };
+        continue; // Try next auth method
+      }
+
+      if (res.status === 404) {
+        lastError = {
+          success: false,
+          message: `Model discovery not supported by this endpoint (HTTP 404).`,
+          models: [],
+        };
+        continue; // Try next auth method
+      }
+
+      if (!res.ok) {
+        lastError = {
+          success: false,
+          message: `Model discovery failed (HTTP ${res.status}).`,
+          models: [],
+        };
+        continue;
+      }
+
+      const body = await res.json() as {
+        data?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
+        models?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
       };
-    }
+      const entries = body.data ?? body.models ?? [];
 
-    const body = await res.json() as {
-      data?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
-      models?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
-    };
-    const entries = body.data ?? body.models ?? [];
+      if (entries.length > 1 && entries.some((e) => e.created !== undefined || e.created_at !== undefined)) {
+        const sorted = entries
+          .slice()
+          .sort((a, b) => {
+            const aCreated = a.created ?? (a.created_at ? new Date(a.created_at).getTime() / 1000 : 0);
+            const bCreated = b.created ?? (b.created_at ? new Date(b.created_at).getTime() / 1000 : 0);
+            return (bCreated as number) - (aCreated as number);
+          })
+          .map((m) => m.id ?? m.name)
+          .filter((m): m is string => typeof m === "string" && m.length > 0);
 
-    // Sort by creation date if available (OpenRouter, Anthropic)
-    if (entries.length > 1 && entries.some((e) => e.created !== undefined || e.created_at !== undefined)) {
-      const sorted = entries
-        .slice()
-        .sort((a, b) => {
-          const aCreated = a.created ?? (a.created_at ? new Date(a.created_at).getTime() / 1000 : 0);
-          const bCreated = b.created ?? (b.created_at ? new Date(b.created_at).getTime() / 1000 : 0);
-          return (bCreated as number) - (aCreated as number);
-        })
+        const sorted2 = await sortModels(provider.key, sorted);
+        return {
+          success: true,
+          message: sorted2.length > 0
+            ? `Connected - ${sorted2.length} model${sorted2.length === 1 ? "" : "s"} available.`
+            : "Connected, but no models were returned.",
+          models: sorted2,
+        };
+      }
+
+      const models = entries
         .map((m) => m.id ?? m.name)
         .filter((m): m is string => typeof m === "string" && m.length > 0);
 
+      const sorted2 = await sortModels(provider.key, models);
+
       return {
         success: true,
-        message: sorted.length > 0
-          ? `Connected - ${sorted.length} model${sorted.length === 1 ? "" : "s"} available.`
+        message: sorted2.length > 0
+          ? `Connected - ${sorted2.length} model${sorted2.length === 1 ? "" : "s"} available.`
           : "Connected, but no models were returned.",
-        models: sorted,
+        models: sorted2,
       };
+    } catch (error) {
+      lastError = {
+        success: false,
+        message: error instanceof Error && error.name === "TimeoutError"
+          ? "Model discovery timed out."
+          : error instanceof Error
+            ? error.message
+            : String(error),
+        models: [],
+      };
+      // Continue to next auth method
     }
-
-    const models = entries
-      .map((m) => m.id ?? m.name)
-      .filter((m): m is string => typeof m === "string" && m.length > 0);
-
-    const sorted = await sortModels(provider.key, models);
-
-    return {
-      success: true,
-      message: sorted.length > 0
-        ? `Connected - ${sorted.length} model${sorted.length === 1 ? "" : "s"} available.`
-        : "Connected, but no models were returned.",
-      models: sorted,
-    };
-  } catch (error) {
-    const message = error instanceof Error && error.name === "TimeoutError"
-      ? "Model discovery timed out."
-      : error instanceof Error
-        ? error.message
-        : String(error);
-    return { success: false, message, models: [] };
   }
+
+  return lastError ?? { success: false, message: "Model discovery failed.", models: [] };
 }
 
 /**
