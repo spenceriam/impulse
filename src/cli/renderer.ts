@@ -1977,6 +1977,8 @@ export class ImpulseRenderer {
     const provider = state?.provider;
     const apiKey = state?.apiKey;
     if (!state || !provider || !apiKey) return;
+    const effectiveKey = provider.isCustom ? (state.customProviderName ?? provider.key) : provider.key;
+    
 
     const fallbackModel = this.currentModelForProvider(state.config, provider);
     let selectedModel = fallbackModel;
@@ -1984,9 +1986,9 @@ export class ImpulseRenderer {
     if (!modelChoice) {
       selectedModel = fallbackModel;
     } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
-      selectedModel = modelWithProviderPrefix(provider.key, state.models[modelIdx]!);
+      selectedModel = modelWithProviderPrefix(effectiveKey, state.models[modelIdx]!);
     } else if (!modelChoice.match(/^\d+$/)) {
-      selectedModel = modelWithProviderPrefix(provider.key, modelChoice);
+      selectedModel = modelWithProviderPrefix(effectiveKey, modelChoice);
     } else {
       state.error = "Invalid model selection.";
       this.renderModelSetup();
@@ -1997,7 +1999,7 @@ export class ImpulseRenderer {
     if (state.isAdvisorMode) {
       // Save API key to providers config
       const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
-      providers[provider.key] = {
+      providers[effectiveKey] = {
         ...(state.existing ?? {}),
         apiKey,
         ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
@@ -2025,13 +2027,13 @@ export class ImpulseRenderer {
     }
 
     const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
-    providers[provider.key] = {
+    providers[effectiveKey] = {
       ...(state.existing ?? {}),
       apiKey,
       ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
     };
     state.config.providers = providers as Config["providers"];
-    state.config.defaultProvider = provider.key;
+    state.config.defaultProvider = effectiveKey;
     state.config.defaultModel = selectedModel;
     process.env[provider.envVar] = apiKey;
 
@@ -2043,7 +2045,7 @@ export class ImpulseRenderer {
       await SessionManager.update({ model: selectedModel });
     }
 
-    this.reasoningCapability = this.reasoningCapabilityForProvider(provider.key);
+    this.reasoningCapability = await this.reasoningCapabilityForProvider(effectiveKey);
     await this.normalizeReasoningLevel();
     void this.refreshReasoningCapability();
     // Save reasoning level if provided
