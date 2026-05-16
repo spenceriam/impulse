@@ -16,7 +16,7 @@ import { getProviderManager, resetProviderManager } from "./api/manager";
 import { load as loadConfig, save as saveConfig } from "./util/config";
 import type { Config } from "./util/config";
 import { testOllamaConnection } from "./api/providers/ollama.js";
-import { discoverModels, parseProviderChoice } from "./cli/model-setup.js";
+import { discoverModels } from "./cli/model-setup.js";
 
 // ---------------------------------------------------------------------------
 // Portable .env loader
@@ -187,14 +187,19 @@ async function runSetup(): Promise<void> {
   } else if (isCustom) {
     process.stdout.write("Discovering models…");
     try {
-      const provider = parseProviderChoice(providerKey, providerKey);
-      if (provider && baseUrl) {
-        const discovery = await discoverModels(
-          { ...provider, isCustom, ...(customType ? { customType } : {}), modelBaseUrl: baseUrl, key: providerKey, label, envVar: "", defaultModel, defaultBaseUrl: baseUrl, needsBaseUrl: true },
-          key,
-          baseUrl
-        );
-        if (discovery.success && discovery.models.length > 0) {
+      const customProv: Parameters<typeof discoverModels>[0] = {
+        key: providerKey,
+        label,
+        envVar: "",
+        defaultModel,
+        modelBaseUrl: baseUrl ?? "",
+        ...(baseUrl ? { defaultBaseUrl: baseUrl } : {}),
+        needsBaseUrl: true,
+        isCustom: true,
+        ...(customType ? { customType } : {}),
+      };
+      const discovery = await discoverModels(customProv, key, baseUrl);
+      if (discovery.success && discovery.models.length > 0) {
           console.log(` OK — ${discovery.models.length} models found`);
           console.log("\nAvailable models:");
           discovery.models.slice(0, 10).forEach((m, i) => console.log(`  ${i + 1}. ${m}`));
@@ -213,7 +218,6 @@ async function runSetup(): Promise<void> {
             defaultModel = manual.includes("/") ? manual : `${providerKey}/${manual}`;
           }
         }
-      }
     } catch {
       console.log(" FAIL");
     }

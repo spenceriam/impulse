@@ -64,7 +64,7 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     key: "__custom_anthropic__",
     label: "Custom Provider (Anthropic-compatible)",
     envVar: "",
-    defaultModel: "anthropic/claude-sonnet-4-20250514",
+    defaultModel: "",
     modelBaseUrl: "https://api.anthropic.com/v1",
     defaultBaseUrl: "https://api.anthropic.com/v1",
     needsBaseUrl: true,

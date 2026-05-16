@@ -13,7 +13,7 @@ import { registerCrashRecoveryHandlers } from "./util/crash-recovery.js";
 import { load as loadConfig, save as saveConfig } from "./util/config.js";
 import { resetProviderManager } from "./api/manager.js";
 import { testOllamaConnection } from "./api/providers/ollama.js";
-import { discoverModels, parseProviderChoice } from "./cli/model-setup.js";
+import { discoverModels } from "./cli/model-setup.js";
 import "./tools/init.js";
 import { ImpulseRenderer } from "./cli/renderer.js";
 import packageJson from "../package.json";
@@ -130,7 +130,7 @@ async function runSetup(): Promise<void> {
       envVar = "";
       label = "Custom (Anthropic)";
       needsBaseUrl = true;
-      defaultModel = "anthropic/claude-sonnet-4-20250514";
+      defaultModel = "";
       break;
     default:
       providerKey = "ollama";
@@ -188,10 +188,19 @@ async function runSetup(): Promise<void> {
   } else if (isCustom) {
     // Try model discovery for custom providers
     process.stdout.write("  Discovering models…");
-    const provider = parseProviderChoice(providerKey, providerKey);
-    if (provider) {
-      const discovery = await discoverModels({ ...provider, isCustom, ...(customType ? { customType } : {}), modelBaseUrl: baseUrl ?? "", key: providerKey, label, envVar: "", defaultModel, ...(baseUrl ? { defaultBaseUrl: baseUrl } : {}), needsBaseUrl }, key, baseUrl);
-      if (discovery.success && discovery.models.length > 0) {
+    const customProv: Parameters<typeof discoverModels>[0] = {
+      key: providerKey,
+      label,
+      envVar: "",
+      defaultModel: "",
+      modelBaseUrl: baseUrl ?? "",
+      ...(baseUrl ? { defaultBaseUrl: baseUrl } : {}),
+      needsBaseUrl: true,
+      isCustom: true,
+      ...(customType ? { customType } : {}),
+    };
+    const discovery = await discoverModels(customProv, key, baseUrl);
+    if (discovery.success && discovery.models.length > 0) {
         console.log(` \x1b[32m✓\x1b[0m  ${discovery.message}`);
         console.log(`\n  Available models:`);
         discovery.models.slice(0, 10).forEach((m, i) => console.log(`    ${i + 1}. ${m}`));
@@ -210,7 +219,6 @@ async function runSetup(): Promise<void> {
           defaultModel = manual.includes("/") ? manual : `${providerKey}/${manual}`;
         }
       }
-    }
     if (!defaultModel) {
       defaultModel = `${providerKey}/default`;
     }
