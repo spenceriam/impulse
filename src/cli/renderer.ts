@@ -806,7 +806,7 @@ export class ImpulseRenderer {
     this.mode = normalizeMode(config.defaultMode) as Mode;
     this.advisorModel = config.advisorModel;
     this.reasoningLevel = config.reasoningLevel ?? (config.thinking ? "medium" : "off");
-    this.reasoningCapability = this.reasoningCapabilityForProvider(config.defaultProvider);
+    this.reasoningCapability = await this.reasoningCapabilityForProvider(config.defaultProvider);
     this.userName = config.userProfile?.name || "you";
     await this.normalizeReasoningLevel();
 
@@ -1020,7 +1020,7 @@ export class ImpulseRenderer {
           await saveConfig(config);
         }
       } else {
-        this.reasoningCapability = this.reasoningCapabilityForProvider(providerName);
+        this.reasoningCapability = await this.reasoningCapabilityForProvider(providerName);
       }
       await this.normalizeReasoningLevel();
       this.contextBar.update({ reasoningLevel: this.reasoningDisplayLabel() });
@@ -1030,8 +1030,13 @@ export class ImpulseRenderer {
     }
   }
 
-  private reasoningCapabilityForProvider(providerName: string): ReasoningCapability {
-    const style = PROVIDER_REASONING_STYLE[providerName] ?? "none";
+  private async reasoningCapabilityForProvider(providerName: string): Promise<ReasoningCapability> {
+    let style = PROVIDER_REASONING_STYLE[providerName];
+    if (!style) {
+      const config = await loadConfig();
+      const providerType = (config.providers as Record<string, { type?: string }>)[providerName]?.type;
+      style = providerType === "anthropic-compatible" ? "budget" : "effort";
+    }
     return {
       supported: style !== "none",
       style,
@@ -1936,7 +1941,6 @@ export class ImpulseRenderer {
         }
         state.selectedModel = fallbackModel;
       } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
-        const ek = state.provider!.isCustom ? (state.customProviderName ?? state.provider!.key) : state.provider!.key;
         state.selectedModel = modelWithProviderPrefix(ek, state.models[modelIdx]!);
       } else if (!input.match(/^\d+$/)) {
         state.selectedModel = modelWithProviderPrefix(ek, input);
@@ -2003,6 +2007,7 @@ export class ImpulseRenderer {
         ...(state.existing ?? {}),
         apiKey,
         ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+      ...(provider.customType ? { type: provider.customType } : {}),
       };
       state.config.providers = providers as Config["providers"];
       state.config.advisorModel = selectedModel;
@@ -2031,6 +2036,7 @@ export class ImpulseRenderer {
       ...(state.existing ?? {}),
       apiKey,
       ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+      ...(provider.customType ? { type: provider.customType } : {}),
     };
     state.config.providers = providers as Config["providers"];
     state.config.defaultProvider = effectiveKey;
