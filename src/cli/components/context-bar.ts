@@ -102,6 +102,8 @@ const MODE_COLOR: Record<string, number> = { AGENT: 34, EXPLORE: 32, PLAN: 33, D
 export interface ContextBarState {
   workerModel: string;
   advisorModel?: string | undefined;
+  visionModel?: string | undefined;
+  visionMode?: boolean;
   contextTokens: number;
   contextWindow: number;
   mode: string;
@@ -156,7 +158,8 @@ export class ContextBarComponent implements Component {
       ? ` (${clr.model(s.reasoningLevel)})` : "";
     const advisorSeg = s.advisorModel
       ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))} ${clr.advisor("(adv)")}` : "";
-    const modelFull = modelSeg + rlSeg + advisorSeg;
+    const modelFull = modelSeg + rlSeg + advisorSeg +
+      (s.visionMode && s.visionModel ? ` ${sep}${clr.advisor(shortModel(s.visionModel))} ${clr.advisor("(eye)")}` : "");
     const modelWidth = visibleWidth(modelFull);
 
     // Context: "68k/200k 34% ████░░░░"

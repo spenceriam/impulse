@@ -43,6 +43,15 @@ const ConfigSchema = z.object({
   /** Advisor mode — toggle for advisor/executor pattern */
   advisorMode: z.boolean().default(false).describe("Whether advisor mode is active"),
 
+  /** Vision model — optional separate model for image understanding */
+  visionModel: z.string().optional().describe("Vision model for image interpretation"),
+
+  /** Vision provider key — provider configured for vision model */
+  visionProvider: z.string().optional().describe("Provider key for vision model"),
+
+  /** Vision mode — toggle for automatic image→text translation */
+  visionMode: z.boolean().default(false).describe("Whether vision translation is active"),
+
   /** Default mode: AGENT, EXPLORE, PLAN, DEBUG */
   defaultMode: z.string().default("AGENT").describe("Default agent mode"),
 

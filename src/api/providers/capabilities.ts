@@ -136,13 +136,17 @@ export async function discoverOllamaReasoning(
 
     if (res.ok) {
       const data = (await res.json()) as OllamaShowResponse;
-      const caps = data.capabilities ?? [];
-      const hasThinking = caps.includes("thinking");
-      return {
-        supported: hasThinking,
-        style:     "binary",
-        levels:    hasThinking ? BINARY_LEVELS : NO_LEVELS,
-      };
+      if (Array.isArray(data.capabilities)) {
+        const caps = data.capabilities;
+        const hasThinking = caps.includes("thinking");
+        return {
+          supported: hasThinking,
+          style:     "binary",
+          levels:    hasThinking ? BINARY_LEVELS : NO_LEVELS,
+        };
+      }
+      // Capabilities not a meaningful array (Ollama Cloud may return empty object) —
+      // fall through to heuristic
     }
   } catch {
     // /api/show not available (Ollama Cloud might not expose it) —
@@ -304,4 +308,20 @@ export async function probeReasoningSupport(
   } catch {
     return { supported: false, style: "none", levels: NO_LEVELS };
   }
+}
+
+/** Heuristic to check if a model likely supports vision/image input.
+ *  Based on well-known vision model naming patterns across providers. */
+export function modelSupportsVision(model: string): boolean {
+  const lower = model.toLowerCase();
+  const visionPatterns = [
+    "vision", "vl", "omni", "gpt-4o", "gpt-4-turbo",
+    "claude-3", "claude-3.5", "claude-3.7", "claude-4",
+    "gemini-2", "gemini-flash", "gemini-pro-vision",
+    "llama-3.2-vision", "llava", "pixtral",
+    "qwen2-vl", "qwen-vl", "cogvlm", "fuyu",
+    "minicpm-v", "internvl", "phi-3-vision",
+    "yi-vision", "step-1v", "glm-4v",
+  ];
+  return visionPatterns.some(p => lower.includes(p));
 }

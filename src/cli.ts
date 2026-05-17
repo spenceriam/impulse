@@ -235,7 +235,7 @@ async function runSetup(): Promise<void> {
     reasoningLevel: "medium",
     maxOutputTokens: 32000,
     hasSeenWelcome: false,
-    advisorMode: false,
+    advisorMode: false, visionMode: false,
   }));
 
   cfg.providers[providerKey as keyof Config["providers"]] = {
