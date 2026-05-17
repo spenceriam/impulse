@@ -2110,7 +2110,26 @@ export class ImpulseRenderer {
       }
     }
 
-    this.modelSetup = {
+    
+    // Scan config for custom providers not in MODEL_PROVIDERS
+    const allProvs = config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;
+    for (const [key, stored] of Object.entries(allProvs)) {
+      if (MODEL_PROVIDERS.some(p => p.key === key)) continue;
+      if (!stored?.apiKey) continue;
+      const cp: ModelProviderOption = {
+        key,
+        label: `Custom: ${key}${stored.type ? ` (${stored.type === "anthropic-compatible" ? "Anthropic" : "OpenAI"})` : ""}`,
+        envVar: "",
+        defaultModel: config.defaultModel ?? "",
+        modelBaseUrl: stored.baseUrl ?? "",
+        ...(stored.baseUrl ? { defaultBaseUrl: stored.baseUrl } : {}),
+        needsBaseUrl: false,
+        isCustom: false,
+        ...(stored.type ? { customType: stored.type as "openai-compatible" | "anthropic-compatible" } : {}),
+      };
+      configured.push({ provider: cp, configured: true, valid: true, keyPreview: maskKey(stored.apiKey) });
+    }
+this.modelSetup = {
       step: "provider",
       config,
       currentProvider,
