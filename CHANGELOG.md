@@ -5,6 +5,70 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-05-12
+
+**Type:** minor
+**Title:** Compact CLI diffs and terminal-native polish
+
+### Added
+
+- **Compact file diffs** - `file_edit` and `file_write` tool rows now show compact line-numbered diffs with clearer summaries, spacing before changed lines, and red strikethrough removals.
+- **Terminal-native table rendering** - Assistant markdown tables now render as boxed tables on wide terminals and stacked records on narrow terminals.
+- **Live footer telemetry** - Context and token-speed estimates now update during active turns and reconcile with final turn usage.
+
+### Changed
+
+- **Cleaner active status line** - The main activity line no longer uses a spinner; it now shimmers/pulses with slower one-phrase rotation while tool rows keep their own slower indicators.
+- **Clearer search tool rows** - `glob` and `grep` completions now show distinct pattern, path, include, and match-count summaries.
+- **Simpler question overlay** - Questions now use visible radio/checkbox markers with arrow, space, and enter navigation instead of hidden numeric/custom hotkeys.
+- **More consistent CLI spacing** - User, assistant, thinking, and tool output gutters were tightened toward a consistent two-space layout.
+
+## [0.38.0] - 2026-05-12
+
+**Type:** minor
+**Title:** Clearer CLI activity, working question overlays, and bundled grep
+
+### Added
+
+- **Bundled ripgrep dependency** - IMPULSE now ships with packaged ripgrep so `grep` works without requiring a separate system install.
+- **Question overlay component** - Added a dedicated keyboard-driven question overlay so question prompts can actually render and collect answers in the CLI.
+- **CLI regression coverage** - Added tests for tool-row formatting, question overlay interaction, packaged grep, and PowerShell permission classification.
+
+### Changed
+
+- **Active turn status line stays visible** - The spinner/comment line above the prompt now persists for the full AI turn with clearer phase text and extra spacing from the chat stream.
+- **Tool rows are easier to scan** - Running tools use lightweight animated indicators, durations display in seconds, question calls are quieter, and successful tools avoid dumping low-value raw output by default.
+- **Todo completion styling is clearer** - Completed todos now render with a checkmark, and the in-progress marker is visually highlighted.
+- **Footer telemetry is more legible** - Low-percentage context usage now formats more consistently and token-speed reporting is less jumpy.
+
+### Fixed
+
+- **Question flow lifecycle bugs** - Question calls no longer get stuck invisibly after launch/cancel, and `Esc` now aborts the active turn cleanly.
+- **Windows grep path parsing** - Bundled ripgrep results now parse correctly even when absolute Windows paths include drive letters.
+- **PowerShell safety false positive** - Read-only `Select-String ... | Format-Table` commands no longer trigger destructive-command permission prompts.
+
+## [0.37.0] - 2026-05-10
+
+**Type:** minor  
+**Title:** Restored TUI flow and provider-neutral web research
+
+### Added
+
+- **Provider-neutral web research tools** - Added `web_search` and `web_fetch` with direct web access first and bundled `agent-browser` fallback.
+- **Agent-browser fallback dependency** - Bundled `agent-browser` so IMPULSE can fall back to browser-backed search/fetch without requiring a global install.
+
+### Changed
+
+- **Restored bottom-anchored prompt flow** - Returned the prompt to the pre-editor single-line input style and preserved visible chat/tool streaming behavior.
+- **Thinking block polish** - Thinking now renders inline as `Thinking: <content>` with darker colors, wrapping, and continuation indentation.
+- **Provider-neutral language and model UX** - Updated active product copy, model handling, env-var messaging, and legacy Z.ai naming surfaces.
+- **Checkpoint safety** - Checkpoint creation now snapshots without checking out temporary branches and uses future `impulse-checkpoint-*` refs while still reading old refs.
+- **Web research prompts** - Replaced the old MCP discovery instructions with `web_search`/`web_fetch` guidance.
+
+### Removed
+
+- **Default Z.ai MCP research path** - Removed the unreliable default Vision/Web Search/Web Reader/Zread MCP discovery surface and related `mcp_discover` tool exposure.
+
 ## [0.35.0] - 2026-02-25
 
 **Type:** minor  

@@ -6,6 +6,7 @@
  */
 
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk, ToolDefinition, ThinkingConfig } from "./types";
+import type { ReasoningLevel } from "../util/config";
 
 // Provider configuration
 export interface ProviderConfig {
@@ -26,7 +27,11 @@ export interface CompletionOptions {
   tool_choice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
   stream?: boolean;
   signal?: AbortSignal;
+  /** @deprecated use reasoningLevel instead */
   thinking?: ThinkingConfig;
+  /** Unified reasoning level. "off" disables; low/medium/high map to provider-specific params.
+   * Binary providers (Ollama, ZAI) treat any non-"off" as enabled. */
+  reasoningLevel?: ReasoningLevel;
 }
 
 // Stream completion options

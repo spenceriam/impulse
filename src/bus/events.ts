@@ -90,17 +90,6 @@ export const MessageEvents = {
   ),
 };
 
-export const McpEvents = {
-  StatusChanged: BusEvent.define(
-    "mcp.status",
-    z.object({
-      server: z.string(),
-      status: z.enum(["connected", "failed", "disabled"]),
-      error: z.string().optional(),
-    })
-  ),
-};
-
 // Question option schema for the question tool
 const QuestionOptionSchema = z.object({
   label: z.string().describe("Display text (1-5 words, concise)"),
@@ -138,7 +127,7 @@ export const ModeEvents = {
   Changed: BusEvent.define(
     "mode.changed",
     z.object({
-      mode: z.enum(["WORK", "EXPLORE", "PLAN", "DEBUG"]),
+      mode: z.enum(["AGENT", "EXPLORE", "PLAN", "DEBUG"]),
       reason: z.string().optional().describe("Brief explanation of why mode was changed"),
     })
   ),
@@ -161,6 +150,18 @@ const QueueMessageSchema = z.object({
   content: z.string().describe("The message content"),
   timestamp: z.number().describe("Unix timestamp when message was queued"),
 });
+
+
+
+export const SubagentEvents = {
+  Progress: BusEvent.define(
+    "subagent.progress",
+    z.object({
+      type: z.enum(["text", "tool", "thinking"]),
+      content: z.string(),
+    })
+  ),
+};
 
 export const QueueEvents = {
   Added: BusEvent.define(

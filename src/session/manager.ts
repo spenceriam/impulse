@@ -14,8 +14,8 @@ class SessionManagerImpl {
   private currentSession: Session | null = null;
   private sessionHistory: Session[] = [];
   private options: Required<SessionManagerOptions> = {
-    defaultModel: "glm-4.7",
-    defaultMode: "WORK",
+    defaultModel: "",
+    defaultMode: "AGENT",
     initialContextWindow: 200000,
   };
 

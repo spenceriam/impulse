@@ -12,16 +12,14 @@
 //   for await (const chunk of provider.stream({ messages })) { ... }
 // ============================================================
 
-export {
+export type {
   // Provider abstraction
   AIProvider,
   ProviderConfig,
   CompletionOptions,
   StreamCompletionOptions,
-  ProviderError,
-  ProviderAuthError,
-  ProviderRateLimitError,
 } from "./providers";
+export { ProviderError, ProviderAuthError, ProviderRateLimitError } from "./providers";
 
 export {
   // Individual providers (for direct use if needed)
@@ -33,7 +31,12 @@ export {
   GroqProvider,
   GROQ_MODELS,
   GeminiProvider,
+  OllamaProvider,
+  OLLAMA_DEFAULT_BASE_URL,
+  ollamaSupportsReasoning,
+  testOllamaConnection,
 } from "./providers";
+export type { OllamaConnectionTestResult } from "./providers";
 
 export {
   // Provider manager
@@ -46,9 +49,18 @@ export {
   type ProviderKey,
 } from "./manager";
 
-// Legacy GLMClient — kept for backward compatibility during migration
+// Legacy Z.ai client — prefer using getProviderManager() for new code.
 // Prefer using getProviderManager() for new code
-export { GLMClient, GLMClientError, GLMAuthError, GLMRateLimitError } from "./client";
+export {
+  ZAIClient,
+  ZAIClientError,
+  ZAIAuthError,
+  ZAIRateLimitError,
+  GLMClient,
+  GLMClientError,
+  GLMAuthError,
+  GLMRateLimitError,
+} from "./client";
 
 // Streaming utilities
 export {
@@ -68,6 +80,7 @@ export type {
 
 // Core types
 export type {
+  ZAIModel,
   GLMModel,
   MessageRole,
   ChatMessage,
@@ -86,6 +99,7 @@ export type {
 
 // Schemas (for validation)
 export {
+  ZAIModel as ZAIModelSchema,
   GLMModel as GLMModelSchema,
   MessageRole as MessageRoleSchema,
   ChatMessage as ChatMessageSchema,

@@ -8,7 +8,7 @@ Generated: 01-19-2026
 
 ## Overview
 
-**impulse** is a terminal-based AI coding agent powered by Zhipu AI's GLM-4.x models. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development.
+**impulse** is a provider-flexible terminal AI coding agent. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development while supporting model providers such as Ollama, OpenRouter, OpenAI, Groq, Gemini, Nous, and Z.ai.
 
 ### Target Users
 
@@ -22,7 +22,7 @@ Generated: 01-19-2026
 2. **Flicker-Free Streaming** - 60fps rendering during AI response streaming
 3. **Multiple Modes** - Specialized modes for coding, planning, debugging
 4. **Session Persistence** - Save, load, undo/redo across sessions
-5. **MCP Integration** - Extended capabilities via Vision, Web Search, Web Reader, Zread
+5. **Web Research** - Built-in `web_search` and `web_fetch` with browser fallback
 
 ---
 
@@ -56,8 +56,8 @@ Generated: 01-19-2026
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-1.3.1 | Support 8 GLM models (4.7, 4.7-flash, 4.6, 4.6v, 4.5, 4.5-air, 4.5-flash, 4.5v) | Must |
-| FR-1.3.2 | Default to glm-4.7 | Must |
+| FR-1.3.1 | Support provider-prefixed model strings and configured-provider discovery | Must |
+| FR-1.3.2 | Default to the configured provider/model | Must |
 | FR-1.3.3 | Switch models via /model command | Must |
 | FR-1.3.4 | Display current model in status line | Should |
 
@@ -66,7 +66,7 @@ Generated: 01-19-2026
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR-1.4.1 | Multi-line paste detection with "[Pasted ~X lines]" display | Must |
-| FR-1.4.2 | Image paste detection routed to Vision MCP | Must |
+| FR-1.4.2 | Image paste detection prepared for future browser/vision tooling | Should |
 | FR-1.4.3 | @ symbol triggers file/directory autocomplete | Must |
 | FR-1.4.4 | Support @~ for home directory search | Should |
 | FR-1.4.5 | Support @file#10-20 for line range references | Should |
@@ -82,7 +82,7 @@ Generated: 01-19-2026
 | FR-1.5.4 | /continue - Session picker with preview (alias: /load) | Must |
 | FR-1.5.5 | /undo - Git-based revert to checkpoint | Must |
 | FR-1.5.6 | /redo - Restore undone changes | Must |
-| FR-1.5.7 | /model - Switch GLM model | Must |
+| FR-1.5.7 | /model - Switch configured model | Must |
 | FR-1.5.8 | /mode - Switch mode (alt to Tab) | Must |
 | FR-1.5.9 | /instruct - Edit project instructions | Should |
 | FR-1.5.10 | /config - Basic settings overlay | Should |
@@ -135,17 +135,14 @@ Generated: 01-19-2026
 | FR-1.8.4 | Agent-controlled delegation (no user @ syntax) | Must |
 | FR-1.8.5 | Subagent results displayed in collapsible blocks | Should |
 
-### 1.9 MCP Integration
+### 1.9 Web Research
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-1.9.1 | Vision MCP (local stdio) for image analysis | Must |
-| FR-1.9.2 | Web Search MCP (remote HTTP) for web queries | Must |
-| FR-1.9.3 | Web Reader MCP (remote HTTP) for URL content | Must |
-| FR-1.9.4 | Zread MCP (remote HTTP) for repo documentation | Must |
-| FR-1.9.5 | Single API key configuration for all MCPs | Must |
-| FR-1.9.6 | Ctrl+M for MCP status overlay | Should |
-| FR-1.9.7 | Graceful degradation on MCP failure | Must |
+| FR-1.9.1 | `web_search` for current external source discovery | Must |
+| FR-1.9.2 | `web_fetch` for exact HTTP(S) URL reading | Must |
+| FR-1.9.3 | Bundled `agent-browser` fallback for failed direct web access | Must |
+| FR-1.9.4 | Clear failures when direct and browser-backed web access both fail | Must |
 
 ### 1.10 Session Management
 
@@ -263,7 +260,7 @@ The following are explicitly NOT part of this project:
 | Multi-user/Collaboration | Single-user tool |
 | Cloud Storage for Sessions | Local file storage only |
 | Plugin System | Keep core simple, use MCP for extensions |
-| Custom Model Training | Uses pre-trained GLM models |
+| Custom Model Training | Uses pre-trained provider models |
 | Voice Input/Output | Text-based interaction only |
 | IDE Integration | Standalone CLI tool |
 
@@ -273,7 +270,7 @@ The following are explicitly NOT part of this project:
 
 | ID | Question | Status | Decision |
 |----|----------|--------|----------|
-| OQ-1 | Should we support custom MCP servers beyond the 4 Z.AI ones? | Open | - |
+| OQ-1 | Should we support custom external tool providers beyond built-in web tools? | Open | - |
 | OQ-2 | Should session auto-compact be configurable or fixed at 70%? | Open | - |
 | OQ-3 | Should we support multiple concurrent sessions? | Decided | No - single session at a time |
 | OQ-4 | Should thinking mode be configurable per-mode or global? | Decided | Global toggle via /think |

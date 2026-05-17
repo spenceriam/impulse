@@ -5,7 +5,7 @@ import { Bus, ModeEvents } from "../bus";
 /**
  * Valid modes the AI can switch to
  */
-const VALID_MODES = ["WORK", "EXPLORE", "PLAN", "DEBUG"] as const;
+const VALID_MODES = ["AGENT", "EXPLORE", "PLAN", "DEBUG"] as const;
 
 /**
  * Tool description for AI

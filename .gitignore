@@ -37,3 +37,11 @@ coverage/
 # Temporary files
 *.tmp
 .cache/
+""  
+"# PowerShell temp scripts"  
+"fix_*.ps1"  
+""  
+"# Impulse temp"  
+".impulse/"  
+"temp-test/"  
+"temp_testing/" 

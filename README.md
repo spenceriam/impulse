@@ -5,18 +5,19 @@
 [![Bun](https://img.shields.io/badge/Bun-%3E%3D1.0-f9f1e1?logo=bun)](https://bun.sh)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> Terminal-based AI coding agent powered by Z.ai's Coding Plan
+> Terminal-based, provider-flexible AI coding agent
 
-A brutally minimal terminal interface for AI-assisted software development. Flicker-free 60fps rendering, integrated MCP servers, and session management - all in your terminal.
+A brutally minimal terminal interface for AI-assisted software development. Supports any OpenAI-compatible or Anthropic-compatible provider — Ollama Cloud, OpenRouter, Fireworks, Moonshot, Xiaomi Mimo, and many more. Model discovery, reasoning detection, vision model routing, and session management — all in your terminal.
 
 <!-- TODO: Add demo GIF -->
 <!-- ![IMPULSE Demo](docs/demo.gif) -->
 
 ## Features
 
-- **GLM-4.x Models** - Z.ai's flagship models with thinking mode
+- **Custom provider support** - Any OpenAI-compatible or Anthropic-compatible endpoint. Unlimited custom providers with automatic model discovery, reasoning capability probing, and persistent configuration
 - **4 Modes** - WORK, EXPLORE, PLAN, DEBUG (Tab to cycle)
-- **MCP Integration** - Vision, Web Search, Web Reader, Zread, Context7
+- **Vision model routing** - Separate vision-capable model for image/screenshot interpretation, automatic fallback when main model is text-only
+- **Web research tools** - Built-in `web_search` and `web_fetch`, with bundled `agent-browser` fallback
 - **Session Management** - Auto-save, load previous sessions, undo/redo via git checkpoints
 - **Auto-Compact** - AI summarization at 85% context usage
 - **Express Mode** - Skip permission prompts in trusted environments
@@ -29,14 +30,15 @@ A brutally minimal terminal interface for AI-assisted software development. Flic
 npm install -g @spenceriam/impulse
 ```
 
-Set your API key:
+Set an API key for your chosen provider:
 
 ```bash
-# Environment variable
-export GLM_API_KEY=your_key_here
+# Other examples
+export OLLAMA_API_KEY=your_key_here
+export OPENROUTER_API_KEY=your_key_here
 
 # Or config file (~/.config/impulse/config.json)
-echo '{"apiKey": "your_key_here"}' > ~/.config/impulse/config.json
+echo '{"providers": {"ollama": {"baseUrl": "https://ollama.com"}}, "defaultProvider": "ollama", "defaultModel": "ollama/deepseek-v4-pro"}' > ~/.config/impulse/config.json
 ```
 
 ## Quick Start
@@ -62,7 +64,7 @@ impulse --prompt "explain this codebase"
 | `-p, --prompt <text>` | Run prompt headless (no TUI) |
 | `-c, --continue` | Show session picker |
 | `-s, --session <id>` | Resume specific session |
-| `-m, --model <model>` | Set model (default: glm-4.7) |
+| `-m, --model <model>` | Set provider-prefixed model (for example `ollama/deepseek-v4-pro` or `z.ai/glm-4.7`) |
 | `--mode <mode>` | Set mode (WORK, EXPLORE, PLAN, DEBUG) |
 | `-e, --express` | Enable Express mode |
 | `-d, --dir <path>` | Set working directory |
@@ -115,19 +117,13 @@ Press `Tab` to cycle modes, `Shift+Tab` to cycle reverse. The AI will suggest mo
 | `Ctrl+C` (2x) | Exit |
 | `Ctrl+Q` | Message queue |
 | `Ctrl+P` | Command palette |
-| `Ctrl+M` | MCP status |
+| `Ctrl+M` | Reserved |
 
-## MCP Servers
+## Web Research
 
-Five MCP servers integrated out of the box:
+IMPULSE includes provider-neutral web tools. The model can use `web_search` to discover current sources and `web_fetch` to read exact URLs. If direct search/fetch fails, IMPULSE falls back to bundled `agent-browser` for browser-backed access.
 
-| Server | Purpose |
-|--------|---------|
-| **Vision** | Image/video analysis, UI screenshots |
-| **Web Search** | Real-time web search |
-| **Web Reader** | Fetch and parse web pages |
-| **Zread** | Documentation search, GitHub repos |
-| **Context7** | Library/framework documentation |
+The old Z.ai-hosted research path (vision, web-search, web-reader, zread) is no longer part of the default tool surface.
 
 ## Configuration
 
@@ -135,11 +131,14 @@ Config file: `~/.config/impulse/config.json`
 
 ```json
 {
-  "apiKey": "your_key_here",
-  "defaultModel": "glm-4.7",
+  "providers": {
+    "z.ai": { "apiKey": "your_key_here" },
+    "ollama": { "baseUrl": "https://ollama.com" }
+  },
+  "defaultProvider": "my-provider",
+  "defaultModel": "my-provider/gpt-4o",
   "defaultMode": "WORK",
-  "thinking": true,
-  "express": false
+  "reasoningLevel": "medium"
 }
 ```
 
@@ -165,7 +164,8 @@ IMPULSE wouldn't exist without these amazing projects:
 - **[OpenTUI](https://github.com/pioner92/opentui)** - The terminal UI framework that makes flicker-free rendering possible
 - **[Bun](https://bun.sh)** - The fast JavaScript runtime that powers everything
 - **[OpenCode](https://opencode.ai)** - The inspiration for this project and the harness used to build it
-- **[Z.ai](https://z.ai)** - For the GLM models and Coding Plan API
+- **[Pi Coding Agent](https://pi.dev)** - Inspiration for the rework and simplification
+- **[Z.ai](https://z.ai)** - For GLM models and the Coding Plan API
 
 ## License
 

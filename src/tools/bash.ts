@@ -12,8 +12,9 @@ import {
   type PtyHandle,
 } from "../pty";
 
-const DESCRIPTION = `Run a shell command in a persistent session.
+const DESCRIPTION = `Run a shell command in the host platform shell.
 
+On Windows this uses PowerShell. On macOS/Linux this uses bash.
 Required: command, description. Optional: workdir, timeout, interactive.
 See docs/tools/bash.md for safety rules and usage details.`;
 
@@ -34,24 +35,34 @@ interface SpawnOptions {
 }
 
 /**
- * Destructive command patterns (always require permission)
+ * High-risk command patterns (require permission)
+ *
+ * This is intentionally broader than strictly destructive deletes:
+ * anything that can erase data, rewrite history, publish/deploy, escalate
+ * privileges, or pipe network content into a shell should be reviewed.
  */
-const DESTRUCTIVE_PATTERNS = [
-  // File deletion
+const HIGH_RISK_PATTERNS = [
+  // File deletion / overwrite
   /\brm\s+(-[rfivI]+\s+)*[^\s]/,
   /\brmdir\b/,
   /\bunlink\b/,
   /\bshred\b/,
+  /\bdel\s+\/?[fq]?\b/i,
+  /\berase\b/i,
+  /\bRemove-Item\b/i,
 
-  // Git destructive
+  // Git destructive / remote side-effects
   /\bgit\s+reset\s+--hard\b/,
-  /\bgit\s+clean\s+-[fd]+\b/,
-  /\bgit\s+push\s+.*--force\b/,
-  /\bgit\s+push\s+-f\b/,
+  /\bgit\s+clean\s+-[fdx]+\b/,
+  /\bgit\s+push\b/,
   /\bgit\s+checkout\s+\.\s*$/,
   /\bgit\s+restore\s+\.\s*$/,
+  /\bgit\s+rebase\s+--abort\b/,
 
-  // Process/System
+  // Privilege escalation / process / system
+  /\bsudo\b/,
+  /\brunas\b/i,
+  /\bStart-Process\b.*-Verb\s+RunAs\b/i,
   /\bkill\s+-9\b/,
   /\bkillall\b/,
   /\bpkill\b/,
@@ -65,24 +76,32 @@ const DESTRUCTIVE_PATTERNS = [
   /\bdd\s+.*of=/,
   /\bmkfs\b/,
   /\bfdisk\b/,
+  /\bformat(?:\.com)?\s+[A-Za-z]:/i,
+  /\bformat\s+\/fs:/i,
+  /\bFormat-Volume\b/i,
 
   // Database destructive
   /\bDROP\s+(TABLE|DATABASE|INDEX)\b/i,
   /\bTRUNCATE\b/i,
   /\bDELETE\s+FROM\b.*WHERE\s*$/i,
 
-  // Package manager uninstalls
+  // Package manager / publishing / deploy
   /\bnpm\s+uninstall\b/,
   /\byarn\s+remove\b/,
   /\bpip\s+uninstall\b/,
   /\bapt(-get)?\s+(remove|purge)\b/,
   /\bbrew\s+uninstall\b/,
+  /\bnpm\s+publish\b/,
+  /\bbun\s+publish\b/,
+  /\bgh\s+release\s+create\b/,
+  /\b(vercel|netlify|wrangler)\s+deploy\b/,
 
   // Other dangerous
   /\bchmod\s+777\b/,
   /\bchown\s+-R\b.*\//,
   /\bcurl\s+.*\|\s*(ba)?sh\b/,
   /\bwget\s+.*\|\s*(ba)?sh\b/,
+  /\bInvoke-WebRequest\b.*\|/i,
 ];
 
 /**
@@ -102,20 +121,25 @@ const INTERACTIVE_COMMANDS = [
 ];
 
 /**
- * Safe command patterns (auto-allow)
+ * Safe/benign command patterns (auto-allow)
  */
 const SAFE_PATTERNS = [
   // Read-only git
   /\bgit\s+(status|log|diff|show|branch|tag|remote|fetch)\b/,
   /\bgit\s+ls-/,
 
-  // Directory listing
+  // Directory listing / navigation
   /\bls\b/,
   /\bdir\b/,
   /\bfind\s+.*-type\s+[fd]\b/,
   /\bfind\s+.*-name\b/,
+  /\bGet-ChildItem\b/i,
+  /\bGet-Location\b/i,
+  /\bResolve-Path\b/i,
+  /\bTest-Path\b/i,
+  /\bcd\b/,
 
-  // File viewing
+  // File viewing / searching
   /\bcat\b/,
   /\bhead\b/,
   /\btail\b/,
@@ -124,6 +148,9 @@ const SAFE_PATTERNS = [
   /\bgrep\b/,
   /\brg\b/,
   /\bwc\b/,
+  /\bGet-Content\b/i,
+  /\bSelect-String\b/i,
+  /\bFormat-(Table|List|Wide)\b/i,
 
   // Environment/info
   /\bpwd\b/,
@@ -134,23 +161,32 @@ const SAFE_PATTERNS = [
   /\bwhich\b/,
   /\btype\b/,
   /\bfile\b/,
+  /\bGet-Command\b/i,
+  /\bGet-Date\b/i,
 
   // Package info (not install/uninstall)
   /\bnpm\s+(list|ls|info|view|search)\b/,
   /\byarn\s+(list|info|why)\b/,
   /\bpip\s+(list|show|search)\b/,
+  /\bbun\s+(pm|why|outdated)\b/,
 
-  // Build/test (generally safe)
+  // Local build/test/dev flows (non-destructive)
   /\bnpm\s+(run|test|start|build)\b/,
   /\byarn\s+(run|test|start|build)\b/,
+  /\bbun\s+(run|test|x)\b/,
   /\bnpx\b/,
   /\bpython\s+-c\b/,
   /\bnode\s+-e\b/,
 
+  // Benign local filesystem creation
+  /\bmkdir\b/,
+  /\bmd\b/i,
+  /\bNew-Item\b.*-ItemType\s+Directory\b/i,
+
   // Version checks
   /--version\b/,
   /-v\b$/,
-  /\b(node|npm|yarn|python|pip|git|cargo|go)\s+-v\b/,
+  /\b(node|npm|yarn|python|pip|git|cargo|go|bun|pwsh|powershell)\s+-v\b/,
 ];
 
 /**
@@ -167,15 +203,14 @@ function needsInteractiveMode(command: string): boolean {
 }
 
 /**
- * Classify a command as safe, destructive, or unknown
+ * Classify a command as safe, high-risk, or unknown.
  */
-function classifyCommand(command: string): "safe" | "destructive" | "unknown" {
+export function classifyCommand(command: string): "safe" | "high_risk" | "unknown" {
   const trimmed = command.trim();
 
-  // Check destructive first (higher priority)
-  for (const pattern of DESTRUCTIVE_PATTERNS) {
+  for (const pattern of HIGH_RISK_PATTERNS) {
     if (pattern.test(trimmed)) {
-      return "destructive";
+      return "high_risk";
     }
   }
 
@@ -192,61 +227,141 @@ function classifyCommand(command: string): "safe" | "destructive" | "unknown" {
  * Check if a path is within the current working directory
  */
 function isWithinCwd(targetPath: string, cwd: string): boolean {
-  const absoluteTarget = isAbsolute(targetPath) 
-    ? targetPath 
+  const absoluteTarget = isAbsolute(targetPath)
+    ? targetPath
     : resolve(cwd, targetPath);
   const relativePath = relative(cwd, absoluteTarget);
-  
+
   // If relative path starts with "..", it's outside cwd
-  return !relativePath.startsWith("..");
+  return relativePath !== ".." && !relativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`);
+}
+
+function tokenizeCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function isPathLikeToken(token: string): boolean {
+  return (
+    token.startsWith(".") ||
+    token.startsWith("/") ||
+    token.startsWith("~") ||
+    token.includes("/") ||
+    token.includes("\\") ||
+    /^[A-Za-z]:[\\/]/.test(token) ||
+    token.startsWith("\\\\")
+  );
 }
 
 /**
- * Extract paths from a command (basic heuristic)
+ * Extract path-like arguments from a command (cross-platform heuristic)
  */
 function extractPaths(command: string): string[] {
-  const paths: string[] = [];
-  
-  // Match absolute paths and relative paths that look like file paths
-  const pathPattern = /(?:^|\s)((?:\/[\w.-]+)+|(?:\.\.?\/)?[\w.-]+(?:\/[\w.-]+)*)/g;
-  let match;
-  
-  while ((match = pathPattern.exec(command)) !== null) {
-    const path = match[1];
-    // Skip if it looks like a flag or option
-    if (path && !path.startsWith("-") && (path.includes("/") || path.startsWith("."))) {
-      paths.push(path);
-    }
+  return tokenizeCommand(command)
+    .filter((token) => token.length > 0 && !token.startsWith("-") && isPathLikeToken(token));
+}
+
+function normalizeWindowsCommand(command: string): string {
+  const trimmed = command.trim();
+
+  // Common POSIX pattern used by agents; translate to PowerShell so smoke tests
+  // and local setup commands work naturally on Windows.
+  const mkdirMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/i);
+  if (mkdirMatch?.[1]) {
+    return `New-Item -ItemType Directory -Force -Path ${mkdirMatch[1]} | Out-Null`;
   }
-  
-  return paths;
+
+  return command;
+}
+
+function getSpawnOptions(input: BashInput): SpawnOptions {
+  const cwd = input.workdir ? sanitizePath(input.workdir) : undefined;
+  const common: SpawnOptions = {
+    ...(cwd ? { cwd } : {}),
+    env: process.env,
+    cmd: [],
+  };
+
+  if (process.platform === "win32") {
+    return {
+      ...common,
+      cmd: [
+        "powershell.exe",
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        normalizeWindowsCommand(input.command),
+      ],
+    };
+  }
+
+  return {
+    ...common,
+    cmd: ["bash", "-lc", input.command],
+  };
 }
 
 /**
- * Check if command needs permission
+ * Check if command needs permission.
+ *
+ * Policy:
+ * - High-risk commands always require approval
+ * - Any command touching paths outside the working directory requires approval
+ * - Safe and unknown commands within the working directory are allowed
  */
-function needsPermission(command: string, workdir?: string): { needed: boolean; reason?: string } {
+export function needsPermission(command: string, workdir?: string): { needed: boolean; reason?: string } {
   const cwd = workdir || process.cwd();
 
   const classification = classifyCommand(command);
-  if (classification === "destructive") {
-    return { needed: true, reason: "Destructive command" };
+  if (classification === "high_risk") {
+    return { needed: true, reason: "High-risk command" };
   }
 
-  // Check for paths outside cwd (even for safe commands)
-  const paths = extractPaths(command);
-  for (const path of paths) {
+  for (const path of extractPaths(command)) {
     if (!isWithinCwd(path, cwd)) {
       return { needed: true, reason: `Path outside working directory: ${path}` };
     }
   }
 
-  if (classification === "safe") {
-    return { needed: false };
-  }
-
-  // Unknown command within cwd - require permission
-  return { needed: true, reason: "Unknown command" };
+  return { needed: false };
 }
 
 /**
@@ -279,7 +394,7 @@ async function executeWithPty(
       case "data":
         lastOutput = typeof event.output === "string" 
           ? event.output 
-          : event.output.map(line => line.map(t => t.text).join("")).join("\n");
+          : event.output.map((line: Array<{ text: string }>) => line.map((t: { text: string }) => t.text).join("")).join("\n");
         // Emit output update via Bus
         Bus.emit(PtyEvents.Output, { toolCallId, output: lastOutput });
         break;
@@ -363,59 +478,76 @@ async function executeWithPty(
 }
 
 /**
- * Execute command with standard Bun.spawnSync (non-interactive)
+ * Execute command with standard Bun.spawn (non-interactive, host-shell aware)
  */
 async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   const startTime = Date.now();
   const maxLines = 2000;
+  const spawnOptions = getSpawnOptions(input);
 
-  const spawnOptions: SpawnOptions = {
-    cmd: ["bash", "-c", input.command],
-    env: process.env,
-  };
+  const proc = Bun.spawn({
+    cmd: spawnOptions.cmd,
+    ...(spawnOptions.cwd ? { cwd: spawnOptions.cwd } : {}),
+    ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
 
-  if (input.workdir) {
-    spawnOptions.cwd = sanitizePath(input.workdir);
-  }
+  const stdoutPromise = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
+  const stderrPromise = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
 
-  const result = Bun.spawnSync(spawnOptions);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMs = input.timeout;
+  const timeoutPromise = new Promise<number>((resolve) => {
+    if (timeoutMs === undefined) {
+      return;
+    }
 
-  const stdout = (result.stdout?.toString("utf-8") ?? "") as string;
-  const stderr = (result.stderr?.toString("utf-8") ?? "") as string;
+    timeoutId = setTimeout(() => {
+      proc.kill();
+      resolve(-1);
+    }, timeoutMs);
+  });
 
-  const outputLines = stdout.split("\n");
-  let output = "";
+  const exitCode = timeoutMs === undefined
+    ? await proc.exited
+    : await Promise.race([proc.exited, timeoutPromise]);
 
+  if (timeoutId) clearTimeout(timeoutId);
+
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  const combinedOutput = [stdout, stderr].filter((part) => part.trim().length > 0).join("\n").trim();
+  const outputLines = combinedOutput.length > 0 ? combinedOutput.split("\n") : [];
+
+  let output = combinedOutput;
+  let wasTruncated = false;
   if (outputLines.length >= maxLines) {
     output = outputLines.slice(0, maxLines).join("\n");
     output += `\n[Output truncated to ${maxLines} lines]`;
-  } else {
-    output = stdout;
+    wasTruncated = true;
   }
 
-  if (stderr) {
-    output += `\n${stderr}`;
+  if (exitCode === -1) {
+    output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
   }
 
   const elapsed = Date.now() - startTime;
-  const exitCode = result.exitCode ?? 0;
-  const wasTruncated = outputLines.length >= maxLines;
+  const shell = process.platform === "win32" ? "powershell" : "bash";
 
   return {
     success: exitCode === 0,
     output: output || "Command completed successfully.",
     metadata: {
-      // Legacy fields (keep for backwards compatibility)
       duration: elapsed,
       truncated: wasTruncated,
       exitCode,
-      // NEW: BashMetadata fields for enhanced display
       type: "bash",
       command: input.command,
       description: input.description,
       output: output || "Command completed successfully.",
       workdir: input.workdir,
       interactive: false,
+      shell,
     },
   };
 }

@@ -1,5 +1,5 @@
-import { GLMAuthError, GLMRateLimitError } from "../api/client";
-import { ProviderError } from "../api/providers";
+import { ZAIAuthError, ZAIRateLimitError } from "../api/client";
+import { ProviderError } from "../api/provider";
 
 export class AppError extends Error {
   constructor(
@@ -67,7 +67,7 @@ class ErrorHandlerImpl {
       return error;
     }
 
-    if (error instanceof GLMAuthError) {
+    if (error instanceof ZAIAuthError) {
       const appError = new AppError(
         "Authentication failed. Please check your API key configuration.",
         "AUTH_ERROR",
@@ -77,7 +77,7 @@ class ErrorHandlerImpl {
       return appError;
     }
 
-    if (error instanceof GLMRateLimitError) {
+    if (error instanceof ZAIRateLimitError) {
       const retryAfter = error.retryAfter ?? 60;
       const appError = new AppError(
         `Rate limited. Please wait ${retryAfter}s before retrying.`,

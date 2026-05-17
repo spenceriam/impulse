@@ -1,15 +1,14 @@
 /**
  * System Prompt Generator
  * 
- * Generates mode-aware system prompts for the GLM agent.
- * Key design: MCP tool descriptions stay OUT of context until
- * the agent explicitly searches for them.
+ * Generates mode-aware system prompts for the coding agent.
  */
 
 import { MODES } from "../constants";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { load as loadConfig, type Config } from "../util/config";
 
 type Mode = typeof MODES[number];
 
@@ -71,37 +70,26 @@ function getPrompt(category: string, name: string, fallback: string): string {
   return trimmed && trimmed.length > 0 ? trimmed : fallback.trim();
 }
 
-/**
- * MCP tool discovery instructions for execution modes
- * 
- * Uses the mcp_discover tool to find available MCP tools on-demand,
- * keeping the context window lean until tools are actually needed.
- */
-const MCP_DISCOVERY_FULL = `
-## External Capabilities via MCP
+const WEB_RESEARCH_FULL = `
+## Web Research
 
-You have access to external tools via MCP servers. Use the \`mcp_discover\` tool to find what's available.
+You have provider-neutral web tools when current information or exact URL content is needed.
 
-### Discovery Workflow
+### Research Workflow
 
-1. **List available servers**: \`mcp_discover(action: "list")\`
+1. Use \`web_search\` to discover current sources, documentation pages, repository URLs, and news.
 
-2. **Search for tools** by capability:
-   \`mcp_discover(action: "search", query: "web search")\`
+2. Use \`web_fetch\` to read exact URLs from search results or user-provided links.
 
-3. **Get tool details** before using:
-   \`mcp_discover(action: "details", server: "<server>", tool: "<tool>")\`
+3. Do not guess web content. Search first unless the user supplied a URL.
 
-Always discover first - never guess tool names or parameters.
+Legacy Z.ai web, vision, and repository-reader integrations are unavailable. Use only the built-in web tools for external research.
 `;
 
-/**
- * MCP awareness for research/planning modes (lighter touch)
- */
-const MCP_AWARENESS_RESEARCH = `
+const WEB_RESEARCH_LITE = `
 ## External Research Tools
 
-MCP tools are available for research. Use \`mcp_discover(action: "list")\` to see available servers and tools.
+Use \`web_search\` for current source discovery and \`web_fetch\` for exact URLs.
 `;
 
 /**
@@ -171,7 +159,7 @@ task(subagent_type: "explore", description: "Find middleware", prompt: "...")
 /**
  * Base system prompt (applies to all modes)
  */
-const BASE_PROMPT = `You are IMPULSE, an AI coding assistant.
+const BASE_PROMPT = `You are Impulse, an AI coding assistant.
 
 IMPORTANT FORMATTING RULES:
 1. Always respond in English regardless of the input language
@@ -215,7 +203,7 @@ When you need deeper usage details, use tool_docs to open the relevant doc.
 
 ## Session Header (REQUIRED)
 
-Use the set_header tool to set a descriptive title for the current conversation. This appears at the top of the session screen as "[IMPULSE] | <title>".
+Use the set_header tool to set a descriptive title for the current conversation. This appears at the top of the session screen as "[Impulse] | <title>".
 
 You MUST call set_header early in the conversation - as soon as you understand the user's intent. Do not wait until the end.
 
@@ -333,7 +321,7 @@ Be natural about this - don't suggest switches for every message, only at clear 
  * Mode-specific additions
  */
 const MODE_ADDITIONS: Record<Mode, string> = {
-  WORK: `
+  AGENT: `
 ## Mode: WORK
 
 Primary execution mode. You can read, write, and run commands to complete tasks end-to-end.
@@ -363,7 +351,7 @@ You CAN:
 - Read files (file_read)
 - Search codebase (glob, grep)
 - Run read-only bash commands (git log, git status, ls, cat, etc.)
-- Use web search and research tools (MCP)
+- Use web_search and web_fetch for current external research
 - Explain code, concepts, and architecture
 - Compare approaches and discuss tradeoffs
 - Help the user think through problems
@@ -444,8 +432,8 @@ Systematic debugging mode. Follow the 7-step debugging process:
 
 function getModePromptName(mode: Mode): string {
   switch (mode) {
-    case "WORK":
-      return "work";
+    case "AGENT":
+      return "agent";
     case "PLAN":
       return "plan";
     default:
@@ -457,26 +445,66 @@ function getModePromptName(mode: Mode): string {
  * Generate a system prompt for the given mode
  * @param mode - The current operating mode
  * @param cwd - The current working directory (optional, defaults to process.cwd())
+ * @param config - Optional config object (if not provided, will be loaded)
  */
-export function generateSystemPrompt(mode: Mode, cwd?: string): string {
+export async function generateSystemPrompt(mode: Mode, cwd?: string, config?: Config): Promise<string> {
   const workingDir = cwd || process.cwd();
-  
-  // Add working directory context at the start
+  const cfg = config ?? await loadConfig();
+
+  const hostPlatform = process.platform === "win32"
+    ? "Windows"
+    : process.platform === "darwin"
+      ? "macOS"
+      : "Linux";
+  const preferredShell = process.platform === "win32" ? "PowerShell" : "bash";
+
+  // Add working directory + host environment context at the start
   const cwdContext = `
 ## Working Directory
 
 You are working in: ${workingDir}
+Operating system: ${hostPlatform}
+Preferred shell: ${preferredShell}
 
 IMPORTANT: When creating or editing files, ALWAYS use paths relative to or within this directory.
 - For new files, use relative paths like "src/foo.ts" or "docs/design.md"
 - NEVER guess or hallucinate paths like "/Users/SomeUser/Documents/..."
 - If you need to create a file, the path should be within ${workingDir}
+
+IMPORTANT: Shell commands MUST match the host operating system.
+- On Windows, prefer PowerShell-compatible commands and path syntax
+- Avoid POSIX-only flags like "mkdir -p", "rm -rf", or tools like "grep" unless you explicitly invoke a compatible shell
+- On macOS/Linux, prefer bash-compatible commands
 `;
 
   const parts: string[] = [
     getPrompt("core", "base", BASE_PROMPT),
     cwdContext,
   ];
+
+  // Add user profile context if available
+  if (cfg.userProfile?.name) {
+    const userProfileContext = `
+## User Profile
+
+The user's name is ${cfg.userProfile.name}.
+${cfg.userProfile.responsePreference ? `They prefer ${cfg.userProfile.responsePreference} responses.` : ''}
+${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile.customInstructions}` : ''}
+`;
+    parts.push(userProfileContext);
+  }
+
+  // Add advisor mode directive if active
+  if (cfg.advisorMode && cfg.advisorModel) {
+    const advisorName = cfg.advisorModel.split("/").pop() ?? cfg.advisorModel;
+    parts.push(`## Advisor Mode (ACTIVE)
+
+You are operating in Advisor/Executor mode with ${advisorName} as your strategic advisor.
+Access it via the \`consult_advisor\` tool.
+
+**MANDATORY:** Call consult_advisor before any file writes, edits, bash execution, or subagent launches. The system will reject your tool calls until you've consulted.
+**On errors:** DO NOT GUESS at fixes. Re-consult the advisor with error context.`);
+  }
 
   const modeAddition = MODE_ADDITIONS[mode];
   if (modeAddition) {
@@ -492,24 +520,24 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
   }
 
-  // Add MCP instructions based on mode
-  if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
-    parts.push(getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL));
+  // Add web research instructions based on mode
+  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE") {
+    parts.push(getPrompt("core", "web-full", WEB_RESEARCH_FULL));
   } else if (mode === "PLAN") {
-    parts.push(getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH));
+    parts.push(getPrompt("core", "web-lite", WEB_RESEARCH_LITE));
   }
-  
+
   return parts.join("\n").trim();
 }
 
 /**
- * Get just the MCP discovery instructions (for appending to existing prompts)
+ * Get just the web research instructions (for appending to existing prompts)
  */
-export function getMCPInstructions(mode: Mode): string {
-  if (mode === "WORK" || mode === "DEBUG" || mode === "EXPLORE") {
-    return getPrompt("core", "mcp-full", MCP_DISCOVERY_FULL).trim();
+export function getResearchInstructions(mode: Mode): string {
+  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE") {
+    return getPrompt("core", "web-full", WEB_RESEARCH_FULL).trim();
   } else if (mode === "PLAN") {
-    return getPrompt("core", "mcp-lite", MCP_AWARENESS_RESEARCH).trim();
+    return getPrompt("core", "web-lite", WEB_RESEARCH_LITE).trim();
   }
   return "";
 }
@@ -524,7 +552,7 @@ export function getMCPInstructions(mode: Mode): string {
 /**
  * Explore subagent - read-only codebase exploration
  */
-const EXPLORE_AGENT_PROMPT = `You are an explore subagent for IMPULSE. Your job is to quickly search and analyze codebases.
+const EXPLORE_AGENT_PROMPT = `You are an explore subagent for Impulse. Your job is to quickly search and analyze codebases.
 
 IMPORTANT: Always respond in English regardless of the input language.
 
@@ -550,7 +578,7 @@ Format your response as a summary with key findings. The main agent will use thi
 /**
  * General subagent - can modify files and run commands
  */
-const GENERAL_AGENT_PROMPT = `You are a general subagent for IMPULSE. Your job is to complete specific tasks delegated by the main agent.
+const GENERAL_AGENT_PROMPT = `You are a general subagent for Impulse. Your job is to complete specific tasks delegated by the main agent.
 
 IMPORTANT: Always respond in English regardless of the input language.
 

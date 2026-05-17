@@ -26,6 +26,8 @@ import { NousProvider } from "./providers/nous";
 import { OpenRouterProvider } from "./providers/openrouter";
 import { GroqProvider } from "./providers/groq";
 import { GeminiProvider } from "./providers/gemini";
+import { OllamaProvider } from "./providers/ollama";
+import { AnthropicProvider } from "./providers/anthropic";
 
 // Re-export all providers
 export { ZAIProvider } from "./providers/zai";
@@ -34,6 +36,8 @@ export { NousProvider } from "./providers/nous";
 export { OpenRouterProvider } from "./providers/openrouter";
 export { GroqProvider } from "./providers/groq";
 export { GeminiProvider } from "./providers/gemini";
+export { OllamaProvider } from "./providers/ollama";
+export { AnthropicProvider } from "./providers/anthropic";
 
 // Well-known provider prefixes
 export const PROVIDER_PREFIXES = [
@@ -45,6 +49,7 @@ export const PROVIDER_PREFIXES = [
   "gemini",
   "nous",
   "minimax",
+  "ollama",
 ] as const;
 
 // Aliases — maps prefix strings to their canonical provider key
@@ -68,17 +73,26 @@ export interface ModelInfo {
  * Parse a model string into its provider and model name.
  * "openai/gpt-4o" → { provider: "openai", model: "gpt-4o" }
  * "gpt-4o"        → { provider: defaultProvider, model: "gpt-4o" }
+ * "my-custom/gpt-4o" → { provider: "my-custom", model: "gpt-4o" } (custom)
  */
 export function parseModelString(model: string, defaultProvider: string): ModelInfo {
   const parts = model.split("/");
   if (parts.length >= 2) {
-    // Check known prefixes OR aliases (e.g. "minimax" → "nous", "xiaomi" → "nous")
     const prefix = parts[0]!;
+    // Known providers or aliases
     if (PROVIDER_PREFIXES.includes(prefix as ProviderKey) || PROVIDER_ALIASES.has(prefix)) {
       const resolvedProvider = PROVIDER_ALIASES.get(prefix) ?? prefix;
       return {
         full: model,
         provider: resolvedProvider,
+        model: parts.slice(1).join("/"),
+      };
+    }
+    // Unknown prefix — only treat as custom provider if it matches defaultProvider
+    if (prefix === defaultProvider) {
+      return {
+        full: model,
+        provider: prefix,
         model: parts.slice(1).join("/"),
       };
     }
@@ -99,10 +113,22 @@ function getProviderConfig(
   providerKey: string,
   config: Config
 ): ProviderConfig | null {
-  const key = providerKey as keyof Config["providers"];
+  const providers = config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string } | undefined>;
+  const providerCfg = providers[providerKey];
 
-  // Check new per-provider config
-  const providerCfg = config.providers?.[key];
+  // Ollama: registered as long as a baseUrl or apiKey is present
+  if (providerKey === "ollama") {
+    if (providerCfg?.apiKey || providerCfg?.baseUrl) {
+      const result: ProviderConfig = {
+        apiKey: providerCfg.apiKey ?? "",
+        defaultModel: config.defaultModel ?? "ollama/llama3.2",
+      };
+      if (providerCfg.baseUrl) result.baseUrl = providerCfg.baseUrl;
+      return result;
+    }
+    return null;
+  }
+
   if (providerCfg?.apiKey) {
     const result: ProviderConfig = {
       apiKey: providerCfg.apiKey,
@@ -162,15 +188,39 @@ export class ProviderManager {
       { key: "openrouter", build: (cfg) => new OpenRouterProvider(cfg) },
       { key: "groq", build: (cfg) => new GroqProvider(cfg) },
       { key: "gemini", build: (cfg) => new GeminiProvider(cfg) },
-      // Anthropic uses a custom client (not OpenAI SDK)
-      // Will be added in a follow-up
+      { key: "ollama", build: (cfg) => new OllamaProvider(cfg) },
+      { key: "anthropic", build: (cfg) => new AnthropicProvider(cfg) },
     ];
+
+    const handledKeys = new Set<string>();
 
     for (const { key, build } of providerBuilders) {
       const providerConfig = getProviderConfig(key, this.config);
       if (providerConfig?.apiKey) {
         const provider = build(providerConfig);
         this.providers.set(key, provider);
+        handledKeys.add(key);
+      }
+    }
+
+    // Register custom/dynamic providers from config
+    const providers = this.config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;
+    for (const [key, providerCfg] of Object.entries(providers)) {
+      if (handledKeys.has(key)) continue;
+      if (!providerCfg?.apiKey) continue;
+
+      const providerConfig: ProviderConfig = {
+        apiKey: providerCfg.apiKey,
+        defaultModel: this.config.defaultModel ?? `${key}/default`,
+        ...(providerCfg.baseUrl ? { baseUrl: providerCfg.baseUrl } : {}),
+      };
+
+      const type = providerCfg.type;
+      if (type === "anthropic-compatible") {
+        this.providers.set(key, new AnthropicProvider(providerConfig));
+      } else {
+        // Default: OpenAI-compatible (or no type specified)
+        this.providers.set(key, new OpenAIProvider(providerConfig));
       }
     }
 

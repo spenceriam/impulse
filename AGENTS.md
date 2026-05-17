@@ -4,19 +4,48 @@
 
 ## Project Overview
 
-**IMPULSE** is a terminal-based AI coding agent powered by GLM-4.x models. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development. Powered by Z.ai's Coding Plan - the best cost/engineering ratio for builders.
+**IMPULSE** is a provider-flexible terminal AI coding agent. It provides a brutally minimal, flicker-free terminal UI for interactive AI-assisted software development with support for providers such as Ollama, OpenRouter, OpenAI, Groq, Gemini, Nous, and Z.ai.
 
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.35.0
-- **Tagline:** Terminal-based AI coding agent powered by GLM models
+- **Version:** v0.39.0
+- **Tagline:** Provider-flexible terminal AI coding agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
 **Status:** Phase 9 COMPLETE - QoL Polish
+
+### Active Branch Context: `refactor/cli-rework` (May 2026)
+
+**Current take:** This branch is the keyboard-first CLI rework track. It uses `@mariozechner/pi-tui` for the active CLI renderer and should not be treated as the older OpenTUI/SolidJS runtime while working in `src/cli/**`. The goal is to make the CLI practical for daily coding-agent use across Windows/macOS/Linux with reliable overlays, visible tool outcomes, safe permissions, and compact terminal-native rendering.
+
+**Branch status before handoff:**
+- Current branch: `refactor/cli-rework`
+- Current release target: `0.39.0`
+- Last pre-polish checkpoint: `2a03376 feat: improve CLI status and question flow for v0.38.0`
+- Validation after the v0.39.0 polish pass: `bun run typecheck`, `bun test` (`65 pass / 0 fail`), and `bun run build`
+
+**Recently completed on this branch:**
+- Centralized tool permission flow in the CLI renderer with keyboard-first overlays above the prompt.
+- Windows-aware bash execution and permission classification, including PowerShell-safe read-only commands.
+- Packaged ripgrep via `@vscode/ripgrep` so `grep` no longer depends on a global `rg` binary.
+- Fixed hidden paste submission so speech-to-text/long paste content submits the real text, not `[Pasted N chars]` markers.
+- Added working question overlay lifecycle with Esc abort and structured answer return.
+- Improved binary reasoning display labels so user-facing UI shows `thinking` instead of internal `medium` for binary providers.
+- Added compact Pi-style diff rendering for `file_edit`/`file_write`, including blank spacing before changed lines and red strikethrough removals.
+- Reworked status/activity presentation: shimmer-only main status line, slower phase rotation, slower tool/question spinners.
+- Added distinct `glob`/`grep` tool summaries with pattern/path/count/include details.
+- Simplified question selection UI: radio markers for single choice, checkbox markers for multi-select, no hidden numeric/custom hotkeys.
+- Added terminal-native markdown table rendering with boxed wide tables and stacked narrow fallback.
+- Updated footer telemetry during active turns using deterministic local session/turn estimates, then final turn reconciliation.
+
+**Deferred / still planned:**
+- Session resume picker overlay for `/continue` remains deferred.
+- Subagent rename (`explore` -> `researcher`) remains deferred.
+- True pre-execution edit preview parity with Pi remains deferred; current diffs render after tool completion using returned metadata.
 
 ### Phase 1 Completed Tasks
 - [x] Task 1.1: Initialize Project
@@ -26,7 +55,7 @@
 - [x] Task 1.5: Event Bus
 - [x] Task 1.6: Configuration System
 - [x] Task 1.7: Logger Utility
-- [x] Task 1.8: GLM API Client
+- [x] Task 1.8: Z.ai API Client
 - [x] Task 1.9: Streaming Handler
 - [x] Task 1.10: Instruction File Discovery
 - [x] Task 1.11: Design Constants File
@@ -102,7 +131,7 @@
 
 - [x] Task 8.1: Context Provider Integration
 - [x] Task 8.2: API Key Check and Welcome Screen
-- [x] Task 8.3: Input Submission to GLMClient
+- [x] Task 8.3: Input Submission to provider client
 - [x] Task 8.4: Session Manager Integration
 - [x] Task 8.5: Final Integration Testing
 
@@ -136,6 +165,16 @@
 - [x] Chat view now renders ordered assistant blocks (text/thinking/tools)
 - [x] Self-check panel captures Findings + Next steps from tool outcomes
 - [x] Question tool outputs render as structured summaries in tool blocks
+- [x] CLI permission/question overlays wired for `@mariozechner/pi-tui`
+- [x] Packaged ripgrep-backed grep tool works without global `rg`
+- [x] Windows PowerShell-safe bash execution and command permission heuristics
+- [x] Hidden long-paste/speech-to-text payload submits real content
+- [x] Compact Pi-style file diffs render in CLI tool rows
+- [x] Shimmer-only main activity status with slower one-line rotation
+- [x] Distinct glob/grep result summaries in tool rows
+- [x] Question overlay uses radio/checkbox selection without numeric hotkeys
+- [x] Assistant markdown tables render terminal-natively with narrow fallback
+- [x] Footer context/token-speed telemetry updates during active turns
 
 ## Version Bumping Protocol
 
@@ -298,8 +337,8 @@ Users can always override AI agent version decisions:
 | **Runtime** | Bun / Node.js 20+ |
 | **Language** | TypeScript (strict mode) |
 | **UI Framework** | OpenTUI with SolidJS reconciler |
-| **API** | Z.AI API (OpenAI-compatible) |
-| **Endpoint** | `https://api.z.ai/api/coding/paas/v4/` |
+| **API** | Provider manager over OpenAI-compatible providers |
+| **Z.ai Endpoint** | `https://api.z.ai/api/coding/paas/v4/` |
 
 ### Dependencies
 
@@ -330,7 +369,7 @@ Users can always override AI agent version decisions:
 preload = ["@opentui/solid/preload"]
 ```
 
-## Models Supported
+## Z.ai Models Supported
 
 | Model | Type | Best For |
 |-------|------|----------|
@@ -452,7 +491,7 @@ Loading Animation (Braille Wheel):
     ┃ You                                                           12:34 PM
     ┃ Can you help me implement the API client?
     
-    ┃ GLM-4.7                                              AGENT    12:34 PM
+    ┃ provider/model                                       AGENT    12:34 PM
     ┃ I'll help you implement the API client.
     ┃
     ┃ ▶ file_write src/api/types.ts                              [OK]
@@ -465,7 +504,7 @@ Loading Animation (Braille Wheel):
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
     ┃  > _                                                                      ┃
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-    ⣾ GLM 4.7 | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
+    ⣾ provider/model | AGENT | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
 ```
 
 **Notes:**
@@ -485,7 +524,7 @@ Loading Animation (Braille Wheel):
   ██║██║ ╚═╝ ██║██║     ╚██████╔╝███████╗███████║███████╗
   ╚═╝╚═╝     ╚═╝╚═╝      ╚═════╝ ╚══════╝╚══════╝╚══════╝
 
-  v0.27.11                                               GLM 4.7
+  v0.27.11                                               provider/model
   built 01-26-2026                                      ~/impulse
 
 [[━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]]
@@ -493,12 +532,12 @@ Loading Animation (Braille Wheel):
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃  > _                                                                      ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-  GLM 4.7 | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
+  provider/model | ~/impulse |  main | MCP: ● | 01-26-2026 | v0.27.11
 ```
 
 **Status Line Format:**
 ```
-⣾ GLM 4.7 | [EXPRESS] | [ENGAGE] | WORK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
+⣾ provider/model | [EXPRESS] | [ENGAGE] | WORK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
 │     │         │         │            │              │           │         │        │          │
 │     │         │         │            │              │           │         │        │          └── Version
 │     │         │         │            │              │           │         │        └── Date
@@ -520,7 +559,7 @@ Loading Animation (Braille Wheel):
   ┌────────────────────────────────────────────────────────────────────────────────────┐
   │  1  import { OpenAI } from "openai"                                                │
   │  2                                                                                 │
-  │  3  export class GLMClient {                                                       │
+  │  3  export class ProviderClient {                                                  │
   └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -530,7 +569,7 @@ Loading Animation (Braille Wheel):
 IMPULSE SESSION COMPLETE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Session       Implementing API client
-  Model         glm-4.7
+  Model         provider/model
   Duration      1h 23m
 ───────────────────────────────────────────────────────────────────
   Tools         15 calls       12 success       3 failed
@@ -565,7 +604,7 @@ IMPULSE SESSION COMPLETE
 <text>
   <span fg="#5cffff"><strong>AGENT</strong></span>
   <span fg="#666666"> │ </span>
-  <span fg="#ffffff">GLM-4.7</span>
+  <span fg="#ffffff">provider/model</span>
 </text>
 ```
 
@@ -773,19 +812,16 @@ interface QuestionToolOutput {
 - Set `context` to explain WHY you're asking
 - Keep option labels concise (1-5 words)
 
-## MCP Servers
+## Web Research Tools
 
-5 MCP servers are configured (4 Z.AI + Context7):
+IMPULSE uses first-party, provider-neutral web tools instead of the old Z.AI MCP research path:
 
-| Server | Type | Tools |
-|--------|------|-------|
-| **Vision** | Local (stdio) | `ui_to_artifact`, `extract_text_from_screenshot`, `diagnose_error_screenshot`, `understand_technical_diagram`, `analyze_data_visualization`, `ui_diff_check`, `image_analysis`, `video_analysis` |
-| **Web Search** | Remote (HTTP) | `webSearchPrime` |
-| **Web Reader** | Remote (HTTP) | `webReader` |
-| **Zread** | Remote (HTTP) | `search_doc`, `get_repo_structure`, `read_file` |
-| **Context7** | Remote (HTTP) | `resolve-library-id`, `query-docs` |
+| Tool | Purpose |
+|------|---------|
+| `web_search` | Discover current external sources and URLs |
+| `web_fetch` | Read exact HTTP(S) URLs and return cleaned text |
 
-**Note:** The agent discovers MCP tools on-demand using `/mcp-tools search <query>` rather than preloading all tool descriptions into context. This keeps the context window lean.
+Both tools try direct web access first and fall back to bundled `agent-browser` when direct access fails or a browser session is required. The legacy Vision/Web Search/Web Reader/Zread MCP integrations are no longer part of the default tool surface.
 
 ## Commands
 
@@ -797,7 +833,7 @@ interface QuestionToolOutput {
 | `/continue` | Session picker with preview (alias: `/load`) |
 | `/undo` | Git-based revert to checkpoint |
 | `/redo` | Restore undone changes |
-| `/model` | Switch GLM model |
+| `/model` | Switch configured model |
 | `/mode` | Switch mode (alt to Tab) |
 | `/engage` | Toggle high-autonomy execution profile |
 | `/instruct` | Edit project instructions |
@@ -822,7 +858,7 @@ interface QuestionToolOutput {
 | `Esc` (2x) | Cancel / Stop operation |
 | `Ctrl+C` (2x) | Exit with summary |
 | `Ctrl+Q` | Message queue overlay |
-| `Ctrl+M` | MCP status overlay |
+| `Ctrl+M` | Reserved |
 | `Ctrl+P` | Command palette |
 | `Shift+Ctrl+C` | Copy prompt text to clipboard |
 
@@ -930,8 +966,8 @@ This ensures:
 - Solid uses underscores: `<tab_select>`, `<ascii_font>`, `<line_number>`
 - Text styling requires nested tags: `<strong>`, `<em>`, `<span fg="...">`
 
-### GLM API Specifics
-- Thinking mode enabled by default on GLM-4.7
+### Z.ai API Specifics
+- Thinking mode enabled by default on supported Z.ai GLM models
 - Must preserve `reasoning_content` in conversation history
 - Coding Plan endpoint: `https://api.z.ai/api/coding/paas/v4/`
 - No silent fallbacks - explicit error handling required
@@ -1095,6 +1131,14 @@ This ensures:
 | 01-27-2026 | Tool metadata passthrough | result.metadata now passed to toolCall.metadata - enables DiffView rendering |
 | 01-27-2026 | Native OpenTUI diff component | Replaced custom DiffView with `<diff view="split">` for side-by-side display |
 | 01-27-2026 | User message background color | Changed from cyan tint (#1a2a2a) to subtle gray (#222222) for consistency |
+| 05-12-2026 | CLI rework uses pi-tui renderer | `refactor/cli-rework` active UX work targets `src/cli/**` with `@mariozechner/pi-tui`, not the older OpenTUI/SolidJS path |
+| 05-12-2026 | Centralized CLI permission overlays | Tool handlers ask through the permission module and the CLI renderer presents keyboard-first overlays above the prompt |
+| 05-12-2026 | Windows PowerShell command semantics | Bash tool execution and permission heuristics are Windows-aware; read-only PowerShell formatting commands like `Format-Table` are safe |
+| 05-12-2026 | Packaged ripgrep dependency | `grep` uses `@vscode/ripgrep` so users do not need a global `rg` install |
+| 05-12-2026 | Compact Pi-style file diffs | File edit/write tool rows render compact line-numbered diffs instead of noisy unified patch headers |
+| 05-12-2026 | Shimmer-only main activity line | Main turn status has no spinner; tool/question rows retain slower dedicated spinners |
+| 05-12-2026 | Terminal-native markdown tables | Assistant markdown tables are parsed into boxed wide tables or stacked narrow records |
+| 05-12-2026 | Question UI avoids hidden numeric shortcuts | Question overlay uses visible radio/checkbox state and arrow/space/enter navigation |
 
 ## Future Work
 
@@ -1460,10 +1504,9 @@ impulse/
 ├── src/
 │   ├── index.tsx           # CLI entry point
 │   ├── global.ts           # Global paths configuration
-│   ├── agent/              # GLM agent and subagents
+│   ├── agent/              # Agent loop and subagents
 │   ├── api/                # Z.AI API client
 │   ├── bus/                # Event bus
-│   ├── mcp/                # MCP server integrations
 │   ├── session/            # Session management
 │   ├── storage/            # File-based storage
 │   ├── tools/              # Built-in tools

@@ -141,7 +141,9 @@ export class ZAIProvider implements AIProvider {
         }
         
         // Z.AI specific: thinking mode configuration
-        const thinkingConfig = options.thinking ?? { type: "enabled" as const, clear_thinking: false };
+        // ZAI binary thinking: on if reasoningLevel != "off", off otherwise
+        const rl = options.reasoningLevel ?? (options.thinking !== undefined ? (options.thinking ? "medium" : "off") : "medium");
+        const thinkingConfig = { type: rl !== "off" ? "enabled" as const : "disabled" as const, clear_thinking: false };
         (request as unknown as Record<string, unknown>)["thinking"] = thinkingConfig;
         
         return client.chat.completions.create(request);
@@ -176,7 +178,9 @@ export class ZAIProvider implements AIProvider {
         }
         
         // Z.AI specific: thinking mode configuration
-        const thinkingConfig = options.thinking ?? { type: "enabled" as const, clear_thinking: false };
+        // ZAI binary thinking: on if reasoningLevel != "off", off otherwise
+        const rl = options.reasoningLevel ?? (options.thinking !== undefined ? (options.thinking ? "medium" : "off") : "medium");
+        const thinkingConfig = { type: rl !== "off" ? "enabled" as const : "disabled" as const, clear_thinking: false };
         (request as unknown as Record<string, unknown>)["thinking"] = thinkingConfig;
         
         return client.chat.completions.create(request);

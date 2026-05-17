@@ -1,71 +1,63 @@
-import { isTaskMetadata, type ToolMetadata } from "../types/tool-metadata";
-import type { ToolCallInfo, ValidationSummary } from "./components/MessageBlock";
+import type { ToolCallInfo } from "./components/MessageBlock";
 
-export function createSelfCheckSummary(toolCalls: ToolCallInfo[]): ValidationSummary {
-  const findings: string[] = [];
-  const nextSteps: string[] = [];
+export interface SelfCheckSummary {
+  findings: string[];
+  nextSteps: string[];
+}
 
-  if (toolCalls.length === 0) {
-    findings.push("No tools were executed.");
-    nextSteps.push("Confirm response quality before continuing.");
-    return { findings, nextSteps };
+function truncate(value: string, max = 100): string {
+  return value.length > max ? `${value.slice(0, max)}...` : value;
+}
+
+export function createSelfCheckSummary(tools: ToolCallInfo[]): SelfCheckSummary {
+  if (tools.length === 0) {
+    return {
+      findings: ["No tools were executed."],
+      nextSteps: ["Confirm response quality before continuing."],
+    };
   }
 
-  const successCount = toolCalls.filter((toolCall) => toolCall.status === "success").length;
-  const errorCount = toolCalls.filter((toolCall) => toolCall.status === "error").length;
-  const cancelledCount = toolCalls.filter((toolCall) => toolCall.status === "cancelled").length;
-  const runningCount = toolCalls.filter((toolCall) => toolCall.status === "pending" || toolCall.status === "running").length;
+  const counts = {
+    success: tools.filter((tool) => tool.status === "success").length,
+    error: tools.filter((tool) => tool.status === "error").length,
+    cancelled: tools.filter((tool) => tool.status === "cancelled").length,
+    running: tools.filter((tool) => tool.status === "running").length,
+  };
+  const findings = [
+    `Tool execution summary: ${counts.success} success, ${counts.error} error, ${counts.cancelled} cancelled, ${counts.running} in-flight.`,
+  ];
+  const nextSteps = new Set<string>();
 
-  findings.push(
-    `Tool execution summary: ${successCount} success, ${errorCount} error, ${cancelledCount} cancelled, ${runningCount} in-flight.`
-  );
+  for (const tool of tools) {
+    const result = tool.result ? ` (${truncate(tool.result)})` : "";
+    findings.push(`${tool.name}: ${tool.status}${result}`);
 
-  for (const toolCall of toolCalls) {
-    const meta = toolCall.metadata as ToolMetadata | undefined;
-    if (meta && isTaskMetadata(meta)) {
-      const actionCount = meta.actions.length;
-      findings.push(
-        `Subagent (${meta.subagentType}) "${meta.description}": ${toolCall.status}, ${actionCount}/${meta.toolCallCount} actions recorded.`
-      );
-      if (actionCount === 0) {
-        findings.push(`Subagent "${meta.description}" returned without recorded actions.`);
+    if (tool.metadata?.["type"] === "task") {
+      const subagentType = typeof tool.metadata["subagentType"] === "string" ? tool.metadata["subagentType"] : undefined;
+      const description = typeof tool.metadata["description"] === "string" ? tool.metadata["description"] : undefined;
+      const actions = Array.isArray(tool.metadata["actions"]) ? tool.metadata["actions"] : [];
+      const toolCallCount = typeof tool.metadata["toolCallCount"] === "number" ? tool.metadata["toolCallCount"] : actions.length;
+
+      if (actions.length === 0 && description) {
+        findings.push(`Subagent "${description}" returned without recorded actions.`);
+      } else if (subagentType && description) {
+        findings.push(
+          `Subagent (${subagentType}) "${description}": ${tool.status}, ${actions.length}/${toolCallCount} actions recorded.`
+        );
       }
-      continue;
+      nextSteps.add("Review subagent action summaries and verify delegated outcomes.");
     }
-
-    if (toolCall.status === "error" || toolCall.status === "cancelled") {
-      const reason = toolCall.result?.trim();
-      if (reason) {
-        const snippet = reason.length > 120 ? `${reason.slice(0, 117)}...` : reason;
-        findings.push(`${toolCall.name}: ${toolCall.status} (${snippet})`);
-      } else {
-        findings.push(`${toolCall.name}: ${toolCall.status}`);
-      }
-      continue;
-    }
-
-    findings.push(`${toolCall.name}: ${toolCall.status}`);
   }
 
-  const hasFailure = toolCalls.some((toolCall) => toolCall.status === "error" || toolCall.status === "cancelled");
-  const hasRunning = toolCalls.some((toolCall) => toolCall.status === "pending" || toolCall.status === "running");
-  const hasSubagent = toolCalls.some((toolCall) => {
-    const metadata = toolCall.metadata as ToolMetadata | undefined;
-    return !!metadata && isTaskMetadata(metadata);
-  });
-
-  if (hasFailure) {
-    nextSteps.push("Review failed/cancelled tools and retry with corrected inputs.");
+  if (counts.error > 0 || counts.cancelled > 0) {
+    nextSteps.add("Review failed/cancelled tools and retry with corrected inputs.");
   }
-  if (hasRunning) {
-    nextSteps.push("Wait for in-flight tools before finalizing this turn.");
+  if (counts.running > 0) {
+    nextSteps.add("Wait for in-flight tools before finalizing this turn.");
   }
-  if (hasSubagent) {
-    nextSteps.push("Review subagent action summaries and verify delegated outcomes.");
-  }
-  if (!hasFailure && !hasRunning) {
-    nextSteps.push("Validate file/tool outputs and continue.");
+  if (counts.error === 0) {
+    nextSteps.add("Validate file/tool outputs and continue.");
   }
 
-  return { findings, nextSteps };
+  return { findings, nextSteps: [...nextSteps] };
 }

@@ -16,5 +16,6 @@ This directory contains detailed usage notes for each built-in tool. Use these r
 - question: docs/tools/question.md
 - set_header: docs/tools/set-header.md
 - set_mode: docs/tools/set-mode.md
-- mcp_discover: docs/tools/mcp-discover.md
+- web_fetch: docs/tools/web-fetch.md
+- web_search: docs/tools/web-search.md
 - tool_docs: docs/tools/tool-docs.md

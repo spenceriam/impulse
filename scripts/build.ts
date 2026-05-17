@@ -1,11 +1,10 @@
-import solidTransformPlugin from "@opentui/solid/bun-plugin";
 import { cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 // Copy tool description files to dist
 const toolsDir = "./src/tools";
 const distDir = "./dist";
-const txtFiles = readdirSync(toolsDir).filter(f => f.endsWith(".txt"));
+const txtFiles = readdirSync(toolsDir).filter((f) => f.endsWith(".txt"));
 for (const file of txtFiles) {
   cpSync(join(toolsDir, file), join(distDir, file));
 }
@@ -21,10 +20,9 @@ if (existsSync("./docs/tools")) {
 }
 
 const result = await Bun.build({
-  entrypoints: ["./src/index.tsx"],
+  entrypoints: ["./src/index.ts"],
   outdir: "./dist",
   target: "bun",
-  plugins: [solidTransformPlugin],
 });
 
 if (!result.success) {
@@ -35,12 +33,11 @@ if (!result.success) {
   process.exit(1);
 }
 
-// Add shebang to the output file for bun execution
+// Add shebang to the output file
 const outputPath = join(distDir, "index.js");
 const content = readFileSync(outputPath, "utf-8");
 if (!content.startsWith("#!/")) {
   writeFileSync(outputPath, `#!/usr/bin/env bun\n${content}`);
-  console.log("Added shebang to dist/index.js");
 }
 
 console.log("Build successful!");

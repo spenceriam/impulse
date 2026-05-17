@@ -135,6 +135,12 @@ export class OpenAIProvider implements AIProvider {
         if (options.tool_choice !== undefined) {
           request.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
         }
+        // OpenAI o-series: pass reasoning_effort if set
+        const rl = options.reasoningLevel;
+        if (rl && rl !== "off") {
+          (request as unknown as Record<string, unknown>)["reasoning_effort"] =
+            rl === "low" ? "low" : rl === "high" ? "high" : "medium";
+        }
         
         return client.chat.completions.create(request);
       },
@@ -164,6 +170,12 @@ export class OpenAIProvider implements AIProvider {
         }
         if (options.tool_choice !== undefined) {
           request.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
+        }
+        // OpenAI o-series: pass reasoning_effort if set
+        const rl = options.reasoningLevel;
+        if (rl && rl !== "off") {
+          (request as unknown as Record<string, unknown>)["reasoning_effort"] =
+            rl === "low" ? "low" : rl === "high" ? "high" : "medium";
         }
         
         return client.chat.completions.create(request);
