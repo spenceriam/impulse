@@ -137,7 +137,7 @@ export async function discoverModels(
 
   // Anthropic-compatible uses x-api-key header instead of Bearer
   const isAnthropic = provider.customType === "anthropic-compatible";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { "Accept": "application/json" };
   if (apiKey) {
     if (isAnthropic) {
       headers["x-api-key"] = apiKey;
@@ -153,23 +153,23 @@ export async function discoverModels(
 
   if (isAnthropic) {
     // Primary: Anthropic auth
-    const h1: Record<string, string> = { "Content-Type": "application/json" };
+    const h1: Record<string, string> = { "Accept": "application/json" };
     if (apiKey) { h1["x-api-key"] = apiKey; h1["anthropic-version"] = "2023-06-01"; }
     authMethods.push({ name: "x-api-key", headers: h1 });
     // Fallback: Bearer auth (for endpoints that serve /models with OpenAI auth)
     if (isCustomProv && apiKey) {
-      const h2: Record<string, string> = { "Content-Type": "application/json" };
+      const h2: Record<string, string> = { "Accept": "application/json" };
       h2["Authorization"] = `Bearer ${apiKey}`;
       authMethods.push({ name: "Bearer (fallback)", headers: h2 });
     }
   } else {
     // Primary: Bearer auth
-    const h1: Record<string, string> = { "Content-Type": "application/json" };
+    const h1: Record<string, string> = { "Accept": "application/json" };
     if (apiKey) h1["Authorization"] = `Bearer ${apiKey}`;
     authMethods.push({ name: "Bearer", headers: h1 });
     // Fallback: Anthropic auth (for custom providers)
     if (isCustomProv && apiKey) {
-      const h2: Record<string, string> = { "Content-Type": "application/json" };
+      const h2: Record<string, string> = { "Accept": "application/json" };
       h2["x-api-key"] = apiKey;
       h2["anthropic-version"] = "2023-06-01";
       authMethods.push({ name: "x-api-key (fallback)", headers: h2 });
