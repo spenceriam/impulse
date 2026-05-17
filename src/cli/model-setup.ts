@@ -133,7 +133,7 @@ export async function discoverModels(
     return { success: result.success, message: result.message, models: sorted };
   }
 
-  const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/v1\/?$/, "").replace(/\/$/, "");
+  const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/$/, "");
 
   // Anthropic-compatible uses x-api-key header instead of Bearer
   const isAnthropic = provider.customType === "anthropic-compatible";
@@ -176,15 +176,11 @@ export async function discoverModels(
     }
   }
 
-  // Paths to try (custom providers try multiple paths like Ollama does)
-  const paths = isCustomProv ? ["/models", "/v1/models"] : ["/models"];
-
   let lastError: ModelDiscoveryResult | null = null;
 
-  for (const pathSuffix of paths) {
-    for (const method of authMethods) {
-      try {
-        const url = `${root}${pathSuffix}`;
+  for (const method of authMethods) {
+    try {
+      const url = `${root}/models`;
         const res = await fetch(url, {
           headers: method.headers,
           signal: AbortSignal.timeout(10_000),
@@ -202,7 +198,7 @@ export async function discoverModels(
         if (res.status === 404) {
           lastError = {
             success: false,
-            message: `Model discovery not supported at ${pathSuffix} (HTTP 404).`,
+            message: `Model discovery not supported (HTTP 404).`,
             models: [],
           };
           continue; // Try next auth method or path
@@ -267,10 +263,9 @@ export async function discoverModels(
               : String(error),
           models: [],
         };
-        // Continue to next auth method / path
+        // Continue to next auth method
       }
     }
-  }
 
   return lastError ?? { success: false, message: "Model discovery failed.", models: [] };
 }
