@@ -245,3 +245,63 @@ export function levelToBudgetTokens(level: ReasoningLevel): number | undefined {
   };
   return map[level];
 }
+
+/** Probe a custom provider endpoint to detect reasoning support.
+ *  Sends a minimal request with reasoning enabled and checks for 4xx rejection. */
+export async function probeReasoningSupport(
+  providerType: "openai-compatible" | "anthropic-compatible",
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  timeout: number = 5000
+): Promise<ReasoningCapability> {
+  const root = baseUrl.replace(/\/$/, "");
+  const isAnthropic = providerType === "anthropic-compatible";
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    let body: string;
+    let url: string;
+
+    if (isAnthropic) {
+      headers["x-api-key"] = apiKey;
+      headers["anthropic-version"] = "2023-06-01";
+      url = `${root}/messages`;
+      body = JSON.stringify({
+        model,
+        max_tokens: 5,
+        messages: [{ role: "user", content: "hi" }],
+        thinking: { type: "enabled", budget_tokens: 1024 },
+        stream: false,
+      });
+    } else {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      url = `${root}/chat/completions`;
+      body = JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 5,
+        reasoning_effort: "low",
+        stream: false,
+      });
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body,
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (res.ok) {
+      return {
+        supported: true,
+        style: isAnthropic ? "budget" : "effort",
+        levels: isAnthropic ? EFFORT_LEVELS : EFFORT_LEVELS,
+      };
+    }
+    return { supported: false, style: "none", levels: NO_LEVELS };
+  } catch {
+    return { supported: false, style: "none", levels: NO_LEVELS };
+  }
+}
