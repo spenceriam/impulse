@@ -176,7 +176,7 @@ jobs:
           {
             "name": "@spenceriam/impulse",
             "version": "$VERSION",
-            "description": "Terminal-based AI coding agent powered by Z.ai's Coding Plan",
+            "description": "Provider-flexible terminal AI coding agent",
             "license": "MIT",
             "bin": {
               "impulse": "./bin/impulse"

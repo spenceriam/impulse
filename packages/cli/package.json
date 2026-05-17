@@ -1,7 +1,7 @@
 {
   "name": "@spenceriam/impulse",
   "version": "0.15.2",
-  "description": "Terminal-based provider-flexible AI coding agent for fast software development",
+  "description": "Provider-flexible terminal AI coding agent",
   "license": "MIT",
   "bin": {
     "impulse": "./bin/impulse"
