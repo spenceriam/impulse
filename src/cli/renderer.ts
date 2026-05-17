@@ -1022,6 +1022,14 @@ export class ImpulseRenderer {
         }
       } else {
         this.reasoningCapability = await this.reasoningCapabilityForProvider(providerName);
+        if (!PROVIDER_REASONING_STYLE[providerName]) {
+          const pc = (config.providers as Record<string, { type?: string; baseUrl?: string; apiKey?: string }>)[providerName];
+          const pt = pc?.type as "openai-compatible" | "anthropic-compatible" | undefined;
+          if (pt && pc?.baseUrl && pc?.apiKey && config.defaultModel) {
+            const mn = config.defaultModel.includes("/") ? config.defaultModel.split("/").slice(1).join("/") : config.defaultModel;
+            try { this.reasoningCapability = await probeReasoningSupport(pt, pc.baseUrl, pc.apiKey, mn); } catch {}
+          }
+        }
       }
       await this.normalizeReasoningLevel();
       this.contextBar.update({ reasoningLevel: this.reasoningDisplayLabel() });
