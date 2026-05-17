@@ -7,15 +7,16 @@
 
 > Terminal-based, provider-flexible AI coding agent
 
-A brutally minimal terminal interface for AI-assisted software development. Provider-flexible model routing, flicker-free rendering, built-in web research tools, and session management - all in your terminal.
+A brutally minimal terminal interface for AI-assisted software development. Supports any OpenAI-compatible or Anthropic-compatible provider — Ollama Cloud, OpenRouter, Fireworks, Moonshot, Xiaomi Mimo, and many more. Model discovery, reasoning detection, vision model routing, and session management — all in your terminal.
 
 <!-- TODO: Add demo GIF -->
 <!-- ![IMPULSE Demo](docs/demo.gif) -->
 
 ## Features
 
-- **Provider-flexible models** - Use configured providers such as Ollama, OpenRouter, OpenAI, Groq, Gemini, Nous, and Z.ai
+- **Custom provider support** - Any OpenAI-compatible or Anthropic-compatible endpoint. Unlimited custom providers with automatic model discovery, reasoning capability probing, and persistent configuration
 - **4 Modes** - WORK, EXPLORE, PLAN, DEBUG (Tab to cycle)
+- **Vision model routing** - Separate vision-capable model for image/screenshot interpretation, automatic fallback when main model is text-only
 - **Web research tools** - Built-in `web_search` and `web_fetch`, with bundled `agent-browser` fallback
 - **Session Management** - Auto-save, load previous sessions, undo/redo via git checkpoints
 - **Auto-Compact** - AI summarization at 85% context usage
@@ -32,15 +33,12 @@ npm install -g @spenceriam/impulse
 Set an API key for your chosen provider:
 
 ```bash
-# Z.ai
-export ZAI_API_KEY=your_key_here
-
 # Other examples
 export OLLAMA_API_KEY=your_key_here
 export OPENROUTER_API_KEY=your_key_here
 
 # Or config file (~/.config/impulse/config.json)
-echo '{"providers": {"z.ai": {"apiKey": "your_key_here"}}, "defaultProvider": "z.ai", "defaultModel": "z.ai/glm-4.7"}' > ~/.config/impulse/config.json
+echo '{"providers": {"ollama": {"baseUrl": "https://ollama.com"}}, "defaultProvider": "ollama", "defaultModel": "ollama/deepseek-v4-pro"}' > ~/.config/impulse/config.json
 ```
 
 ## Quick Start
@@ -137,8 +135,8 @@ Config file: `~/.config/impulse/config.json`
     "z.ai": { "apiKey": "your_key_here" },
     "ollama": { "baseUrl": "https://ollama.com" }
   },
-  "defaultProvider": "ollama",
-  "defaultModel": "ollama/deepseek-v4-pro",
+  "defaultProvider": "my-provider",
+  "defaultModel": "my-provider/gpt-4o",
   "defaultMode": "WORK",
   "reasoningLevel": "medium"
 }
@@ -166,6 +164,7 @@ IMPULSE wouldn't exist without these amazing projects:
 - **[OpenTUI](https://github.com/pioner92/opentui)** - The terminal UI framework that makes flicker-free rendering possible
 - **[Bun](https://bun.sh)** - The fast JavaScript runtime that powers everything
 - **[OpenCode](https://opencode.ai)** - The inspiration for this project and the harness used to build it
+- **[Pi Coding Agent](https://pi.dev)** - Inspiration for the rework and simplification
 - **[Z.ai](https://z.ai)** - For GLM models and the Coding Plan API
 
 ## License
