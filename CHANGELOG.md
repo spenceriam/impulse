@@ -5,7 +5,45 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.39.0] - 2026-05-12
+## [1.0.0] - 2026-05-17
+
+  **Type:** major
+  **Title:** CLI rework — provider-flexible terminal AI coding agent
+
+  ### Added
+  - **Dynamic provider config** — Any OpenAI-compatible or Anthropic-compatible endpoint with model discovery, reasoning probing, and persistent configuration
+  - **Anthropic Messages API provider** — Full implementation using raw fetch (no SDK)
+  - **pi-tui renderer** — Sticky context bar, shimmer spinner, differential rendering, overlay system
+  - **Vision pipeline** — Image paste detection, configurable vision model routing, /vision command
+  - **Advisor module** — Plan/approve/execute pattern with separate advisor model and approval overlay
+  - **First-party web tools** — web_search, web_fetch with agent-browser fallback
+  - **Ollama provider** — /api/show capability discovery
+  - **Markdown table rendering** — Boxed wide tables with stacked narrow fallback
+  - **Compact diff rendering** — Pi-style line-numbered file diffs
+
+  ### Changed
+  - Complete CLI rewrite — replaced OpenTUI/SolidJS with pi-tui
+  - Provider agnostic — removed all GLM/Z.ai hardcoded providers
+  - Simplified UI — consolidated 40+ SolidJS components into plain TypeScript
+  - Gutter wrapping on all chat content
+  - Status line slimmed — shimmer darkened, phrase locked per turn
+  - Table columns widened — cap raised from 32 to 60 chars
+
+  ### Removed
+  - OpenTUI/SolidJS UI — 40+ components and context providers
+  - MCP subsystem — manager, discovery, types, tools
+  - PTY interactive service
+  - Express mode sidebar and queue overlay
+  - Z.ai Coding Plan API
+
+  ### Fixed
+  - Reasoning toggle stuck for Ollama Cloud
+  - parseModelString misinterpreting slash-heavy model IDs
+  - Custom providers not appearing in /model
+  - Provider config not saving under correct key
+  - TDZ error in Anthropic streaming
+
+  ## [0.39.0] - 2026-05-12
 
 **Type:** minor
 **Title:** Compact CLI diffs and terminal-native polish
