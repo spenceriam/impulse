@@ -224,6 +224,19 @@ async function runSetup(): Promise<void> {
     }
   }
 
+  // Probe reasoning support for custom providers
+  if (isCustom && customType && baseUrl) {
+    const modelName = defaultModel.includes("/") ? defaultModel.split("/").slice(1).join("/") : defaultModel;
+    process.stdout.write("  Probing reasoning support…");
+    const { probeReasoningSupport } = await import("./api/providers/capabilities.js");
+    const cap = await probeReasoningSupport(customType, baseUrl, key, modelName);
+    if (cap.supported) {
+      console.log(` \x1b[32m✓\x1b[0m supported`);
+    } else {
+      console.log(` \x1b[33m⚠\x1b[0m not supported — reasoning disabled`);
+    }
+  }
+
   // Save config
   const cfg = await loadConfig().catch(() => ({
     providers: {} as Record<string, unknown>,

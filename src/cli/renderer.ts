@@ -42,6 +42,7 @@ import {
   formatReasoningLevelForDisplay,
   discoverOllamaReasoning,
   discoverOllamaMaxOutputTokens,
+  probeReasoningSupport,
   type ReasoningCapability,
 } from "../api/providers/capabilities.js";
 import { resetProviderManager } from "../api/manager.js";
@@ -1948,6 +1949,22 @@ export class ImpulseRenderer {
         state.error = "Invalid model selection.";
         this.renderModelSetup();
         return;
+      }
+      // Probe reasoning support for custom providers before showing reasoning step
+      if (state.provider?.isCustom || (state.provider && !PROVIDER_REASONING_STYLE[state.provider.key])) {
+        if (state.provider?.customType && state.apiKey && state.baseUrl && state.selectedModel) {
+          const modelName = state.selectedModel.includes("/") ? state.selectedModel.split("/").slice(1).join("/") : state.selectedModel;
+          this.reasoningCapability = await probeReasoningSupport(
+            state.provider.customType,
+            state.baseUrl,
+            state.apiKey,
+            modelName,
+          );
+          if (!this.reasoningCapability.supported) {
+            await this.finishModelSetup(state.selectedModel, "off");
+            return;
+          }
+        }
       }
       state.step = "reasoning";
       state.selectedIndex = this.reasoningLevels().indexOf(this.reasoningLevel);
