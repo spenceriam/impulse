@@ -88,7 +88,7 @@ function tableTotalWidth(widths: number[]): number {
 function tableColumnWidths(table: MarkdownTable): number[] {
   return table.header.map((header, column) => {
     const rowMax = table.rows.reduce((max, row) => Math.max(max, visibleWidth(row[column] ?? "")), 0);
-    return Math.max(3, Math.min(32, Math.max(visibleWidth(header), rowMax)));
+    return Math.max(3, Math.min(60, Math.max(visibleWidth(header), rowMax)));
   });
 }
 
@@ -116,7 +116,7 @@ function renderWideTable(table: MarkdownTable, widths: number[]): string[] {
 
 function renderStackedTable(table: MarkdownTable, width: number): string[] {
   const lines: string[] = [];
-  const labelWidth = Math.min(18, Math.max(...table.header.map((header) => visibleWidth(header)), 3));
+  const labelWidth = Math.min(25, Math.max(...table.header.map((header) => visibleWidth(header)), 3));
   const useTwoLineFields = width < labelWidth + 18;
 
   table.rows.forEach((row, rowIndex) => {

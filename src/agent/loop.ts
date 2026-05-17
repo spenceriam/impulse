@@ -582,6 +582,10 @@ export class AgentLoop {
 
   /** Auto-detect a vision-capable model from configured providers */
   private async findVisionModel(config: any): Promise<string | null> {
+    // Use explicitly configured vision model first
+    if (config.visionMode && config.visionModel) {
+      return config.visionModel;
+    }
     // Check advisor model first
     if (config.advisorModel && this.modelSupportsVision(config.advisorModel)) {
       return config.advisorModel;

@@ -217,8 +217,13 @@ export class PromptInput implements Component, Focusable {
       }
     }
 
-    // File paths to image files
-    const fileRegex = /(\/(?:tmp|home|var|Users)\/[^\s\n]*\.(?:png|jpg|jpeg|gif|webp|bmp))/gi;
+    // File paths to image files â€” Unix, Windows, and file:// protocol
+    const extGroup = "(?:png|jpg|jpeg|gif|webp|bmp)";
+    const fileRegex = new RegExp(
+      `(?:/(?:tmp|home|var|Users)/[^\\s\\n]*\\.${extGroup}|
+         [A-Za-z]:\\\\[^\\s\\n]*\\.${extGroup}|
+         file:///[^\\s\\n]*\\.${extGroup})`, "gi"
+    );
     const fileMatches = content.match(fileRegex);
     if (fileMatches) {
       for (const match of fileMatches) {
@@ -515,7 +520,7 @@ export class ImpulseRenderer {
     if (normalized.includes("respond")) return 25;            // "...putting a thought together..."
     if (normalized.includes("bash") || normalized.includes("shell")) return 22; // "...running the calculations..."
     if (normalized.includes("question") || normalized.includes("approval")) return 41; // "...awaiting response..."
-    if (normalized.includes("waiting")) return 40;            // "...holding for the model..."
+    if (normalized.includes("waiting")) return 41;            // "...awaiting response..."
     if (normalized.includes("compact")) return 33;            // "...organizing the response..."
     if (normalized.includes("todo")) return 5;                // "...let's break this down..."
     if (normalized.includes("consult")) return 1;             // "...handling that now..."
@@ -537,8 +542,8 @@ export class ImpulseRenderer {
       const distance = Math.min(Math.abs(index - head), chars.length - Math.abs(index - head));
       // Neutral grayscale tones — no cyan/white — Cursor/Claude Code style
       if (distance === 0) return A.fg(248, `${A.bold}${char}${A.reset}`);
-      if (distance === 1) return A.fg(244, char);
-      return A.fg(234, char);
+      if (distance === 1) return A.fg(240, char);
+      return A.fg(236, char);
     }).join("");
   }
 
@@ -643,10 +648,7 @@ export class ImpulseRenderer {
   }
 
   private setBusyStatus(msg: string): void {
-    if (this.spinnerInterval && this.currentStatusPhrase && msg === "thinking…") {
-      // Don't re-set the phrase during continuous thinking/streaming
-      return;
-    }
+    if (this.spinnerInterval && this.currentStatusPhrase) return;
 
     this.statusPhraseIndex = this.pickPhraseIndex(msg);
     this.currentStatusPhrase = ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "working…";
@@ -955,6 +957,8 @@ export class ImpulseRenderer {
       mode: this.mode,
       reasoningLevel: this.reasoningDisplayLabel(),
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
+      ...(config.visionModel ? { visionModel: config.visionModel } : {}),
+      visionMode: config.visionMode ?? false,
     });
     this.tui.addChild(this.contextBar);
 
@@ -1490,6 +1494,7 @@ export class ImpulseRenderer {
     return [
       { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
       { cmd: "/model",    hint: "choose provider, API key, and model" },
+      { cmd: "/vision",   hint: "on | off  toggle vision translation" },
       { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
       { cmd: "/reason",   hint: `${this.reasoningLevelsLabel()}  set reasoning level` },
       { cmd: "/new",      hint: "[name]  start new session" },
@@ -1583,6 +1588,7 @@ export class ImpulseRenderer {
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
       case "model":   await this.cmdModel(arg);   break;
+      case "vision":  await this.cmdVision(arg);  break;
       case "mode":    this.cmdMode(arg);           break;
       case "reason":  await this.cmdReason(arg);   break;
       case "user":    await this.cmdUser(arg);     break;
@@ -2405,6 +2411,27 @@ this.modelSetup = {
     this.setupModelNavigation();
     this.renderModelSetup();
     void this.validateProviderKeys();
+  }
+
+  private async cmdVision(arg: string): Promise<void> {
+    const config = await loadConfig();
+    if (!arg || arg === "on") {
+      if (config.visionModel) {
+        config.visionMode = true;
+        await saveConfig(config);
+        this.addChatLine(`${clr.success("✓")} Vision mode ON — ${config.visionModel.split("/").pop() ?? config.visionModel}`);
+      } else {
+        this.addChatLine(`${clr.warn("!")} No vision model configured. Use /model to set up a vision-capable model.`);
+      }
+      return;
+    }
+    if (arg === "off") {
+      config.visionMode = false;
+      await saveConfig(config);
+      this.addChatLine(`${clr.success("✓")} Vision mode OFF`);
+      return;
+    }
+    this.addChatLine(`  vision: ${config.visionMode ? "on" : "off"}  |  options: on | off`);
   }
 
   private cmdMode(arg: string): void {
