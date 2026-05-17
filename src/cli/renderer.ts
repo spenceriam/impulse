@@ -1521,7 +1521,7 @@ export class ImpulseRenderer {
       this.autocompleteText.setText("");
     } else {
       const lines = matches
-        .map((m) => `  ${A.fg(36, m.cmd)}  ${A.fg(90, m.hint)}`)
+        .map((m) => `${GUTTER}${A.fg(36, m.cmd)}  ${A.fg(90, m.hint)}`)
         .join("\n");
       this.autocompleteText.setText(lines);
     }
