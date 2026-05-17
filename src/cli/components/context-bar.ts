@@ -207,7 +207,10 @@ export class ContextBarComponent implements Component {
 
     if (oneRowWidth <= avail) {
       // Everything fits — one row
-      const parts = [modelFull, ctxSeg, dirBranchFull, modeFull + (hasStats ? sep + statsFull : "")].filter(s => visibleWidth(s.trim()) > 0);
+      const modeStats = modeWidth > 0
+        ? modeFull + (hasStats ? sep + statsFull : "")
+        : (hasStats ? statsFull : "");
+      const parts = [modelFull, ctxSeg, dirBranchFull, modeStats].filter(s => visibleWidth(s.trim()) > 0);
       return [truncateToWidth(GUTTER + parts.join(sep), width), "", ""];
     }
 
