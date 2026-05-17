@@ -203,8 +203,8 @@ async function runSetup(): Promise<void> {
     if (discovery.success && discovery.models.length > 0) {
         console.log(` \x1b[32m✓\x1b[0m  ${discovery.message}`);
         console.log(`\n  Available models:`);
-        discovery.models.slice(0, 10).forEach((m, i) => console.log(`    ${i + 1}. ${m}`));
-        if (discovery.models.length > 10) console.log(`    … and ${discovery.models.length - 10} more`);
+        discovery.models.forEach((m, i) => console.log(`    ${i + 1}. ${m}`));
+        
         const modelChoice = await ask(`\n  Pick a model (number or full name) [1]: `);
         const idx = parseInt(modelChoice) - 1;
         if (!isNaN(idx) && discovery.models[idx]) {
