@@ -25,7 +25,7 @@ import {
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import { Editor, type EditorTheme } from "@mariozechner/pi-tui";
-import { GUTTER, gutterSeparator } from "./gutter.js";
+import { GUTTER, GUTTER_WIDTH, gutterSeparator } from "./gutter.js";
 import { setModelAutocomplete } from "./model-setup.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
@@ -1385,7 +1385,7 @@ export class ImpulseRenderer {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   private addChatLine(text: string): void {
-    this.chat.addChild(new Text(GUTTER + text, 0, 0));
+    const avail = Math.max(4, this.terminal.columns - GUTTER_WIDTH); const lines = wrapTextWithAnsi(text, avail); for (const line of lines) { this.chat.addChild(new Text(GUTTER + line, 0, 0)); }
     this.hasTrailingGap = false;
   }
 
