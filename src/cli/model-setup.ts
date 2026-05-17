@@ -133,7 +133,7 @@ export async function discoverModels(
     return { success: result.success, message: result.message, models: sorted };
   }
 
-  const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/$/, "");
+  const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/v1\/?$/, "").replace(/\/$/, "");
 
   // Anthropic-compatible uses x-api-key header instead of Bearer
   const isAnthropic = provider.customType === "anthropic-compatible";
