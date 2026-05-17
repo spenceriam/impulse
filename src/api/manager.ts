@@ -88,8 +88,8 @@ export function parseModelString(model: string, defaultProvider: string): ModelI
         model: parts.slice(1).join("/"),
       };
     }
-    // Unknown prefix — treat as custom provider key if it looks like one
-    if (/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(prefix)) {
+    // Unknown prefix — only treat as custom provider if it matches defaultProvider
+    if (prefix === defaultProvider) {
       return {
         full: model,
         provider: prefix,
