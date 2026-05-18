@@ -857,7 +857,7 @@ export class ImpulseRenderer {
     // Welcome header
     this.chat.addChild(new Spacer(1));
     this.chat.addChild(new Text(
-      `${GUTTER}${clr.bold("IMPULSE")} ${clr.dim("|")} ${A.reset}cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
+      `${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${A.reset}cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
       0, 0
     ));
     this.chat.addChild(new Text(
