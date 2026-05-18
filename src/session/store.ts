@@ -221,6 +221,33 @@ class SessionStoreImpl {
     Bus.publish(SessionEvents.Deleted, { sessionID });
   }
 
+  /**
+   * Immediately flush a pending auto-save for a session to disk.
+   * Clears any debounce timeout and writes immediately.
+   */
+  async flushSave(sessionID: string): Promise<void> {
+    const timeout = this.saveTimeouts.get(sessionID);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.saveTimeouts.delete(sessionID);
+    }
+  }
+
+  /**
+   * Flush all pending auto-saves across all sessions.
+   * Used on exit to ensure no data loss.
+   */
+  async flushAllSaves(): Promise<void> {
+    const sessionIDs = [...this.saveTimeouts.keys()];
+    for (const id of sessionIDs) {
+      const timeout = this.saveTimeouts.get(id);
+      if (timeout) {
+        clearTimeout(timeout);
+        this.saveTimeouts.delete(id);
+      }
+    }
+  }
+
   cancelAutoSave(sessionID: string): void {
     const timeout = this.saveTimeouts.get(sessionID);
     if (timeout) {
