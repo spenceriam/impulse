@@ -2484,8 +2484,9 @@ this.modelSetup = {
   private async cmdContinue(arg: string): Promise<void> {
     if (arg) {
       try {
-        await SessionManager.load(arg);
-        this.addChatLine(`${clr.success("✓")} Continued session`);
+        const session = await SessionManager.load(arg);
+        const name = session?.headerTitle || session?.name || arg;
+        this.addChatLine(`${clr.success("✓")} Continued: ${name}`);
       } catch (e) {
         this.addChatLine(`${clr.error("✗")} Failed to load session: ${(e as Error).message}`);
       }
@@ -2503,8 +2504,9 @@ this.modelSetup = {
       this.sessionPickerHandle?.hide();
       this.sessionPickerHandle = null;
       try {
-        await SessionManager.load(sessionID);
-        this.addChatLine(`${clr.success("✓")} Continued session`);
+        const session = await SessionManager.load(sessionID);
+        const name = session?.headerTitle || session?.name || sessionID;
+        this.addChatLine(`${clr.success("✓")} Continued: ${name}`);
       } catch (e) {
         this.addChatLine(`${clr.error("✗")} Failed to load session: ${(e as Error).message}`);
       }
