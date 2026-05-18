@@ -787,6 +787,7 @@ export class ImpulseRenderer {
   private permissionOverlayHandle: OverlayHandle | null = null;
   private questionOverlayHandle: OverlayHandle | null = null;
   private sessionPickerHandle: OverlayHandle | null = null;
+  private modelPickerHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
@@ -2129,83 +2130,53 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private async cmdModel(arg: string): Promise<void> {
+  private async cmdModel(_arg: string): Promise<void> {
     if (this.isRunning) return;
 
-    const config = await loadConfig();
-    const currentProvider = config.defaultProvider;
+    try {
+      const { buildProviderEntries, ModelPickerOverlay } = await import("./components/model-picker-overlay.js");
+      const { entries, promises } = await buildProviderEntries();
 
-    // Build provider list: configured first, then unconfigured
-    const configured: ProviderEntry[] = [];
-    const unconfigured: ProviderEntry[] = [];
-    for (const provider of MODEL_PROVIDERS) {
-      const stored = providerConfig(config, provider.key);
-      const hasKey = !!stored.apiKey;
-      if (hasKey) {
-        configured.push({
-          provider,
-          configured: true,
-          valid: true,  // Will be validated async
-          keyPreview: maskKey(stored.apiKey),
-        });
-      } else {
-        unconfigured.push({
-          provider,
-          configured: false,
-          valid: false,
-          keyPreview: "",
-        });
+      if (entries.length === 0) {
+        this.addChatLine(`  ${clr.dim("No providers configured. Configure one first in ~/.impulse/.env")}`);
+        return;
       }
-    }
 
-    
-    // Scan config for custom providers not in MODEL_PROVIDERS
-    const allProvs = config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;
-    for (const [key, stored] of Object.entries(allProvs)) {
-      if (MODEL_PROVIDERS.some(p => p.key === key)) continue;
-      if (!stored?.apiKey) continue;
-      const cp: ModelProviderOption = {
-        key,
-        label: `Custom: ${key}${stored.type ? ` (${stored.type === "anthropic-compatible" ? "Anthropic" : "OpenAI"})` : ""}`,
-        envVar: "",
-        defaultModel: config.defaultModel ?? "",
-        modelBaseUrl: stored.baseUrl ?? "",
-        ...(stored.baseUrl ? { defaultBaseUrl: stored.baseUrl } : {}),
-        needsBaseUrl: false,
-        isCustom: false,
-        ...(stored.type ? { customType: stored.type as "openai-compatible" | "anthropic-compatible" } : {}),
+      const config = await loadConfig();
+      const overlay = new ModelPickerOverlay(entries, config);
+
+      overlay.onSelect = async (providerKey: string, modelName: string) => {
+        this.modelPickerHandle?.hide();
+        this.modelPickerHandle = null;
+
+        const fullModel = modelName.includes("/") ? modelName : `${providerKey}/${modelName}`;
+        await SessionManager.update({ model: fullModel });
+        this.contextBar.update({ workerModel: fullModel });
+        this.addChatLine(`${clr.success("✓")} Model: ${fullModel}`);
+        this.tui.requestRender();
       };
-      configured.push({ provider: cp, configured: true, valid: true, keyPreview: maskKey(stored.apiKey) });
+
+      overlay.onCancel = () => {
+        this.modelPickerHandle?.hide();
+        this.modelPickerHandle = null;
+      };
+
+      this.modelPickerHandle = this.tui.showOverlay(overlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: "92%",
+        minWidth: 70,
+        maxHeight: 18,
+        margin: { left: 2, right: 2, bottom: 4 },
+      });
+      this.modelPickerHandle.focus();
+      this.tui.requestRender();
+
+      await Promise.allSettled(promises);
+      this.tui.requestRender();
+    } catch (e) {
+      this.addChatLine(`${clr.error("✗")} Model selector failed: ${(e as Error).message}`);
     }
-this.modelSetup = {
-      step: "provider",
-      config,
-      currentProvider,
-      models: [],
-      providers: [...configured, ...unconfigured],
-      selectedIndex: 0,
-      page: 0,
-      modelsPerPage: 20,
-    };
-
-    const provider = arg ? parseProviderChoice(arg, currentProvider) : null;
-    if (arg && !provider) {
-      this.modelSetup.error = `Unknown provider: ${arg}`;
-    } else if (provider) {
-      await this.selectModelSetupProvider(provider);
-    }
-
-    this.promptInput.clear();
-    this.promptInput.setSecretMode(false);
-    this.autocompleteText.setText("");
-
-    // Set up arrow key navigation for provider step
-    this.setupModelNavigation();
-
-    this.renderModelSetup();
-
-    // Validate configured providers async
-    void this.validateProviderKeys();
   }
 
   private modelSetupInputListener: (() => void) | null = null;
