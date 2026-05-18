@@ -88,23 +88,27 @@ function prepareBinDirectory(binaryName) {
     fs.mkdirSync(binDir, { recursive: true });
   }
 
-  if (fs.existsSync(targetPath)) {
-    fs.unlinkSync(targetPath);
-  }
-
   return { binDir, targetPath };
 }
 
 function symlinkBinary(sourcePath, targetPath) {
-  // Ensure source binary is executable (npm tarball doesn't preserve execute bit)
   try {
     fs.chmodSync(sourcePath, 0o755);
   } catch (e) {
     // Ignore chmod errors (may not have permission)
   }
-  
-  fs.symlinkSync(sourcePath, targetPath);
-  console.log(`IMPULSE binary symlinked: ${targetPath} -> ${sourcePath}`);
+
+  const tempPath = targetPath + ".tmp-" + process.pid;
+
+  fs.symlinkSync(sourcePath, tempPath);
+
+  try {
+    fs.renameSync(tempPath, targetPath);
+  } catch (renameError) {
+    // Clean up temp symlink on failure
+    try { fs.unlinkSync(tempPath); } catch (e) {}
+    throw renameError;
+  }
 
   if (!fs.existsSync(targetPath)) {
     throw new Error(`Failed to symlink binary to ${targetPath}`);
@@ -112,29 +116,24 @@ function symlinkBinary(sourcePath, targetPath) {
 }
 
 async function main() {
-  try {
-    if (os.platform() === "win32") {
-      console.log("Windows detected: using packaged executable");
-      return;
-    }
-
-    const { binaryPath, binaryName } = findBinary();
-    const { targetPath } = prepareBinDirectory(binaryName);
-    
-    // Create symlink to the platform-specific binary
-    symlinkBinary(binaryPath, targetPath);
-    
-    console.log(`IMPULSE installed successfully!`);
-  } catch (error) {
-    console.error("Failed to setup IMPULSE binary:", error.message);
-    console.error("You may need to install Bun and run IMPULSE directly:");
-    console.error("  curl -fsSL https://bun.sh/install | bash");
-    console.error("  bun x @spenceriam/impulse");
-    process.exit(1);
+  if (os.platform() === "win32") {
+    console.log("Windows detected: using packaged executable");
+    return;
   }
+
+  const { binaryPath, binaryName } = findBinary();
+  const { targetPath } = prepareBinDirectory(binaryName);
+
+  symlinkBinary(binaryPath, targetPath);
+
+  console.log(`IMPULSE binary symlinked: ${targetPath} -> ${binaryPath}`);
+  console.log(`IMPULSE installed successfully!`);
 }
 
 main().catch((error) => {
-  console.error("Postinstall script error:", error.message);
-  process.exit(0);
+  console.error("Failed to setup IMPULSE binary:", error.message);
+  console.error("You may need to install Bun and run IMPULSE directly:");
+  console.error("  curl -fsSL https://bun.sh/install | bash");
+  console.error("  bun x @spenceriam/impulse");
+  process.exit(1);
 });

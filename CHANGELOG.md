@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-05-18
+
+  **Type:** patch
+  **Title:** Hotfix — postinstall error handling and package configuration
+
+  ### Fixed
+  - Postinstall double error handler — removed conflicting `process.exit(0)`/`process.exit(1)` pattern causing silent failures
+  - Postinstall delete-before-symlink race — symlink created to temp path then atomically renamed, preventing broken wrapper on failure
+  - Root `package.json` marked `private: true` — prevents accidental publish of development workspace over CLI wrapper
+
 ## [1.0.0] - 2026-05-17
 
   **Type:** major
