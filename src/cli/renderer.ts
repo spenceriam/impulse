@@ -897,12 +897,12 @@ export class ImpulseRenderer {
         this.abortCurrentTurn();
       } else {
         // Ctrl+C while idle = exit with stats
-        this.showExitStats();
+        void this.showExitStats();
         this.tui.stop();
         process.exit(0);
       }
     };
-    this.promptInput.onExit = () => { this.showExitStats(); this.tui.stop(); process.exit(0); };
+    this.promptInput.onExit = () => { void this.showExitStats(); this.tui.stop(); process.exit(0); };
     this.promptInput.onEscape = () => {
       if (this.modelSetup) {
         const state = this.modelSetup;
@@ -1535,7 +1535,10 @@ export class ImpulseRenderer {
 
   // ── Exit stats ────────────────────────────────────────────────────────────
 
-  private showExitStats(): void {
+  private async showExitStats(): Promise<void> {
+    // Flush any pending session saves before showing stats
+    await SessionManager.save();
+
     const session = SessionManager.getCurrentSession();
     if (!session) return;
     const msgs    = session.messages.length;
@@ -1613,7 +1616,7 @@ export class ImpulseRenderer {
       case "help": this.printHelp(); break;
       case "quit":
       case "exit":
-        this.showExitStats();
+        await this.showExitStats();
         this.tui.stop();
         process.exit(0);
         break;
