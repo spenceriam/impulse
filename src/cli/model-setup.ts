@@ -130,6 +130,7 @@ export async function discoverModels(
       apiKey
     );
     const sorted = await sortModels(provider.key, result.models);
+    if (result.success) setCachedModels(provider.key, sorted);
     return { success: result.success, message: result.message, models: sorted };
   }
 
@@ -231,6 +232,7 @@ export async function discoverModels(
             .filter((m): m is string => typeof m === "string" && m.length > 0);
 
           const sorted2 = await sortModels(provider.key, sorted);
+          setCachedModels(provider.key, sorted2);
           return {
             success: true,
             message: sorted2.length > 0
@@ -245,6 +247,7 @@ export async function discoverModels(
           .filter((m): m is string => typeof m === "string" && m.length > 0);
 
         const sorted2 = await sortModels(provider.key, models);
+        setCachedModels(provider.key, sorted2);
 
         return {
           success: true,
@@ -411,4 +414,34 @@ export function setModelAutocomplete(editor: Editor, models: string[]): void {
       };
     },
   });
+}
+
+// ── Model list cache ────────────────────────────────────────────────────────
+
+const modelCache = new Map<string, { models: string[]; fetchedAt: number }>();
+const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/** Get cached model list for a provider, if fresh enough */
+export function getCachedModels(providerKey: string): string[] | undefined {
+  const entry = modelCache.get(providerKey);
+  if (!entry) return undefined;
+  if (Date.now() - entry.fetchedAt > MODEL_CACHE_TTL) {
+    modelCache.delete(providerKey);
+    return undefined;
+  }
+  return entry.models;
+}
+
+/** Cache model list for a provider */
+export function setCachedModels(providerKey: string, models: string[]): void {
+  modelCache.set(providerKey, { models, fetchedAt: Date.now() });
+}
+
+/** Clear model cache for all or specific provider */
+export function clearModelCache(providerKey?: string): void {
+  if (providerKey) {
+    modelCache.delete(providerKey);
+  } else {
+    modelCache.clear();
+  }
 }
