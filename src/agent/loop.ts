@@ -35,6 +35,8 @@ function debugLog(msg: string): void {
 import { Tool } from "../tools/registry";
 import { type Message } from "../session/store";
 import { SessionManager } from "../session/manager";
+import { generateTitle } from "../session/title-generator.js";
+import { Bus, HeaderEvents } from "../bus/index.js";
 import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
 import { generateSystemPrompt } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
@@ -532,6 +534,28 @@ export class AgentLoop {
 
       if (signal.aborted) {
         return;
+      }
+
+      // ── Flush session save & generate title ──────────────────────────────
+      session = SessionManager.getCurrentSession();
+      if (session) {
+        // Flush the per-turn debounced save so the session is on disk
+        // with all messages through the completed AI response.
+        await SessionManager.save();
+
+        // Generate title after the first substantive exchange
+        // (at least 1 user message + 1 assistant response).
+        if (!session.headerTitle && session.messages.length >= 3) {
+          const userCount = session.messages.filter((m) => m.role === "user").length;
+          if (userCount >= 1) {
+            const model = session.model || "ollama/llama3.2";
+            const title = await generateTitle(session.messages, model);
+            if (title) {
+              await SessionManager.setHeaderTitle(title);
+              Bus.publish(HeaderEvents.Updated, { title });
+            }
+          }
+        }
       }
 
       // ── Final usage report ─────────────────────────────────────────────────
