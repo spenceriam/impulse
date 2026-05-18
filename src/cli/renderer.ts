@@ -33,6 +33,7 @@ import { ToolBlock } from "./components/tool-block.js";
 import { MarkdownTextBlock } from "./components/markdown-text.js";
 import { PermissionOverlay } from "./components/permission-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
+import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config, type ReasoningLevel } from "../util/config.js";
 import {
@@ -785,6 +786,7 @@ export class ImpulseRenderer {
   private activePermission: PermissionRequest | null = null;
   private permissionOverlayHandle: OverlayHandle | null = null;
   private questionOverlayHandle: OverlayHandle | null = null;
+  private sessionPickerHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
@@ -1604,6 +1606,9 @@ export class ImpulseRenderer {
       case "mode":    this.cmdMode(arg);           break;
       case "reason":  await this.cmdReason(arg);   break;
       case "user":    await this.cmdUser(arg);     break;
+      case "continue":
+        await this.cmdContinue(arg);
+        break;
       case "debug":
         setDebugEnabled(!isDebugEnabled());
         this.addChatLine(`${clr.success("✓")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
@@ -2511,6 +2516,51 @@ this.modelSetup = {
       this.addChatLine(`  ${clr.dim("Profile unchanged")}`);
     }
     this.addChatLine("");
+    this.tui.requestRender();
+  }
+
+  private async cmdContinue(arg: string): Promise<void> {
+    if (arg) {
+      try {
+        await SessionManager.load(arg);
+        this.addChatLine(`${clr.success("✓")} Continued session`);
+      } catch (e) {
+        this.addChatLine(`${clr.error("✗")} Failed to load session: ${(e as Error).message}`);
+      }
+      return;
+    }
+
+    const sessions = await SessionManager.listSessions();
+    if (sessions.length === 0) {
+      this.addChatLine(`  ${clr.dim("No saved sessions for this project. Start a new conversation to create one.")}`);
+      return;
+    }
+
+    const overlay = new SessionPickerOverlay(sessions);
+    overlay.onSelect = async (sessionID: string) => {
+      this.sessionPickerHandle?.hide();
+      this.sessionPickerHandle = null;
+      try {
+        await SessionManager.load(sessionID);
+        this.addChatLine(`${clr.success("✓")} Continued session`);
+      } catch (e) {
+        this.addChatLine(`${clr.error("✗")} Failed to load session: ${(e as Error).message}`);
+      }
+    };
+    overlay.onCancel = () => {
+      this.sessionPickerHandle?.hide();
+      this.sessionPickerHandle = null;
+    };
+
+    this.sessionPickerHandle = this.tui.showOverlay(overlay, {
+      anchor: "bottom-center",
+      offsetY: -4,
+      width: "92%",
+      minWidth: 70,
+      maxHeight: 18,
+      margin: { left: 2, right: 2, bottom: 4 },
+    });
+    this.sessionPickerHandle.focus();
     this.tui.requestRender();
   }
 
