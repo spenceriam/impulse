@@ -1,10 +1,28 @@
 import { z } from "zod";
-import { rgPath } from "@vscode/ripgrep";
+import { existsSync } from "fs";
+import { dirname } from "path";
 import { Tool, ToolResult } from "./registry";
 import { sanitizePath } from "../util/path";
 
 const MAX_RESULTS = 100;
 const MAX_CONTENT_LENGTH = 120;
+
+function resolveRgPath(): string | null {
+  // Check for bundled rg alongside the compiled binary
+  const execDir = dirname(process.execPath);
+  const bundledRg = `${execDir}/rg${process.platform === "win32" ? ".exe" : ""}`;
+  if (existsSync(bundledRg)) return bundledRg;
+
+  return null;
+}
+
+async function resolveRgPathDev(): Promise<string | null> {
+  try {
+    const { rgPath } = await import("@vscode/ripgrep");
+    if (existsSync(rgPath)) return rgPath;
+  } catch {}
+  return null;
+}
 
 const DESCRIPTION = `Search file contents with a regex.
 
@@ -36,6 +54,17 @@ export const grepTool: Tool<GrepInput> = Tool.define(
   GrepSchema,
   async (input: GrepInput): Promise<ToolResult> => {
     try {
+      let rgPath = resolveRgPath();
+      if (!rgPath) {
+        rgPath = await resolveRgPathDev();
+      }
+      if (!rgPath) {
+        return {
+          success: false,
+          output: "ripgrep binary not found. Install ripgrep (https://github.com/BurntSushi/ripgrep) or reinstall impulse.",
+        };
+      }
+
       const searchPath = sanitizePath(input.path ?? ".");
 
       // Build command args properly as array elements
