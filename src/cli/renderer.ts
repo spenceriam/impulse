@@ -69,6 +69,7 @@ import { rejectQuestion, resolveQuestion, type Question } from "../tools/questio
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
+import packageJson from "../../package.json";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -458,7 +459,6 @@ export class ImpulseRenderer {
   private spinnerText!: Text;
   private contextBar!: ContextBarComponent;
   private promptInput!: PromptInput;
-  private headerText!: Text;
   private autocompleteText!: Text; // slash command suggestions
   private modelSetupText!: Text;
   private bottomSpacer!: BottomAnchorSpacer;
@@ -844,14 +844,6 @@ export class ImpulseRenderer {
         const payload = event.properties as { context?: string; questions: Question[] };
         this.showQuestionOverlay(payload.context, payload.questions);
       }
-
-      if (event.type === "header.updated") {
-        const title = (event.properties as { title: string }).title;
-        this.headerText.setText(
-          `${GUTTER}${clr.bold("IMPULSE")} ${clr.dim("|")} ${A.reset}${title}`
-        );
-        this.tui.requestRender();
-      }
     });
 
     // 0. Bottom anchor spacer — pushes content down so contextBar stays at terminal bottom
@@ -864,11 +856,10 @@ export class ImpulseRenderer {
 
     // Welcome header
     this.chat.addChild(new Spacer(1));
-    this.headerText = new Text(
-      `${GUTTER}${clr.bold("IMPULSE")} ${clr.dim("|")} ${A.reset}New session`,
+    this.chat.addChild(new Text(
+      `${GUTTER}${clr.bold("IMPULSE")} ${clr.dim("|")} ${A.reset}cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
       0, 0
-    );
-    this.chat.addChild(this.headerText);
+    ));
     this.chat.addChild(new Text(
       `${GUTTER}${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit")}`,
       0, 0
