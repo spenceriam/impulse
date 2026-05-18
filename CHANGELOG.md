@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-05-18
+
+  **Type:** patch
+  **Title:** Hotfix — bundle ripgrep binary with compiled output
+
+  ### Fixed
+  - Compiled binary crashed at startup because `@vscode/ripgrep` native binary was not bundled — `bun build --compile` only embeds JavaScript modules, not native executables from `node_modules`
+  - Grep tool now resolves ripgrep relative to the compiled binary location, with fallback to `@vscode/ripgrep` for development mode
+  - CI pipeline copies the platform-matching `rg` binary alongside the compiled `impulse` binary so it's included in the platform package
+
 ## [1.0.1] - 2026-05-18
 
   **Type:** patch

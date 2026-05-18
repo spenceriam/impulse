@@ -33,6 +33,16 @@ if (!result.success) {
   process.exit(1);
 }
 
+// Copy ripgrep binary to dist for compiled binary resolution
+const { rgPath } = await import("@vscode/ripgrep");
+if (existsSync(rgPath)) {
+  const destRg = join(distDir, process.platform === "win32" ? "rg.exe" : "rg");
+  cpSync(rgPath, destRg);
+  console.log(`  Bundled rg: ${destRg}`);
+} else {
+  console.warn("  Warning: @vscode/ripgrep binary not found at", rgPath);
+}
+
 // Add shebang to the output file
 const outputPath = join(distDir, "index.js");
 const content = readFileSync(outputPath, "utf-8");

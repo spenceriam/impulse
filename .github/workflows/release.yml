@@ -94,6 +94,18 @@ jobs:
             chmod +x packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/impulse
           fi
 
+      - name: Bundle rg binary
+        shell: bash
+        run: |
+          RG_PLATFORM="${{ matrix.platform == 'windows' && 'win32' || matrix.platform }}"
+          RG_PKG="@vscode/ripgrep-${RG_PLATFORM}-${{ matrix.arch }}"
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            cp "node_modules/${RG_PKG}/bin/rg.exe" "packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/rg.exe"
+          else
+            cp "node_modules/${RG_PKG}/bin/rg" "packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/rg"
+            chmod +x "packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/rg"
+          fi
+
       - name: Create platform package.json
         shell: bash
         run: |
