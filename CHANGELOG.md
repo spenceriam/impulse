@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Fixed
   - Non-English response retry wired in agent loop via `shouldRetryInEnglish`
+  - Ollama Cloud reasoning off now sends `reasoning_effort: "none"` (top-level `think: false` was ignored on `/v1/chat/completions`)
+  - Paste tokens can be edited character-by-character without dropping the whole hidden block
+  - Multi-paste + typed text preserves insertion order via segment assembly
+  - Image paste routing: Kimi/vision models get native multimodal parts; text-only models use `vision_translate` in order
+  - Busy status shows dim `Processing..` while thinking; `Wrapping up...` after tool calls before final answer
 
 ## [1.0.2] - 2026-05-18
 
