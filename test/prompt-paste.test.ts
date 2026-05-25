@@ -96,6 +96,17 @@ describe("PromptInput paste submission", () => {
     expect(input.getSubmitPayload().apiText).toBe("");
   });
 
+  test("partial backspace through marker suffix keeps payload until token gone", () => {
+    const input = new PromptInput(undefined, TEST_EDITOR_THEME);
+    const pasted = "z".repeat(130);
+    input.handleInput(bracketedPaste(pasted));
+
+    const display = input.getText();
+    input.setText(display.slice(0, -2));
+
+    expect(input.getSubmitPayload().apiText).toBe(pasted);
+  });
+
   test("partial backspace on paste token with trailing typed text keeps payload", () => {
     const input = new PromptInput(undefined, TEST_EDITOR_THEME);
     const pasted = "z".repeat(130);
@@ -151,6 +162,24 @@ describe("buildPromptSegments", () => {
     expect(images).toHaveLength(1);
     expect(images[0].uri).toBe(img2);
     expect(images[0].index).toBe(1);
+  });
+
+  test("removing first of three image tokens reindexes remaining labels", () => {
+    const input = new PromptInput(undefined, TEST_EDITOR_THEME);
+    const img1 = "data:image/png;base64,QUFB";
+    const img2 = "data:image/png;base64,QkJC";
+    const img3 = "data:image/png;base64,Q0ND";
+
+    input.handleInput(bracketedPaste(img1));
+    input.handleInput(bracketedPaste(img2));
+    input.handleInput(bracketedPaste(img3));
+    input.setText("[Pasted image #2][Pasted image #3]");
+
+    expect(input.getText()).toBe("[Pasted image #1][Pasted image #2]");
+    const images = input.getSubmitPayload().orderedImages;
+    expect(images).toHaveLength(2);
+    expect(images[0].uri).toBe(img2);
+    expect(images[1].uri).toBe(img3);
   });
 
   test("sync after edit keeps distinct identical paste markers in order", () => {

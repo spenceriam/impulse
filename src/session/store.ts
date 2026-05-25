@@ -34,9 +34,19 @@ export interface Session {
   metadata?: Record<string, unknown>
 }
 
+/** API payload for user messages (text or multimodal); persisted for session resume. */
+export type UserMessageApiContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
 export interface Message {
   role: "user" | "assistant" | "system"
   content: string
+  /** Expanded provider content when display differs (paste tokens, images). */
+  apiContent?: UserMessageApiContent
   reasoning_content?: string
   content_blocks?: MessageContentBlock[]
   validation?: MessageValidation

@@ -284,8 +284,9 @@ export class PromptInput implements Component, Focusable {
           const expected = group.originalDisplay[spanLength]!;
           const actual = text[idx + spanLength];
           if (expected !== actual) {
-            // Missing closing bracket while editing, with optional trailing prose.
-            if (expected !== "]") {
+            const atEnd = idx + spanLength >= text.length;
+            // Wrong seq digit (#1 vs #2), or mid-token mismatch — skip this occurrence.
+            if (!atEnd && expected !== "]") {
               idx = text.indexOf(group.originalDisplay.slice(0, 8), idx + 1);
               continue;
             }
@@ -343,22 +344,25 @@ export class PromptInput implements Component, Focusable {
   }
 
   private _reindexImageGroups(): void {
+    const replacements: Array<{ from: string; to: string }> = [];
     let idx = 1;
     for (const group of this._pasteGroups) {
       if (group.kind !== "image") continue;
       const oldDisplay = group.display;
       const label = `[Pasted image #${idx}]`;
+      replacements.push({ from: oldDisplay, to: label });
       group.display = label;
       group.originalDisplay = label;
       group.imageIndex = idx;
-      group.content = group.content;
-      const text = this.editor.getText();
-      if (text.includes(oldDisplay)) {
-        this.editor.setText(text.replace(oldDisplay, label));
-      }
       idx++;
     }
     this._nextImageIndex = idx;
+    if (replacements.length === 0) return;
+    let text = this.editor.getText();
+    for (const { from, to } of replacements) {
+      text = text.replace(from, to);
+    }
+    this.editor.setText(text);
   }
 
   handleInput(data: string): void {

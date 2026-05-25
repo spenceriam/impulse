@@ -109,10 +109,9 @@ function buildChatMessages(sessionMessages: Message[], systemPrompt: string): Ch
   for (const m of sessionMessages) {
     if (m.role === "system") continue; // system prompt already added above
     if (m.role === "user" || m.role === "assistant") {
-      const apiContent = (m as Message & { apiContent?: ChatMessage["content"] }).apiContent;
       const content =
-        m.role === "user" && apiContent !== undefined
-          ? apiContent
+        m.role === "user" && m.apiContent !== undefined
+          ? m.apiContent
           : (m.content ?? "");
       const msg: ChatMessage = { role: m.role, content };
       if (m.tool_calls && m.tool_calls.length > 0) {
@@ -184,9 +183,9 @@ export class AgentLoop {
       const segments = turnOptions?.segments;
       const nativeVision = modelSupportsVision(model);
 
-      const apiContent =
+      const apiContent: Message["apiContent"] =
         segments && segments.length > 0
-          ? buildUserMessageContent(segments, nativeVision)
+          ? (buildUserMessageContent(segments, nativeVision) as Message["apiContent"])
           : userMessage;
 
       const orderedUris =
@@ -200,19 +199,11 @@ export class AgentLoop {
       const userMsg: Message = {
         role: "user",
         content: displayMessage,
+        apiContent,
         timestamp: new Date().toISOString(),
       };
       await SessionManager.addMessage(userMsg);
       session = SessionManager.getCurrentSession()!;
-
-      // Patch last user message API content for downstream buildChatMessages
-      const sessionAfterUser = SessionManager.getCurrentSession();
-      if (sessionAfterUser && sessionAfterUser.messages.length > 0) {
-        const last = sessionAfterUser.messages[sessionAfterUser.messages.length - 1]!;
-        if (last.role === "user") {
-          (last as Message & { apiContent?: unknown }).apiContent = apiContent;
-        }
-      }
 
       if (orderedUris.length > 0 && !nativeVision) {
         this.pendingImages = orderedUris;
