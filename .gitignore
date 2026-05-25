@@ -1,6 +1,6 @@
 # Dependencies
 node_modules
-impulse-grep-*//
+impulse-grep-*/
 bun.lockb
 
 # Build output

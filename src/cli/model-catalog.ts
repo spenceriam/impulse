@@ -317,6 +317,20 @@ export function sortModelInfos(models: ModelInfo[]): ModelInfo[] {
   });
 }
 
+/** Raw model IDs when models.dev enrichment is unavailable. */
+export function fallbackModelInfosFromIds(modelIds: string[]): ModelInfo[] {
+  return modelIds.map((id) => {
+    const info = {
+      id,
+      vendor: "—",
+      displayName: id,
+      contextTokens: undefined as number | undefined,
+      addedAt: undefined as Date | undefined,
+    };
+    return { ...info, pickerLine: formatModelPickerLine(info) };
+  });
+}
+
 export async function enrichDiscoveredModels(
   impulseProviderKey: string,
   modelIds: string[],

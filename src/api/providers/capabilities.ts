@@ -141,8 +141,8 @@ export async function discoverOllamaReasoning(
         const hasThinking = caps.includes("thinking");
         return {
           supported: hasThinking,
-          style:     hasThinking ? "effort" : "none",
-          levels:    hasThinking ? EFFORT_LEVELS : NO_LEVELS,
+          style:     hasThinking ? "binary" : "none",
+          levels:    hasThinking ? BINARY_LEVELS : NO_LEVELS,
         };
       }
       // Capabilities not a meaningful array (Ollama Cloud may return empty object) —
@@ -168,8 +168,8 @@ export async function discoverOllamaReasoning(
 
   return {
     supported: likelyReasoning,
-    style:     likelyReasoning ? "effort" : "none",
-    levels:    likelyReasoning ? EFFORT_LEVELS : NO_LEVELS,
+    style:     likelyReasoning ? "binary" : "none",
+    levels:    likelyReasoning ? BINARY_LEVELS : NO_LEVELS,
   };
 }
 

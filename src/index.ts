@@ -10,7 +10,11 @@
  */
 
 import { registerCrashRecoveryHandlers } from "./util/crash-recovery.js";
-import { load as loadConfig, save as saveConfig } from "./util/config.js";
+import {
+  load as loadConfig,
+  save as saveConfig,
+  invalidateConfigCache,
+} from "./util/config.js";
 import { resetProviderManager } from "./api/manager.js";
 import { testOllamaConnection } from "./api/providers/ollama.js";
 import { discoverModels } from "./cli/model-setup.js";
@@ -101,9 +105,17 @@ function stripResumeArgs(argv: string[]): string[] {
   return out;
 }
 
+async function ensureHomeMigrated(): Promise<boolean> {
+  const migrated = await migrateHomeIfNeeded();
+  if (migrated) {
+    invalidateConfigCache();
+  }
+  return migrated;
+}
+
 // ─── --list-sessions ─────────────────────────────────────────────────────────
 if (args.includes("--list-sessions")) {
-  const migrated = await migrateHomeIfNeeded();
+  const migrated = await ensureHomeMigrated();
   if (migrated) {
     console.log("Migrated data to ~/.impulse");
   }
@@ -122,7 +134,7 @@ if (args.includes("--list-sessions")) {
 
 // ─── --enrich-session-titles ─────────────────────────────────────────────────
 if (args.includes("--enrich-session-titles")) {
-  const migrated = await migrateHomeIfNeeded();
+  const migrated = await ensureHomeMigrated();
   if (migrated) {
     console.log("Migrated data to ~/.impulse");
   }
@@ -162,8 +174,16 @@ if (args.includes("--enrich-session-titles")) {
 
 // ─── --setup ─────────────────────────────────────────────────────────────────
 if (args.includes("--setup")) {
+  if (await ensureHomeMigrated()) {
+    console.log("Migrated data to ~/.impulse");
+  }
   await runSetup();
   process.exit(0);
+}
+
+// ─── Migrate before config load (interactive startup) ───────────────────────
+if (await ensureHomeMigrated()) {
+  console.log("\n  Migrated data to ~/.impulse\n");
 }
 
 // ─── Check if any provider is configured ────────────────────────────────────
@@ -186,12 +206,6 @@ if (!hasProvider) {
 const currentConfig = await loadConfig();
 if (!currentConfig.userProfile?.name) {
   await runOnboarding();
-}
-
-// ─── Migrate ~/.config/impulse → ~/.impulse ─────────────────────────────────
-const migrated = await migrateHomeIfNeeded();
-if (migrated) {
-  console.log("\n  Migrated data to ~/.impulse\n");
 }
 
 const resumeStartup = parseResumeArg(args);

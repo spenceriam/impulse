@@ -5,6 +5,7 @@ import {
   formatContextK,
   formatModelDate,
   formatModelPickerLine,
+  fallbackModelInfosFromIds,
   sortModelInfos,
   vendorLabel,
   type ModelsDevRecord,
@@ -115,5 +116,12 @@ describe("model-catalog", () => {
 
   it("formatModelDate returns mm/dd/yyyy", () => {
     expect(formatModelDate(new Date("2026-04-23"))).toBe("04/23/2026");
+  });
+
+  it("fallbackModelInfosFromIds builds picker rows without catalog", () => {
+    const infos = fallbackModelInfosFromIds(["alpha", "beta"]);
+    expect(infos).toHaveLength(2);
+    expect(infos[0]!.id).toBe("alpha");
+    expect(infos[0]!.pickerLine).toContain("alpha");
   });
 });

@@ -6,6 +6,7 @@ import { fuzzyFilter } from "@mariozechner/pi-tui";
 import type { Config } from "../util/config.js";
 import {
   enrichDiscoveredModels,
+  fallbackModelInfosFromIds,
   type ModelInfo,
   type ProviderModelEntry,
 } from "./model-catalog.js";
@@ -315,7 +316,12 @@ async function discoverModelsOnce(
           continue;
         }
 
-        const infos = await enrichDiscoveredModels(catalogKey, ids, apiRows);
+        let infos: ModelInfo[];
+        try {
+          infos = await enrichDiscoveredModels(catalogKey, ids, apiRows);
+        } catch {
+          infos = fallbackModelInfosFromIds(ids);
+        }
         if (infos.length > 0) setCachedModelInfos(provider.key, infos);
 
         return {
