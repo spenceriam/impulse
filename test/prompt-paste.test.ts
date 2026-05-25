@@ -95,6 +95,20 @@ describe("PromptInput paste submission", () => {
     input.setText("");
     expect(input.getSubmitPayload().apiText).toBe("");
   });
+
+  test("partial backspace on paste token with trailing typed text keeps payload", () => {
+    const input = new PromptInput(undefined, TEST_EDITOR_THEME);
+    const pasted = "z".repeat(130);
+    input.handleInput(bracketedPaste(pasted));
+    input.handleInput(" after");
+
+    const display = input.getText();
+    const marker = display.slice(0, display.indexOf(" after"));
+    const partial = marker.slice(0, -1);
+    input.setText(`${partial} after`);
+
+    expect(input.getSubmitPayload().apiText).toBe(`${pasted} after`);
+  });
 });
 
 describe("buildPromptSegments", () => {

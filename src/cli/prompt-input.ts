@@ -269,17 +269,31 @@ export class PromptInput implements Component, Focusable {
     // Image tokens must match exactly — prefix fallback would match `#1` inside `#2`.
     if (group.kind === "image") return null;
 
-    for (let len = group.originalDisplay.length - 1; len >= 8; len--) {
-      const prefix = group.originalDisplay.slice(0, len);
-      idx = text.indexOf(prefix, searchFrom);
-      if (idx === -1) continue;
-      const suffix = group.originalDisplay.slice(len);
-      const tail = text.slice(idx + len);
-      // Require editor tail to match the original suffix (or a prefix while deleting
-      // from the end). Do not match on digit alone — e.g. tail "130..." must not satisfy
-      // expected seq "1" for marker #1 when the visible marker is #2.
-      if (suffix.length > 0 && !suffix.startsWith(tail)) continue;
-      return { start: idx, len: prefix.length };
+    idx = text.indexOf(group.originalDisplay.slice(0, 8), searchFrom);
+    while (idx !== -1) {
+      let spanLength = 0;
+      while (
+        spanLength < group.originalDisplay.length &&
+        idx + spanLength < text.length &&
+        text[idx + spanLength] === group.originalDisplay[spanLength]
+      ) {
+        spanLength++;
+      }
+      if (spanLength >= 8) {
+        if (spanLength < group.originalDisplay.length) {
+          const expected = group.originalDisplay[spanLength]!;
+          const actual = text[idx + spanLength];
+          if (expected !== actual) {
+            // Missing closing bracket while editing, with optional trailing prose.
+            if (expected !== "]") {
+              idx = text.indexOf(group.originalDisplay.slice(0, 8), idx + 1);
+              continue;
+            }
+          }
+        }
+        return { start: idx, len: spanLength };
+      }
+      idx = text.indexOf(group.originalDisplay.slice(0, 8), idx + 1);
     }
 
     return null;
