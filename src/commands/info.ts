@@ -81,7 +81,7 @@ async function handleHelp() {
     "─".repeat(78),
     `${"/new".padEnd(14)}New session${"".padEnd(10)}${"/model".padEnd(14)}Switch model`,
     `${"/save".padEnd(14)}Save session${"".padEnd(9)}${"/mode".padEnd(14)}Switch mode`,
-    `${"/continue".padEnd(14)}Continue session${"".padEnd(5)}${"/stats".padEnd(14)}Session statistics`,
+    `${"/resume".padEnd(14)}Resume session${"".padEnd(8)}${"/stats".padEnd(14)}Session statistics`,
     `${"/compact".padEnd(14)}Summarize context${"".padEnd(4)}${"/user".padEnd(14)}User profile`,
     `${"/quit".padEnd(14)}Exit with summary${"".padEnd(4)}${"/express".padEnd(14)}Toggle express mode`,
     `${"/engage".padEnd(14)}Toggle engage mode`,
