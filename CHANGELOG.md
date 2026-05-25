@@ -5,6 +5,26 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-05-23
+
+  **Type:** patch
+  **Title:** Tool input repair, relational Notes, and CLI footer polish
+
+  ### Added
+  - **Tool Input Repair Layer** — validate-then-repair middleware for common open-model tool JSON mistakes
+  - **Branded tool schemas** — `zFilePath`, `zGlobPattern`, `zCodeEdit`, `zCommandString` on file/bash/glob/grep/edit tools
+  - **Relational `Note:` feedback** — transparent defaults for file_read, glob, grep, web_fetch, web_search, and task
+  - **Narrow-terminal overlay layout** — shared `overlayBoxWidth` / `overlayMinWidth` helpers
+
+  ### Changed
+  - **Context bar** — removed block progress bar; orange % at 50% usage, red at 60%; auto-compact now triggers at 60%
+  - **Mode change in chat** — uses ASCII ` -> ` instead of Unicode arrows for cross-platform terminals
+  - **CLI commands** — `/express`, `/engage`, `/think` wired in pi-tui renderer
+  - Removed orphaned OpenTUI `src/ui/**` stack; slimmed legacy `api/client.ts` re-exports
+
+  ### Fixed
+  - Non-English response retry wired in agent loop via `shouldRetryInEnglish`
+
 ## [1.0.2] - 2026-05-18
 
   **Type:** patch

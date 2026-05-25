@@ -9,7 +9,7 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v0.39.0
+- **Version:** v1.0.3
 - **Tagline:** Provider-flexible terminal AI coding agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
@@ -18,34 +18,16 @@
 
 **Status:** Phase 9 COMPLETE - QoL Polish
 
-### Active Branch Context: `refactor/cli-rework` (May 2026)
+### Active CLI Architecture (May 2026)
 
-**Current take:** This branch is the keyboard-first CLI rework track. It uses `@mariozechner/pi-tui` for the active CLI renderer and should not be treated as the older OpenTUI/SolidJS runtime while working in `src/cli/**`. The goal is to make the CLI practical for daily coding-agent use across Windows/macOS/Linux with reliable overlays, visible tool outcomes, safe permissions, and compact terminal-native rendering.
+**Current take:** The active UI is the keyboard-first **pi-tui CLI** in `src/cli/**`. It uses `@mariozechner/pi-tui` for rendering. The older OpenTUI/SolidJS stack (`src/ui/**`) was removed in the v1.0 CLI rework.
 
-**Branch status before handoff:**
-- Current branch: `refactor/cli-rework`
-- Current release target: `0.39.0`
-- Last pre-polish checkpoint: `2a03376 feat: improve CLI status and question flow for v0.38.0`
-- Validation after the v0.39.0 polish pass: `bun run typecheck`, `bun test` (`65 pass / 0 fail`), and `bun run build`
+**Entry points:**
+- `src/index.ts` — CLI bootstrap
+- `src/cli/renderer.ts` — main TUI shell, slash commands, overlays
+- `src/agent/loop.ts` — agentic loop (decoupled from rendering)
 
-**Recently completed on this branch:**
-- Centralized tool permission flow in the CLI renderer with keyboard-first overlays above the prompt.
-- Windows-aware bash execution and permission classification, including PowerShell-safe read-only commands.
-- Packaged ripgrep via `@vscode/ripgrep` so `grep` no longer depends on a global `rg` binary.
-- Fixed hidden paste submission so speech-to-text/long paste content submits the real text, not `[Pasted N chars]` markers.
-- Added working question overlay lifecycle with Esc abort and structured answer return.
-- Improved binary reasoning display labels so user-facing UI shows `thinking` instead of internal `medium` for binary providers.
-- Added compact Pi-style diff rendering for `file_edit`/`file_write`, including blank spacing before changed lines and red strikethrough removals.
-- Reworked status/activity presentation: shimmer-only main status line, slower phase rotation, slower tool/question spinners.
-- Added distinct `glob`/`grep` tool summaries with pattern/path/count/include details.
-- Simplified question selection UI: radio markers for single choice, checkbox markers for multi-select, no hidden numeric/custom hotkeys.
-- Added terminal-native markdown table rendering with boxed wide tables and stacked narrow fallback.
-- Updated footer telemetry during active turns using deterministic local session/turn estimates, then final turn reconciliation.
-
-**Deferred / still planned:**
-- Session resume picker overlay for `/continue` remains deferred.
-- Subagent rename (`explore` -> `researcher`) remains deferred.
-- True pre-execution edit preview parity with Pi remains deferred; current diffs render after tool completion using returned metadata.
+**Validation:** `bun run typecheck`, `bun test`, `bun run build`
 
 ### Phase 1 Completed Tasks
 - [x] Task 1.1: Initialize Project
@@ -175,6 +157,13 @@
 - [x] Question overlay uses radio/checkbox selection without numeric hotkeys
 - [x] Assistant markdown tables render terminal-natively with narrow fallback
 - [x] Footer context/token-speed telemetry updates during active turns
+- [x] Tool Input Repair Layer — validate-then-repair in [`src/tools/input-repair/`](src/tools/input-repair/) via [`Tool.execute`](src/tools/registry.ts); see [`docs/tool-input-repair.md`](docs/tool-input-repair.md)
+- [x] Branded tool schemas — `zFilePath`, `zGlobPattern`, `zCodeEdit`, `zCommandString` on file_read, bash, file_edit, file_write, glob, grep
+- [x] Relational `Note:` defaults — [`src/tools/tool-notes.ts`](src/tools/tool-notes.ts) for file_read, glob, grep, web_fetch, web_search, task
+- [x] Legacy cleanup — removed orphaned `src/ui/**` and `src/input/**`; slimmed `api/client.ts`; language-guard wired in agent loop
+- [x] Context bar — removed block progress bar; token % color warns at 50%, red at 60%; auto-compact triggers at 60%
+- [x] Narrow-terminal overlays — [`src/cli/layout.ts`](src/cli/layout.ts) dynamic `overlayMinWidth` / `overlayBoxWidth`
+- [x] CLI commands `/express`, `/engage`, `/think` wired in [`src/cli/renderer.ts`](src/cli/renderer.ts)
 
 ## Version Bumping Protocol
 
@@ -334,39 +323,21 @@ Users can always override AI agent version decisions:
 
 | Category | Technology |
 |----------|------------|
-| **Runtime** | Bun / Node.js 20+ |
+| **Runtime** | Bun |
 | **Language** | TypeScript (strict mode) |
-| **UI Framework** | OpenTUI with SolidJS reconciler |
+| **UI Framework** | `@mariozechner/pi-tui` (character-cell TUI) |
 | **API** | Provider manager over OpenAI-compatible providers |
-| **Z.ai Endpoint** | `https://api.z.ai/api/coding/paas/v4/` |
+| **Z.ai Endpoint** | `https://api.z.ai/api/coding/paas/v4/` (one supported provider) |
 
 ### Dependencies
 
 ```json
 {
-  "@opentui/core": "^0.1.74",
-  "@opentui/solid": "^0.1.74",
-  "solid-js": "^1.9.0",
+  "@mariozechner/pi-tui": "^0.73.0",
+  "@vscode/ripgrep": "^1.18.0",
   "openai": "^4.73.0",
   "zod": "^3.24.0"
 }
-```
-
-### Required Configuration
-
-**tsconfig.json** must include:
-```json
-{
-  "compilerOptions": {
-    "jsx": "preserve",
-    "jsxImportSource": "@opentui/solid"
-  }
-}
-```
-
-**bunfig.toml** must include:
-```toml
-preload = ["@opentui/solid/preload"]
 ```
 
 ## Z.ai Models Supported
@@ -917,28 +888,22 @@ This ensures:
 ### UI Implementation References (CRITICAL)
 **ALWAYS consult these resources before implementing visual changes:**
 
-1. **OpenTUI Skill** (`.opencode/skill/opentui/`)
-   - Check `references/solid/` for SolidJS-specific patterns
-   - Check `references/keyboard/` for navigation/selection patterns
-   - Check `references/layout/` for layout and list patterns
-   - Check `references/components/` for component examples
+1. **pi-tui CLI components** (`src/cli/components/`)
+   - `permission-overlay.ts`, `question-overlay.ts` — overlay patterns
+   - `context-bar.ts` — progressive narrow-width footer layout
+   - `markdown-text.ts` — wide vs narrow markdown rendering
 
-2. **Context7 MCP** - Query library documentation:
-   ```
-   /mcp-tools context7 resolve-library-id  # Find library ID
-   /mcp-tools context7 query-docs          # Query docs
-   ```
+2. **Layout helpers** (`src/cli/layout.ts`) — overlay width floors for split panes
 
-3. **Existing Codebase Patterns** - Check similar components:
-   - `src/ui/components/Autocomplete.tsx` - List selection with highlighting
-   - `src/ui/components/Overlay.tsx` - Command palette selection
-   - `src/ui/components/InputArea.tsx` - Dropdown autocomplete
+3. **Frontend Design skill** (`.opencode/skills/frontend-design/`) — brutalist terminal patterns
 
-**Key OpenTUI Patterns:**
-- Use `<box backgroundColor={...}>` for highlight backgrounds (not `style={}`)
-- Use `<text fg={...}>` for text colors
-- Use `<Show when={...}>` for conditional rendering, not ternaries in props
-- Selection: Change `fg` color AND optionally `backgroundColor` on container
+4. **OpenTUI skill** (`.opencode/skill/opentui/`) — **ARCHIVED** (pre-v1.0 stack only)
+
+**Key pi-tui patterns:**
+- Components implement `render(width: number): string[]`
+- Use `wrapTextWithAnsi` / `truncateToWidth` for narrow terminals
+- Overlays use `overlayBoxWidth()` — never hardcode 60+ col floors
+- Permission overlay is the reference for narrow-pane box sizing
 
 ## Generated Documentation
 
@@ -952,19 +917,17 @@ This ensures:
 
 | Skill | Location | Purpose |
 |-------|----------|---------|
-| OpenTUI | `.opencode/skill/opentui/` | TUI development with Core, React, Solid reconcilers |
+| OpenTUI (archived) | `.opencode/skill/opentui/` | Historical OpenTUI references only |
 | Frontend Design | `.opencode/skills/frontend-design/` | Brutalist terminal UI design patterns |
 | Agent Browser | `.opencode/skills/agent-browser/` | Browser automation for research |
 
 ## Known Gotchas
 
-### OpenTUI Specifics
-- Uses Yoga for flexbox layout (not CSS)
-- Mouse events require explicit handlers
-- Scrollbox needs `stickyScroll` for auto-scroll behavior
-- Never call `process.exit()` - use `renderer.destroy()`
-- Solid uses underscores: `<tab_select>`, `<ascii_font>`, `<line_number>`
-- Text styling requires nested tags: `<strong>`, `<em>`, `<span fg="...">`
+### pi-tui CLI Specifics
+- Layout is character-cell based — font size is controlled by the terminal emulator
+- Components receive terminal width in `render(width)` and must wrap/truncate accordingly
+- Use `src/cli/layout.ts` helpers for overlay sizing on narrow split panes
+- Bottom chrome (prompt + context bar) stays pinned via scroll anchoring
 
 ### Z.ai API Specifics
 - Thinking mode enabled by default on supported Z.ai GLM models
@@ -972,10 +935,10 @@ This ensures:
 - Coding Plan endpoint: `https://api.z.ai/api/coding/paas/v4/`
 - No silent fallbacks - explicit error handling required
 - **`tool_stream=true` required** for streaming tool call output (Z.AI-specific parameter)
-- **Tool arguments may contain `null`** for optional fields - must strip before Zod validation
+- **Tool arguments may contain `null`** for optional fields — use the Tool Input Repair layer
   - Z.AI models send `{"timeout": null}` for omitted optional params
   - Zod `.optional()` means "can be omitted" but rejects `null` values
-  - Use `stripNullValues()` helper before `schema.parse()`
+  - Use `validateToolInput()` from `src/tools/input-repair/` (handles null stripping + common repairs)
 - **Preserved Thinking** - Include `reasoning_content` in all assistant messages sent back to API
   - Improves model performance and cache hit rates (saves tokens/money)
   - Send `thinking: { type: "enabled", clear_thinking: false }` to enable
@@ -989,21 +952,18 @@ This ensures:
 - **API Message Format for Tool Calls** - Conversation history must include tool_calls and tool results
   - After tool execution, don't just send back-to-back assistant messages
   - Correct format: `assistant (with tool_calls array)` -> `tool (results)` -> `assistant (continuation)`
-  - Use `buildAPIMessages()` helper in App.tsx to properly serialize conversation history
+  - Conversation history is built in `src/agent/loop.ts` via `buildChatMessages()`
   - Tool results use `role: "tool"` with `tool_call_id` matching the original call
 
 ### Streaming
-- Use 16ms event batching to prevent flicker
-- `batch()` from solid-js for coalesced updates
-- `reconcile()` for efficient deep state updates
+- pi-tui re-renders on each update; keep component state updates batched where possible
 - **Tool call arguments arrive in first chunk** - `tool_call_start` event must include initial arguments
   - First chunk has `{id, function.name, function.arguments}` all together
   - Don't initialize `arguments: ""` and only accumulate from deltas - you'll lose the opening `{"`
 
 ### Configuration
-- tsconfig.json needs `jsx: "preserve"` and `jsxImportSource: "@opentui/solid"`
-- bunfig.toml needs `preload = ["@opentui/solid/preload"]`
-- Use `@opentui/core` not platform-specific packages
+- Provider keys and models configured via `~/.config/impulse/config.json` and `/model`
+- Tool schemas use branded Zod helpers in `src/tools/schemas/branded.ts` (e.g. `zFilePath()` — the `z` prefix is Zod, not Z.ai)
 
 ## Decision Log
 
@@ -1014,7 +974,9 @@ This ensures:
 | 01-19-2026 | Tab for mode switching | Discoverable, matches user mental model |
 | 01-19-2026 | Brutalist design | Function over form, terminal-native aesthetic |
 | 01-19-2026 | No @ syntax for subagents | Agent controls delegation, simpler UX |
-| 01-19-2026 | 70% auto-compact threshold | Balance between context preservation and limits |
+| 01-19-2026 | 70% auto-compact threshold (superseded) | Balance between context preservation and limits |
+| 05-23-2026 | Auto-compact at 60%, warn at 50% | Earlier compaction + color-only footer % (no block bar) |
+| 05-23-2026 | Tool Input Repair Layer | validate-then-repair for open-model tool JSON mistakes |
 | 01-19-2026 | Double-press safety (Esc, Ctrl+C) | Prevent accidental interruption/exit |
 | 01-20-2026 | Install OpenTUI skill | Comprehensive reference for TUI development |
 | 01-20-2026 | Install frontend-design skill | Brutalist visual design patterns |
@@ -1505,19 +1467,18 @@ impulse/
 │   ├── index.tsx           # CLI entry point
 │   ├── global.ts           # Global paths configuration
 │   ├── agent/              # Agent loop and subagents
-│   ├── api/                # Z.AI API client
+│   ├── cli/                # pi-tui renderer and components
+│   ├── api/                # Provider manager and adapters
 │   ├── bus/                # Event bus
 │   ├── session/            # Session management
 │   ├── storage/            # File-based storage
 │   ├── tools/              # Built-in tools
+│   │   ├── input-repair/   # validate-then-repair middleware
+│   │   ├── schemas/        # branded Zod helpers (zFilePath, etc.)
+│   │   └── tool-notes.ts   # relational default Note: builders
 │   ├── format/             # Auto-formatter system
 │   ├── permission/         # Permission management
 │   ├── pty/                # PTY service for interactive commands
-│   ├── ui/                 # OpenTUI components
-│   │   ├── App.tsx         # Main application
-│   │   ├── components/     # 30+ UI components (see src/ui/components/)
-│   │   ├── context/        # SolidJS contexts (mode, session, todo, queue, express)
-│   │   └── design.ts       # Design constants (colors, indicators)
 │   ├── commands/           # Slash commands
 │   └── util/               # Utilities
 ├── AGENTS.md               # This file (project brain)
