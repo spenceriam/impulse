@@ -5,6 +5,33 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-23
+
+  **Type:** minor
+  **Title:** Session management, full-width pickers, and DEBUG mode workflow
+
+  ### Added
+  - **Session title backfill** — `impulse --enrich-session-titles` with `--dry-run`, `--project`, and `--limit`
+  - **Session inventory** — `impulse --list-sessions` shows total, resumeable, empty, and titled counts
+  - **Home migration** — `~/.config/impulse` → `~/.impulse` with session storage under project hashes
+  - **Model catalog** — models.dev enrichment for picker rows (vendor, context, added date)
+  - **Full-width list overlays** — `/model`, `/resume`, and provider setup use shared `SelectableListOverlay` with arrow navigation and wrapped labels
+  - **Profile modal** — `/user` opens overlay (view fields, `e` to edit, Esc to close)
+  - **DEBUG mode workflow** — evidence-first prompt (hypothesize → instrument → reproduce → fix → verify → cleanup) with `[IMPULSE_DEBUG]` nudge when instrumentation remains
+  - **Hidden paste segments** — long paste preserved in API payload; editable tokens in the input
+  - **Slash autocomplete** — de-duplicated command hints for aliased commands
+
+  ### Changed
+  - **Provider setup** — model and reasoning selection use the same overlay UX as `/model` (no numeric entry)
+  - **Resume list** — hides sessions with no user messages; shows `headerTitle` when available
+  - **`/help` and model setup** — ASCII separators and fixes for corrupted `?` glyphs in help text
+  - **Ollama reasoning discovery** — improved capability probing for custom and cloud endpoints
+
+  ### Fixed
+  - Session saves flush on exit paths so conversations persist reliably
+  - Overlay width uses full terminal minus gutters (removed 74-column cap)
+  - List overlays no longer stash chat (avoids black void behind pickers)
+
 ## [1.0.3] - 2026-05-23
 
   **Type:** patch
