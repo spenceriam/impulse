@@ -40,8 +40,12 @@ import { Bus, HeaderEvents } from "../bus/index.js";
 import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
 import { generateSystemPrompt } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
+import { buildDebugInstrumentationNudge } from "./self-check.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
+import { modelSupportsVision } from "../api/providers/capabilities.js";
+import type { PromptSegment } from "../cli/prompt-input.js";
+import { buildUserMessageContent } from "../cli/prompt-input.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Event types emitted by the loop to the renderer
@@ -77,6 +81,8 @@ export interface LoopEvents {
     contextPct: number;
     tokensPerSecond: number;
     durationMs: number;
+    /** Set in DEBUG mode when [IMPULSE_DEBUG] markers remain in edited files */
+    debugInstrumentationNudge?: string;
   }): void;
   /** Fatal error */
   onError(err: Error): void;
@@ -98,7 +104,12 @@ function buildChatMessages(sessionMessages: Message[], systemPrompt: string): Ch
   for (const m of sessionMessages) {
     if (m.role === "system") continue; // system prompt already added above
     if (m.role === "user" || m.role === "assistant") {
-      const msg: ChatMessage = { role: m.role, content: m.content ?? "" };
+      const apiContent = (m as Message & { apiContent?: ChatMessage["content"] }).apiContent;
+      const content =
+        m.role === "user" && apiContent !== undefined
+          ? apiContent
+          : (m.content ?? "");
+      const msg: ChatMessage = { role: m.role, content };
       if (m.tool_calls && m.tool_calls.length > 0) {
         msg.tool_calls = m.tool_calls.map((tc) => ({
           id: tc.id ?? `call_${tc.tool}`,
@@ -121,6 +132,13 @@ function estimateTokens(messages: ChatMessage[]): number {
   return Math.ceil(JSON.stringify(messages).length / 4);
 }
 
+export interface RunTurnOptions {
+  /** Shown in chat UI (paste tokens preserved) */
+  displayMessage?: string;
+  /** Ordered segments for multimodal / vision_translate ordering */
+  segments?: PromptSegment[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AgentLoop
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,10 +149,15 @@ export class AgentLoop {
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
   private pendingImages: string[] = [];
 
-  /** Set images to translate before next turn */
+  /** Set images to translate before next turn (legacy flat list) */
   setImages(images: string[]): void { this.pendingImages = images; }
 
-  async run(userMessage: string, mode: Mode, events: LoopEvents): Promise<void> {
+  async run(
+    userMessage: string,
+    mode: Mode,
+    events: LoopEvents,
+    turnOptions?: RunTurnOptions
+  ): Promise<void> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
 
@@ -152,17 +175,42 @@ export class AgentLoop {
         session = await SessionManager.createNew();
       }
 
-      // Add user message to session
+      const displayMessage = turnOptions?.displayMessage ?? userMessage;
+      const segments = turnOptions?.segments;
+      const nativeVision = modelSupportsVision(model);
+
+      const apiContent =
+        segments && segments.length > 0
+          ? buildUserMessageContent(segments, nativeVision)
+          : userMessage;
+
+      const orderedUris =
+        segments && segments.length > 0
+          ? segments
+              .filter((s): s is Extract<PromptSegment, { kind: "image" }> => s.kind === "image")
+              .sort((a, b) => a.index - b.index)
+              .map((s) => s.uri)
+          : [...this.pendingImages];
+
       const userMsg: Message = {
         role: "user",
-        content: userMessage,
+        content: displayMessage,
         timestamp: new Date().toISOString(),
       };
       await SessionManager.addMessage(userMsg);
       session = SessionManager.getCurrentSession()!;
 
-      // ── Image translation (vision model) ───────────────────────────────────
-      if (this.pendingImages.length > 0 && !this.modelSupportsVision(model)) {
+      // Patch last user message API content for downstream buildChatMessages
+      const sessionAfterUser = SessionManager.getCurrentSession();
+      if (sessionAfterUser && sessionAfterUser.messages.length > 0) {
+        const last = sessionAfterUser.messages[sessionAfterUser.messages.length - 1]!;
+        if (last.role === "user") {
+          (last as Message & { apiContent?: unknown }).apiContent = apiContent;
+        }
+      }
+
+      if (orderedUris.length > 0 && !nativeVision) {
+        this.pendingImages = orderedUris;
         await this.translateImages(config, events, signal);
       }
       this.pendingImages = [];
@@ -214,6 +262,7 @@ export class AgentLoop {
       let estimatedGeneratedTokens = 0;
       let lastSystemPrompt = "";
       let languageRetryUsed = false;
+      const debugEditedFiles = new Set<string>();
 
       const noteGeneratedChunk = (text: string): void => {
         const now = Date.now();
@@ -257,8 +306,6 @@ export class AgentLoop {
           stream: true,
           signal,
           max_tokens: config.maxOutputTokens,
-          ...(config.thinking ? { thinking: { type: "enabled" as const, clear_thinking: false } } : {}),
-          // New unified reasoning level — providers map this to their own params
           reasoningLevel: config.reasoningLevel ?? (config.thinking ? "medium" : "off"),
         };
 
@@ -365,6 +412,18 @@ export class AgentLoop {
         // ── Execute tool calls ──────────────────────────────────────────────
         let allSucceeded = true;
         let advisorCalledThisTurn = false;
+
+        const trackDebugEdit = (
+          toolName: string,
+          args: Record<string, unknown>
+        ): void => {
+          if (mode !== "DEBUG") return;
+          if (toolName !== "file_edit" && toolName !== "file_write") return;
+          const fp =
+            (typeof args["filePath"] === "string" && args["filePath"]) ||
+            (typeof args["path"] === "string" && args["path"]);
+          if (fp) debugEditedFiles.add(fp);
+        };
 
         // Hard tool gate: block write/edit/bash/task/todo_write until advisor consulted
         const BLOCKED_BEFORE_ADVISOR = new Set(["file_write", "file_edit", "task", "todo_write"]);
@@ -487,6 +546,7 @@ export class AgentLoop {
             allSucceeded = false;
           } else {
             this.consecutiveFailures = 0;
+            trackDebugEdit(tc.name, args);
           }
 
           events.onToolEnd(tc.id, tc.name, result, durationMs);
@@ -558,17 +618,15 @@ export class AgentLoop {
         // with all messages through the completed AI response.
         await SessionManager.save();
 
-        // Generate title after the first substantive exchange
-        // (at least 1 user message + 1 assistant response).
-        if (!session.headerTitle && session.messages.length >= 3) {
-          const userCount = session.messages.filter((m) => m.role === "user").length;
-          if (userCount >= 1) {
-            const model = session.model || "ollama/llama3.2";
-            const title = await generateTitle(session.messages, model);
-            if (title) {
-              await SessionManager.setHeaderTitle(title);
-              Bus.publish(HeaderEvents.Updated, { title });
-            }
+        // Generate title after the first completed assistant reply.
+        const userCount = session.messages.filter((m) => m.role === "user").length;
+        const hasAssistant = session.messages.some((m) => m.role === "assistant");
+        if (!session.headerTitle && userCount >= 1 && hasAssistant) {
+          const model = session.model || "ollama/llama3.2";
+          const title = await generateTitle(session.messages, model);
+          if (title) {
+            await SessionManager.setHeaderTitle(title);
+            Bus.publish(HeaderEvents.Updated, { title });
           }
         }
       }
@@ -585,12 +643,20 @@ export class AgentLoop {
         : 0;
       const finalMessages = SessionManager.getCurrentSession()?.messages ?? [];
       const estimatedContextTokens = estimateTokens(buildChatMessages(finalMessages, lastSystemPrompt));
+      const debugInstrumentationNudge =
+        mode === "DEBUG"
+          ? buildDebugInstrumentationNudge([...debugEditedFiles])
+          : undefined;
+
       events.onTurnEnd({
         inputTokens: estimatedContextTokens,
         outputTokens,
         contextPct: Math.min(1, estimatedContextTokens / contextWindow),
         tokensPerSecond,
         durationMs,
+        ...(debugInstrumentationNudge
+          ? { debugInstrumentationNudge }
+          : {}),
       });
 
     } catch (err) {
@@ -605,28 +671,14 @@ export class AgentLoop {
     this.abortController?.abort();
   }
 
-  /** Check if current main model supports vision natively */
-  private modelSupportsVision(_model: string): boolean {
-    // Known vision models — extend this list as needed
-    const VISION_MODELS = [
-      "gpt-4o", "gpt-4o-mini", "gpt-4-turbo",
-      "claude-3", "claude-3.5", "claude-3.7", "claude-4", "claude-opus", "claude-sonnet",
-      "gemini-2", "gemini-2.5", "gemini-flash",
-      "llama-3.2-vision", "llava", "bakllava",
-      "pixtral", "qwen2-vl", "cogvlm", "cogvlm2",
-    ];
-    const lower = _model.toLowerCase();
-    return VISION_MODELS.some((v) => lower.includes(v));
-  }
-
   /** Auto-detect a vision-capable model from configured providers */
-  private async findVisionModel(config: any): Promise<string | null> {
+  private async findVisionModel(config: Awaited<ReturnType<typeof loadConfig>>): Promise<string | null> {
     // Use explicitly configured vision model first
     if (config.visionMode && config.visionModel) {
       return config.visionModel;
     }
     // Check advisor model first
-    if (config.advisorModel && this.modelSupportsVision(config.advisorModel)) {
+    if (config.advisorModel && modelSupportsVision(config.advisorModel)) {
       return config.advisorModel;
     }
     // Check providers for known vision models
@@ -639,7 +691,7 @@ export class AgentLoop {
         if (provider) {
           const discovery = await discoverModels(provider, stored.apiKey, stored.baseUrl);
           for (const m of discovery.models) {
-            if (this.modelSupportsVision(m)) {
+            if (modelSupportsVision(m)) {
               return `${provider.key}/${m}`;
             }
           }
@@ -650,7 +702,11 @@ export class AgentLoop {
   }
 
   /** Translate images via vision model, inject as tool calls in session */
-  private async translateImages(config: any, events: LoopEvents, signal: AbortSignal): Promise<void> {
+  private async translateImages(
+    config: Awaited<ReturnType<typeof loadConfig>>,
+    events: LoopEvents,
+    signal: AbortSignal
+  ): Promise<void> {
     const visionModel = await this.findVisionModel(config);
     if (!visionModel) {
       // No vision model available — inject a warning
