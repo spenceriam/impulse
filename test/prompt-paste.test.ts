@@ -123,6 +123,33 @@ describe("buildPromptSegments", () => {
       " end",
     ]);
   });
+
+  test("maps identical display tokens to distinct paste content in order", () => {
+    const marker = "[Pasted 130 chars]";
+    const groups: PasteGroup[] = [
+      {
+        display: marker,
+        content: "FIRST_PAYLOAD",
+        originalDisplay: marker,
+        kind: "text",
+      },
+      {
+        display: marker,
+        content: "SECOND_PAYLOAD",
+        originalDisplay: marker,
+        kind: "text",
+      },
+    ];
+    const editor = `a ${marker} b ${marker} c`;
+    const segments = buildPromptSegments(editor, groups);
+    expect(segments.map((s) => (s.kind === "text" ? s.value : s.content))).toEqual([
+      "a ",
+      "FIRST_PAYLOAD",
+      " b ",
+      "SECOND_PAYLOAD",
+      " c",
+    ]);
+  });
 });
 
 describe("buildSubmitPayload", () => {

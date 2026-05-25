@@ -44,38 +44,18 @@ export function buildPromptSegments(
     return editorText.length > 0 ? [{ kind: "text", value: editorText }] : [];
   }
 
-  type Match = { start: number; end: number; group: PasteGroup };
-  const matches: Match[] = [];
-
-  for (const group of groups) {
-    let searchFrom = 0;
-    while (searchFrom < editorText.length) {
-      const idx = editorText.indexOf(group.display, searchFrom);
-      if (idx === -1) break;
-      matches.push({ start: idx, end: idx + group.display.length, group });
-      searchFrom = idx + group.display.length;
-    }
-  }
-
-  matches.sort((a, b) => a.start - b.start);
-
-  const filtered: Match[] = [];
-  let lastEnd = 0;
-  for (const m of matches) {
-    if (m.start >= lastEnd) {
-      filtered.push(m);
-      lastEnd = m.end;
-    }
-  }
-
+  // Match paste groups in array order (left-to-right). Each group consumes the
+  // next occurrence of its display token so identical markers map to distinct content.
   const segments: PromptSegment[] = [];
   let pos = 0;
 
-  for (const m of filtered) {
-    if (m.start > pos) {
-      segments.push({ kind: "text", value: editorText.slice(pos, m.start) });
+  for (const g of groups) {
+    const idx = editorText.indexOf(g.display, pos);
+    if (idx === -1) continue;
+
+    if (idx > pos) {
+      segments.push({ kind: "text", value: editorText.slice(pos, idx) });
     }
-    const g = m.group;
     if (g.kind === "image" && g.imageIndex !== undefined) {
       segments.push({
         kind: "image",
@@ -86,7 +66,7 @@ export function buildPromptSegments(
     } else {
       segments.push({ kind: "paste", display: g.display, content: g.content });
     }
-    pos = m.end;
+    pos = idx + g.display.length;
   }
 
   if (pos < editorText.length) {

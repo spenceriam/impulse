@@ -21,16 +21,20 @@ import { runAdvisorConsultation } from "./advisor.js";
 import { providerConfig, parseProviderChoice, discoverModels } from "../cli/model-setup.js";
 import { load as loadConfig } from "../util/config";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
+import { Global } from "../global.js";
 
 // ── Debug logging ────────────────────────────────────────────────────────────
-const debugLogPath = path.join(os.homedir(), ".config", "impulse", "debug.log");
+const debugLogPath = path.join(Global.Path.logs, "debug.log");
 
 function debugLog(msg: string): void {
-  // Always log to file for thinking tokens (can be toggled via /debug command)
   const timestamp = new Date().toISOString();
-  fs.appendFileSync(debugLogPath, `[${timestamp}] [loop] ${msg}\n`);
+  try {
+    fs.mkdirSync(Global.Path.logs, { recursive: true });
+    fs.appendFileSync(debugLogPath, `[${timestamp}] [loop] ${msg}\n`);
+  } catch {
+    // Non-fatal when logs dir cannot be created
+  }
 }
 import { Tool } from "../tools/registry";
 import { type Message } from "../session/store";

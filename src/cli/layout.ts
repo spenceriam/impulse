@@ -14,7 +14,7 @@ export function overlayBoxWidth(terminalWidth: number): number {
  * minWidth for pi-tui showOverlay — matches content width on narrow panes.
  */
 export function overlayMinWidth(terminalWidth: number): number {
-  return Math.max(OVERLAY_MIN_BOX_WIDTH, terminalWidth - TOTAL_GUTTER_WIDTH);
+  return overlayBoxWidth(terminalWidth);
 }
 
 /** Gutter width in columns — tighter on very narrow terminals. */

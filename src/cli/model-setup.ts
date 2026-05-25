@@ -83,6 +83,27 @@ export function providerConfig(config: Config, providerKey: string): StoredProvi
   return providers[providerKey] ?? {};
 }
 
+/** Configured custom provider keys (excludes built-in provider keys). */
+export function listConfiguredCustomProviderKeys(config: Config): string[] {
+  const providers = (config.providers as Record<string, StoredProviderConfig | undefined>) ?? {};
+  return Object.keys(providers).filter(
+    (k) => !MODEL_PROVIDERS.some((p) => !p.isCustom && p.key === k)
+  );
+}
+
+/** One template per custom provider from stored `type` (avoids duplicate picker rows). */
+export function resolveCustomProviderOption(
+  providerKey: string,
+  config: Config
+): ModelProviderOption {
+  const stored = providerConfig(config, providerKey);
+  const customType = stored.type ?? "openai-compatible";
+  const template =
+    MODEL_PROVIDERS.find((p) => p.isCustom && p.customType === customType) ??
+    MODEL_PROVIDERS.find((p) => p.key === "__custom_openai__")!;
+  return { ...template, key: providerKey, label: providerKey };
+}
+
 export function maskKey(key: string | undefined): string {
   if (!key) return "not configured";
   if (key.length <= 8) return `${key.slice(0, 2)}...${key.slice(-2)}`;

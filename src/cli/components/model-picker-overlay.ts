@@ -3,7 +3,9 @@ import {
   MODEL_PROVIDERS,
   discoverModels,
   getCachedModelInfos,
+  listConfiguredCustomProviderKeys,
   providerConfig,
+  resolveCustomProviderOption,
   type ModelProviderOption,
 } from "../model-setup.js";
 import { load as loadConfig, type Config } from "../../util/config.js";
@@ -67,25 +69,21 @@ export async function buildModelPickerState(
     error?: string;
   }> = [];
 
+  for (const key of listConfiguredCustomProviderKeys(config)) {
+    const stored = providerConfig(config, key);
+    if (!stored.apiKey) continue;
+    const cached = getCachedModelInfos(key);
+    entries.push({
+      provider: resolveCustomProviderOption(key, config),
+      providerKey: key,
+      label: key,
+      infos: cached ?? [],
+      loading: !cached,
+    });
+  }
+
   for (const mp of MODEL_PROVIDERS) {
-    if (mp.isCustom) {
-      const customKeys = Object.keys(providers).filter(
-        (k) => !MODEL_PROVIDERS.some((p) => !p.isCustom && p.key === k)
-      );
-      for (const key of customKeys) {
-        const stored = providerConfig(config, key);
-        if (!stored.apiKey) continue;
-        const cached = getCachedModelInfos(key);
-        entries.push({
-          provider: { ...mp, key, label: key },
-          providerKey: key,
-          label: key,
-          infos: cached ?? [],
-          loading: !cached,
-        });
-      }
-      continue;
-    }
+    if (mp.isCustom) continue;
 
     const stored = providerConfig(config, mp.key);
     if (!stored.apiKey) continue;
