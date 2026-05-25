@@ -15,7 +15,10 @@ import { resetProviderManager } from "./api/manager.js";
 import { testOllamaConnection } from "./api/providers/ollama.js";
 import { discoverModels } from "./cli/model-setup.js";
 import "./tools/init.js";
-import { ImpulseRenderer } from "./cli/renderer.js";
+import { ImpulseRenderer, type ResumeStartup } from "./cli/renderer.js";
+import { migrateHomeIfNeeded } from "./session/migrate-home.js";
+import { enrichSessionTitles } from "./session/enrich-titles.js";
+import { summarizeSessions } from "./session/session-content.js";
 import packageJson from "../package.json";
 import * as readline from "readline";
 import * as fs from "fs";
@@ -40,9 +43,120 @@ if (args.includes("--help") || args.includes("-h")) {
   Usage:
     impulse                   Start interactive session
     impulse "your message"    Send a single message then enter interactive
-    impulse --setup           Configure AI provider
-    impulse --version         Show version
+    impulse -r, --resume      Resume session (picker)
+    impulse --resume <id>     Resume session by id
+    impulse --setup                   Configure AI provider
+    impulse --enrich-session-titles Backfill AI titles on saved sessions
+    impulse --list-sessions           Count sessions (total, empty, titled)
+    impulse --version                 Show version
 `);
+  process.exit(0);
+}
+
+function parseProjectScopeArg(argv: string[]): "all" | "current" {
+  const projectIdx = argv.indexOf("--project");
+  if (projectIdx >= 0 && argv[projectIdx + 1] === "current") {
+    return "current";
+  }
+  return "all";
+}
+
+function parseEnrichSessionTitlesArgs(argv: string[]): {
+  projectScope: "all" | "current";
+  limit?: number;
+  dryRun: boolean;
+} {
+  let projectScope = parseProjectScopeArg(argv);
+  let limit: number | undefined;
+  const limitIdx = argv.indexOf("--limit");
+  if (limitIdx >= 0) {
+    const n = Number.parseInt(argv[limitIdx + 1] ?? "", 10);
+    if (Number.isFinite(n) && n > 0) limit = n;
+  }
+  const dryRun = argv.includes("--dry-run");
+  return { projectScope, limit, dryRun };
+}
+
+function parseResumeArg(argv: string[]): ResumeStartup | undefined {
+  const resumeIdx = argv.findIndex((a) => a === "--resume" || a === "-r");
+  if (resumeIdx < 0) return undefined;
+  const next = argv[resumeIdx + 1];
+  if (next && !next.startsWith("-")) {
+    return { sessionId: next };
+  }
+  return "picker";
+}
+
+function stripResumeArgs(argv: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--resume" || a === "-r") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-")) i++;
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
+
+// ─── --list-sessions ─────────────────────────────────────────────────────────
+if (args.includes("--list-sessions")) {
+  const migrated = await migrateHomeIfNeeded();
+  if (migrated) {
+    console.log("Migrated data to ~/.impulse");
+  }
+  const projectScope = parseProjectScopeArg(args);
+  const summary = await summarizeSessions(projectScope);
+  const scopeLabel =
+    projectScope === "all" ? "all projects" : "current project";
+  console.log(`\nSessions (${scopeLabel}):\n`);
+  console.log(`  Total on disk:              ${summary.total}`);
+  console.log(`  With user messages:         ${summary.resumeable}  (shown in /resume)`);
+  console.log(`  Empty:                      ${summary.empty}  (hidden in /resume)`);
+  console.log(`  With header title:          ${summary.withHeaderTitle}`);
+  console.log(`  Resumeable, no title yet:   ${summary.resumeableUntitled}\n`);
+  process.exit(0);
+}
+
+// ─── --enrich-session-titles ─────────────────────────────────────────────────
+if (args.includes("--enrich-session-titles")) {
+  const migrated = await migrateHomeIfNeeded();
+  if (migrated) {
+    console.log("Migrated data to ~/.impulse");
+  }
+  const enrichOpts = parseEnrichSessionTitlesArgs(args);
+  const config = await loadConfig();
+  const modelLabel = config.defaultModel ?? "unknown";
+  console.log(
+    `\nEnriching session titles (${enrichOpts.projectScope === "all" ? "all projects" : "current project"}, model: ${modelLabel})…\n`
+  );
+  try {
+    const result = await enrichSessionTitles({
+      ...enrichOpts,
+      onProgress: (done, total, sessionId, title) => {
+        const shortId = sessionId.length > 20 ? `${sessionId.slice(0, 17)}…` : sessionId;
+        if (title) {
+          console.log(`  [${done}/${total}] ${shortId} → ${title}`);
+        } else if (enrichOpts.dryRun) {
+          console.log(`  [${done}/${total}] ${shortId} (dry-run)`);
+        } else {
+          console.log(`  [${done}/${total}] ${shortId} (no title)`);
+        }
+      },
+    });
+    const breakdown = await summarizeSessions(enrichOpts.projectScope);
+    console.log(
+      `\nDone: ${result.updated} updated, ${result.skipped} skipped, ${result.failed} failed (${result.scanned} scanned, ${result.eligible} eligible)${result.dryRun ? " [dry-run]" : ""}`
+    );
+    console.log(
+      `Breakdown: ${breakdown.total} total, ${breakdown.resumeable} with messages, ${breakdown.empty} empty, ${breakdown.withHeaderTitle} titled, ${breakdown.resumeableUntitled} resumeable without title\n`
+    );
+  } catch (e) {
+    console.error(`\n${(e as Error).message}\n`);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
@@ -74,10 +188,29 @@ if (!currentConfig.userProfile?.name) {
   await runOnboarding();
 }
 
+// ─── Migrate ~/.config/impulse → ~/.impulse ─────────────────────────────────
+const migrated = await migrateHomeIfNeeded();
+if (migrated) {
+  console.log("\n  Migrated data to ~/.impulse\n");
+}
+
+const resumeStartup = parseResumeArg(args);
+const messageArgs = stripResumeArgs(args).filter(
+  (a) => !a.startsWith("-") && a !== "--setup"
+);
+
 // ─── Init tools & start ──────────────────────────────────────────────────────
-// Tools registered via side-effect import above
-const renderer = new ImpulseRenderer();
+const renderer = new ImpulseRenderer(
+  resumeStartup ? { resume: resumeStartup } : undefined
+);
 await renderer.start();
+
+if (messageArgs.length > 0 && messageArgs[0]) {
+  const initial = messageArgs.join(" ").trim();
+  if (initial) {
+    await renderer.submitMessage(initial);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // First-run setup
