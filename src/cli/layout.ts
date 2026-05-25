@@ -1,22 +1,20 @@
+import { TOTAL_GUTTER_WIDTH } from "./gutter.js";
+
 /** Minimum usable overlay width on narrow split panes. */
 export const OVERLAY_MIN_BOX_WIDTH = 24;
 
-/** Maximum overlay box width on wide terminals. */
-export const OVERLAY_MAX_BOX_WIDTH = 74;
-
 /**
- * Compute overlay box width from terminal columns.
- * Never exceeds the terminal or forces a width wider than the pane.
+ * Compute overlay box width from terminal columns (full width minus gutters).
  */
-export function overlayBoxWidth(terminalWidth: number, max = OVERLAY_MAX_BOX_WIDTH): number {
-  return Math.max(OVERLAY_MIN_BOX_WIDTH, Math.min(terminalWidth - 4, max));
+export function overlayBoxWidth(terminalWidth: number): number {
+  return Math.max(OVERLAY_MIN_BOX_WIDTH, terminalWidth - TOTAL_GUTTER_WIDTH);
 }
 
 /**
- * minWidth for pi-tui showOverlay — scales down on narrow panes.
+ * minWidth for pi-tui showOverlay — matches content width on narrow panes.
  */
 export function overlayMinWidth(terminalWidth: number): number {
-  return Math.min(70, Math.max(OVERLAY_MIN_BOX_WIDTH, terminalWidth - 4));
+  return Math.max(OVERLAY_MIN_BOX_WIDTH, terminalWidth - TOTAL_GUTTER_WIDTH);
 }
 
 /** Gutter width in columns — tighter on very narrow terminals. */

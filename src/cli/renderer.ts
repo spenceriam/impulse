@@ -24,11 +24,16 @@ import {
   type Focusable,
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
-import { Editor, type EditorTheme } from "@mariozechner/pi-tui";
+import type { EditorTheme } from "@mariozechner/pi-tui";
+import { PromptInput, type PromptSubmitPayload } from "./prompt-input.js";
+import { shouldShowSlashAutocomplete } from "./slash-autocomplete.js";
 import { GUTTER, GUTTER_WIDTH, gutterSeparator } from "./gutter.js";
+import { dimRuleIndented } from "./format-helpers.js";
+
+/** pi-tui maxHeight for session/model list overlays */
+const LIST_OVERLAY_MAX_HEIGHT = 18;
 import { overlayMinWidth } from "./layout.js";
 import { toggleExpress, isExpressMode, acknowledgeExpress } from "../permission/index.js";
-import { setModelAutocomplete } from "./model-setup.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { ToolBlock } from "./components/tool-block.js";
@@ -36,6 +41,14 @@ import { MarkdownTextBlock } from "./components/markdown-text.js";
 import { PermissionOverlay } from "./components/permission-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
+import { ProfileOverlay } from "./components/profile-overlay.js";
+import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
+import {
+  buildModelSetupRows,
+  buildReasoningSetupRows,
+  MANUAL_MODEL_ROW_ID,
+} from "./model-setup-rows.js";
+import { sessionHasResumeableContent } from "../session/session-content.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
 import { load as loadConfig, save as saveConfig, type Config, type ReasoningLevel } from "../util/config.js";
 import {
@@ -63,7 +76,7 @@ import {
   type StoredProviderConfig,
 } from "./model-setup.js";
 import { Bus } from "../bus/index.js";
-import { QuestionEvents } from "../bus/events.js";
+import { HeaderEvents, QuestionEvents } from "../bus/events.js";
 import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
 import { abortCurrentBashExecution } from "../tools/bash.js";
@@ -75,9 +88,10 @@ import packageJson from "../../package.json";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { Global } from "../global.js";
 
 // ?? Debug logging ????????????????????????????????????????????????????????????
-const debugLogPath = path.join(os.homedir(), ".config", "impulse", "debug.log");
+const debugLogPath = path.join(Global.Path.logs, "debug.log");
 let debugEnabled = false;
 
 function debugLog(msg: string): void {
@@ -115,6 +129,9 @@ const clr = {
   sep:     (s: string) => A.fg(90, s),
 };
 
+/** User-visible success status (AGENTS.md: [OK], not ?). */
+const statusOk = (message: string) => `${clr.success("[OK]")} ${message}`;
+
 // ANSI color per mode ? used for prompt arrow and context bar mode label
 const MODE_COLORS: Record<string, number> = {
   AGENT: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
@@ -133,239 +150,6 @@ const EDITOR_THEME: EditorTheme = {
     noMatch: (s: string) => s,
   },
 };
-
-// ?? PromptInput: wraps pi-tui Editor, intercepts special keys ?????????????????
-
-export class PromptInput implements Component, Focusable {
-  focused = false;
-
-  private editor: Editor;
-
-  constructor(tui?: any) {
-    const t = tui || { terminal: { rows: 24, columns: 80 } };
-    this.editor = new Editor(t, EDITOR_THEME, { paddingX: 0 });
-  }
-  private _modeColorCode = 34;
-  // Paste state ? array supports multiple sequential pastes
-  private _pasteGroups: Array<{ display: string; content: string }> = [];
-  private _detectedImages: string[] = []; // base64 URIs or file paths
-  private _nextImageIndex = 1; // cumulative image counter
-  private _isPasting = false;
-  private _pasteBuffer = "";
-  private _secretMode = false;
-
-  onTabForward?:  () => void;
-  onTabBackward?: () => void;
-  onAbort?:       () => void;
-  onExit?:        () => void;
-  onEscape?:      () => void;
-  onChange?:      (value: string) => void;
-  onArrowUp?:     (() => void) | null;
-  onArrowDown?:   (() => void) | null;
-  onArrowLeft?:   (() => void) | null;
-  onArrowRight?:  (() => void) | null;
-  onEnter?:       (() => void) | null;
-
-  setModeColor(code: number): void { this._modeColorCode = code; }
-  setSecretMode(enabled: boolean): void { this._secretMode = enabled; }
-  getEditor(): Editor { return this.editor; }
-
-  get onSubmit() { return this.editor.onSubmit; }
-  set onSubmit(fn: ((v: string) => void) | undefined) {
-    if (fn !== undefined) {
-      this.editor.onSubmit = () => fn(this._submitCache);
-    } else {
-      this.editor.onSubmit = undefined as unknown as (value: string) => void;
-    }
-  }
-  private _submitCache = "";
-
-  /** Returns the real value (actual paste content if applicable) */
-  getSubmitValue(): string {
-    let displayed = this.editor.getText();
-    // Editor clears text before onSubmit fires ? use cached value if available
-    if (displayed.length === 0 && this._submitCache.length > 0) {
-      return this._submitCache;
-    }
-    for (const group of this._pasteGroups) {
-      if (displayed.includes(group.display)) {
-        displayed = displayed.replace(group.display, group.content);
-      }
-    }
-    return displayed;
-  }
-
-  clear(): void {
-    this.editor.setText("");
-    this._pasteGroups = [];
-    this._detectedImages = [];
-    this._nextImageIndex = 1;
-    this._isPasting = false;
-    this._pasteBuffer = "";
-    this._submitCache = "";
-  }
-
-  /** Returns images detected in the current input */
-  getImages(): string[] { return this._detectedImages; }
-
-  private _detectImages(content: string): number {
-    let found = 0;
-
-    // Base64 data URIs: data:image/png;base64,iVBOR...
-    const base64Regex = /data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[A-Za-z0-9+/=]+/gi;
-    const base64Matches = content.match(base64Regex);
-    if (base64Matches) {
-      for (const match of base64Matches) {
-        if (!this._detectedImages.includes(match)) {
-          this._detectedImages.push(match);
-          found++;
-        }
-      }
-    }
-
-    // File paths to image files ??? Unix, Windows, and file:// protocol
-    const extGroup = "(?:png|jpg|jpeg|gif|webp|bmp)";
-    const fileRegex = new RegExp(
-      `(?:/(?:tmp|home|var|Users)/[^\\s\\n]*\\.${extGroup}|
-         [A-Za-z]:\\\\[^\\s\\n]*\\.${extGroup}|
-         file:///[^\\s\\n]*\\.${extGroup})`, "gi"
-    );
-    const fileMatches = content.match(fileRegex);
-    if (fileMatches) {
-      for (const match of fileMatches) {
-        if (!this._detectedImages.includes(match)) {
-          this._detectedImages.push(match);
-          found++;
-        }
-      }
-    }
-
-    return found;
-  }
-
-  handleInput(data: string): void {
-    if (data.length > 1 && !data.includes("\x1b") && (data.includes("\r") || data.includes("\n"))) {
-      for (const char of data) this.handleInput(char);
-      return;
-    }
-
-    if (data === "\t")     { this.onTabForward?.();  return; }
-    if (data === "\x1b[Z") { this.onTabBackward?.(); return; }
-    if (data === "\x03")   { this.onAbort?.();        return; }
-    if (data === "\x04")   { this.onExit?.();         return; }
-    if (data === "\x1b")   { this.onEscape?.();       return; }
-
-    // Arrow key navigation (for model setup)
-    if (data === "\x1b[A" && this.onArrowUp)   { this.onArrowUp();   return; }
-    if (data === "\x1b[B" && this.onArrowDown) { this.onArrowDown(); return; }
-    if (data === "\x1b[D" && this.onArrowLeft) { this.onArrowLeft(); return; }
-    if (data === "\x1b[C" && this.onArrowRight){ this.onArrowRight();return; }
-    if (data === "\r" && this.onEnter)         { this.onEnter();     return; }
-
-    // Cache expanded paste value before Editor clears it on submit
-    if (data === "\r") {
-      this._submitCache = this.getSubmitValue();
-    }
-
-    // ?? Bracketed paste detection ??????????????????????????????????????????
-    const hasPasteStart = data.includes("\x1b[200~");
-    const hasPasteEnd   = data.includes("\x1b[201~");
-
-    if (hasPasteStart) {
-      this._isPasting = true;
-      const afterStart = data.slice(data.indexOf("\x1b[200~") + 6);
-      const content    = hasPasteEnd
-        ? afterStart.slice(0, afterStart.indexOf("\x1b[201~"))
-        : afterStart;
-      this._pasteBuffer = content;
-
-      if (hasPasteEnd) this._finalizePaste();
-      return;
-    }
-
-    if (this._isPasting) {
-      if (hasPasteEnd) {
-        this._pasteBuffer += data.slice(0, data.indexOf("\x1b[201~"));
-        this._finalizePaste();
-      } else {
-        this._pasteBuffer += data;
-      }
-      return;
-    }
-
-    const anyPasteDisplayBeforeInput = this._pasteGroups.length > 0
-      ? this._pasteGroups[this._pasteGroups.length - 1]!.display
-      : null;
-
-    this.editor.handleInput(data);
-    this._submitCache = ""; // reset cache on non-submit input
-
-    // If any visible paste token was edited away, drop that group's hidden payload
-    if (anyPasteDisplayBeforeInput !== null && !this.editor.getText().includes(anyPasteDisplayBeforeInput)) {
-      this._pasteGroups.pop();
-    }
-
-    this.onChange?.(this.editor.getText());
-  }
-
-  private _finalizePaste(): void {
-    this._isPasting = false;
-    const content = this._pasteBuffer;
-    this._pasteBuffer = "";
-
-    // Detect images in pasted content before building display label
-    const imageCount = this._detectImages(content);
-
-    const lines = content.split("\n").filter((l) => l.length > 0);
-
-    if (imageCount > 0) {
-      // Image paste ? cumulative user-friendly label
-      const startIndex = this._nextImageIndex;
-      const endIndex = startIndex + imageCount - 1;
-      const label = imageCount === 1
-        ? `[Pasted image #${startIndex}]`
-        : `[Pasted images #${startIndex}-#${endIndex}]`;
-      this._nextImageIndex += imageCount;
-      this._pasteGroups.push({ display: label, content });
-      this.editor.handleInput(label);
-    } else if (lines.length > 1) {
-      const display = `[Pasted ${lines.length} lines  ${content.length} chars]`;
-      this._pasteGroups.push({ display, content });
-      this.editor.handleInput(display);
-    } else if (content.length > 120) {
-      const display = `[Pasted ${content.length} chars]`;
-      this._pasteGroups.push({ display, content });
-      this.editor.handleInput(display);
-    } else {
-      // Short paste ? insert normally
-      this.editor.handleInput("\x1b[200~" + content + "\x1b[201~");
-    }
-  }
-
-  invalidate(): void { this.editor.invalidate(); }
-
-  render(width: number): string[] {
-    // pi-tui Input renders its own "> " prefix; replace it with the mode-colored arrow.
-    const editorWidth = Math.max(1, width - 5);
-    const rawLines = this.editor.render(editorWidth);
-    const innerLines = (rawLines.length > 2 ? rawLines.slice(1, -1) : rawLines)
-      .map((l) => l.replace(/_pi:c/g, ""));
-    const firstLine = innerLines[0] ?? "";
-    const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
-    const ARROW = `${GUTTER}\x1b[${this._modeColorCode}m\u276f\x1b[0m `;
-
-    if (this._secretMode) {
-      const valueLength = this.editor.getText().length;
-      const masked = valueLength > 0 ? "*".repeat(Math.min(valueLength, Math.max(0, width - 4))) : "";
-      return [truncateToWidth(ARROW + masked, width)];
-    }
-
-    return [
-      truncateToWidth(ARROW + content, width, ""),
-      ...innerLines.slice(1).map((line) => truncateToWidth(GUTTER + line, width, "")),
-    ];
-  }
-}
 
 // ?? SeparatorLine: a fixed dim horizontal rule ????????????????????????????????
 
@@ -419,7 +203,15 @@ class ThinkingBlock implements Component {
   invalidate() {}
 }
 
-type ModelSetupStep = "provider" | "providerName" | "baseUrl" | "apiKey" | "discovering" | "model" | "reasoning";
+type ModelSetupStep =
+  | "provider"
+  | "providerName"
+  | "baseUrl"
+  | "apiKey"
+  | "discovering"
+  | "model"
+  | "modelManual"
+  | "reasoning";
 
 interface ProviderEntry {
   provider: ModelProviderOption;
@@ -451,10 +243,19 @@ interface ModelSetupState {
 
 // ?? ImpulseRenderer ???????????????????????????????????????????????????????????
 
+export type ResumeStartup = "picker" | { sessionId: string };
+
+export interface ImpulseRendererOptions {
+  resume?: ResumeStartup;
+}
+
 export class ImpulseRenderer {
   // pi-tui objects
   private terminal = new ProcessTerminal();
   private tui!: TUI;
+  private readonly startupResume: ResumeStartup | null;
+  /** Chat children below welcome header (fixed); cleared on /new and /resume */
+  private welcomeChildCount = 0;
 
   // Tools that should not render output to the user
   private static readonly SILENT_TOOLS = new Set(["set_header"]);
@@ -489,7 +290,7 @@ export class ImpulseRenderer {
     "...let me review this...",
     "...checking the details...",
     "...scanning the input...",
-    "...thinking this through...",
+    "Processing..",
     "...mapping it out...",
     "...sorting through the request...",
     "...putting the pieces together...",
@@ -522,7 +323,7 @@ export class ImpulseRenderer {
   /** Pick a phrase index from STATUS_PHRASES based on the current action */
   private pickPhraseIndex(msg: string): number {
     const normalized = msg.toLowerCase();
-    if (normalized.includes("think")) return 16;             // "...thinking this through..."
+    if (normalized.includes("think")) return 16;             // "Processing.."
     if (normalized.includes("respond")) return 25;            // "...putting a thought together..."
     if (normalized.includes("bash") || normalized.includes("shell")) return 22; // "...running the calculations..."
     if (normalized.includes("question") || normalized.includes("approval")) return 41; // "...awaiting response..."
@@ -537,19 +338,21 @@ export class ImpulseRenderer {
       : Math.floor(Math.random() * ImpulseRenderer.STATUS_PHRASES.length);
   }
 
-  private shimmerBusyText(message: string): string {
+  private shimmerBusyText(message: string, dimBase = false): string {
     const chars = Array.from(message);
     if (chars.length === 0) return "";
 
-    // Head advances every 80ms (2x faster than previous 180ms)
     const head = Math.floor(Date.now() / 80) % chars.length;
+    const baseDim = 238;
+    const baseMid = dimBase ? 240 : 236;
+    const peak = dimBase ? 248 : 248;
+
     return chars.map((char, index) => {
       if (/\s/.test(char)) return char;
       const distance = Math.min(Math.abs(index - head), chars.length - Math.abs(index - head));
-      // Neutral grayscale tones ? no cyan/white ? Cursor/Claude Code style
-      if (distance === 0) return A.fg(248, `${A.bold}${char}${A.reset}`);
-      if (distance === 1) return A.fg(240, char);
-      return A.fg(236, char);
+      if (distance === 0) return A.fg(peak, `${A.bold}${char}${A.reset}`);
+      if (distance === 1) return A.fg(baseMid, char);
+      return A.fg(baseDim, char);
     }).join("");
   }
 
@@ -558,7 +361,9 @@ export class ImpulseRenderer {
       this.spinnerText.setText("");
       return;
     }
-    this.spinnerText.setText(`${GUTTER}${this.shimmerBusyText(this.currentStatusPhrase)}`);
+    this.spinnerText.setText(
+      `${GUTTER}${this.shimmerBusyText(this.currentStatusPhrase, this.busyDimBase)}`
+    );
   }
 
   private spinStop(): void {
@@ -648,16 +453,29 @@ export class ImpulseRenderer {
     if (result === "deactivate") {
       config.advisorMode = false;
       await saveConfig(config);
-      this.addChatLine(`${clr.success("?")} Advisor mode disabled ? all tasks complete`);
+      this.addChatLine(statusOk("Advisor mode disabled ? all tasks complete"));
       this.tui.requestRender();
     }
   }
 
-  private setBusyStatus(msg: string): void {
-    if (this.spinnerInterval && this.currentStatusPhrase) return;
+  private toolsRanThisTurn = false;
+  private busyDimBase = false;
 
-    this.statusPhraseIndex = this.pickPhraseIndex(msg);
-    this.currentStatusPhrase = ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "working?";
+  private setBusyStatus(msg: string, fixedPhrase?: string): void {
+    if (this.spinnerInterval && this.currentStatusPhrase && !fixedPhrase) return;
+
+    this.busyDimBase =
+      fixedPhrase === "Processing.." ||
+      fixedPhrase === "Wrapping up..." ||
+      msg.toLowerCase().includes("think");
+
+    if (fixedPhrase) {
+      this.currentStatusPhrase = fixedPhrase;
+    } else {
+      this.statusPhraseIndex = this.pickPhraseIndex(msg);
+      this.currentStatusPhrase =
+        ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "Processing..";
+    }
     this.renderBusyLine();
     this.tui.requestRender();
 
@@ -768,6 +586,190 @@ export class ImpulseRenderer {
     return overlayMinWidth(this.tui?.terminal?.columns ?? 80);
   }
 
+  private terminalCols(): number {
+    return this.tui?.terminal?.columns ?? this.terminal.columns ?? 80;
+  }
+
+  private setupSectionRule(): string {
+    return dimRuleIndented(this.terminalCols(), 2);
+  }
+
+  private listOverlayMargin(): { left: number; right: number; bottom: number } {
+    return { left: GUTTER_WIDTH, right: GUTTER_WIDTH, bottom: 4 };
+  }
+
+  private dismissListOverlay(handle: OverlayHandle | null): void {
+    handle?.hide();
+  }
+
+  private showListOverlay(overlay: Component & { handleInput: (data: string) => void }): OverlayHandle {
+    const handle = this.tui.showOverlay(overlay, {
+      anchor: "bottom-center",
+      offsetY: -4,
+      width: "100%",
+      minWidth: this.overlayMin(),
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      margin: this.listOverlayMargin(),
+    });
+    handle.focus();
+    return handle;
+  }
+
+  private dismissModelSetupOverlay(): void {
+    this.modelSetupOverlayHandle?.hide();
+    this.modelSetupOverlayHandle = null;
+  }
+
+  private providerKeyForSetup(state: ModelSetupState): string {
+    const p = state.provider!;
+    return p.isCustom ? (state.customProviderName ?? p.key) : p.key;
+  }
+
+  private async afterModelSelectedInSetup(selectedModel: string): Promise<void> {
+    const state = this.modelSetup;
+    if (!state?.provider) return;
+
+    state.selectedModel = selectedModel;
+
+    if (
+      state.provider.isCustom ||
+      (state.provider && !PROVIDER_REASONING_STYLE[state.provider.key])
+    ) {
+      if (
+        state.provider.customType &&
+        state.apiKey &&
+        state.baseUrl &&
+        state.selectedModel
+      ) {
+        const modelName = state.selectedModel.includes("/")
+          ? state.selectedModel.split("/").slice(1).join("/")
+          : state.selectedModel;
+        this.reasoningCapability = await probeReasoningSupport(
+          state.provider.customType,
+          state.baseUrl,
+          state.apiKey,
+          modelName
+        );
+        if (!this.reasoningCapability.supported) {
+          await this.finishModelSetup(state.selectedModel, "off");
+          return;
+        }
+      }
+    }
+
+    state.step = "reasoning";
+    this.openModelSetupReasoningPicker();
+  }
+
+  private openModelSetupModelPicker(): void {
+    const state = this.modelSetup;
+    if (!state || state.step !== "model") return;
+
+    if (this.modelSetupInputListener) {
+      this.modelSetupInputListener();
+      this.modelSetupInputListener = null;
+    }
+    this.dismissModelSetupOverlay();
+    const providerKey = this.providerKeyForSetup(state);
+    const rows = buildModelSetupRows(providerKey, state.models, {
+      allowManual: state.provider?.isCustom,
+    });
+
+    const title = state.isAdvisorMode ? "Select advisor model" : "Select model";
+    const overlay = new SelectableListOverlay({
+      title,
+      rows,
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      emptyMessage: state.provider?.isCustom
+        ? "  No models listed ? choose Type custom model ID"
+        : "  No models available",
+      helpLines: ["?/? navigate   Enter select   Esc back"],
+    });
+
+    overlay.onSelect = (id) => {
+      this.dismissModelSetupOverlay();
+      if (id === MANUAL_MODEL_ROW_ID) {
+        state.step = "modelManual";
+        delete state.error;
+        this.renderModelSetup();
+        this.tui.setFocus(this.promptInput);
+        return;
+      }
+      const full = modelWithProviderPrefix(providerKey, id);
+      void this.afterModelSelectedInSetup(full);
+    };
+
+    overlay.onCancel = () => {
+      this.dismissModelSetupOverlay();
+      state.step = "provider";
+      state.selectedIndex = 0;
+      delete state.error;
+      this.setupModelNavigation();
+      this.renderModelSetup();
+      this.tui.setFocus(this.promptInput);
+    };
+
+    this.renderModelSetup();
+    this.modelSetupOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private openModelSetupReasoningPicker(): void {
+    const state = this.modelSetup;
+    if (!state || state.step !== "reasoning") return;
+
+    if (this.modelSetupInputListener) {
+      this.modelSetupInputListener();
+      this.modelSetupInputListener = null;
+    }
+    this.dismissModelSetupOverlay();
+    const levels = this.reasoningLevels();
+    const overlay = new SelectableListOverlay({
+      title: "Select reasoning level",
+      rows: buildReasoningSetupRows(levels, (l) =>
+        this.reasoningDisplayLabel(l)
+      ),
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: [
+        "?/? navigate   Enter select (default: medium)   Esc back",
+      ],
+    });
+
+    overlay.onSelect = (id) => {
+      this.dismissModelSetupOverlay();
+      const level = id as ReasoningLevel;
+      if (state.selectedModel) {
+        void this.finishModelSetup(state.selectedModel, level);
+      }
+    };
+
+    overlay.onCancel = () => {
+      this.dismissModelSetupOverlay();
+      state.step = "model";
+      delete state.error;
+      this.openModelSetupModelPicker();
+    };
+
+    this.renderModelSetup();
+    this.modelSetupOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private lastHeaderLineTitle: string | null = null;
+
+  private async onHeaderTitleUpdated(title: string): Promise<void> {
+    const trimmed = title.trim();
+    if (!trimmed || trimmed === this.lastHeaderLineTitle) return;
+    this.lastHeaderLineTitle = trimmed;
+    try {
+      await SessionManager.setHeaderTitle(trimmed);
+    } catch {
+      // session may not exist yet
+    }
+    this.addChatLine(
+      clr.dim(`${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${trimmed}`)
+    );
+    this.tui.requestRender();
+  }
+
   private abortCurrentTurn(): void {
     if (!this.isRunning) return;
 
@@ -797,6 +799,8 @@ export class ImpulseRenderer {
   private questionOverlayHandle: OverlayHandle | null = null;
   private sessionPickerHandle: OverlayHandle | null = null;
   private modelPickerHandle: OverlayHandle | null = null;
+  private modelSetupOverlayHandle: OverlayHandle | null = null;
+  private profileOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
@@ -816,6 +820,22 @@ export class ImpulseRenderer {
   private pendingPlanApproval: { planPath: string; summary: string } | null = null;
   private userName = "you"; // User's display name (loaded from config)
   private modeChangeText: Text | null = null; // Track mode change line for in-place updates
+
+  constructor(options?: ImpulseRendererOptions) {
+    this.startupResume = options?.resume ?? null;
+  }
+
+  /** Submit a plain-text message after the TUI is running (CLI initial arg). */
+  async submitMessage(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    await this.onSubmit({
+      displayMessage: trimmed,
+      apiText: trimmed,
+      segments: [{ kind: "text", value: trimmed }],
+      orderedImages: [],
+    });
+  }
 
   async start(): Promise<void> {
     const config = await loadConfig();
@@ -853,6 +873,12 @@ export class ImpulseRenderer {
       if (event.type === QuestionEvents.Asked.name) {
         const payload = event.properties as { context?: string; questions: Question[] };
         this.showQuestionOverlay(payload.context, payload.questions);
+        return;
+      }
+
+      if (event.type === HeaderEvents.Updated.name) {
+        const { title } = event.properties as { title: string };
+        void this.onHeaderTitleUpdated(title);
       }
     });
 
@@ -878,6 +904,7 @@ export class ImpulseRenderer {
       this.chat.addChild(new Text(`${GUTTER}${A.fg(90, line)}`, 0, 0));
     }
     this.chat.addChild(new Spacer(1));
+    this.welcomeChildCount = (this.chat as Container & { children: Component[] }).children.length;
 
     // 2. Spacer + turn-status line above the prompt
     this.tui.addChild(new Spacer(1));
@@ -895,12 +922,12 @@ export class ImpulseRenderer {
     this.tui.addChild(this.autocompleteText);
 
     // 4. Prompt input (just ? , no mode label)
-    this.promptInput = new PromptInput(this.tui);
-    this.promptInput.onSubmit = (value) => {
+    this.promptInput = new PromptInput(this.tui, EDITOR_THEME);
+    this.promptInput.onSubmit = (payload) => {
       this.promptInput.clear();
       this.autocompleteText.setText("");
-      if (this.modelSetup) void this.handleModelSetupSubmit(value);
-      else void this.onSubmit(value);
+      if (this.modelSetup) void this.handleModelSetupSubmit(payload.apiText);
+      else void this.onSubmit(payload);
     };
     this.promptInput.onTabForward  = () => { if (!this.modelSetup) this.cycleMode(1); };
     this.promptInput.onTabBackward = () => { if (!this.modelSetup) void this.cycleReasoning(); };
@@ -923,11 +950,17 @@ export class ImpulseRenderer {
       if (this.modelSetup) {
         const state = this.modelSetup;
         // Go back to previous step, or cancel if at first step
-        if (state.step === "model" || state.step === "discovering") {
-          state.step = state.provider?.isCustom ? "provider" : "provider";
+        if (state.step === "modelManual") {
+          state.step = "model";
+          delete state.error;
+          this.openModelSetupModelPicker();
+        } else if (state.step === "model" || state.step === "discovering") {
+          this.dismissModelSetupOverlay();
+          state.step = "provider";
           delete state.error;
           this.setupModelNavigation();
           this.renderModelSetup();
+          this.tui.setFocus(this.promptInput);
         } else if (state.step === "providerName") {
           state.step = state.provider?.isCustom ? "providerName" : "provider";
           delete state.error;
@@ -984,6 +1017,12 @@ export class ImpulseRenderer {
     this.tui.start();
     // Discover reasoning capabilities in background (non-blocking)
     void this.refreshReasoningCapability();
+
+    if (this.startupResume === "picker") {
+      await this.cmdResume("");
+    } else if (this.startupResume) {
+      await this.applyResumeSession(this.startupResume.sessionId);
+    }
   }
 
   // ?? Mode cycling ?????????????????????????????????????????????????????????
@@ -1181,23 +1220,24 @@ export class ImpulseRenderer {
 
   // ?? Input submission ??????????????????????????????????????????????????????
 
-  private async onSubmit(value: string): Promise<void> {
-    const input = value.trim();
+  private async onSubmit(payload: PromptSubmitPayload): Promise<void> {
+    const input = payload.displayMessage.trim();
     if (!input) return;
 
     if (input.startsWith("/")) {
-      await this.handleSlash(input);
+      await this.handleSlash(payload.apiText.trim());
       this.tui.requestRender();
       return;
     }
 
-    const images = this.promptInput.getImages();
-    await this.runTurn(input, images);
+    await this.runTurn(payload);
   }
 
   // ?? Agent turn ????????????????????????????????????????????????????????????
 
-  private async runTurn(userMessage: string, images: string[] = []): Promise<void> {
+  private async runTurn(payload: PromptSubmitPayload): Promise<void> {
+    const userMessage = payload.apiText;
+    const displayMessage = payload.displayMessage;
     // Mid-turn config validation: advisor mode ON but config missing?
     const config = await loadConfig();
     if (config.advisorMode && !config.advisorModel) {
@@ -1216,12 +1256,12 @@ export class ImpulseRenderer {
       }
     }
     this.isRunning = true;
-    this.modeChangeText = null; // Reset mode change tracking for new turn
+    this.toolsRanThisTurn = false;
+    this.modeChangeText = null;
 
-    // User message block
     this.addSectionGap();
     this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(`${userMessage}`);
+    this.addChatLine(`${displayMessage}`);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -1230,7 +1270,7 @@ export class ImpulseRenderer {
     this.thinkingText = null;
     this.thinkingOpen = false;
     this.resetLiveMetrics();
-    this.loop.setImages(images);
+    this.loop.setImages(payload.orderedImages.map((i) => i.uri));
     this.contextBar.update({
       isRunning: true,
       mode: this.mode,
@@ -1248,10 +1288,14 @@ export class ImpulseRenderer {
           isRunning: true,
         });
         this.updateLiveMetrics(0, true);
-        this.setBusyStatus("thinking?");
+        this.setBusyStatus("thinking?", "Processing..");
       },
       onToken: (text) => {
-        this.setBusyStatus("responding?");
+        if (this.toolsRanThisTurn) {
+          this.setBusyStatus("responding?", "Wrapping up...");
+        } else {
+          this.setBusyStatus("responding?");
+        }
         this.closeThinking();
         if (!this.streamingText) {
           // Add Impulse response header on first token
@@ -1268,7 +1312,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onThinking: (text) => {
-        this.setBusyStatus("thinking?");
+        this.setBusyStatus("thinking?", "Processing..");
         debugLog(`onThinking: ${text.length} chars`);
         if (!this.thinkingOpen) {
           this.thinkingRaw = "";
@@ -1323,6 +1367,8 @@ export class ImpulseRenderer {
         // Skip rendering for silent tools (e.g., set_header)
         if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
 
+        this.toolsRanThisTurn = true;
+
         const block = this.toolBlocks.get(id);
         if (block) {
           block.setDone(result, durationMs);
@@ -1352,7 +1398,9 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
-        this.addChatLine(`${clr.success("?")}  ${clr.dim(`compacted ? removed ${removedCount} messages`)}`);
+        this.addChatLine(
+          `${clr.success("[OK]")} ${clr.dim(`compacted ? removed ${removedCount} messages`)}`
+        );
         this.setBusyStatus("thinking?");
         this.tui.requestRender();
       },
@@ -1374,6 +1422,12 @@ export class ImpulseRenderer {
           lastTurnMs: usage.durationMs,
         });
 
+        if (usage.debugInstrumentationNudge) {
+          this.addChatLine(
+            `${clr.warn("[!]")}  ${clr.dim(usage.debugInstrumentationNudge)}`
+          );
+        }
+
         this.addSectionGap();
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
@@ -1390,7 +1444,10 @@ export class ImpulseRenderer {
       },
     };
 
-    await this.loop.run(userMessage, this.mode, events);
+    await this.loop.run(userMessage, this.mode, events, {
+      displayMessage,
+      segments: payload.segments,
+    });
 
     // Show plan approval overlay if advisor was consulted
     if (this.pendingPlanApproval) {
@@ -1466,7 +1523,7 @@ export class ImpulseRenderer {
     });
 
     if (result === "proceed") {
-      this.addChatLine(`${clr.success("?")} Plan approved ? executing`);
+      this.addChatLine(statusOk("Plan approved ? executing"));
     } else {
       this.addChatLine(`${clr.dim("Plan declined ? awaiting new instructions")}`);
     }
@@ -1514,8 +1571,9 @@ export class ImpulseRenderer {
       { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
       { cmd: "/reason",   hint: `${this.reasoningLevelsLabel()}  set reasoning level` },
       { cmd: "/new",      hint: "[name]  start new session" },
+      { cmd: "/resume",   hint: "browse saved sessions" },
       { cmd: "/user",     hint: "view/update name, preferences, instructions" },
-      { cmd: "/debug",    hint: "toggle debug logging" },
+      { cmd: "/debug",    hint: "toggle debug log file" },
       { cmd: "/help",     hint: "show commands" },
       { cmd: "/clear",    hint: "clear screen" },
       { cmd: "/exit",     hint: "quit" },
@@ -1530,15 +1588,8 @@ export class ImpulseRenderer {
       return;
     }
 
-    if (!val.startsWith("/") || val.length < 1) {
-      this.autocompleteText.setText("");
-      this.tui.requestRender();
-      return;
-    }
-    const matches = this.slashCommands().filter((c) =>
-      c.cmd.startsWith(val.split(" ")[0]!.toLowerCase())
-    );
-    if (matches.length === 0) {
+    const { show, matches } = shouldShowSlashAutocomplete(val, this.slashCommands());
+    if (!show) {
       this.autocompleteText.setText("");
     } else {
       const avail = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
@@ -1554,8 +1605,7 @@ export class ImpulseRenderer {
   // ?? Exit stats ????????????????????????????????????????????????????????????
 
   private async showExitStats(): Promise<void> {
-    // Flush any pending session saves before showing stats
-    await SessionManager.save();
+    await SessionManager.flushCurrent();
 
     const session = SessionManager.getCurrentSession();
     if (!session) return;
@@ -1622,19 +1672,24 @@ export class ImpulseRenderer {
         this.cmdEngage();
         break;
       case "user":    await this.cmdUser(arg);     break;
-      case "continue":
-        await this.cmdContinue(arg);
+      case "resume":
+        await this.cmdResume(arg);
         break;
       case "debug":
         setDebugEnabled(!isDebugEnabled());
-        this.addChatLine(`${clr.success("?")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
+        this.addChatLine(
+          statusOk(`Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`)
+        );
         if (isDebugEnabled()) {
           debugLog(`Debug logging enabled`);
         }
         break;
       case "new":
         await SessionManager.createNew(arg || undefined);
-        this.addChatLine(`${clr.success("?")} New session started`);
+        this.resetTurnUiState();
+        this.clearChatView();
+        this.addChatLine(clr.dim("New session started"));
+        this.applySessionToRenderer(SessionManager.getCurrentSession()!);
         break;
       case "clear":
         // Clear chat history (keep welcome)
@@ -1651,7 +1706,7 @@ export class ImpulseRenderer {
         process.exit(0);
         break;
       default:
-        this.addChatLine(`${clr.warn("?")} Unknown: /${cmd} ? try /help`);
+        this.addChatLine(`${clr.warn("[!]")} Unknown: /${cmd} ? try /help`);
     }
   }
 
@@ -1670,11 +1725,8 @@ export class ImpulseRenderer {
         return state.existing?.apiKey
           ? `API key [keep ${maskKey(state.existing.apiKey)}]`
           : "API key";
-      case "model": {
-        const provider = state.provider;
-        const fallback = provider ? this.currentModelForProvider(state.config, provider) : "";
-        return `Model number/name [${fallback}]`;
-      }
+      case "modelManual":
+        return "Model ID";
       default:
         return "";
     }
@@ -1692,7 +1744,7 @@ export class ImpulseRenderer {
 
     if (state.step === "provider") {
       lines.push(clr.bold("MODEL SETUP"));
-      lines.push(clr.dim("?????????????????????????????????????????????????"));
+      lines.push(this.setupSectionRule());
       lines.push("");
 
       // Show configured providers first
@@ -1705,7 +1757,7 @@ export class ImpulseRenderer {
           const entry = configured[i]!;
           const isSelected = state.selectedIndex === i;
           const prefix = isSelected ? "  > " : "    ";
-          const icon = entry.valid ? clr.success("?") : clr.error("?");
+          const icon = entry.valid ? clr.success("[OK]") : clr.error("[FAIL]");
           const label = isSelected ? A.fg(36, entry.provider.label) : entry.provider.label;
           lines.push(`${prefix}${icon} ${label} ${clr.dim(`(${entry.keyPreview})`)}`);
         }
@@ -1726,17 +1778,17 @@ export class ImpulseRenderer {
       }
 
       lines.push("");
-      lines.push(clr.dim("??: Navigate  Enter: Select  Esc: Cancel"));
+      lines.push(clr.dim("?/?: Navigate  Enter: Select  Esc: Cancel"));
     } else if (state.step === "baseUrl") {
       lines.push(clr.bold("MODEL SETUP"));
-      lines.push(clr.dim("?????????????????????????????????????????????????"));
+      lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`${state.provider?.label ?? "Provider"} endpoint`);
       lines.push("");
       lines.push(clr.dim("Enter a custom endpoint or press Enter to keep the default."));
     } else if (state.step === "apiKey") {
       lines.push(clr.bold("MODEL SETUP"));
-      lines.push(clr.dim("?????????????????????????????????????????????????"));
+      lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`${state.provider?.label ?? "Provider"} API key`);
       lines.push("");
@@ -1750,7 +1802,7 @@ export class ImpulseRenderer {
     } else if (state.step === "discovering") {
       const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
       lines.push(clr.bold(title));
-      lines.push(clr.dim("?????????????????????????????????????????????????"));
+      lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
       lines.push("");
@@ -1758,55 +1810,27 @@ export class ImpulseRenderer {
     } else if (state.step === "model") {
       const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
       lines.push(clr.bold(title));
-      lines.push(clr.dim("?????????????????????????????????????????????????"));
+      lines.push(this.setupSectionRule());
       lines.push("");
       if (state.discovery) {
         const marker = state.discovery.success ? clr.success("[OK]") : clr.warn("[WARN]");
         lines.push(`${marker} ${state.discovery.message}`);
       }
       lines.push("");
-
-      // Paginated model list
-      const start = state.page * state.modelsPerPage;
-      const end = Math.min(start + state.modelsPerPage, state.models.length);
-      const pageModels = state.models.slice(start, end);
-
-      for (let i = 0; i < pageModels.length; i++) {
-        const globalIdx = start + i;
-        const isSelected = globalIdx === state.selectedIndex;
-        const prefix = isSelected ? "  > " : "    ";
-        const label = isSelected ? A.fg(36, pageModels[i]!) : pageModels[i]!;
-        lines.push(`${prefix}${label}`);
-      }
-
-      if (state.models.length === 0) {
-        lines.push(clr.dim("    No models listed; type a full model ID manually."));
-      }
-
-      // Page indicator
-      const totalPages = Math.ceil(state.models.length / state.modelsPerPage);
-      if (totalPages > 1) {
-        lines.push("");
-        lines.push(clr.dim(`Page ${state.page + 1}/${totalPages}`));
-      }
+      lines.push(clr.dim("  Use the overlay: ?/? navigate, Enter to select, Esc to go back."));
+    } else if (state.step === "modelManual") {
+      lines.push(clr.bold(state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP"));
+      lines.push(this.setupSectionRule());
+      lines.push("");
+      lines.push(clr.dim("  Enter the full model ID for this provider."));
     } else if (state.step === "reasoning") {
       const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
       lines.push(clr.bold(title));
-      lines.push(clr.dim("?????????????????????????????????????????????????"));
+      lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`${clr.success("[OK]")} ${state.selectedModel ?? ""}`);
       lines.push("");
-      lines.push("Select reasoning level:");
-      lines.push("");
-      const levels = this.reasoningLevels();
-      for (let i = 0; i < levels.length; i++) {
-        const isSelected = state.selectedIndex === i;
-        const label = this.reasoningDisplayLabel(levels[i]!);
-        const prefix = isSelected ? "  > " : "    ";
-        lines.push(`${prefix}${i + 1}. ${isSelected ? A.fg(36, label) : label}`);
-      }
-      lines.push("");
-      lines.push(clr.dim("??: Navigate  Enter: Select (default: medium)  Esc: back/cancel"));
+      lines.push(clr.dim("  Use the overlay: ?/? navigate, Enter to select, Esc to go back."));
     }
 
     if (state.error) {
@@ -1815,10 +1839,10 @@ export class ImpulseRenderer {
     }
 
     if (state.step === "provider") {
-      // Arrow navigation mode ? no text input needed
+      this.promptInput.setSecretMode(false);
+    } else if (state.step === "model" || state.step === "reasoning") {
       this.promptInput.setSecretMode(false);
     } else {
-      // Text input mode
       const prompt = this.modelSetupPrompt();
       if (prompt) {
         lines.push("");
@@ -1863,9 +1887,8 @@ export class ImpulseRenderer {
       state.step = "model";
       state.page = 0;
       state.selectedIndex = 0;
-      setModelAutocomplete(this.promptInput.getEditor(), state.models);
-      this.setupModelNavigation();
-      this.renderModelSetup();
+      this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
+      this.openModelSetupModelPicker();
       return;
     }
 
@@ -1900,6 +1923,7 @@ export class ImpulseRenderer {
   }
 
   private cancelModelSetup(): void {
+    this.dismissModelSetupOverlay();
     if (this.modelSetupInputListener) {
       this.modelSetupInputListener();
       this.modelSetupInputListener = null;
@@ -1970,98 +1994,35 @@ export class ImpulseRenderer {
       state.step = "model";
       state.page = 0;
       state.selectedIndex = 0;
-      setModelAutocomplete(this.promptInput.getEditor(), state.models);
-      this.setupModelNavigation();
-      this.renderModelSetup();
+      this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
+      this.openModelSetupModelPicker();
       return;
     }
 
-    if (state.step === "model") {
-      // Store selected model and prompt for reasoning level
-      const fallbackModel = this.currentModelForProvider(state.config, state.provider!);
-      const modelIdx = Number.parseInt(input, 10) - 1;
-      const ek = state.provider!.isCustom ? (state.customProviderName ?? state.provider!.key) : state.provider!.key;
+    if (state.step === "modelManual") {
+      const ek = this.providerKeyForSetup(state);
       if (!input) {
-        if (state.models.length === 0 && state.provider?.isCustom) {
-          state.error = "Enter a model ID (e.g. moonshot-v1-auto).";
-          this.renderModelSetup();
-          return;
-        }
-        state.selectedModel = fallbackModel;
-      } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
-        state.selectedModel = modelWithProviderPrefix(ek, state.models[modelIdx]!);
-      } else if (!input.match(/^\d+$/)) {
-        state.selectedModel = modelWithProviderPrefix(ek, input);
-      } else {
-        state.error = "Invalid model selection.";
+        state.error = "Enter a model ID (e.g. moonshot-v1-auto).";
         this.renderModelSetup();
         return;
       }
-      // Probe reasoning support for custom providers before showing reasoning step
-      if (state.provider?.isCustom || (state.provider && !PROVIDER_REASONING_STYLE[state.provider.key])) {
-        if (state.provider?.customType && state.apiKey && state.baseUrl && state.selectedModel) {
-          const modelName = state.selectedModel.includes("/") ? state.selectedModel.split("/").slice(1).join("/") : state.selectedModel;
-          this.reasoningCapability = await probeReasoningSupport(
-            state.provider.customType,
-            state.baseUrl,
-            state.apiKey,
-            modelName,
-          );
-          if (!this.reasoningCapability.supported) {
-            await this.finishModelSetup(state.selectedModel, "off");
-            return;
-          }
-        }
-      }
-      state.step = "reasoning";
-      state.selectedIndex = this.reasoningLevels().indexOf(this.reasoningLevel);
-      if (state.selectedIndex < 0) state.selectedIndex = 1; // default to medium
-      this.setupModelNavigation();
-      this.renderModelSetup();
+      const full = modelWithProviderPrefix(ek, input);
+      void this.afterModelSelectedInSetup(full);
       return;
-    }
-
-    if (state.step === "reasoning") {
-      const levels = this.reasoningLevels();
-      const idx = Number.parseInt(input, 10) - 1;
-      let selectedLevel: ReasoningLevel = "medium";
-      if (!input) {
-        selectedLevel = "medium";
-      } else if (!Number.isNaN(idx) && levels[idx]) {
-        selectedLevel = levels[idx]!;
-      } else {
-        const match = levels.find(l => l && input.toLowerCase() === l);
-        if (match) selectedLevel = match;
-        else selectedLevel = "medium";
-      }
-      if (state.selectedModel) {
-        await this.finishModelSetup(state.selectedModel, selectedLevel);
-      }
     }
   }
 
-  private async finishModelSetup(modelChoice: string, reasoningLevel?: ReasoningLevel): Promise<void> {
+  private async finishModelSetup(
+    selectedModel: string,
+    reasoningLevel?: ReasoningLevel
+  ): Promise<void> {
     const state = this.modelSetup;
     const provider = state?.provider;
     const apiKey = state?.apiKey;
     if (!state || !provider || !apiKey) return;
     const effectiveKey = provider.isCustom ? (state.customProviderName ?? provider.key) : provider.key;
-    
 
-    const fallbackModel = this.currentModelForProvider(state.config, provider);
-    let selectedModel = fallbackModel;
-    const modelIdx = Number.parseInt(modelChoice, 10) - 1;
-    if (!modelChoice) {
-      selectedModel = fallbackModel;
-    } else if (!Number.isNaN(modelIdx) && state.models[modelIdx]) {
-      selectedModel = modelWithProviderPrefix(effectiveKey, state.models[modelIdx]!);
-    } else if (!modelChoice.match(/^\d+$/)) {
-      selectedModel = modelWithProviderPrefix(effectiveKey, modelChoice);
-    } else {
-      state.error = "Invalid model selection.";
-      this.renderModelSetup();
-      return;
-    }
+    this.dismissModelSetupOverlay();
 
     // Advisor mode: only save advisorModel, don't change default provider/model
     if (state.isAdvisorMode) {
@@ -2090,7 +2051,7 @@ export class ImpulseRenderer {
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
-      this.addChatLine(`${clr.success("?")} Advisor ? ${selectedModel}`);
+      this.addChatLine(statusOk(`Advisor: ${selectedModel}`));
       this.tui.requestRender();
       return;
     }
@@ -2141,7 +2102,7 @@ export class ImpulseRenderer {
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
     const reasonLabel = reasoningLevel ? ` (${this.reasoningDisplayLabel(reasoningLevel)})` : "";
-    this.addChatLine(`${clr.success("?")} Model changed to: ${selectedModel}${reasonLabel}`);
+    this.addChatLine(statusOk(`Model changed to: ${selectedModel}${reasonLabel}`));
     this.tui.requestRender();
   }
 
@@ -2149,48 +2110,46 @@ export class ImpulseRenderer {
     if (this.isRunning) return;
 
     try {
-      const { buildProviderEntries, ModelPickerOverlay } = await import("./components/model-picker-overlay.js");
-      const { entries, promises } = await buildProviderEntries();
+      const config = await loadConfig();
+      const { buildModelPickerState, parseModelPickerSelection } = await import(
+        "./components/model-picker-overlay.js"
+      );
+      const state = await buildModelPickerState(config, {
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      });
 
-      if (entries.length === 0) {
+      if (state.configuredProviderCount === 0) {
         this.addChatLine(`  ${clr.dim("No providers configured. Configure one first in ~/.impulse/.env")}`);
         return;
       }
 
-      const config = await loadConfig();
-      const overlay = new ModelPickerOverlay(entries, config);
-
-      overlay.onSelect = async (providerKey: string, modelName: string) => {
-        this.modelPickerHandle?.hide();
+      state.overlay.onSelect = async (compoundId: string) => {
+        this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
+        const parsed = parseModelPickerSelection(compoundId);
+        if (!parsed) return;
 
-        const fullModel = modelName.includes("/") ? modelName : `${providerKey}/${modelName}`;
+        const fullModel = parsed.modelId.includes("/")
+          ? parsed.modelId
+          : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
         await SessionManager.update({ model: fullModel });
         this.contextBar.update({ workerModel: fullModel });
-        this.addChatLine(`${clr.success("?")} Model: ${fullModel}`);
+        this.addChatLine(statusOk(`Model: ${fullModel}`));
         this.tui.requestRender();
       };
 
-      overlay.onCancel = () => {
-        this.modelPickerHandle?.hide();
+      state.overlay.onCancel = () => {
+        this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
       };
 
-      this.modelPickerHandle = this.tui.showOverlay(overlay, {
-        anchor: "bottom-center",
-        offsetY: -4,
-        width: "92%",
-        minWidth: this.overlayMin(),
-        maxHeight: 18,
-        margin: { left: 2, right: 2, bottom: 4 },
-      });
-      this.modelPickerHandle.focus();
-      this.tui.requestRender();
+      state.onRowsUpdated = () => this.tui.requestRender();
 
-      await Promise.allSettled(promises);
+      this.modelPickerHandle = this.showListOverlay(state.overlay);
+      await state.discover();
       this.tui.requestRender();
     } catch (e) {
-      this.addChatLine(`${clr.error("?")} Model selector failed: ${(e as Error).message}`);
+      this.addChatLine(`${clr.error("[!]")} Model selector failed: ${(e as Error).message}`);
     }
   }
 
@@ -2216,71 +2175,27 @@ export class ImpulseRenderer {
     // This is needed because pi-tui's Editor consumes arrow keys internally
     // before PromptInput.handleInput sees them.
     const handleModelNav = (data: string) => {
+      if (state.step !== "provider") return undefined;
+
       if (data === "\x1b[A") {
-        if (state.step === "provider") {
-          state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-          this.renderModelSetup();
-        } else if (state.step === "model") {
-          state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-          this.renderModelSetup();
-        } else if (state.step === "reasoning") {
-          state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-          this.renderModelSetup();
-        }
+        state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+        this.renderModelSetup();
         return { consume: true };
       }
       if (data === "\x1b[B") {
-        if (state.step === "provider") {
-          state.selectedIndex = Math.min(state.providers.length - 1, state.selectedIndex + 1);
-          this.renderModelSetup();
-        } else if (state.step === "model") {
-          state.selectedIndex = Math.min(state.models.length - 1, state.selectedIndex + 1);
-          this.renderModelSetup();
-        } else if (state.step === "reasoning") {
-          state.selectedIndex = Math.min(this.reasoningLevels().length - 1, state.selectedIndex + 1);
-          this.renderModelSetup();
-        }
-        return { consume: true };
-      }
-      if (data === "\x1b[D") {
-        if (state.step === "model" && state.page > 0) {
-          state.page--;
-          state.selectedIndex = state.page * state.modelsPerPage;
-          this.renderModelSetup();
-        }
-        return { consume: true };
-      }
-      if (data === "\x1b[C") {
-        if (state.step === "model") {
-          const totalPages = Math.ceil(state.models.length / state.modelsPerPage);
-          if (state.page < totalPages - 1) {
-            state.page++;
-            state.selectedIndex = state.page * state.modelsPerPage;
-            this.renderModelSetup();
-          }
-        }
+        state.selectedIndex = Math.min(
+          state.providers.length - 1,
+          state.selectedIndex + 1
+        );
+        this.renderModelSetup();
         return { consume: true };
       }
       if (data === "\r") {
-        if (state.step === "provider") {
-          const entry = state.providers[state.selectedIndex];
-          if (entry) {
-            void this.selectModelSetupProvider(entry.provider).then(() => {
-              this.setupModelNavigation();
-              this.renderModelSetup();
-            });
-          }
-          return { consume: true };
+        const entry = state.providers[state.selectedIndex];
+        if (entry) {
+          void this.selectModelSetupProvider(entry.provider);
         }
-        if (state.step === "model") {
-          const model = state.models[state.selectedIndex];
-          if (model) void this.finishModelSetup(String(state.selectedIndex + 1));
-          return { consume: true };
-        }
-        if (state.step === "reasoning") {
-          void this.handleModelSetupSubmit(String(state.selectedIndex + 1));
-          return { consume: true };
-        }
+        return { consume: true };
       }
       return undefined;
     };
@@ -2300,7 +2215,7 @@ export class ImpulseRenderer {
       this.advisorModel = undefined;
       this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
         contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(`${clr.success("?")} Advisor mode disabled`);
+      this.addChatLine(statusOk("Advisor mode disabled"));
       return;
     }
 
@@ -2310,7 +2225,7 @@ export class ImpulseRenderer {
       await saveConfig(config);
       this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
         contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(`${clr.success("?")} Advisor mode disabled`);
+      this.addChatLine(statusOk("Advisor mode disabled"));
       return;
     }
 
@@ -2321,7 +2236,7 @@ export class ImpulseRenderer {
       await saveConfig(config);
       this.advisorModel = arg;
       this.contextBar.update({ advisorModel: arg });
-      this.addChatLine(`${clr.success("?")} Advisor ? ${arg}  (mode ON)`);
+      this.addChatLine(statusOk(`Advisor: ${arg} (mode ON)`));
       return;
     }
 
@@ -2338,9 +2253,10 @@ export class ImpulseRenderer {
 
       await new Promise<void>((resolve) => {
         const prev = this.promptInput.onSubmit;
-        this.promptInput.onSubmit = (val) => {
+        this.promptInput.onSubmit = (p) => {
           this.promptInput.clear();
           this.promptInput.onSubmit = prev;
+          const val = p.apiText;
           const answer = val.trim().toLowerCase();
           if (answer === "y" || answer === "yes") {
             // Enter configuration setup
@@ -2349,7 +2265,9 @@ export class ImpulseRenderer {
             // Activate with current config
             config.advisorMode = true;
             void saveConfig(config).then(() => {
-              this.addChatLine(`${clr.success("?")} Advisor mode ON ? ${modelName} via ${providerName}`);
+              this.addChatLine(
+                statusOk(`Advisor mode ON ? ${modelName} via ${providerName}`)
+              );
               this.tui.requestRender();
               resolve();
             });
@@ -2422,7 +2340,11 @@ this.modelSetup = {
       if (config.visionModel) {
         config.visionMode = true;
         await saveConfig(config);
-        this.addChatLine(`${clr.success("?")} Vision mode ON ? ${config.visionModel.split("/").pop() ?? config.visionModel}`);
+        this.addChatLine(
+          statusOk(
+            `Vision mode ON ? ${config.visionModel.split("/").pop() ?? config.visionModel}`
+          )
+        );
       } else {
         this.addChatLine(`${clr.warn("!")} No vision model configured. Use /model to set up a vision-capable model.`);
       }
@@ -2431,7 +2353,7 @@ this.modelSetup = {
     if (arg === "off") {
       config.visionMode = false;
       await saveConfig(config);
-      this.addChatLine(`${clr.success("?")} Vision mode OFF`);
+      this.addChatLine(statusOk("Vision mode OFF"));
       return;
     }
     this.addChatLine(`  vision: ${config.visionMode ? "on" : "off"}  |  options: on | off`);
@@ -2502,31 +2424,21 @@ this.modelSetup = {
 
     const level = this.parseReasoningLevel(arg);
     if (level === null || !valid.includes(level)) {
-      this.addChatLine(`  ${clr.error("?")} Valid levels: ${this.reasoningLevelsLabel()}`);
+      this.addChatLine(`  ${clr.error("[!]")} Valid levels: ${this.reasoningLevelsLabel()}`);
       return;
     }
     await this.setReasoningLevel(level);
   }
 
   private async cmdUser(_arg: string): Promise<void> {
+    if (this.isRunning) return;
+
     const config = await loadConfig();
-    const profile = config.userProfile;
+    const overlay = new ProfileOverlay({ profile: config.userProfile });
 
-    // Show current profile
-    this.addChatLine("");
-    this.addChatLine(`  ${clr.bold("User Profile")}`);
-    this.addChatLine(`  ${clr.dim("name")}         ${profile?.name || clr.dim("(not set)")}`);
-    this.addChatLine(`  ${clr.dim("preference")}   ${profile?.responsePreference || clr.dim("concise")}`);
-    this.addChatLine(`  ${clr.dim("instructions")} ${profile?.customInstructions || clr.dim("(none)")}`);
-    this.addChatLine("");
-
-    // Ask if user wants to edit
-    this.addChatLine(`  ${clr.dim("Edit profile? (y/n)")}`);
-    this.tui.requestRender();
-
-    const key = await this.readKey();
-    if (key === "y" || key === "\r") {
-      // Stop TUI, run onboarding flow, restart TUI
+    overlay.onEdit = async () => {
+      this.profileOverlayHandle?.hide();
+      this.profileOverlayHandle = null;
       this.tui.stop();
       const { runOnboarding } = await import("../index.js");
       await runOnboarding();
@@ -2534,83 +2446,146 @@ this.modelSetup = {
       this.userName = newConfig.userProfile?.name || "you";
       this.tui.start();
       this.tui.setFocus(this.promptInput);
-      this.addChatLine(`  ${clr.success("?")} Profile updated`);
-    } else {
-      this.addChatLine(`  ${clr.dim("Profile unchanged")}`);
-    }
-    this.addChatLine("");
+      this.addChatLine(statusOk("Profile updated"));
+      this.tui.requestRender();
+    };
+
+    overlay.onCancel = () => {
+      this.profileOverlayHandle?.hide();
+      this.profileOverlayHandle = null;
+      this.tui.setFocus(this.promptInput);
+      this.tui.requestRender();
+    };
+
+    this.profileOverlayHandle = this.tui.showOverlay(overlay, {
+      anchor: "bottom-center",
+      offsetY: -4,
+      width: "100%",
+      minWidth: this.overlayMin(),
+      maxHeight: 22,
+      margin: this.listOverlayMargin(),
+    });
+    this.profileOverlayHandle.focus();
     this.tui.requestRender();
   }
 
-  private async cmdContinue(arg: string): Promise<void> {
+  private clearChatView(): void {
+    const children = (this.chat as Container & { children: Component[] }).children;
+    while (children.length > this.welcomeChildCount) {
+      children.pop();
+    }
+    this.hasTrailingGap = false;
+    this.modeChangeText = null;
+    this.lastHeaderLineTitle = null;
+  }
+
+  private resetTurnUiState(): void {
+    this.toolBlocks.clear();
+    this.streamingRaw = "";
+    this.streamingText = null;
+    this.thinkingRaw = "";
+    this.thinkingText = null;
+    this.thinkingOpen = false;
+  }
+
+  private applySessionToRenderer(session: import("../session/store.js").Session): void {
+    const mode = normalizeMode(session.mode) as Mode;
+    this.mode = mode;
+    setCurrentMode(mode);
+    this.syncModeColor();
+
+    if (session.model) {
+      this.contextBar.update({ workerModel: session.model });
+    }
+    if (session.context_window) {
+      this.contextWindow = session.context_window;
+    }
+    this.contextTokens = this.estimateCurrentSessionTokens();
+    this.contextBar.update({
+      mode: this.mode,
+      contextTokens: this.contextTokens,
+      contextWindow: this.contextWindow,
+      ...(session.model ? { workerModel: session.model } : {}),
+    });
+  }
+
+  private showSessionRestored(session: import("../session/store.js").Session): void {
+    const title = session.headerTitle ?? session.name;
+    this.addChatLine(clr.dim(`${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${title}`));
+    this.addChatLine(clr.dim("Session restored"));
+    this.addSectionGap();
+  }
+
+  private async applyResumeSession(sessionID: string): Promise<void> {
+    try {
+      const session = await SessionManager.load(sessionID);
+      this.resetTurnUiState();
+      this.clearChatView();
+      this.applySessionToRenderer(session);
+      this.showSessionRestored(session);
+      this.tui.requestRender();
+    } catch (e) {
+      this.addChatLine(`${clr.error("[!]")} Failed to load session: ${(e as Error).message}`);
+    }
+  }
+
+  private async cmdResume(arg: string): Promise<void> {
     if (arg) {
-      try {
-        const session = await SessionManager.load(arg);
-        const name = session?.headerTitle || session?.name || arg;
-        this.addChatLine(`${clr.success("?")} Continued: ${name}`);
-      } catch (e) {
-        this.addChatLine(`${clr.error("?")} Failed to load session: ${(e as Error).message}`);
-      }
+      await this.applyResumeSession(arg);
       return;
     }
 
-    const sessions = await SessionManager.listSessions();
+    const allSessions = await SessionManager.listSessions();
+    const sessions = allSessions.filter(sessionHasResumeableContent);
     if (sessions.length === 0) {
-      this.addChatLine(`  ${clr.dim("No saved sessions for this project. Start a new conversation to create one.")}`);
+      this.addChatLine(
+        `  ${clr.dim("No sessions with messages for this project. Start a conversation or use a saved session id.")}`
+      );
       return;
     }
 
-    const overlay = new SessionPickerOverlay(sessions);
+    const config = await loadConfig();
+    const overlay = new SessionPickerOverlay(sessions, {
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      defaultModel: config.defaultModel,
+    });
     overlay.onSelect = async (sessionID: string) => {
-      this.sessionPickerHandle?.hide();
+      this.dismissListOverlay(this.sessionPickerHandle);
       this.sessionPickerHandle = null;
-      try {
-        const session = await SessionManager.load(sessionID);
-        const name = session?.headerTitle || session?.name || sessionID;
-        this.addChatLine(`${clr.success("?")} Continued: ${name}`);
-      } catch (e) {
-        this.addChatLine(`${clr.error("?")} Failed to load session: ${(e as Error).message}`);
-      }
+      await this.applyResumeSession(sessionID);
     };
     overlay.onCancel = () => {
-      this.sessionPickerHandle?.hide();
+      this.dismissListOverlay(this.sessionPickerHandle);
       this.sessionPickerHandle = null;
     };
 
-    this.sessionPickerHandle = this.tui.showOverlay(overlay, {
-      anchor: "bottom-center",
-      offsetY: -4,
-      width: "92%",
-      minWidth: this.overlayMin(),
-      maxHeight: 18,
-      margin: { left: 2, right: 2, bottom: 4 },
-    });
-    this.sessionPickerHandle.focus();
+    this.sessionPickerHandle = this.showListOverlay(overlay);
     this.tui.requestRender();
   }
 
   private printHelp(): void {
     const reasonLevels = this.reasoningLevelsLabel();
+    const rule = dimRuleIndented(this.terminalCols(), 2);
     const h = [
       "",
       `  ${clr.bold("Commands")}`,
-      clr.dim("  ?????????????????????????????????????????"),
+      rule,
       `  ${clr.tool("/advisor on")}      ${clr.dim("Set advisor model")}`,
       `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
       `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
       `  ${clr.tool("/model")}            ${clr.dim("Browse and switch models")}`,
       `  ${clr.tool("/mode <MODE>")}     ${clr.dim("EXPLORE | PLAN | DEBUG")}`,
-      `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels.replace(/\|/g, "?"))}`,
+      `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels)}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
-      `  ${clr.tool("/continue")}        ${clr.dim("Browse saved sessions")}`,
+      `  ${clr.tool("/resume")}         ${clr.dim("Browse saved sessions")}`,
       `  ${clr.tool("/user")}            ${clr.dim("View/update profile & preferences")}`,
-      `  ${clr.tool("/debug")}           ${clr.dim("Toggle debug logging")}`,
+      `  ${clr.tool("/debug")}           ${clr.dim("Toggle session debug log file (not DEBUG mode)")}`,
       `  ${clr.tool("/help ")}${clr.dim("This message")}`,
       `  ${clr.tool("/exit ")}${clr.dim("Quit")}`,
       "",
       `  ${clr.bold("Keyboard")}`,
-      clr.dim("  ?????????????????????????????????????????"),
-      `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode forward")}`,
+      rule,
+      `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode (DEBUG = evidence-first debugging)")}`,
       `  ${clr.dim("Shift+Tab")}        ${clr.dim(`Cycle reasoning level (${reasonLevels})`)}`,
       `  ${clr.dim("Ctrl+C")}           ${clr.dim("Abort current turn")}`,
       `  ${clr.dim("Ctrl+D")}           ${clr.dim("Exit")}`,

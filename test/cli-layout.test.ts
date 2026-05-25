@@ -6,9 +6,18 @@ import {
   gutterWidth,
 } from "../src/cli/layout";
 import { ContextBarComponent } from "../src/cli/components/context-bar";
-import { SessionPickerOverlay } from "../src/cli/components/session-picker-overlay";
+import {
+  SessionPickerOverlay,
+  sessionRowForTest,
+} from "../src/cli/components/session-picker-overlay";
+import {
+  SelectableListOverlay,
+  rowDisplayLineCount,
+} from "../src/cli/components/selectable-list-overlay";
+import { overlayChromeLineCount } from "../src/cli/components/overlay-theme";
 import { QuestionOverlay } from "../src/cli/components/question-overlay";
 import { PermissionOverlay } from "../src/cli/components/permission-overlay";
+import type { Session } from "../src/session/store";
 
 function stripAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
@@ -31,15 +40,15 @@ const sampleContextBarState = {
 
 describe("overlay layout helpers", () => {
   test("overlayBoxWidth scales down on narrow panes", () => {
-    expect(overlayBoxWidth(35)).toBe(31);
-    expect(overlayBoxWidth(42)).toBe(38);
-    expect(overlayBoxWidth(120)).toBe(74);
+    expect(overlayBoxWidth(35)).toBe(27);
+    expect(overlayBoxWidth(42)).toBe(34);
+    expect(overlayBoxWidth(120)).toBe(112);
   });
 
-  test("overlayMinWidth never exceeds terminal width", () => {
-    expect(overlayMinWidth(35)).toBe(31);
-    expect(overlayMinWidth(42)).toBe(38);
-    expect(overlayMinWidth(120)).toBe(70);
+  test("overlayMinWidth matches content width", () => {
+    expect(overlayMinWidth(35)).toBe(27);
+    expect(overlayMinWidth(42)).toBe(34);
+    expect(overlayMinWidth(120)).toBe(112);
   });
 
   test("gutterWidth tightens below 50 columns", () => {
@@ -142,5 +151,80 @@ describe("overlay components at narrow width", () => {
     const lines = overlay.render(35);
     expect(lines.length).toBeGreaterThan(0);
     expect(maxVisibleWidth(lines)).toBeLessThanOrEqual(35);
+  });
+});
+
+describe("SelectableListOverlay height budget", () => {
+  const maxHeight = 18;
+  const helpLines = ["↑/↓ navigate   Enter resume   Esc cancel"];
+
+  test("render line count stays within maxHeight for many sessions", () => {
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      id: `sess_${i}`,
+      label: `Session topic ${i}`,
+      secondary: `glm-4.7  ·  05/25/2026`,
+    }));
+    const overlay = new SelectableListOverlay({
+      title: "Resume session",
+      rows,
+      maxHeight,
+      helpLines,
+    });
+    const lines = overlay.render(100);
+    expect(lines.length).toBeLessThanOrEqual(maxHeight + 1);
+  });
+
+  test("chrome line count matches render structure", () => {
+    const overlay = new SelectableListOverlay({
+      title: "Resume session",
+      rows: [],
+      maxHeight,
+      helpLines,
+    });
+    const lines = overlay.render(80);
+    const chrome = overlayChromeLineCount(helpLines.length);
+    expect(lines.length).toBe(chrome + 1);
+  });
+});
+
+describe("session picker row labels", () => {
+  const baseSession: Session = {
+    id: "sess_test",
+    name: "Session May 25 at 02:07 PM",
+    projectID: "proj",
+    directory: "/tmp",
+    created_at: "2026-05-25T12:00:00.000Z",
+    updated_at: "2026-05-25T14:00:00.000Z",
+    messages: [],
+    mode: "AGENT",
+    model: "",
+    todos: [],
+    context_window: 200000,
+    cost: 0,
+    headerTitle: "Line one\n# Heading\nMore text",
+  };
+
+  test("sanitizes newlines in header title", () => {
+    const row = sessionRowForTest(baseSession);
+    expect(row.label).not.toMatch(/\n/);
+    expect(row.label).toContain("Line one");
+  });
+
+  test("uses em dash for missing model", () => {
+    const row = sessionRowForTest(baseSession);
+    expect(row.secondary).toContain("—");
+    expect(row.secondary).not.toContain("unknown");
+  });
+});
+
+describe("SelectableListOverlay wrapping", () => {
+  test("long labels use more than one display line at narrow inner width", () => {
+    const row = {
+      id: "m1",
+      label:
+        "DeepSeek/deepseek-v4-pro-reasoning-extra-long-model-name-for-wrap-test",
+      secondary: "Ctx: 128k",
+    };
+    expect(rowDisplayLineCount(row, 40, false)).toBeGreaterThan(1);
   });
 });
