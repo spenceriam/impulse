@@ -145,6 +145,7 @@ export class PromptInput implements Component, Focusable {
   private _pasteGroups: PasteGroup[] = [];
   private _detectedImages: string[] = [];
   private _nextImageIndex = 1;
+  private _nextTextPasteSeq = 1;
   private _isPasting = false;
   private _pasteBuffer = "";
   private _secretMode = false;
@@ -207,6 +208,7 @@ export class PromptInput implements Component, Focusable {
     this._pasteGroups = [];
     this._detectedImages = [];
     this._nextImageIndex = 1;
+    this._nextTextPasteSeq = 1;
     this._isPasting = false;
     this._pasteBuffer = "";
     this._submitPayload = null;
@@ -255,12 +257,13 @@ export class PromptInput implements Component, Focusable {
 
   private _findGroupInText(
     text: string,
-    group: PasteGroup
+    group: PasteGroup,
+    searchFrom = 0
   ): { start: number; len: number } | null {
-    let idx = text.indexOf(group.display);
+    let idx = text.indexOf(group.display, searchFrom);
     if (idx !== -1) return { start: idx, len: group.display.length };
 
-    idx = text.indexOf(group.originalDisplay);
+    idx = text.indexOf(group.originalDisplay, searchFrom);
     if (idx !== -1) return { start: idx, len: group.originalDisplay.length };
 
     // Image tokens must match exactly — prefix fallback would match `#1` inside `#2`.
@@ -268,8 +271,15 @@ export class PromptInput implements Component, Focusable {
 
     for (let len = group.originalDisplay.length - 1; len >= 8; len--) {
       const prefix = group.originalDisplay.slice(0, len);
-      idx = text.indexOf(prefix);
-      if (idx !== -1) return { start: idx, len: prefix.length };
+      idx = text.indexOf(prefix, searchFrom);
+      if (idx === -1) continue;
+      const suffix = group.originalDisplay.slice(len);
+      const tail = text.slice(idx + len);
+      // Require editor tail to match the original suffix (or a prefix while deleting
+      // from the end). Do not match on digit alone — e.g. tail "130..." must not satisfy
+      // expected seq "1" for marker #1 when the visible marker is #2.
+      if (suffix.length > 0 && !suffix.startsWith(tail)) continue;
+      return { start: idx, len: prefix.length };
     }
 
     return null;
@@ -279,9 +289,10 @@ export class PromptInput implements Component, Focusable {
     const text = this.editor.getText();
     const remaining: PasteGroup[] = [];
     const removedImageUriIndices: number[] = [];
+    let pos = 0;
 
     for (const group of this._pasteGroups) {
-      const match = this._findGroupInText(text, group);
+      const match = this._findGroupInText(text, group, pos);
       if (!match) {
         if (group.kind === "image" && group.imageIndex !== undefined) {
           removedImageUriIndices.push(group.imageIndex - 1);
@@ -291,6 +302,7 @@ export class PromptInput implements Component, Focusable {
 
       const slice = text.slice(match.start, match.start + match.len);
       remaining.push({ ...group, display: slice });
+      pos = match.start + match.len;
     }
 
     for (const uriIdx of [...new Set(removedImageUriIndices)].sort((a, b) => b - a)) {
@@ -458,7 +470,8 @@ export class PromptInput implements Component, Focusable {
       this._nextImageIndex = startIndex + imageCount;
       this.editor.handleInput(labels);
     } else if (lines.length > 1) {
-      const display = `[Pasted ${lines.length} lines  ${content.length} chars]`;
+      const seq = this._nextTextPasteSeq++;
+      const display = `[Pasted ${lines.length} lines  ${content.length} chars #${seq}]`;
       this._pasteGroups.push({
         display,
         content,
@@ -467,7 +480,8 @@ export class PromptInput implements Component, Focusable {
       });
       this.editor.handleInput(display);
     } else if (content.length > 120) {
-      const display = `[Pasted ${content.length} chars]`;
+      const seq = this._nextTextPasteSeq++;
+      const display = `[Pasted ${content.length} chars #${seq}]`;
       this._pasteGroups.push({
         display,
         content,

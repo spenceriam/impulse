@@ -75,11 +75,6 @@ export async function enrichSessionTitles(
   opts: EnrichTitlesOptions
 ): Promise<EnrichTitlesResult> {
   const config = await loadConfig();
-  if (!(config.defaultModel ?? "").trim()) {
-    throw new Error(
-      "No default model configured. Set defaultModel in ~/.impulse/config.json or run impulse --setup."
-    );
-  }
 
   resetProviderManager();
 

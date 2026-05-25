@@ -33,7 +33,7 @@ describe("PromptInput paste submission", () => {
     };
 
     input.handleInput(bracketedPaste(pasted));
-    expect(input.render(80)[0]).toContain("[Pasted 420 chars]");
+    expect(input.render(80)[0]).toContain("[Pasted 420 chars #");
 
     input.handleInput("\r");
 
@@ -139,23 +139,37 @@ describe("buildPromptSegments", () => {
     expect(images[0].index).toBe(1);
   });
 
+  test("sync after edit keeps distinct identical paste markers in order", () => {
+    const input = new PromptInput(undefined, TEST_EDITOR_THEME);
+    const a = "A".repeat(130);
+    const b = "B".repeat(130);
+
+    input.handleInput(bracketedPaste(a));
+    input.handleInput(" BETWEEN ");
+    input.handleInput(bracketedPaste(b));
+    input.setText(` BETWEEN [Pasted 130 chars #2]`);
+
+    expect(input.getSubmitPayload().apiText).toBe(` BETWEEN ${b}`);
+  });
+
   test("maps identical display tokens to distinct paste content in order", () => {
-    const marker = "[Pasted 130 chars]";
+    const marker1 = "[Pasted 130 chars #1]";
+    const marker2 = "[Pasted 130 chars #2]";
     const groups: PasteGroup[] = [
       {
-        display: marker,
+        display: marker1,
         content: "FIRST_PAYLOAD",
-        originalDisplay: marker,
+        originalDisplay: marker1,
         kind: "text",
       },
       {
-        display: marker,
+        display: marker2,
         content: "SECOND_PAYLOAD",
-        originalDisplay: marker,
+        originalDisplay: marker2,
         kind: "text",
       },
     ];
-    const editor = `a ${marker} b ${marker} c`;
+    const editor = `a ${marker1} b ${marker2} c`;
     const segments = buildPromptSegments(editor, groups);
     expect(segments.map((s) => (s.kind === "text" ? s.value : s.content))).toEqual([
       "a ",
@@ -169,15 +183,15 @@ describe("buildPromptSegments", () => {
 
 describe("buildSubmitPayload", () => {
   test("displayMessage preserves tokens", () => {
-    const payload = buildSubmitPayload("hi [Pasted 10 chars]", [
+    const payload = buildSubmitPayload("hi [Pasted 10 chars #1]", [
       {
-        display: "[Pasted 10 chars]",
+        display: "[Pasted 10 chars #1]",
         content: "0123456789",
-        originalDisplay: "[Pasted 10 chars]",
+        originalDisplay: "[Pasted 10 chars #1]",
         kind: "text",
       },
     ]);
-    expect(payload.displayMessage).toBe("hi [Pasted 10 chars]");
+    expect(payload.displayMessage).toBe("hi [Pasted 10 chars #1]");
     expect(payload.apiText).toBe("hi 0123456789");
   });
 });

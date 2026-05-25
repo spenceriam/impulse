@@ -40,6 +40,7 @@ function debugLog(msg: string): void {
 }
 import { SessionManager } from "../session/manager";
 import { generateTitle } from "../session/title-generator.js";
+import { resolveTitleModel } from "../session/enrich-titles.js";
 import { Bus, HeaderEvents } from "../bus/index.js";
 import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
 import { generateSystemPrompt } from "../agent/prompts";
@@ -626,11 +627,14 @@ export class AgentLoop {
         const userCount = session.messages.filter((m) => m.role === "user").length;
         const hasAssistant = session.messages.some((m) => m.role === "assistant");
         if (!session.headerTitle && userCount >= 1 && hasAssistant) {
-          const model = session.model || "ollama/llama3.2";
-          const title = await generateTitle(session.messages, model);
-          if (title) {
-            await SessionManager.setHeaderTitle(title);
-            Bus.publish(HeaderEvents.Updated, { title });
+          const config = await loadConfig();
+          const model = resolveTitleModel(session, config);
+          if (model) {
+            const title = await generateTitle(session.messages, model);
+            if (title) {
+              await SessionManager.setHeaderTitle(title);
+              Bus.publish(HeaderEvents.Updated, { title });
+            }
           }
         }
       }
