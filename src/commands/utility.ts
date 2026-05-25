@@ -269,41 +269,35 @@ async function handleMode(args: Record<string, unknown>) {
 async function handleThink() {
   return {
     success: true,
-    output: "Thinking mode toggle not yet implemented",
+    output: "Use /think in the CLI to toggle reasoning, or /reason for explicit levels.",
   };
 }
 
 async function handleThinkingBlocks() {
-  // This is handled specially in App.tsx to toggle thinking block visibility in SessionContext
   return {
     success: true,
-    output: "Thinking block visibility toggled (handled by UI)",
+    output: "Thinking block visibility is always shown in the CLI during active turns.",
   };
 }
 
 async function handleExpress() {
-  // This is handled specially in App.tsx to use the Express context
-  // This handler is just a placeholder for the command registry
   return {
     success: true,
-    output: "Express mode toggled (handled by UI)",
+    output: "Use /express in the CLI to toggle auto-approve permissions.",
   };
 }
 
 async function handleEngage() {
-  // This is handled specially in App.tsx to manage Engage state and loop behavior.
   return {
     success: true,
-    output: "Engage mode toggled (handled by UI)",
+    output: "Use /engage in the CLI to toggle high-autonomy mode (AGENT + express).",
   };
 }
 
 async function handleVerbose() {
-  // This is handled specially in App.tsx to toggle verboseTools in SessionContext
-  // This handler is just a placeholder for the command registry
   return {
     success: true,
-    output: "Verbose tool display toggled (handled by UI)",
+    output: "Verbose tool display is always enabled in the CLI tool blocks.",
   };
 }
 

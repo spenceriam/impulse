@@ -9,7 +9,7 @@
  *  - Streaming tokens + thinking/reasoning blocks
  *  - Tool call accumulation across stream chunks
  *  - Centralized permission flow via the permission module
- *  - Auto-compaction at 85% context fill
+ *  - Auto-compaction at 60% context fill
  *  - Advisor model consultation (on-demand + auto-stuck detection)
  *  - Abort via AbortController
  */
@@ -40,6 +40,7 @@ import { Bus, HeaderEvents } from "../bus/index.js";
 import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
 import { generateSystemPrompt } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
+import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,6 +213,7 @@ export class AgentLoop {
       let activeStreamingMs = 0;
       let estimatedGeneratedTokens = 0;
       let lastSystemPrompt = "";
+      let languageRetryUsed = false;
 
       const noteGeneratedChunk = (text: string): void => {
         const now = Date.now();
@@ -341,8 +343,21 @@ export class AgentLoop {
         };
         await SessionManager.addMessage(assistantMsg);
 
-        // ── No tool calls → done ────────────────────────────────────────────
+        // ── No tool calls → done (or retry in English) ─────────────────────
         if (finishReason !== "tool_calls" || toolCalls.length === 0) {
+          if (
+            !languageRetryUsed &&
+            accumulatedText &&
+            shouldRetryInEnglish(accumulatedText)
+          ) {
+            languageRetryUsed = true;
+            await SessionManager.addMessage({
+              role: "user",
+              content: "Please respond in English.",
+              timestamp: new Date().toISOString(),
+            });
+            continue;
+          }
           continueLoop = false;
           break;
         }

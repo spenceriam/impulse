@@ -1,14 +1,14 @@
 /**
- * ImpulseRenderer — full TUI using @mariozechner/pi-tui
+ * ImpulseRenderer ? full TUI using @mariozechner/pi-tui
  *
- * Layout (top → bottom, viewport shows bottom when content overflows):
- *   chatContainer     — conversation history (grows upward as turns add content)
- *   loaderLine        — Braille spinner while agent works (Loader component)
- *   ── separator ──   — always visible divider
- *   contextBar        — model │ tokens │ dir ⎇ branch │ mode │ stats
- *   promptInput       — [MODE] › _   (Input component, Tab cycles modes)
+ * Layout (top ? bottom, viewport shows bottom when content overflows):
+ *   chatContainer     ? conversation history (grows upward as turns add content)
+ *   loaderLine        ? Braille spinner while agent works (Loader component)
+ *   ?? separator ??   ? always visible divider
+ *   contextBar        ? model ? tokens ? dir ? branch ? mode ? stats
+ *   promptInput       ? [MODE] ? _   (Input component, Tab cycles modes)
  *
- * Sticky bar: pi-tui renders all children top→bottom and shows the last N
+ * Sticky bar: pi-tui renders all children top?bottom and shows the last N
  * lines when content exceeds terminal height, so the bar is always visible.
  */
 
@@ -26,6 +26,8 @@ import {
 } from "@mariozechner/pi-tui";
 import { Editor, type EditorTheme } from "@mariozechner/pi-tui";
 import { GUTTER, GUTTER_WIDTH, gutterSeparator } from "./gutter.js";
+import { overlayMinWidth } from "./layout.js";
+import { toggleExpress, isExpressMode, acknowledgeExpress } from "../permission/index.js";
 import { setModelAutocomplete } from "./model-setup.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
@@ -74,7 +76,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-// ── Debug logging ────────────────────────────────────────────────────────────
+// ?? Debug logging ????????????????????????????????????????????????????????????
 const debugLogPath = path.join(os.homedir(), ".config", "impulse", "debug.log");
 let debugEnabled = false;
 
@@ -93,7 +95,7 @@ function isDebugEnabled(): boolean {
   return debugEnabled;
 }
 
-// ── ANSI helpers ──────────────────────────────────────────────────────────────
+// ?? ANSI helpers ??????????????????????????????????????????????????????????????
 const A = {
   reset:  "\x1b[0m",
   bold:   "\x1b[1m",
@@ -113,10 +115,13 @@ const clr = {
   sep:     (s: string) => A.fg(90, s),
 };
 
-// ANSI color per mode — used for ❯ arrow and context bar mode label
+// ANSI color per mode ? used for prompt arrow and context bar mode label
 const MODE_COLORS: Record<string, number> = {
   AGENT: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
 };
+
+/** Mode transition in chat (ASCII for Windows/macOS/Linux terminal fonts). */
+const MODE_ARROW = " -> ";
 
 const EDITOR_THEME: EditorTheme = {
   borderColor: (s: string) => s,
@@ -129,7 +134,7 @@ const EDITOR_THEME: EditorTheme = {
   },
 };
 
-// ── PromptInput: wraps pi-tui Editor, intercepts special keys ─────────────────
+// ?? PromptInput: wraps pi-tui Editor, intercepts special keys ?????????????????
 
 export class PromptInput implements Component, Focusable {
   focused = false;
@@ -141,7 +146,7 @@ export class PromptInput implements Component, Focusable {
     this.editor = new Editor(t, EDITOR_THEME, { paddingX: 0 });
   }
   private _modeColorCode = 34;
-  // Paste state — array supports multiple sequential pastes
+  // Paste state ? array supports multiple sequential pastes
   private _pasteGroups: Array<{ display: string; content: string }> = [];
   private _detectedImages: string[] = []; // base64 URIs or file paths
   private _nextImageIndex = 1; // cumulative image counter
@@ -178,7 +183,7 @@ export class PromptInput implements Component, Focusable {
   /** Returns the real value (actual paste content if applicable) */
   getSubmitValue(): string {
     let displayed = this.editor.getText();
-    // Editor clears text before onSubmit fires — use cached value if available
+    // Editor clears text before onSubmit fires ? use cached value if available
     if (displayed.length === 0 && this._submitCache.length > 0) {
       return this._submitCache;
     }
@@ -218,7 +223,7 @@ export class PromptInput implements Component, Focusable {
       }
     }
 
-    // File paths to image files â€” Unix, Windows, and file:// protocol
+    // File paths to image files ??? Unix, Windows, and file:// protocol
     const extGroup = "(?:png|jpg|jpeg|gif|webp|bmp)";
     const fileRegex = new RegExp(
       `(?:/(?:tmp|home|var|Users)/[^\\s\\n]*\\.${extGroup}|
@@ -262,7 +267,7 @@ export class PromptInput implements Component, Focusable {
       this._submitCache = this.getSubmitValue();
     }
 
-    // ── Bracketed paste detection ──────────────────────────────────────────
+    // ?? Bracketed paste detection ??????????????????????????????????????????
     const hasPasteStart = data.includes("\x1b[200~");
     const hasPasteEnd   = data.includes("\x1b[201~");
 
@@ -314,7 +319,7 @@ export class PromptInput implements Component, Focusable {
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (imageCount > 0) {
-      // Image paste — cumulative user-friendly label
+      // Image paste ? cumulative user-friendly label
       const startIndex = this._nextImageIndex;
       const endIndex = startIndex + imageCount - 1;
       const label = imageCount === 1
@@ -332,7 +337,7 @@ export class PromptInput implements Component, Focusable {
       this._pasteGroups.push({ display, content });
       this.editor.handleInput(display);
     } else {
-      // Short paste — insert normally
+      // Short paste ? insert normally
       this.editor.handleInput("\x1b[200~" + content + "\x1b[201~");
     }
   }
@@ -362,7 +367,7 @@ export class PromptInput implements Component, Focusable {
   }
 }
 
-// ── SeparatorLine: a fixed dim horizontal rule ────────────────────────────────
+// ?? SeparatorLine: a fixed dim horizontal rule ????????????????????????????????
 
 class SeparatorLine implements Component {
   invalidate() {}
@@ -444,7 +449,7 @@ interface ModelSetupState {
   modelsPerPage: number;       // Models per page (default: 20)
 }
 
-// ── ImpulseRenderer ───────────────────────────────────────────────────────────
+// ?? ImpulseRenderer ???????????????????????????????????????????????????????????
 
 export class ImpulseRenderer {
   // pi-tui objects
@@ -541,7 +546,7 @@ export class ImpulseRenderer {
     return chars.map((char, index) => {
       if (/\s/.test(char)) return char;
       const distance = Math.min(Math.abs(index - head), chars.length - Math.abs(index - head));
-      // Neutral grayscale tones — no cyan/white — Cursor/Claude Code style
+      // Neutral grayscale tones ? no cyan/white ? Cursor/Claude Code style
       if (distance === 0) return A.fg(248, `${A.bold}${char}${A.reset}`);
       if (distance === 1) return A.fg(240, char);
       return A.fg(236, char);
@@ -594,7 +599,7 @@ export class ImpulseRenderer {
     // Show auto-off overlay
     const lines = [
       `${clr.bold("Strategy Complete")}`,
-      `${clr.dim("─".repeat(40))}`,
+      `${clr.dim("?".repeat(40))}`,
       `All tasks from the advisor plan are complete.`,
       `The main agent suggests advisor mode is no longer needed.`,
       "",
@@ -611,7 +616,7 @@ export class ImpulseRenderer {
       const handle = this.tui.showOverlay(overlayContent, {
         anchor: "center",
         width: "80%",
-        minWidth: 50,
+        minWidth: this.overlayMin(),
         maxHeight: 8,
         margin: { left: 2, right: 2, bottom: 4 },
       });
@@ -643,7 +648,7 @@ export class ImpulseRenderer {
     if (result === "deactivate") {
       config.advisorMode = false;
       await saveConfig(config);
-      this.addChatLine(`${clr.success("✓")} Advisor mode disabled — all tasks complete`);
+      this.addChatLine(`${clr.success("?")} Advisor mode disabled ? all tasks complete`);
       this.tui.requestRender();
     }
   }
@@ -652,7 +657,7 @@ export class ImpulseRenderer {
     if (this.spinnerInterval && this.currentStatusPhrase) return;
 
     this.statusPhraseIndex = this.pickPhraseIndex(msg);
-    this.currentStatusPhrase = ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "working…";
+    this.currentStatusPhrase = ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "working?";
     this.renderBusyLine();
     this.tui.requestRender();
 
@@ -680,12 +685,12 @@ export class ImpulseRenderer {
 
     const request = this.permissionQueue.shift()!;
     this.activePermission = request;
-    this.setBusyStatus("waiting for your approval…");
+    this.setBusyStatus("waiting for your approval?");
 
     const overlay = new PermissionOverlay(request);
     overlay.onDecision = (response) => {
       const permissionID = request.id;
-      const resumeStatus = `running ${request.permission}…`;
+      const resumeStatus = `running ${request.permission}?`;
       this.dismissPermissionOverlay(resumeStatus);
       respond({ permissionID, response });
     };
@@ -694,7 +699,7 @@ export class ImpulseRenderer {
       anchor: "bottom-center",
       offsetY: -4,
       width: "92%",
-      minWidth: 60,
+      minWidth: this.overlayMin(),
       maxHeight: 10,
       margin: { left: 2, right: 2, bottom: 4 },
     });
@@ -724,14 +729,14 @@ export class ImpulseRenderer {
     if (!this.tui) return;
 
     this.dismissQuestionOverlay(false);
-    this.setBusyStatus("waiting for your answer…");
+    this.setBusyStatus("waiting for your answer?");
 
     const overlay = new QuestionOverlay({ context, questions });
     overlay.onSubmit = (answers) => {
       this.dismissQuestionOverlay(false);
       resolveQuestion(answers);
       if (this.isRunning) {
-        this.setBusyStatus("responding…");
+        this.setBusyStatus("responding?");
       }
     };
     overlay.onAbort = () => {
@@ -742,7 +747,7 @@ export class ImpulseRenderer {
       anchor: "bottom-center",
       offsetY: -4,
       width: "92%",
-      minWidth: 70,
+      minWidth: this.overlayMin(),
       maxHeight: 18,
       margin: { left: 2, right: 2, bottom: 4 },
     });
@@ -759,6 +764,10 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
+  private overlayMin(): number {
+    return overlayMinWidth(this.tui?.terminal?.columns ?? 80);
+  }
+
   private abortCurrentTurn(): void {
     if (!this.isRunning) return;
 
@@ -769,7 +778,7 @@ export class ImpulseRenderer {
     this.spinStop();
     this.isRunning = false;
     this.contextBar.update({ isRunning: false });
-    this.addChatLine(`  ${clr.warn("⊘")}  ${clr.dim("aborted")}`);
+    this.addChatLine(`  ${clr.warn("!")}  ${clr.dim("aborted")}`);
     this.tui.setFocus(this.promptInput);
     this.tui.requestRender();
   }
@@ -802,6 +811,7 @@ export class ImpulseRenderer {
   private reasoningLevel: ReasoningLevel = "medium";
   private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
+  private engageMode = false;
   private modelSetup: ModelSetupState | null = null;
   private pendingPlanApproval: { planPath: string; summary: string } | null = null;
   private userName = "you"; // User's display name (loaded from config)
@@ -830,7 +840,7 @@ export class ImpulseRenderer {
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
     debugLog(`provider: ${config.defaultProvider}, model: ${config.defaultModel}`);
 
-    // ── Build TUI layout ──────────────────────────────────────────────────
+    // ?? Build TUI layout ??????????????????????????????????????????????????
     this.tui = new TUI(this.terminal);
 
     this.busUnsubscribe?.();
@@ -846,11 +856,11 @@ export class ImpulseRenderer {
       }
     });
 
-    // 0. Bottom anchor spacer — pushes content down so contextBar stays at terminal bottom
+    // 0. Bottom anchor spacer ? pushes content down so contextBar stays at terminal bottom
     this.bottomSpacer = new BottomAnchorSpacer(this.tui, () => this.getContentHeight());
     this.tui.addChild(this.bottomSpacer);
 
-    // 1. Chat history — grows as turns are added
+    // 1. Chat history ? grows as turns are added
     this.chat = new Container();
     this.tui.addChild(this.chat);
 
@@ -860,10 +870,13 @@ export class ImpulseRenderer {
       `${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${A.reset}cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
       0, 0
     ));
-    this.chat.addChild(new Text(
-      `${GUTTER}${A.fg(90, "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit")}`,
-      0, 0
-    ));
+    const hintAvail = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
+    for (const line of wrapTextWithAnsi(
+      "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit",
+      hintAvail
+    )) {
+      this.chat.addChild(new Text(`${GUTTER}${A.fg(90, line)}`, 0, 0));
+    }
     this.chat.addChild(new Spacer(1));
 
     // 2. Spacer + turn-status line above the prompt
@@ -877,11 +890,11 @@ export class ImpulseRenderer {
     this.modelSetupText = new Text("", 0, 0);
     this.tui.addChild(this.modelSetupText);
 
-    // Slash command autocomplete — shown only when input starts with /
+    // Slash command autocomplete ? shown only when input starts with /
     this.autocompleteText = new Text("", 0, 0);
     this.tui.addChild(this.autocompleteText);
 
-    // 4. Prompt input (just › , no mode label)
+    // 4. Prompt input (just ? , no mode label)
     this.promptInput = new PromptInput(this.tui);
     this.promptInput.onSubmit = (value) => {
       this.promptInput.clear();
@@ -952,7 +965,7 @@ export class ImpulseRenderer {
     // 5. Separator BELOW input
     this.tui.addChild(new SeparatorLine());
 
-    // 6. Context bar — sticky absolute bottom
+    // 6. Context bar ? sticky absolute bottom
     this.contextBar = new ContextBarComponent({
       workerModel: config.defaultModel,
       contextTokens: this.contextTokens,
@@ -965,7 +978,7 @@ export class ImpulseRenderer {
     });
     this.tui.addChild(this.contextBar);
 
-    // ── Start TUI (takes over terminal raw mode) ──────────────────────────
+    // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
     this.tui.start();
@@ -973,7 +986,7 @@ export class ImpulseRenderer {
     void this.refreshReasoningCapability();
   }
 
-  // ── Mode cycling ─────────────────────────────────────────────────────────
+  // ?? Mode cycling ?????????????????????????????????????????????????????????
 
   private cycleMode(dir: 1 | -1): void {
     if (this.isRunning) return;
@@ -985,7 +998,7 @@ export class ImpulseRenderer {
     this.contextBar.update({ mode: this.mode });
     this.syncModeColor();
 
-    const modeLine = `${GUTTER}${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
+    const modeLine = `${GUTTER}${A.fg(MODE_COLORS[prev] ?? 34, prev)}${MODE_ARROW}${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
     if (this.modeChangeText) {
       // Update existing mode change line in place
       this.modeChangeText.setText(modeLine);
@@ -1154,19 +1167,19 @@ export class ImpulseRenderer {
   private toolBusyStatus(name: string): string {
     switch (name) {
       case "question":
-        return "waiting for your answer…";
+        return "waiting for your answer?";
       case "todo_write":
-        return "updating todos…";
+        return "updating todos?";
       case "todo_read":
-        return "reading todos…";
+        return "reading todos?";
       case "task":
-        return "running subagent…";
+        return "running subagent?";
       default:
-        return `running ${name}…`;
+        return `running ${name}?`;
     }
   }
 
-  // ── Input submission ──────────────────────────────────────────────────────
+  // ?? Input submission ??????????????????????????????????????????????????????
 
   private async onSubmit(value: string): Promise<void> {
     const input = value.trim();
@@ -1182,7 +1195,7 @@ export class ImpulseRenderer {
     await this.runTurn(input, images);
   }
 
-  // ── Agent turn ────────────────────────────────────────────────────────────
+  // ?? Agent turn ????????????????????????????????????????????????????????????
 
   private async runTurn(userMessage: string, images: string[] = []): Promise<void> {
     // Mid-turn config validation: advisor mode ON but config missing?
@@ -1235,10 +1248,10 @@ export class ImpulseRenderer {
           isRunning: true,
         });
         this.updateLiveMetrics(0, true);
-        this.setBusyStatus("thinking…");
+        this.setBusyStatus("thinking?");
       },
       onToken: (text) => {
-        this.setBusyStatus("responding…");
+        this.setBusyStatus("responding?");
         this.closeThinking();
         if (!this.streamingText) {
           // Add Impulse response header on first token
@@ -1255,7 +1268,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onThinking: (text) => {
-        this.setBusyStatus("thinking…");
+        this.setBusyStatus("thinking?");
         debugLog(`onThinking: ${text.length} chars`);
         if (!this.thinkingOpen) {
           this.thinkingRaw = "";
@@ -1276,15 +1289,15 @@ export class ImpulseRenderer {
       },
       onAdvisorStart: (model) => {
         const short = model.split("/").pop() ?? model;
-        this.setBusyStatus(`consulting ${short}…`);
-        this.addChatLine(`${clr.dim(`[advisor • consulting ${short}…]`)}`);
+        this.setBusyStatus(`consulting ${short}?`);
+        this.addChatLine(`${clr.dim(`[advisor ? consulting ${short}?]`)}`);
         this.tui.requestRender();
       },
       onAdvisorToken: (_text) => { /* buffered */ },
       onAdvisorEnd: (summary) => {
         const raw = summary.trim();
         const oneliner = raw.split(/[.!?\n]/)[0]?.trim() ?? raw;
-        const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + "…" : oneliner;
+        const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + "?" : oneliner;
         // Replace last chat line with summary
         this.addChatLine(`${clr.dim(`[advisor: ${truncated}]`)}`);
         this.tui.requestRender();
@@ -1329,18 +1342,18 @@ export class ImpulseRenderer {
             }
           } catch { /* not JSON, skip */ }
         }
-        this.setBusyStatus(name === "question" ? "responding…" : "waiting for model…");
+        this.setBusyStatus(name === "question" ? "responding?" : "waiting for model?");
         this.updateLiveMetrics(result.output.length, true);
         this.tui.requestRender();
       },
       onCompacting: () => {
-        this.addChatLine(`${clr.warn("⟳")}  ${clr.dim("compacting context…")}`);
-        this.setBusyStatus("compacting context…");
+        this.addChatLine(`${clr.warn("?")}  ${clr.dim("compacting context?")}`);
+        this.setBusyStatus("compacting context?");
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
-        this.addChatLine(`${clr.success("✓")}  ${clr.dim(`compacted — removed ${removedCount} messages`)}`);
-        this.setBusyStatus("thinking…");
+        this.addChatLine(`${clr.success("?")}  ${clr.dim(`compacted ? removed ${removedCount} messages`)}`);
+        this.setBusyStatus("thinking?");
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
@@ -1389,7 +1402,7 @@ export class ImpulseRenderer {
     await this.checkAutoOffSuggestion();
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ?? Helpers ???????????????????????????????????????????????????????????????
 
   private addChatLine(text: string): void {
     const avail = Math.max(4, this.terminal.columns - GUTTER_WIDTH); const lines = wrapTextWithAnsi(text, avail); for (const line of lines) { this.chat.addChild(new Text(GUTTER + line, 0, 0)); }
@@ -1412,7 +1425,7 @@ export class ImpulseRenderer {
     // Build a simple approval component
     const lines = [
       `${clr.bold("Plan Ready")}`,
-      `${clr.dim("─".repeat(40))}`,
+      `${clr.dim("?".repeat(40))}`,
       `${clr.dim("Path:")} ${shortPath}`,
       `${clr.dim("Summary:")} ${summary.slice(0, 120)}`,
       "",
@@ -1429,7 +1442,7 @@ export class ImpulseRenderer {
       const handle = this.tui.showOverlay(overlayContent, {
         anchor: "center",
         width: "80%",
-        minWidth: 50,
+        minWidth: this.overlayMin(),
         maxHeight: 8,
         margin: { left: 2, right: 2, bottom: 4 },
       });
@@ -1453,9 +1466,9 @@ export class ImpulseRenderer {
     });
 
     if (result === "proceed") {
-      this.addChatLine(`${clr.success("✓")} Plan approved — executing`);
+      this.addChatLine(`${clr.success("?")} Plan approved ? executing`);
     } else {
-      this.addChatLine(`${clr.dim("Plan declined — awaiting new instructions")}`);
+      this.addChatLine(`${clr.dim("Plan declined ? awaiting new instructions")}`);
     }
     this.tui.requestRender();
   }
@@ -1491,7 +1504,7 @@ export class ImpulseRenderer {
     return chatLines + otherLines;
   }
 
-  // ── Slash autocomplete ────────────────────────────────────────────────────
+  // ?? Slash autocomplete ????????????????????????????????????????????????????
 
   private slashCommands(): Array<{ cmd: string; hint: string }> {
     return [
@@ -1528,15 +1541,17 @@ export class ImpulseRenderer {
     if (matches.length === 0) {
       this.autocompleteText.setText("");
     } else {
-      const lines = matches
-        .map((m) => `${GUTTER}${A.fg(36, m.cmd)}  ${A.fg(90, m.hint)}`)
-        .join("\n");
-      this.autocompleteText.setText(lines);
+      const avail = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
+      const lines = matches.flatMap((m) => {
+        const raw = `${GUTTER}${A.fg(36, m.cmd)}  ${A.fg(90, m.hint)}`;
+        return wrapTextWithAnsi(raw, avail);
+      });
+      this.autocompleteText.setText(lines.join("\n"));
     }
     this.tui.requestRender();
   }
 
-  // ── Exit stats ────────────────────────────────────────────────────────────
+  // ?? Exit stats ????????????????????????????????????????????????????????????
 
   private async showExitStats(): Promise<void> {
     // Flush any pending session saves before showing stats
@@ -1552,14 +1567,14 @@ export class ImpulseRenderer {
     const mins    = Math.floor(diffMs / 60000);
     const dur     = mins < 60 ? `${mins}m` : `${Math.floor(mins/60)}h ${mins%60}m`;
     this.addChatLine("");
-    this.addChatLine(`${clr.dim("─".repeat(46))}`);
+    this.addChatLine(`${clr.dim("?".repeat(46))}`);
     this.addChatLine(`${clr.bold("Session summary")}`);
     this.addChatLine(`${clr.dim("session")}   ${session.name}`);
     this.addChatLine(`${clr.dim("duration")}  ${dur}`);
     this.addChatLine(`${clr.dim("turns")}     ${turns}`);
     this.addChatLine(`${clr.dim("messages")}  ${msgs}`);
     this.addChatLine(`${clr.dim("model")}     ${session.model || "(none)"}`);
-    this.addChatLine(`${clr.dim("─".repeat(46))}`);
+    this.addChatLine(`${clr.dim("?".repeat(46))}`);
     this.addChatLine("");
     this.tui.requestRender();
   }
@@ -1584,7 +1599,7 @@ export class ImpulseRenderer {
     });
   }
 
-  // ── Slash commands ────────────────────────────────────────────────────────
+  // ?? Slash commands ????????????????????????????????????????????????????????
 
   private async handleSlash(input: string): Promise<void> {
     const parts = input.slice(1).trim().split(/\s+/);
@@ -1597,27 +1612,36 @@ export class ImpulseRenderer {
       case "vision":  await this.cmdVision(arg);  break;
       case "mode":    this.cmdMode(arg);           break;
       case "reason":  await this.cmdReason(arg);   break;
+      case "think":
+        await this.cmdThink(arg);
+        break;
+      case "express":
+        this.cmdExpress();
+        break;
+      case "engage":
+        this.cmdEngage();
+        break;
       case "user":    await this.cmdUser(arg);     break;
       case "continue":
         await this.cmdContinue(arg);
         break;
       case "debug":
         setDebugEnabled(!isDebugEnabled());
-        this.addChatLine(`${clr.success("✓")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
+        this.addChatLine(`${clr.success("?")} Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`);
         if (isDebugEnabled()) {
           debugLog(`Debug logging enabled`);
         }
         break;
       case "new":
         await SessionManager.createNew(arg || undefined);
-        this.addChatLine(`${clr.success("✓")} New session started`);
+        this.addChatLine(`${clr.success("?")} New session started`);
         break;
       case "clear":
         // Clear chat history (keep welcome)
         while ((this.chat as Container & { children?: Component[] }).children?.length) {
-          break; // can't easily clear — just add a separator
+          break; // can't easily clear ? just add a separator
         }
-        this.addChatLine(clr.dim("─".repeat(60)));
+        this.addChatLine(clr.dim("?".repeat(60)));
         break;
       case "help": this.printHelp(); break;
       case "quit":
@@ -1627,7 +1651,7 @@ export class ImpulseRenderer {
         process.exit(0);
         break;
       default:
-        this.addChatLine(`${clr.warn("?")} Unknown: /${cmd} — try /help`);
+        this.addChatLine(`${clr.warn("?")} Unknown: /${cmd} ? try /help`);
     }
   }
 
@@ -1668,7 +1692,7 @@ export class ImpulseRenderer {
 
     if (state.step === "provider") {
       lines.push(clr.bold("MODEL SETUP"));
-      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push(clr.dim("?????????????????????????????????????????????????"));
       lines.push("");
 
       // Show configured providers first
@@ -1681,7 +1705,7 @@ export class ImpulseRenderer {
           const entry = configured[i]!;
           const isSelected = state.selectedIndex === i;
           const prefix = isSelected ? "  > " : "    ";
-          const icon = entry.valid ? clr.success("✓") : clr.error("✗");
+          const icon = entry.valid ? clr.success("?") : clr.error("?");
           const label = isSelected ? A.fg(36, entry.provider.label) : entry.provider.label;
           lines.push(`${prefix}${icon} ${label} ${clr.dim(`(${entry.keyPreview})`)}`);
         }
@@ -1702,17 +1726,17 @@ export class ImpulseRenderer {
       }
 
       lines.push("");
-      lines.push(clr.dim("↑↓: Navigate  Enter: Select  Esc: Cancel"));
+      lines.push(clr.dim("??: Navigate  Enter: Select  Esc: Cancel"));
     } else if (state.step === "baseUrl") {
       lines.push(clr.bold("MODEL SETUP"));
-      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push(clr.dim("?????????????????????????????????????????????????"));
       lines.push("");
       lines.push(`${state.provider?.label ?? "Provider"} endpoint`);
       lines.push("");
       lines.push(clr.dim("Enter a custom endpoint or press Enter to keep the default."));
     } else if (state.step === "apiKey") {
       lines.push(clr.bold("MODEL SETUP"));
-      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push(clr.dim("?????????????????????????????????????????????????"));
       lines.push("");
       lines.push(`${state.provider?.label ?? "Provider"} API key`);
       lines.push("");
@@ -1726,7 +1750,7 @@ export class ImpulseRenderer {
     } else if (state.step === "discovering") {
       const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
       lines.push(clr.bold(title));
-      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push(clr.dim("?????????????????????????????????????????????????"));
       lines.push("");
       lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
       lines.push("");
@@ -1734,7 +1758,7 @@ export class ImpulseRenderer {
     } else if (state.step === "model") {
       const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
       lines.push(clr.bold(title));
-      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push(clr.dim("?????????????????????????????????????????????????"));
       lines.push("");
       if (state.discovery) {
         const marker = state.discovery.success ? clr.success("[OK]") : clr.warn("[WARN]");
@@ -1768,7 +1792,7 @@ export class ImpulseRenderer {
     } else if (state.step === "reasoning") {
       const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
       lines.push(clr.bold(title));
-      lines.push(clr.dim("─────────────────────────────────────────────────"));
+      lines.push(clr.dim("?????????????????????????????????????????????????"));
       lines.push("");
       lines.push(`${clr.success("[OK]")} ${state.selectedModel ?? ""}`);
       lines.push("");
@@ -1782,7 +1806,7 @@ export class ImpulseRenderer {
         lines.push(`${prefix}${i + 1}. ${isSelected ? A.fg(36, label) : label}`);
       }
       lines.push("");
-      lines.push(clr.dim("↑↓: Navigate  Enter: Select (default: medium)  Esc: back/cancel"));
+      lines.push(clr.dim("??: Navigate  Enter: Select (default: medium)  Esc: back/cancel"));
     }
 
     if (state.error) {
@@ -1791,7 +1815,7 @@ export class ImpulseRenderer {
     }
 
     if (state.step === "provider") {
-      // Arrow navigation mode — no text input needed
+      // Arrow navigation mode ? no text input needed
       this.promptInput.setSecretMode(false);
     } else {
       // Text input mode
@@ -2066,7 +2090,7 @@ export class ImpulseRenderer {
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
-      this.addChatLine(`${clr.success("✓")} Advisor → ${selectedModel}`);
+      this.addChatLine(`${clr.success("?")} Advisor ? ${selectedModel}`);
       this.tui.requestRender();
       return;
     }
@@ -2117,7 +2141,7 @@ export class ImpulseRenderer {
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
     const reasonLabel = reasoningLevel ? ` (${this.reasoningDisplayLabel(reasoningLevel)})` : "";
-    this.addChatLine(`${clr.success("✓")} Model changed to: ${selectedModel}${reasonLabel}`);
+    this.addChatLine(`${clr.success("?")} Model changed to: ${selectedModel}${reasonLabel}`);
     this.tui.requestRender();
   }
 
@@ -2143,7 +2167,7 @@ export class ImpulseRenderer {
         const fullModel = modelName.includes("/") ? modelName : `${providerKey}/${modelName}`;
         await SessionManager.update({ model: fullModel });
         this.contextBar.update({ workerModel: fullModel });
-        this.addChatLine(`${clr.success("✓")} Model: ${fullModel}`);
+        this.addChatLine(`${clr.success("?")} Model: ${fullModel}`);
         this.tui.requestRender();
       };
 
@@ -2156,7 +2180,7 @@ export class ImpulseRenderer {
         anchor: "bottom-center",
         offsetY: -4,
         width: "92%",
-        minWidth: 70,
+        minWidth: this.overlayMin(),
         maxHeight: 18,
         margin: { left: 2, right: 2, bottom: 4 },
       });
@@ -2166,7 +2190,7 @@ export class ImpulseRenderer {
       await Promise.allSettled(promises);
       this.tui.requestRender();
     } catch (e) {
-      this.addChatLine(`${clr.error("✗")} Model selector failed: ${(e as Error).message}`);
+      this.addChatLine(`${clr.error("?")} Model selector failed: ${(e as Error).message}`);
     }
   }
 
@@ -2268,7 +2292,7 @@ export class ImpulseRenderer {
     if (this.isRunning) return;
     const config = await loadConfig();
 
-    // /advisor off — toggle OFF
+    // /advisor off ? toggle OFF
     if (arg === "off") {
       config.advisorModel = undefined;
       config.advisorMode = false;
@@ -2276,7 +2300,7 @@ export class ImpulseRenderer {
       this.advisorModel = undefined;
       this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
         contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(`${clr.success("✓")} Advisor mode disabled`);
+      this.addChatLine(`${clr.success("?")} Advisor mode disabled`);
       return;
     }
 
@@ -2286,7 +2310,7 @@ export class ImpulseRenderer {
       await saveConfig(config);
       this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
         contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(`${clr.success("✓")} Advisor mode disabled`);
+      this.addChatLine(`${clr.success("?")} Advisor mode disabled`);
       return;
     }
 
@@ -2297,11 +2321,11 @@ export class ImpulseRenderer {
       await saveConfig(config);
       this.advisorModel = arg;
       this.contextBar.update({ advisorModel: arg });
-      this.addChatLine(`${clr.success("✓")} Advisor → ${arg}  (mode ON)`);
+      this.addChatLine(`${clr.success("?")} Advisor ? ${arg}  (mode ON)`);
       return;
     }
 
-    // /advisor or /advisor on — activate. Check if already configured.
+    // /advisor or /advisor on ? activate. Check if already configured.
     if (config.advisorModel) {
       const parts = config.advisorModel.split("/");
       const modelName = parts[parts.length - 1] ?? config.advisorModel;
@@ -2325,7 +2349,7 @@ export class ImpulseRenderer {
             // Activate with current config
             config.advisorMode = true;
             void saveConfig(config).then(() => {
-              this.addChatLine(`${clr.success("✓")} Advisor mode ON — ${modelName} via ${providerName}`);
+              this.addChatLine(`${clr.success("?")} Advisor mode ON ? ${modelName} via ${providerName}`);
               this.tui.requestRender();
               resolve();
             });
@@ -2335,12 +2359,12 @@ export class ImpulseRenderer {
       return;
     }
 
-    // Not configured — force setup
-    this.addChatLine(`${clr.bold("Advisor Mode")} — no advisor configured. Let's set one up.`);
+    // Not configured ? force setup
+    this.addChatLine(`${clr.bold("Advisor Mode")} ? no advisor configured. Let's set one up.`);
     await this.startAdvisorSetup(config);
   }
 
-  /** Start advisor model setup — show provider picker, then model list */
+  /** Start advisor model setup ? show provider picker, then model list */
   private async startAdvisorSetup(config: Config): Promise<void> {
     // Build provider list: configured first, then unconfigured
     const configured: ProviderEntry[] = [];
@@ -2398,7 +2422,7 @@ this.modelSetup = {
       if (config.visionModel) {
         config.visionMode = true;
         await saveConfig(config);
-        this.addChatLine(`${clr.success("✓")} Vision mode ON — ${config.visionModel.split("/").pop() ?? config.visionModel}`);
+        this.addChatLine(`${clr.success("?")} Vision mode ON ? ${config.visionModel.split("/").pop() ?? config.visionModel}`);
       } else {
         this.addChatLine(`${clr.warn("!")} No vision model configured. Use /model to set up a vision-capable model.`);
       }
@@ -2407,7 +2431,7 @@ this.modelSetup = {
     if (arg === "off") {
       config.visionMode = false;
       await saveConfig(config);
-      this.addChatLine(`${clr.success("✓")} Vision mode OFF`);
+      this.addChatLine(`${clr.success("?")} Vision mode OFF`);
       return;
     }
     this.addChatLine(`  vision: ${config.visionMode ? "on" : "off"}  |  options: on | off`);
@@ -2416,7 +2440,7 @@ this.modelSetup = {
   private cmdMode(arg: string): void {
     const modes: Mode[] = ["EXPLORE", "PLAN", "DEBUG"];
     if (!arg) {
-      this.addChatLine(`  mode: ${this.mode}  |  options: ${modes.join(" · ")}`);
+      this.addChatLine(`  mode: ${this.mode}  |  options: ${modes.join(" | ")}`);
       return;
     }
     const m = arg.toUpperCase() as Mode;
@@ -2426,9 +2450,46 @@ this.modelSetup = {
       setCurrentMode(m);
       this.contextBar.update({ mode: m });
       this.syncModeColor();
-      this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)} → ${A.fg(MODE_COLORS[m] ?? 34, m)}`);
+      this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)}${MODE_ARROW}${A.fg(MODE_COLORS[m] ?? 34, m)}`);
     } else {
-      this.addChatLine(`  ${clr.error("✗")} Unknown mode. Options: ${modes.join(", ")}`);
+      this.addChatLine(`  ${clr.error("?")} Unknown mode. Options: ${modes.join(", ")}`);
+    }
+  }
+
+  private async cmdThink(arg: string): Promise<void> {
+    if (!arg) {
+      const next = this.reasoningLevel === "off" ? "medium" : "off";
+      await this.setReasoningLevel(next);
+      this.addChatLine(`  thinking: ${this.reasoningDisplayLabel(next)}`);
+      return;
+    }
+    await this.cmdReason(arg);
+  }
+
+  private cmdExpress(): void {
+    const { enabled, needsWarning } = toggleExpress();
+    if (enabled && needsWarning) {
+      acknowledgeExpress();
+      this.addChatLine(`  ${clr.warn("!")} Express mode ON ? all tool permissions auto-approved this session`);
+    } else {
+      this.addChatLine(`  express: ${enabled ? "on" : "off"}`);
+    }
+  }
+
+  private cmdEngage(): void {
+    this.engageMode = !this.engageMode;
+    if (this.engageMode) {
+      if (!isExpressMode()) {
+        const { needsWarning } = toggleExpress();
+        if (needsWarning) acknowledgeExpress();
+      }
+      this.mode = "AGENT";
+      setCurrentMode("AGENT");
+      this.contextBar.update({ mode: "AGENT" });
+      this.syncModeColor();
+      this.addChatLine(`  engage: on  (AGENT + express)`);
+    } else {
+      this.addChatLine(`  engage: off`);
     }
   }
 
@@ -2441,7 +2502,7 @@ this.modelSetup = {
 
     const level = this.parseReasoningLevel(arg);
     if (level === null || !valid.includes(level)) {
-      this.addChatLine(`  ${clr.error("✗")} Valid levels: ${this.reasoningLevelsLabel()}`);
+      this.addChatLine(`  ${clr.error("?")} Valid levels: ${this.reasoningLevelsLabel()}`);
       return;
     }
     await this.setReasoningLevel(level);
@@ -2473,7 +2534,7 @@ this.modelSetup = {
       this.userName = newConfig.userProfile?.name || "you";
       this.tui.start();
       this.tui.setFocus(this.promptInput);
-      this.addChatLine(`  ${clr.success("✓")} Profile updated`);
+      this.addChatLine(`  ${clr.success("?")} Profile updated`);
     } else {
       this.addChatLine(`  ${clr.dim("Profile unchanged")}`);
     }
@@ -2486,9 +2547,9 @@ this.modelSetup = {
       try {
         const session = await SessionManager.load(arg);
         const name = session?.headerTitle || session?.name || arg;
-        this.addChatLine(`${clr.success("✓")} Continued: ${name}`);
+        this.addChatLine(`${clr.success("?")} Continued: ${name}`);
       } catch (e) {
-        this.addChatLine(`${clr.error("✗")} Failed to load session: ${(e as Error).message}`);
+        this.addChatLine(`${clr.error("?")} Failed to load session: ${(e as Error).message}`);
       }
       return;
     }
@@ -2506,9 +2567,9 @@ this.modelSetup = {
       try {
         const session = await SessionManager.load(sessionID);
         const name = session?.headerTitle || session?.name || sessionID;
-        this.addChatLine(`${clr.success("✓")} Continued: ${name}`);
+        this.addChatLine(`${clr.success("?")} Continued: ${name}`);
       } catch (e) {
-        this.addChatLine(`${clr.error("✗")} Failed to load session: ${(e as Error).message}`);
+        this.addChatLine(`${clr.error("?")} Failed to load session: ${(e as Error).message}`);
       }
     };
     overlay.onCancel = () => {
@@ -2520,7 +2581,7 @@ this.modelSetup = {
       anchor: "bottom-center",
       offsetY: -4,
       width: "92%",
-      minWidth: 70,
+      minWidth: this.overlayMin(),
       maxHeight: 18,
       margin: { left: 2, right: 2, bottom: 4 },
     });
@@ -2533,13 +2594,13 @@ this.modelSetup = {
     const h = [
       "",
       `  ${clr.bold("Commands")}`,
-      clr.dim("  ─────────────────────────────────────────"),
+      clr.dim("  ?????????????????????????????????????????"),
       `  ${clr.tool("/advisor on")}      ${clr.dim("Set advisor model")}`,
       `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
       `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
       `  ${clr.tool("/model")}            ${clr.dim("Browse and switch models")}`,
-      `  ${clr.tool("/mode <MODE>")}     ${clr.dim("EXPLORE · PLAN · DEBUG")}`,
-      `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels.replace(/\|/g, "·"))}`,
+      `  ${clr.tool("/mode <MODE>")}     ${clr.dim("EXPLORE | PLAN | DEBUG")}`,
+      `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels.replace(/\|/g, "?"))}`,
       `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
       `  ${clr.tool("/continue")}        ${clr.dim("Browse saved sessions")}`,
       `  ${clr.tool("/user")}            ${clr.dim("View/update profile & preferences")}`,
@@ -2548,7 +2609,7 @@ this.modelSetup = {
       `  ${clr.tool("/exit ")}${clr.dim("Quit")}`,
       "",
       `  ${clr.bold("Keyboard")}`,
-      clr.dim("  ─────────────────────────────────────────"),
+      clr.dim("  ?????????????????????????????????????????"),
       `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode forward")}`,
       `  ${clr.dim("Shift+Tab")}        ${clr.dim(`Cycle reasoning level (${reasonLevels})`)}`,
       `  ${clr.dim("Ctrl+C")}           ${clr.dim("Abort current turn")}`,

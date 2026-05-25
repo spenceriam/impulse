@@ -4,6 +4,7 @@ import {
   type Component,
 } from "@mariozechner/pi-tui";
 import type { Session } from "../../session/store.js";
+import { overlayBoxWidth } from "../layout.js";
 
 const DARK_BG = "\x1b[48;5;233m";
 
@@ -119,7 +120,7 @@ export class SessionPickerOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = Math.max(60, Math.min(width - 4, 74));
+    const boxWidth = overlayBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
     const lines: string[] = [];
 
@@ -173,8 +174,12 @@ export class SessionPickerOverlay implements Component {
     lines.push(bgLine("│" + " ".repeat(boxWidth - 2) + "│", boxWidth));
 
     // Help text
-    const help = dimText("↑/↓ navigate   Type to filter   Enter continue   Esc cancel");
-    lines.push(bgLine(`│ ${padToWidth(help, innerWidth)} │`, boxWidth));
+    const helpLines = innerWidth < 50
+      ? ["↑/↓ navigate", "Type filter · Enter · Esc"]
+      : ["↑/↓ navigate   Type to filter   Enter continue   Esc cancel"];
+    for (const helpLine of helpLines) {
+      lines.push(bgLine(`│ ${padToWidth(dimText(helpLine), innerWidth)} │`, boxWidth));
+    }
 
     // Bottom border
     lines.push(bgLine(`└${"─".repeat(boxWidth - 2)}┘`, boxWidth));

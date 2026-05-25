@@ -3,9 +3,9 @@ import { SessionStoreInstance, Message } from "./store";
 import { getProviderManager } from "../api/manager";
 import type { ChatMessage } from "../api/types";
 
-// Compact thresholds (exported for StatusLine to use)
-export const COMPACT_WARNING_THRESHOLD = 0.70;  // Show "Compacting soon" at 70%
-export const COMPACT_TRIGGER_THRESHOLD = 0.85;  // Auto-compact triggers at 85%
+// Compact thresholds (exported for context bar + agent loop)
+export const COMPACT_WARNING_THRESHOLD = 0.50;  // Orange % in context bar (50–59%)
+export const COMPACT_TRIGGER_THRESHOLD = 0.60;  // Auto-compact triggers at 60%
 const TOOL_OUTPUT_RETENTION = 3;               // Keep outputs for last N tool calls
 
 interface CompactConfig {
@@ -38,7 +38,7 @@ interface TodoItem {
 class CompactManagerImpl {
   private static instance: CompactManagerImpl;
   private config: CompactConfig = {
-    threshold: COMPACT_TRIGGER_THRESHOLD,  // Now 85%
+    threshold: COMPACT_TRIGGER_THRESHOLD,  // 60%
     keepRecentCount: 20,
     systemPrompt: "You are a context compaction assistant. Follow the provided summary template precisely.",
   };
@@ -136,7 +136,7 @@ class CompactManagerImpl {
   }
 
   /**
-   * Check if should auto-compact (at 85% threshold)
+   * Check if should auto-compact (at 60% threshold)
    */
   async shouldCompact(sessionID: string): Promise<boolean> {
     const usage = await this.calculateContextUsage(sessionID);
@@ -144,7 +144,7 @@ class CompactManagerImpl {
   }
 
   /**
-   * Check if in warning zone (70-85%)
+   * Check if in warning zone (50–59%)
    */
   async isInWarningZone(sessionID: string): Promise<boolean> {
     const usage = await this.calculateContextUsage(sessionID);

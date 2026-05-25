@@ -88,11 +88,9 @@ async function handleExit() {
 }
 
 async function handleClear() {
-  // This is handled specially in App.tsx to reset the session
-  // This handler is just a placeholder for the command registry
   return {
     success: true,
-    output: "Session cleared (handled by UI)",
+    output: "Use /clear in the CLI to reset the current session view.",
   };
 }
 

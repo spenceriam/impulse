@@ -64,7 +64,7 @@ async function handleHelp() {
     "─".repeat(78),
     `${"(Thinking)".padEnd(24)}AI is using provider-supported extended reasoning`,
     `${"[EXPRESS]".padEnd(24)}Express mode - all permissions auto-approved (orange)`,
-    `${"[████░░░░] 45%".padEnd(24)}Context window usage - auto-compacts at 70%`,
+    `${"68k/200k 45%".padEnd(24)}Context window usage - orange % at 50%, auto-compacts at 60%`,
     `${"web_search".padEnd(24)}Discover current external sources`,
     `${"web_fetch".padEnd(24)}Read exact URLs from search results or user input`,
     "",
@@ -443,7 +443,7 @@ export function registerInfoCommands(): void {
       category: "info",
       description: "Show welcome screen",
       handler: async () => {
-        // Handled specially in App.tsx - returns signal to show overlay
+        // Handled in the CLI renderer — returns signal to show overlay
         return { success: true, output: "__SHOW_START_OVERLAY__" };
       },
       examples: ["/start"],
@@ -453,7 +453,7 @@ export function registerInfoCommands(): void {
       category: "info",
       description: "Show current todo list",
       handler: async () => {
-        // Handled specially in App.tsx - returns signal to show todo overlay
+        // Handled in the CLI renderer — returns signal to show todo overlay
         return { success: true, output: "__SHOW_TODO_OVERLAY__" };
       },
       examples: ["/todo"],
@@ -463,7 +463,7 @@ export function registerInfoCommands(): void {
       category: "info",
       description: "View release changelog",
       handler: async () => {
-        // Handled specially in App.tsx - returns signal to show changelog overlay
+        // Handled in the CLI renderer — returns signal to show changelog overlay
         return { success: true, output: "__SHOW_CHANGELOG_OVERLAY__" };
       },
       examples: ["/changelog"],

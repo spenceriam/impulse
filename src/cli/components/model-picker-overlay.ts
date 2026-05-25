@@ -3,6 +3,7 @@ import {
   visibleWidth,
   type Component,
 } from "@mariozechner/pi-tui";
+import { overlayBoxWidth } from "../layout.js";
 import {
   MODEL_PROVIDERS,
   discoverModels,
@@ -134,7 +135,7 @@ export class ModelPickerOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = Math.max(60, Math.min(width - 4, 74));
+    const boxWidth = overlayBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
     const lines: string[] = [];
 

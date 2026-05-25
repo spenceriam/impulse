@@ -9,6 +9,7 @@ import {
   type PermissionRequest,
   type PermissionResponse,
 } from "../../permission/index.js";
+import { overlayBoxWidth } from "../layout.js";
 
 const A = {
   reset: "\x1b[0m",
@@ -83,7 +84,7 @@ export class PermissionOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = Math.max(20, width);
+    const boxWidth = overlayBoxWidth(width);
     const innerWidth = Math.max(8, boxWidth - 4);
 
     const subject = String(

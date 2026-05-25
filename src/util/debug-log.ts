@@ -8,6 +8,7 @@
 import { Global } from "../global";
 import fs from "fs/promises";
 import path from "path";
+import packageJson from "../../package.json";
 
 let debugEnabled = false;
 let sessionLogPath: string | null = null;
@@ -30,7 +31,7 @@ export async function enableDebugLog(): Promise<string> {
   await appendLog({
     type: "session_start",
     timestamp: new Date().toISOString(),
-    version: "0.20.1",
+    version: packageJson.version,
   });
   
   return sessionLogPath;
@@ -91,6 +92,24 @@ export async function logAssistantMessage(
     content,
     reasoning,
     toolCalls,
+  });
+}
+
+/**
+ * Log tool input repairs applied before validation succeeded.
+ */
+export async function logToolInputRepair(
+  toolName: string,
+  repairs: Array<{ name: string; path: (string | number)[] }>
+): Promise<void> {
+  await appendLog({
+    type: "tool_input_repair",
+    timestamp: new Date().toISOString(),
+    tool: toolName,
+    repairs: repairs.map((r) => ({
+      name: r.name,
+      path: r.path.join("."),
+    })),
   });
 }
 
