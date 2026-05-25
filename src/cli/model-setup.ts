@@ -173,14 +173,24 @@ export async function discoverModels(
   return last;
 }
 
+async function enrichDiscoveredModelsOrFallback(
+  catalogKey: string,
+  modelIds: string[],
+  apiEntries?: ProviderModelEntry[]
+): Promise<ModelInfo[]> {
+  try {
+    return await enrichDiscoveredModels(catalogKey, modelIds, apiEntries);
+  } catch {
+    return fallbackModelInfosFromIds(modelIds);
+  }
+}
+
 async function discoverModelsOnce(
   provider: ModelProviderOption,
   apiKey: string,
   baseUrl: string | undefined
 ): Promise<ModelDiscoveryResult> {
-  const catalogKey = provider.isCustom || provider.key.startsWith("__")
-    ? provider.key
-    : provider.key;
+  const catalogKey = provider.key;
 
   if (provider.key === "ollama") {
     const result = await testOllamaConnection(
@@ -190,7 +200,7 @@ async function discoverModelsOnce(
     if (!result.success || result.models.length === 0) {
       return { success: result.success, message: result.message, models: [] };
     }
-    const infos = await enrichDiscoveredModels(catalogKey, result.models);
+    const infos = await enrichDiscoveredModelsOrFallback(catalogKey, result.models);
     if (infos.length > 0) setCachedModelInfos(provider.key, infos);
     return {
       success: true,
@@ -316,12 +326,7 @@ async function discoverModelsOnce(
           continue;
         }
 
-        let infos: ModelInfo[];
-        try {
-          infos = await enrichDiscoveredModels(catalogKey, ids, apiRows);
-        } catch {
-          infos = fallbackModelInfosFromIds(ids);
-        }
+        const infos = await enrichDiscoveredModelsOrFallback(catalogKey, ids, apiRows);
         if (infos.length > 0) setCachedModelInfos(provider.key, infos);
 
         return {

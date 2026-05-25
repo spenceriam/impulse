@@ -124,6 +124,21 @@ describe("buildPromptSegments", () => {
     ]);
   });
 
+  test("removing first of two image tokens keeps second uri aligned", () => {
+    const input = new PromptInput(undefined, TEST_EDITOR_THEME);
+    const img1 = "data:image/png;base64,QUFB";
+    const img2 = "data:image/png;base64,QkJC";
+
+    input.handleInput(bracketedPaste(img1));
+    input.handleInput(bracketedPaste(img2));
+    input.setText("[Pasted image #2]");
+
+    const images = input.getSubmitPayload().orderedImages;
+    expect(images).toHaveLength(1);
+    expect(images[0].uri).toBe(img2);
+    expect(images[0].index).toBe(1);
+  });
+
   test("maps identical display tokens to distinct paste content in order", () => {
     const marker = "[Pasted 130 chars]";
     const groups: PasteGroup[] = [

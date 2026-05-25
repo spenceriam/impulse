@@ -263,6 +263,9 @@ export class PromptInput implements Component, Focusable {
     idx = text.indexOf(group.originalDisplay);
     if (idx !== -1) return { start: idx, len: group.originalDisplay.length };
 
+    // Image tokens must match exactly — prefix fallback would match `#1` inside `#2`.
+    if (group.kind === "image") return null;
+
     for (let len = group.originalDisplay.length - 1; len >= 8; len--) {
       const prefix = group.originalDisplay.slice(0, len);
       idx = text.indexOf(prefix);
@@ -275,15 +278,13 @@ export class PromptInput implements Component, Focusable {
   private _syncPasteGroupsAfterEdit(): void {
     const text = this.editor.getText();
     const remaining: PasteGroup[] = [];
+    const removedImageUriIndices: number[] = [];
 
     for (const group of this._pasteGroups) {
       const match = this._findGroupInText(text, group);
       if (!match) {
         if (group.kind === "image" && group.imageIndex !== undefined) {
-          const uriIdx = group.imageIndex - 1;
-          if (uriIdx >= 0 && uriIdx < this._detectedImages.length) {
-            this._detectedImages.splice(uriIdx, 1);
-          }
+          removedImageUriIndices.push(group.imageIndex - 1);
         }
         continue;
       }
@@ -292,7 +293,16 @@ export class PromptInput implements Component, Focusable {
       remaining.push({ ...group, display: slice });
     }
 
+    for (const uriIdx of [...new Set(removedImageUriIndices)].sort((a, b) => b - a)) {
+      if (uriIdx >= 0 && uriIdx < this._detectedImages.length) {
+        this._detectedImages.splice(uriIdx, 1);
+      }
+    }
+
     this._pasteGroups = remaining;
+    if (removedImageUriIndices.length > 0) {
+      this._reindexImageGroups();
+    }
   }
 
   private _removeImageGroupAtDisplay(display: string): void {

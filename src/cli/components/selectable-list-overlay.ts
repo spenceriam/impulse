@@ -190,6 +190,7 @@ export class SelectableListOverlay implements Component {
     }
 
     if (data === "\x1b[B") {
+      if (this.filtered.length === 0) return;
       this.selectedIndex = Math.min(
         this.filtered.length - 1,
         this.selectedIndex + 1

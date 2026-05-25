@@ -24,6 +24,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Global } from "../global.js";
 import { Tool } from "../tools/registry";
+import { type Message } from "../session/store";
 
 // ── Debug logging ────────────────────────────────────────────────────────────
 const debugLogPath = path.join(Global.Path.logs, "debug.log");
@@ -37,7 +38,6 @@ function debugLog(msg: string): void {
     // Non-fatal when logs dir cannot be created
   }
 }
-import { type Message } from "../session/store";
 import { SessionManager } from "../session/manager";
 import { generateTitle } from "../session/title-generator.js";
 import { Bus, HeaderEvents } from "../bus/index.js";

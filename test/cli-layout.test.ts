@@ -217,6 +217,20 @@ describe("session picker row labels", () => {
   });
 });
 
+describe("SelectableListOverlay navigation", () => {
+  test("arrow down on empty list does not set selectedIndex below zero", () => {
+    const overlay = new SelectableListOverlay({
+      title: "Empty",
+      rows: [],
+      loading: false,
+      emptyMessage: "  No items",
+    });
+    overlay.handleInput("\x1b[B");
+    const idx = (overlay as { selectedIndex: number }).selectedIndex;
+    expect(idx).toBeGreaterThanOrEqual(0);
+  });
+});
+
 describe("SelectableListOverlay wrapping", () => {
   test("long labels use more than one display line at narrow inner width", () => {
     const row = {
