@@ -2,6 +2,8 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { glob as globSync } from "glob";
 import { sanitizePath } from "../util/path";
+import { zFilePath, zGlobPattern } from "./schemas/branded";
+import { buildGlobPathNote, prependToolNote } from "./tool-notes";
 
 const MAX_RESULTS = 1000;
 
@@ -11,8 +13,8 @@ Required: pattern. Optional: path.
 See docs/tools/glob.md for usage notes.`;
 
 const GlobSchema = z.object({
-  pattern: z.string(),
-  path: z.string().optional(),
+  pattern: zGlobPattern(),
+  path: zFilePath().optional(),
 });
 
 type GlobInput = z.infer<typeof GlobSchema>;
@@ -39,9 +41,12 @@ export const globTool: Tool<GlobInput> = Tool.define(
         ? `\n\n(Results limited to ${MAX_RESULTS} files. Total matches: ${files.length})`
         : "";
 
+      const pathNote = buildGlobPathNote(input, process.cwd());
+      const body = limitedFiles.join("\n") + truncatedNotice;
+
       return {
         success: true,
-        output: limitedFiles.join("\n") + truncatedNotice,
+        output: prependToolNote(body, pathNote),
         metadata: {
           type: "glob",
           pattern: input.pattern,

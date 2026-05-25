@@ -16,6 +16,7 @@ Read an exact HTTP(S) URL and return cleaned text.
 
 ## Notes
 
+- Omitted `maxChars` defaults to 12000; omitted `browserFallback` defaults to true. A `Note:` in the result explains any defaults applied.
 - Local/private network URLs are refused.
 - Binary content is refused unless support is added later.
 - The output includes final URL, status, title when available, content type, and cleaned text.

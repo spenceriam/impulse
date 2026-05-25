@@ -19,6 +19,10 @@ general (full access)
 - Tools: file_read, file_write, file_edit, glob, grep, bash
 - Use for: multi-step refactors, implementations, test runs
 
+## Notes
+
+- `thoroughness` only affects `explore` subagents. If you pass it with `general`, it is ignored and the result may include a `Note:`.
+
 ## When to Use
 
 - Searching across the codebase

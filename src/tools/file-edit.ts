@@ -9,6 +9,7 @@ import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
+import { zCodeEdit, zFilePath } from "./schemas/branded";
 
 const DESCRIPTION = `Edit a file by exact string replacement.
 
@@ -16,9 +17,9 @@ Required: filePath, oldString, newString. Optional: replaceAll.
 See docs/tools/file-edit.md for usage rules and failure cases.`;
 
 const EditSchema = z.object({
-  filePath: z.string(),
-  oldString: z.string(),
-  newString: z.string(),
+  filePath: zFilePath(),
+  oldString: zCodeEdit(),
+  newString: zCodeEdit(),
   replaceAll: z.boolean().optional(),
 });
 

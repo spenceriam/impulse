@@ -9,6 +9,7 @@ import { createPatch } from "diff";
 import { createAddedFileCompactDiff, createCompactDiff } from "../util/compact-diff";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
+import { zFilePath } from "./schemas/branded";
 
 const DESCRIPTION = `Write a file to disk (create or overwrite).
 
@@ -16,7 +17,7 @@ Required: filePath, content.
 See docs/tools/file-write.md for usage rules.`;
 
 const WriteSchema = z.object({
-  filePath: z.string(),
+  filePath: zFilePath(),
   content: z.string(),
 });
 

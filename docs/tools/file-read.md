@@ -17,5 +17,6 @@ Reads a file from the local filesystem.
 
 ## Notes
 
+- If only `offset` or only `limit` is provided, the missing value is defaulted and a `Note:` in the result explains what was applied.
 - If the file exists but is empty, a warning is returned
 - This tool can read image files as raw content

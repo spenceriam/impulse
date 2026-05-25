@@ -4,6 +4,12 @@ import { createReadStream } from "fs";
 import { readFile, stat } from "fs/promises";
 import readline from "readline";
 import { sanitizePath } from "../util/path";
+import { zFilePath } from "./schemas/branded";
+import {
+  buildFileReadRangeNote,
+  FILE_READ_DEFAULT_LIMIT,
+  prependToolNote,
+} from "./tool-notes";
 
 const DESCRIPTION = `Read a file from disk with line numbers.
 
@@ -11,7 +17,7 @@ Required: filePath. Optional: offset, limit.
 See docs/tools/file-read.md for details.`;
 
 const ReadSchema = z.object({
-  filePath: z.string(),
+  filePath: zFilePath(),
   offset: z.number().optional(),
   limit: z.number().optional(),
 });
@@ -20,6 +26,8 @@ type ReadInput = z.infer<typeof ReadSchema>;
 
 const STREAM_READ_THRESHOLD = 2_000_000; // 2MB
 const MAX_LINE_LENGTH = 2000;
+
+export { buildFileReadRangeNote } from "./tool-notes";
 
 async function readLinesStream(
   filePath: string,
@@ -66,7 +74,8 @@ export const fileRead: Tool<ReadInput> = Tool.define(
     try {
       const safePath = sanitizePath(input.filePath);
       const offset = input.offset ?? 0;
-      const limit = input.limit ?? 2000;
+      const limit = input.limit ?? FILE_READ_DEFAULT_LIMIT;
+      const rangeNote = buildFileReadRangeNote(input);
 
       let lines: string[] = [];
       let totalLines: number | undefined;
@@ -136,9 +145,12 @@ export const fileRead: Tool<ReadInput> = Tool.define(
           : `(all ${totalLines} lines)`)
         : `(lines ${offset + 1}-${end} of unknown; large file)`;
 
+      const body = `${header}\n${outputLines.join("\n")}`;
+      const output = prependToolNote(body, rangeNote);
+
       return {
         success: true,
-        output: `${header}\n${outputLines.join("\n")}`,
+        output,
         metadata: {
           // Legacy fields
           totalLines: totalLines ?? lines.length,

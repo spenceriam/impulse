@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { fetchPage, snapshotWithBrowser } from "./web-utils";
+import {
+  buildWebFetchDefaultsNote,
+  prependToolNote,
+  WEB_FETCH_DEFAULT_MAX_CHARS,
+} from "./tool-notes";
 
 const DESCRIPTION = `Read an exact HTTP(S) URL and return cleaned text.
 
@@ -20,8 +25,9 @@ export const webFetchTool: Tool<WebFetchInput> = Tool.define(
   DESCRIPTION,
   WebFetchSchema,
   async (input: WebFetchInput): Promise<ToolResult> => {
-    const maxChars = input.maxChars ?? 12000;
+    const maxChars = input.maxChars ?? WEB_FETCH_DEFAULT_MAX_CHARS;
     const browserFallback = input.browserFallback ?? true;
+    const defaultsNote = buildWebFetchDefaultsNote(input);
 
     try {
       const page = await fetchPage(input.url);
@@ -35,9 +41,10 @@ export const webFetchTool: Tool<WebFetchInput> = Tool.define(
         truncated ? `Truncated: yes` : undefined,
       ].filter((line): line is string => Boolean(line));
 
+      const body = `${header.join("\n")}\n\n${clipped}`;
       return {
         success: page.status >= 200 && page.status < 400,
-        output: `${header.join("\n")}\n\n${clipped}`,
+        output: prependToolNote(body, defaultsNote),
         metadata: {
           type: "web_fetch",
           url: input.url,
@@ -65,9 +72,10 @@ export const webFetchTool: Tool<WebFetchInput> = Tool.define(
       }
 
       const clipped = browser.output.length > maxChars ? browser.output.slice(0, maxChars) : browser.output;
+      const body = `URL: ${input.url}\nFetched-via: agent-browser\n${browser.output.length > maxChars ? "Truncated: yes\n" : ""}\n${clipped}`;
       return {
         success: true,
-        output: `URL: ${input.url}\nFetched-via: agent-browser\n${browser.output.length > maxChars ? "Truncated: yes\n" : ""}\n${clipped}`,
+        output: prependToolNote(body, defaultsNote),
         metadata: {
           type: "web_fetch",
           url: input.url,

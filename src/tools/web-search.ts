@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { decodeHtmlEntities, fetchPage, snapshotWithBrowser } from "./web-utils";
+import {
+  buildWebSearchDefaultsNote,
+  prependToolNote,
+  WEB_SEARCH_DEFAULT_MAX_RESULTS,
+} from "./tool-notes";
 
 const DESCRIPTION = `Search the web for current external information.
 
@@ -96,14 +101,15 @@ export const webSearchTool: Tool<WebSearchInput> = Tool.define(
   DESCRIPTION,
   WebSearchSchema,
   async (input: WebSearchInput): Promise<ToolResult> => {
-    const maxResults = input.maxResults ?? 5;
+    const maxResults = input.maxResults ?? WEB_SEARCH_DEFAULT_MAX_RESULTS;
     const browserFallback = input.browserFallback ?? true;
+    const defaultsNote = buildWebSearchDefaultsNote(input);
 
     try {
       const results = await directSearch(input);
       return {
         success: true,
-        output: formatResults(results),
+        output: prependToolNote(formatResults(results), defaultsNote),
         metadata: {
           type: "web_search",
           query: input.query,
@@ -131,9 +137,10 @@ export const webSearchTool: Tool<WebSearchInput> = Tool.define(
       }
 
       const clipped = browser.output.length > 12000 ? browser.output.slice(0, 12000) : browser.output;
+      const body = `Search: ${query}\nFetched-via: agent-browser\nMax-results-requested: ${maxResults}\n${browser.output.length > 12000 ? "Truncated: yes\n" : ""}\n${clipped}`;
       return {
         success: true,
-        output: `Search: ${query}\nFetched-via: agent-browser\nMax-results-requested: ${maxResults}\n${browser.output.length > 12000 ? "Truncated: yes\n" : ""}\n${clipped}`,
+        output: prependToolNote(body, defaultsNote),
         metadata: {
           type: "web_search",
           query: input.query,

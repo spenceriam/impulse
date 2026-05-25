@@ -3,6 +3,8 @@ import { existsSync } from "fs";
 import { dirname } from "path";
 import { Tool, ToolResult } from "./registry";
 import { sanitizePath } from "../util/path";
+import { zFilePath, zGlobPattern } from "./schemas/branded";
+import { buildGrepPathNote, prependToolNote } from "./tool-notes";
 
 const MAX_RESULTS = 100;
 const MAX_CONTENT_LENGTH = 120;
@@ -30,9 +32,11 @@ Required: pattern. Optional: path, include.
 See docs/tools/grep.md for details.`;
 
 const GrepSchema = z.object({
-  pattern: z.string(),
-  path: z.string().optional(),
-  include: z.string().optional(),
+  pattern: z
+    .string()
+    .describe("Regular expression to search for (ripgrep syntax). Not a glob pattern."),
+  path: zFilePath().optional(),
+  include: zGlobPattern().optional(),
 });
 
 type GrepInput = z.infer<typeof GrepSchema>;
@@ -128,9 +132,12 @@ export const grepTool: Tool<GrepInput> = Tool.define(
           ? `\n\n(Results limited to ${MAX_RESULTS}. Use ripgrep directly for full results.)`
           : "";
 
+      const pathNote = buildGrepPathNote(input, process.cwd());
+      const body = grepOutputLines.join("\n") + truncatedNotice;
+
       return {
         success: true,
-        output: grepOutputLines.join("\n") + truncatedNotice,
+        output: prependToolNote(body, pathNote),
         metadata: {
           type: "grep",
           pattern: input.pattern,
