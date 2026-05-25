@@ -20,6 +20,7 @@ import type {
 } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderError } from "../provider";
+import type { ReasoningLevel } from "../../util/config";
 
 // Default Ollama Cloud endpoint
 export const OLLAMA_DEFAULT_BASE_URL = "https://ollama.com";
@@ -258,7 +259,7 @@ export class OllamaProvider implements AIProvider {
       };
 
       applyCommonOptions(req, options);
-      (req as unknown as Record<string, unknown>)["think"] = reasoningEnabled(options);
+      applyOllamaReasoningParams(req, options);
 
       return client.chat.completions.create(req);
     }, options.signal);
@@ -281,7 +282,7 @@ export class OllamaProvider implements AIProvider {
       };
 
       applyCommonOptions(req, options);
-      (req as unknown as Record<string, unknown>)["think"] = reasoningEnabled(options);
+      applyOllamaReasoningParams(req, options);
 
       return client.chat.completions.create(req);
     }, options.signal);
@@ -323,18 +324,58 @@ function applyCommonOptions(
     req.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
 }
 
-function reasoningEnabled(options: CompletionOptions): boolean {
-  if (options.reasoningLevel !== undefined) return options.reasoningLevel !== "off";
-  return options.thinking?.type === "enabled";
+/** Resolve unified reasoning level from stream/complete options. */
+export function resolveOllamaReasoningLevel(options: CompletionOptions): ReasoningLevel {
+  if (options.reasoningLevel !== undefined) return options.reasoningLevel;
+  if (options.thinking?.type === "enabled") return "medium";
+  return "off";
+}
+
+/** Map IMPULSE reasoning level to Ollama OpenAI-compat + native think fields. */
+export function mapOllamaReasoningParams(level: ReasoningLevel): {
+  reasoning_effort?: "none" | "low" | "medium" | "high";
+  think: boolean | "low" | "medium" | "high";
+  optionsThink?: "max";
+} {
+  switch (level) {
+    case "off":
+      return { reasoning_effort: "none", think: false };
+    case "low":
+      return { reasoning_effort: "low", think: "low" };
+    case "high":
+      return { reasoning_effort: "high", think: "high" };
+    case "medium":
+    default:
+      return { reasoning_effort: "medium", think: "medium" };
+  }
+}
+
+function applyOllamaReasoningParams(
+  req: OpenAI.ChatCompletionCreateParams,
+  options: CompletionOptions
+): void {
+  const level = resolveOllamaReasoningLevel(options);
+  const mapped = mapOllamaReasoningParams(level);
+  const ext = req as unknown as Record<string, unknown>;
+
+  if (mapped.reasoning_effort !== undefined) {
+    ext["reasoning_effort"] = mapped.reasoning_effort;
+  }
+  ext["think"] = mapped.think;
+
 }
 
 function extractReasoningContent(value: unknown): string | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
   const reasoningContent = record["reasoning_content"];
-  if (typeof reasoningContent === "string") return reasoningContent;
+  if (typeof reasoningContent === "string" && reasoningContent.length > 0) {
+    return reasoningContent;
+  }
   const reasoning = record["reasoning"];
-  return typeof reasoning === "string" ? reasoning : undefined;
+  if (typeof reasoning === "string" && reasoning.length > 0) return reasoning;
+  const thinking = record["thinking"];
+  return typeof thinking === "string" && thinking.length > 0 ? thinking : undefined;
 }
 
 function transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {

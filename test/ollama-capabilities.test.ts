@@ -4,6 +4,7 @@ import {
   extractExplicitMaxOutputTokens,
   formatReasoningLevelForDisplay,
 } from "../src/api/providers/capabilities";
+import { mapOllamaReasoningParams } from "../src/api/providers/ollama";
 
 const originalFetch = globalThis.fetch;
 
@@ -34,7 +35,8 @@ describe("discoverOllamaReasoning fallback heuristic", () => {
 
     const capability = await discoverOllamaReasoning("https://ollama.com", "deepseek-v4-pro");
     expect(capability.supported).toBe(true);
-    expect(capability.levels).toEqual(["off", "medium"]);
+    expect(capability.levels).toEqual(["off", "low", "medium", "high"]);
+    expect(capability.style).toBe("effort");
   });
 
   test("still enables known reasoning families without API metadata", async () => {
@@ -44,6 +46,17 @@ describe("discoverOllamaReasoning fallback heuristic", () => {
 
     const capability = await discoverOllamaReasoning("https://ollama.com", "deepseek-r1:70b");
     expect(capability.supported).toBe(true);
-    expect(capability.levels).toEqual(["off", "medium"]);
+    expect(capability.levels).toEqual(["off", "low", "medium", "high"]);
+    expect(capability.style).toBe("effort");
+  });
+});
+
+describe("mapOllamaReasoningParams", () => {
+  test("maps off to reasoning_effort none", () => {
+    expect(mapOllamaReasoningParams("off")).toEqual({
+      reasoning_effort: "none",
+      think: false,
+    });
+    expect(mapOllamaReasoningParams("high").reasoning_effort).toBe("high");
   });
 });
