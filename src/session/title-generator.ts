@@ -61,7 +61,12 @@ export async function generateTitle(
  * Build a condensed conversation for title generation.
  * Takes the first few user-assistant exchanges (up to 4 messages).
  */
-function buildTitleMessages(messages: Message[]): ChatMessage[] {
+/** True when there is enough user/assistant content to generate a title. */
+export function hasTitleSource(messages: Message[]): boolean {
+  return buildTitleMessages(messages).length > 0;
+}
+
+export function buildTitleMessages(messages: Message[]): ChatMessage[] {
   const pairs: ChatMessage[] = [];
   let userMsg: string | null = null;
 

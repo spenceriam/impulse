@@ -81,6 +81,7 @@ export interface Todo {
 class SessionStoreImpl {
   private static instance: SessionStoreImpl;
   private saveTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private pendingUpdates: Map<string, Partial<Session>> = new Map();
   private saveDelay: number = 1000;
   
   // Cache projectID -> sessionID mapping for quick lookups
@@ -147,9 +148,16 @@ class SessionStoreImpl {
       clearTimeout(existingTimeout);
     }
 
+    const pending = this.pendingUpdates.get(sessionID) ?? {};
+    this.pendingUpdates.set(sessionID, { ...pending, ...updates });
+
     const timeout = setTimeout(async () => {
       try {
-        await this.update(sessionID, updates);
+        const merged = this.pendingUpdates.get(sessionID);
+        if (merged && Object.keys(merged).length > 0) {
+          await this.update(sessionID, merged);
+          this.pendingUpdates.delete(sessionID);
+        }
       } catch (e) {
         console.error(`Failed to auto-save session ${sessionID}:`, e);
       } finally {
@@ -158,6 +166,14 @@ class SessionStoreImpl {
     }, this.saveDelay);
 
     this.saveTimeouts.set(sessionID, timeout);
+  }
+
+  /**
+   * Write a full session snapshot immediately (used on flush/exit).
+   */
+  async writeSnapshot(session: Session): Promise<void> {
+    this.sessionProjectMap.set(session.id, session.projectID);
+    await Storage.write(this.getKey(session.id, session.projectID), session);
   }
 
   /**
@@ -231,6 +247,16 @@ class SessionStoreImpl {
       clearTimeout(timeout);
       this.saveTimeouts.delete(sessionID);
     }
+
+    const pending = this.pendingUpdates.get(sessionID);
+    if (pending && Object.keys(pending).length > 0) {
+      try {
+        await this.update(sessionID, pending);
+      } catch (e) {
+        console.error(`Failed to flush session ${sessionID}:`, e);
+      }
+      this.pendingUpdates.delete(sessionID);
+    }
   }
 
   /**
@@ -238,13 +264,12 @@ class SessionStoreImpl {
    * Used on exit to ensure no data loss.
    */
   async flushAllSaves(): Promise<void> {
-    const sessionIDs = [...this.saveTimeouts.keys()];
+    const sessionIDs = new Set([
+      ...this.saveTimeouts.keys(),
+      ...this.pendingUpdates.keys(),
+    ]);
     for (const id of sessionIDs) {
-      const timeout = this.saveTimeouts.get(id);
-      if (timeout) {
-        clearTimeout(timeout);
-        this.saveTimeouts.delete(id);
-      }
+      await this.flushSave(id);
     }
   }
 

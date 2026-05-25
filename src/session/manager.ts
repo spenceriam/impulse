@@ -141,13 +141,20 @@ class SessionManagerImpl {
     await CompactManager.maybeCompact(this.currentSession.id);
   }
 
+  async flushCurrent(): Promise<void> {
+    if (!this.currentSession) return;
+    await SessionStoreInstance.flushSave(this.currentSession.id);
+    const snap = { ...this.currentSession, updated_at: new Date().toISOString() };
+    await SessionStoreInstance.writeSnapshot(snap);
+    this.currentSession = snap;
+  }
+
   async save(name?: string): Promise<Session> {
     if (!this.currentSession) {
       throw new Error("No active session to save");
     }
 
-    // Flush any pending debounced auto-save
-    await SessionStoreInstance.flushSave(this.currentSession.id);
+    await this.flushCurrent();
 
     if (name) {
       await this.update({ name });
@@ -163,8 +170,7 @@ class SessionManagerImpl {
 
     const sessionID = this.currentSession.id;
 
-    // Flush any pending auto-save before exiting
-    await SessionStoreInstance.flushSave(sessionID);
+    await this.flushCurrent();
 
     try {
       await CheckpointManager.cleanupCheckpoints(sessionID);
