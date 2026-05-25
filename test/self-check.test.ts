@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { createSelfCheckSummary } from "../src/ui/self-check";
-import type { ToolCallInfo } from "../src/ui/components/MessageBlock";
+import { createSelfCheckSummary } from "../src/agent/self-check";
+import type { ToolCallInfo } from "../src/types/tool-call";
 
 function tool(overrides: Partial<ToolCallInfo>): ToolCallInfo {
   return {

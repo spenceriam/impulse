@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { shouldRetryInEnglish } from "../src/ui/language-guard";
+import { shouldRetryInEnglish } from "../src/agent/language-guard";
 
 describe("shouldRetryInEnglish", () => {
   it("returns false for normal English responses", () => {

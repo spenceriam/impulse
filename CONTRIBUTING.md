@@ -4,7 +4,7 @@ Thank you for your interest in contributing to IMPULSE! This document provides g
 
 ## Prerequisites
 
-**Bun is required.** IMPULSE uses OpenTUI which depends on `bun:ffi` for terminal rendering. It cannot run on Node.js.
+**Bun is required.** IMPULSE uses Bun for development and compiled binaries.
 
 ```bash
 # Install Bun (macOS, Linux, WSL)
@@ -39,16 +39,13 @@ bun test
 ```
 impulse/
 ├── src/
-│   ├── index.tsx           # CLI entry point
-│   ├── agent/              # GLM agent and subagents
-│   ├── api/                # Z.AI API client
+│   ├── index.ts            # CLI entry point
+│   ├── cli/                # pi-tui renderer and components
+│   ├── agent/              # Agent loop, subagents, prompts
+│   ├── api/                # Provider manager and provider adapters
 │   ├── mcp/                # MCP server integrations
 │   ├── session/            # Session management
-│   ├── tools/              # Built-in tools
-│   ├── ui/                 # OpenTUI components
-│   │   ├── components/     # Reusable UI components
-│   │   ├── context/        # SolidJS contexts
-│   │   └── design.ts       # Design constants
+│   ├── tools/              # Built-in tools + input-repair layer
 │   └── util/               # Utilities
 ├── AGENTS.md               # Project brain (architecture, decisions)
 ├── PRINCIPLES.md           # Non-negotiable rules

@@ -1,4 +1,4 @@
-import type { ToolCallInfo } from "./components/MessageBlock";
+import type { ToolCallInfo } from "../types/tool-call";
 
 export interface SelfCheckSummary {
   findings: string[];
