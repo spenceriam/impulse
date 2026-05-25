@@ -9,14 +9,25 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v1.0.3
+- **Version:** v1.1.0
 - **Tagline:** Provider-flexible terminal AI coding agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** Phase 9 COMPLETE - QoL Polish
+**Status:** v1.1.0 released (2026-05-23) — session management, full-width pickers, DEBUG workflow
+
+### v1.1.0 (Released 2026-05-23)
+
+- [x] Session title backfill (`impulse --enrich-session-titles`) and inventory (`impulse --list-sessions`)
+- [x] Home migration `~/.config/impulse` → `~/.impulse` with hashed per-project session storage
+- [x] Full-width `SelectableListOverlay` for `/model`, `/resume`, and provider setup (arrow navigation, wrapped labels)
+- [x] Model catalog rows enriched from models.dev (vendor, context, added date)
+- [x] Profile modal via `/user` (view fields, `e` to edit)
+- [x] Resume list hides empty sessions; shows `headerTitle` when available
+- [x] DEBUG mode (Tab): evidence-first prompt + `[IMPULSE_DEBUG]` cleanup nudge (`/debug` toggles log file only)
+- [x] Help text glyph fix; overlay width uses full terminal; list overlays no longer stash chat
 
 ### Active CLI Architecture (May 2026)
 
@@ -125,7 +136,7 @@
 - [x] Task 9.4: Tool call context titles
 - [x] Task 9.5: File write DiffView visibility
 
-### Post-Phase 9 (Unreleased)
+### Shipped (Post-Phase 9 through v1.0.3)
 
 - [x] Queue bar stacked preview above input (OpenCode-style)
 - [x] Chat auto-scroll respects manual scroll position
@@ -801,7 +812,11 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 | `/new` | New session (prompt to save) |
 | `/compact` | Manual AI summarization |
 | `/save` | Save with AI-suggested name |
-| `/continue` | Session picker with preview (alias: `/load`) |
+| `/continue` | Session picker with search (alias: `/load`, `/resume`) |
+| `/user` | Profile overlay — view/edit name, preferences, instructions |
+| `/vision` | Toggle vision model translation (`on` / `off`) |
+| `/advisor` | Configure or toggle advisor mode (`on` / `off` / model id) |
+| `/debug` | Toggle session debug log file (not Tab DEBUG mode) |
 | `/undo` | Git-based revert to checkpoint |
 | `/redo` | Restore undone changes |
 | `/model` | Switch configured model |
@@ -962,7 +977,7 @@ This ensures:
   - Don't initialize `arguments: ""` and only accumulate from deltas - you'll lose the opening `{"`
 
 ### Configuration
-- Provider keys and models configured via `~/.config/impulse/config.json` and `/model`
+- Provider keys and models configured via `~/.impulse/config.json` and `/model` (migrates from `~/.config/impulse` on first run)
 - Tool schemas use branded Zod helpers in `src/tools/schemas/branded.ts` (e.g. `zFilePath()` — the `z` prefix is Zod, not Z.ai)
 
 ## Decision Log
@@ -975,6 +990,8 @@ This ensures:
 | 01-19-2026 | Brutalist design | Function over form, terminal-native aesthetic |
 | 01-19-2026 | No @ syntax for subagents | Agent controls delegation, simpler UX |
 | 01-19-2026 | 70% auto-compact threshold (superseded) | Balance between context preservation and limits |
+| 05-23-2026 | Home dir `~/.impulse` | Migrate legacy `~/.config/impulse`; canonical config and debug paths |
+| 05-23-2026 | Full-width list overlays | Shared `SelectableListOverlay` for model/resume/setup; no chat stash |
 | 05-23-2026 | Auto-compact at 60%, warn at 50% | Earlier compaction + color-only footer % (no block bar) |
 | 05-23-2026 | Tool Input Repair Layer | validate-then-repair for open-model tool JSON mistakes |
 | 01-19-2026 | Double-press safety (Esc, Ctrl+C) | Prevent accidental interruption/exit |
@@ -1335,7 +1352,7 @@ bun run start -- --verbose
 impulse --verbose
 ```
 
-**Log Location:** `~/.config/impulse/debug/session-<timestamp>.jsonl`
+**Log Location:** `~/.impulse/debug/session-<timestamp>.jsonl`
 
 **What Gets Logged:**
 - `session_start` - Version and timestamp
