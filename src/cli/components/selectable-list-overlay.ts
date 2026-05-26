@@ -156,6 +156,37 @@ export class SelectableListOverlay implements Component {
     if (this.selectedIndex >= this.filtered.length) {
       this.selectedIndex = Math.max(0, this.filtered.length - 1);
     }
+    this.ensureValidSelection();
+  }
+
+  private ensureValidSelection(): void {
+    if (this.filtered.length === 0) return;
+    
+    const current = this.filtered[this.selectedIndex];
+    if (!current?.id.startsWith("__header__")) return;
+    
+    // Try moving forward first
+    let forward = this.selectedIndex + 1;
+    while (forward < this.filtered.length) {
+      if (!this.filtered[forward]?.id.startsWith("__header__")) {
+        this.selectedIndex = forward;
+        return;
+      }
+      forward++;
+    }
+    
+    // If no selectable row forward, try backward
+    let backward = this.selectedIndex - 1;
+    while (backward >= 0) {
+      if (!this.filtered[backward]?.id.startsWith("__header__")) {
+        this.selectedIndex = backward;
+        return;
+      }
+      backward--;
+    }
+    
+    // If all rows are headers (edge case), stay at current position
+    // (Enter will correctly do nothing on a header)
   }
 
   private buildDisplayLines(innerWidth: number): DisplayLine[] {
@@ -186,6 +217,7 @@ export class SelectableListOverlay implements Component {
 
     if (data === "\x1b[A") {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.ensureValidSelection();
       return;
     }
 
@@ -195,6 +227,7 @@ export class SelectableListOverlay implements Component {
         this.filtered.length - 1,
         this.selectedIndex + 1
       );
+      this.ensureValidSelection();
       return;
     }
 
