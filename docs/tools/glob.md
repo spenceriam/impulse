@@ -14,5 +14,6 @@ Fast file pattern matching for large codebases.
 
 ## Notes
 
+- If `path` is omitted, search runs from the current working directory; the tool result may include a `Note:` explaining that default.
 - Results are limited to 1000 files for efficiency
 - Files are returned in filesystem order

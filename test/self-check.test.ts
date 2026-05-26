@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { createSelfCheckSummary } from "../src/ui/self-check";
-import type { ToolCallInfo } from "../src/ui/components/MessageBlock";
+import {
+  buildDebugInstrumentationNudge,
+  createSelfCheckSummary,
+} from "../src/agent/self-check";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import type { ToolCallInfo } from "../src/types/tool-call";
 
 function tool(overrides: Partial<ToolCallInfo>): ToolCallInfo {
   return {
@@ -80,5 +86,25 @@ describe("createSelfCheckSummary", () => {
     ]);
 
     expect(summary.findings).toContain('Subagent "Inspect tool call flow" returned without recorded actions.');
+  });
+});
+
+describe("buildDebugInstrumentationNudge", () => {
+  it("returns undefined when no marker in edited files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "impulse-debug-"));
+    const file = path.join(dir, "clean.ts");
+    fs.writeFileSync(file, "export const x = 1;\n");
+    expect(buildDebugInstrumentationNudge(["clean.ts"], dir)).toBeUndefined();
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it("nudges when marker remains", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "impulse-debug-"));
+    const file = path.join(dir, "dirty.ts");
+    fs.writeFileSync(file, 'console.log("[IMPULSE_DEBUG]");\n');
+    const nudge = buildDebugInstrumentationNudge(["dirty.ts"], dir);
+    expect(nudge).toContain("[IMPULSE_DEBUG]");
+    expect(nudge).toContain("dirty.ts");
+    fs.rmSync(dir, { recursive: true });
   });
 });

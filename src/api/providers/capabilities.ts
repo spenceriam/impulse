@@ -141,7 +141,7 @@ export async function discoverOllamaReasoning(
         const hasThinking = caps.includes("thinking");
         return {
           supported: hasThinking,
-          style:     "binary",
+          style:     hasThinking ? "binary" : "none",
           levels:    hasThinking ? BINARY_LEVELS : NO_LEVELS,
         };
       }
@@ -168,9 +168,42 @@ export async function discoverOllamaReasoning(
 
   return {
     supported: likelyReasoning,
-    style:     "binary",
+    style:     likelyReasoning ? "binary" : "none",
     levels:    likelyReasoning ? BINARY_LEVELS : NO_LEVELS,
   };
+}
+
+/**
+ * Query Ollama /api/show for vision capability; fall back to naming heuristics.
+ */
+export async function discoverOllamaVision(
+  baseUrl: string,
+  modelName: string,
+  apiKey?: string
+): Promise<boolean> {
+  const root = baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  try {
+    const res = await fetch(`${root}/api/show`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ model: modelName }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (res.ok) {
+      const data = (await res.json()) as OllamaShowResponse;
+      if (Array.isArray(data.capabilities)) {
+        return data.capabilities.includes("vision");
+      }
+    }
+  } catch {
+    // fall through
+  }
+
+  return modelSupportsVision(modelName);
 }
 
 /**
@@ -321,7 +354,8 @@ export function modelSupportsVision(model: string): boolean {
     "llama-3.2-vision", "llava", "pixtral",
     "qwen2-vl", "qwen-vl", "cogvlm", "fuyu",
     "minicpm-v", "internvl", "phi-3-vision",
-    "yi-vision", "step-1v", "glm-4v",
+    "yi-vision", "step-1v", "glm-4v", "glm-4.6v",
+    "kimi-k2",
   ];
-  return visionPatterns.some(p => lower.includes(p));
+  return visionPatterns.some((p) => lower.includes(p));
 }

@@ -111,13 +111,23 @@ class SessionManagerImpl {
     return updated;
   }
 
+  async setHeaderTitle(title: string): Promise<void> {
+    if (!this.currentSession) return;
+    await this.update({ headerTitle: title });
+  }
+
   async addMessage(message: Message): Promise<void> {
     if (!this.currentSession) {
       throw new Error("No active session to add message to");
     }
 
     const messages = [...this.currentSession.messages, message];
-    await this.update({ messages });
+    this.currentSession.messages = messages;
+
+    // Use debounced auto-save instead of immediate write — saves are
+    // consolidated per-turn so the session on disk always reflects a
+    // complete conversation state rather than mid-turn snapshots.
+    SessionStoreInstance.autoSave(this.currentSession.id, { messages });
 
     const messageIndex = messages.length - 1;
     const summary = message.role === "user" ? message.content.slice(0, 100) : undefined;
@@ -131,10 +141,20 @@ class SessionManagerImpl {
     await CompactManager.maybeCompact(this.currentSession.id);
   }
 
+  async flushCurrent(): Promise<void> {
+    if (!this.currentSession) return;
+    await SessionStoreInstance.flushSave(this.currentSession.id);
+    const snap = { ...this.currentSession, updated_at: new Date().toISOString() };
+    await SessionStoreInstance.writeSnapshot(snap);
+    this.currentSession = snap;
+  }
+
   async save(name?: string): Promise<Session> {
     if (!this.currentSession) {
       throw new Error("No active session to save");
     }
+
+    await this.flushCurrent();
 
     if (name) {
       await this.update({ name });
@@ -149,6 +169,8 @@ class SessionManagerImpl {
     }
 
     const sessionID = this.currentSession.id;
+
+    await this.flushCurrent();
 
     try {
       await CheckpointManager.cleanupCheckpoints(sessionID);

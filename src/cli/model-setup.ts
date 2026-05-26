@@ -4,6 +4,12 @@ import { testOllamaConnection } from "../api/providers/ollama.js";
 import type { Editor } from "@mariozechner/pi-tui";
 import { fuzzyFilter } from "@mariozechner/pi-tui";
 import type { Config } from "../util/config.js";
+import {
+  enrichDiscoveredModels,
+  fallbackModelInfosFromIds,
+  type ModelInfo,
+  type ProviderModelEntry,
+} from "./model-catalog.js";
 
 export interface ModelProviderOption {
   key: string;
@@ -78,6 +84,27 @@ export function providerConfig(config: Config, providerKey: string): StoredProvi
   return providers[providerKey] ?? {};
 }
 
+/** Configured custom provider keys (excludes built-in provider keys). */
+export function listConfiguredCustomProviderKeys(config: Config): string[] {
+  const providers = (config.providers as Record<string, StoredProviderConfig | undefined>) ?? {};
+  return Object.keys(providers).filter(
+    (k) => !MODEL_PROVIDERS.some((p) => !p.isCustom && p.key === k)
+  );
+}
+
+/** One template per custom provider from stored `type` (avoids duplicate picker rows). */
+export function resolveCustomProviderOption(
+  providerKey: string,
+  config: Config
+): ModelProviderOption {
+  const stored = providerConfig(config, providerKey);
+  const customType = stored.type ?? "openai-compatible";
+  const template =
+    MODEL_PROVIDERS.find((p) => p.isCustom && p.customType === customType) ??
+    MODEL_PROVIDERS.find((p) => p.key === "__custom_openai__")!;
+  return { ...template, key: providerKey, label: providerKey };
+}
+
 export function maskKey(key: string | undefined): string {
   if (!key) return "not configured";
   if (key.length <= 8) return `${key.slice(0, 2)}...${key.slice(-2)}`;
@@ -119,18 +146,67 @@ export function parseProviderChoice(
   ) ?? null;
 }
 
+const DISCOVERY_RETRIES = 3;
+const DISCOVERY_BACKOFF_MS = [0, 250, 500];
+
 export async function discoverModels(
   provider: ModelProviderOption,
   apiKey: string,
   baseUrl: string | undefined
 ): Promise<ModelDiscoveryResult> {
+  let last: ModelDiscoveryResult = {
+    success: false,
+    message: "Model discovery failed.",
+    models: [],
+  };
+
+  for (let attempt = 0; attempt < DISCOVERY_RETRIES; attempt++) {
+    if (DISCOVERY_BACKOFF_MS[attempt]! > 0) {
+      await Bun.sleep(DISCOVERY_BACKOFF_MS[attempt]!);
+    }
+    last = await discoverModelsOnce(provider, apiKey, baseUrl);
+    if (last.success && last.models.length > 0) {
+      return last;
+    }
+  }
+
+  return last;
+}
+
+async function enrichDiscoveredModelsOrFallback(
+  catalogKey: string,
+  modelIds: string[],
+  apiEntries?: ProviderModelEntry[]
+): Promise<ModelInfo[]> {
+  try {
+    return await enrichDiscoveredModels(catalogKey, modelIds, apiEntries);
+  } catch {
+    return fallbackModelInfosFromIds(modelIds);
+  }
+}
+
+async function discoverModelsOnce(
+  provider: ModelProviderOption,
+  apiKey: string,
+  baseUrl: string | undefined
+): Promise<ModelDiscoveryResult> {
+  const catalogKey = provider.key;
+
   if (provider.key === "ollama") {
     const result = await testOllamaConnection(
       baseUrl ?? provider.defaultBaseUrl ?? provider.modelBaseUrl,
       apiKey
     );
-    const sorted = await sortModels(provider.key, result.models);
-    return { success: result.success, message: result.message, models: sorted };
+    if (!result.success || result.models.length === 0) {
+      return { success: result.success, message: result.message, models: [] };
+    }
+    const infos = await enrichDiscoveredModelsOrFallback(catalogKey, result.models);
+    if (infos.length > 0) setCachedModelInfos(provider.key, infos);
+    return {
+      success: true,
+      message: `Connected - ${infos.length} model${infos.length === 1 ? "" : "s"} available.`,
+      models: infos.map((i) => i.id),
+    };
   }
 
   const root = (baseUrl ?? provider.modelBaseUrl).replace(/\/$/, "");
@@ -214,44 +290,49 @@ export async function discoverModels(
         }
 
         const body = await res.json() as {
-          data?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
-          models?: Array<{ id?: string; name?: string; created?: number; created_at?: string }>;
+          data?: Array<{
+            id?: string;
+            name?: string;
+            created?: number;
+            created_at?: string;
+            context_length?: number;
+          }>;
+          models?: Array<{
+            id?: string;
+            name?: string;
+            created?: number;
+            created_at?: string;
+            context_length?: number;
+          }>;
         };
         const entries = body.data ?? body.models ?? [];
 
-        if (entries.length > 1 && entries.some((e) => e.created !== undefined || e.created_at !== undefined)) {
-          const sorted = entries
-            .slice()
-            .sort((a, b) => {
-              const aCreated = a.created ?? (a.created_at ? new Date(a.created_at).getTime() / 1000 : 0);
-              const bCreated = b.created ?? (b.created_at ? new Date(b.created_at).getTime() / 1000 : 0);
-              return (bCreated as number) - (aCreated as number);
-            })
-            .map((m) => m.id ?? m.name)
-            .filter((m): m is string => typeof m === "string" && m.length > 0);
+        const apiRows: ProviderModelEntry[] = entries
+          .map((m) => ({
+            id: (m.id ?? m.name ?? "") as string,
+            context_length: m.context_length,
+            created: m.created,
+            created_at: m.created_at,
+          }))
+          .filter((m) => m.id.length > 0);
 
-          const sorted2 = await sortModels(provider.key, sorted);
-          return {
+        const ids = apiRows.map((m) => m.id);
+        if (ids.length === 0) {
+          lastError = {
             success: true,
-            message: sorted2.length > 0
-              ? `Connected - ${sorted2.length} model${sorted2.length === 1 ? "" : "s"} available.`
-              : "Connected, but no models were returned.",
-            models: sorted2,
+            message: "Connected, but no models were returned.",
+            models: [],
           };
+          continue;
         }
 
-        const models = entries
-          .map((m) => m.id ?? m.name)
-          .filter((m): m is string => typeof m === "string" && m.length > 0);
-
-        const sorted2 = await sortModels(provider.key, models);
+        const infos = await enrichDiscoveredModelsOrFallback(catalogKey, ids, apiRows);
+        if (infos.length > 0) setCachedModelInfos(provider.key, infos);
 
         return {
           success: true,
-          message: sorted2.length > 0
-            ? `Connected - ${sorted2.length} model${sorted2.length === 1 ? "" : "s"} available.`
-            : "Connected, but no models were returned.",
-          models: sorted2,
+          message: `Connected - ${infos.length} model${infos.length === 1 ? "" : "s"} available.`,
+          models: infos.map((i) => i.id),
         };
       } catch (error) {
         lastError = {
@@ -268,69 +349,6 @@ export async function discoverModels(
     }
 
   return lastError ?? { success: false, message: "Model discovery failed.", models: [] };
-}
-
-/**
- * Sort models by creation date (newest first) using models.dev API.
- * Falls back to size-based sorting if API unavailable.
- */
-async function sortModels(providerKey: string, models: string[]): Promise<string[]> {
-  if (models.length <= 1) return models;
-
-  // Skip models.dev lookup for custom/sentinel keys
-  if (providerKey.startsWith("__")) {
-    return [...models].sort((a, b) => {
-      const sizeA = extractModelSize(a);
-      const sizeB = extractModelSize(b);
-      return sizeB - sizeA;
-    });
-  }
-
-  try {
-    // Fetch model metadata from models.dev
-    const res = await fetch(`https://models.dev/api/v1/providers/${providerKey}/models`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-
-    if (res.ok) {
-      const body = await res.json() as {
-        models?: Array<{ id?: string; created?: string | number }>;
-      };
-      const metadata = new Map<string, Date>();
-      for (const m of body.models ?? []) {
-        if (m.id && m.created) {
-          metadata.set(m.id, new Date(m.created));
-        }
-      }
-
-      // Sort by creation date (newest first)
-      if (metadata.size > 0) {
-        return [...models].sort((a, b) => {
-          const dateA = metadata.get(a);
-          const dateB = metadata.get(b);
-          if (dateA && dateB) return dateB.getTime() - dateA.getTime();
-          if (dateA) return -1;
-          if (dateB) return 1;
-          return 0;
-        });
-      }
-    }
-  } catch {
-    // Fall through to size-based sorting
-  }
-
-  // Fallback: sort by size (largest first, parsed from model name)
-  return [...models].sort((a, b) => {
-    const sizeA = extractModelSize(a);
-    const sizeB = extractModelSize(b);
-    return sizeB - sizeA;
-  });
-}
-
-/** Extract model size from name (e.g., "70b" -> 70, "13b" -> 13) */
-function extractModelSize(name: string): number {
-  const match = name.match(/(\d+\.?\d*)\s*b/i);
-  return match ? parseFloat(match[1]!) : 0;
 }
 
 /** Validate a custom provider name — must be a clean slug */
@@ -411,4 +429,55 @@ export function setModelAutocomplete(editor: Editor, models: string[]): void {
       };
     },
   });
+}
+
+// ── Model list cache ────────────────────────────────────────────────────────
+
+const modelCache = new Map<string, { infos: ModelInfo[]; fetchedAt: number }>();
+const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/** Get cached enriched models for a provider, if fresh enough */
+export function getCachedModelInfos(providerKey: string): ModelInfo[] | undefined {
+  const entry = modelCache.get(providerKey);
+  if (!entry) return undefined;
+  if (Date.now() - entry.fetchedAt > MODEL_CACHE_TTL) {
+    modelCache.delete(providerKey);
+    return undefined;
+  }
+  if (entry.infos.length === 0) return undefined;
+  return entry.infos;
+}
+
+/** @deprecated Use getCachedModelInfos */
+export function getCachedModels(providerKey: string): string[] | undefined {
+  const infos = getCachedModelInfos(providerKey);
+  return infos?.map((i) => i.id);
+}
+
+export function setCachedModelInfos(providerKey: string, infos: ModelInfo[]): void {
+  if (infos.length === 0) return;
+  modelCache.set(providerKey, { infos, fetchedAt: Date.now() });
+}
+
+/** @deprecated Use setCachedModelInfos */
+export function setCachedModels(providerKey: string, models: string[]): void {
+  if (models.length === 0) return;
+  modelCache.set(providerKey, {
+    infos: models.map((id) => ({
+      id,
+      vendor: "—",
+      displayName: id,
+      pickerLine: id,
+    })),
+    fetchedAt: Date.now(),
+  });
+}
+
+/** Clear model cache for all or specific provider */
+export function clearModelCache(providerKey?: string): void {
+  if (providerKey) {
+    modelCache.delete(providerKey);
+  } else {
+    modelCache.clear();
+  }
 }

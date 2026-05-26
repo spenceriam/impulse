@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandRegistry, CommandDefinition } from "./registry";
 import { SessionManager } from "../session/manager";
+import { sessionHasResumeableContent } from "../session/session-content.js";
 
 const NewArgsSchema = z.object({
   name: z.string().optional(),
@@ -10,7 +11,7 @@ const SaveArgsSchema = z.object({
   name: z.string().optional(),
 });
 
-const ContinueArgsSchema = z.object({
+const ResumeArgsSchema = z.object({
   id: z.string().optional(),
 });
 
@@ -36,26 +37,31 @@ async function handleSave(args: Record<string, unknown>) {
   };
 }
 
-async function handleContinue(args: Record<string, unknown>) {
-  const parsed = ContinueArgsSchema.parse(args);
+async function handleResume(args: Record<string, unknown>) {
+  const parsed = ResumeArgsSchema.parse(args);
 
   if (!parsed.id) {
-    const sessions = await SessionManager.listSessions();
+    const sessions = (await SessionManager.listSessions()).filter(
+      sessionHasResumeableContent
+    );
 
     if (sessions.length === 0) {
       return {
         success: false,
-        error: "No saved sessions found",
+        error: "No sessions with messages found for this project",
       };
     }
 
     const list = sessions
-      .map((s, i) => `${i + 1}. ${s.name} (${s.id})`)
+      .map((s, i) => {
+        const title = s.headerTitle?.trim() || s.name;
+        return `${i + 1}. ${title} (${s.id})`;
+      })
       .join("\n");
 
     return {
       success: true,
-      output: `Available sessions:\n${list}\n\nUse /continue <id> to continue a session (alias: /load)`,
+      output: `Available sessions:\n${list}\n\nUse /resume <id> in the TUI or: impulse --resume <id>`,
     };
   }
 
@@ -63,7 +69,7 @@ async function handleContinue(args: Record<string, unknown>) {
 
   return {
     success: true,
-    output: `Continued session: ${session.name} (${session.id})`,
+    output: `Resumed session: ${session.name} (${session.id})`,
   };
 }
 
@@ -88,11 +94,9 @@ async function handleExit() {
 }
 
 async function handleClear() {
-  // This is handled specially in App.tsx to reset the session
-  // This handler is just a placeholder for the command registry
   return {
     success: true,
-    output: "Session cleared (handled by UI)",
+    output: "Use /clear in the CLI to reset the current session view.",
   };
 }
 
@@ -115,21 +119,12 @@ export function registerCoreCommands(): void {
       examples: ["/save", "/save 'Fix API bug'"],
     },
     {
-      name: "continue",
+      name: "resume",
       category: "core",
-      description: "Continue a saved session (alias: /load)",
-      args: ContinueArgsSchema,
-      handler: handleContinue,
-      examples: ["/continue", "/continue sess_1234567890"],
-    },
-    {
-      name: "load",
-      category: "core",
-      description: "Alias for /continue",
-      args: ContinueArgsSchema,
-      handler: handleContinue,
-      examples: ["/load", "/load sess_1234567890"],
-      hidden: true,
+      description: "Resume a saved session",
+      args: ResumeArgsSchema,
+      handler: handleResume,
+      examples: ["/resume", "/resume sess_1234567890"],
     },
     {
       name: "quit",

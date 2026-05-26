@@ -8,6 +8,7 @@ import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
 import type { ChatMessage, ToolDefinition } from "../api/types";
 import { ask as askPermission } from "../permission";
 import { getCurrentMode } from "./mode-state";
+import { buildTaskThoroughnessNote, prependToolNote } from "./tool-notes";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
 
@@ -248,6 +249,8 @@ export const taskTool: Tool<TaskInput> = Tool.define(
       });
       }
 
+      const thoroughnessNote = buildTaskThoroughnessNote(input);
+
       const result = await executeSubagent(
         input.subagent_type,
         input.prompt,
@@ -265,6 +268,8 @@ export const taskTool: Tool<TaskInput> = Tool.define(
           .join("\n");
         output = `Actions taken:\n${summaryText}\n\nResult:\n${output}`;
       }
+
+      output = prependToolNote(output, thoroughnessNote);
 
       return {
         success: result.success,

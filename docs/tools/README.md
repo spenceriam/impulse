@@ -2,6 +2,10 @@
 
 This directory contains detailed usage notes for each built-in tool. Use these references when you need parameters, safety rules, or best practices beyond the short tool descriptions.
 
+## Tool input repair
+
+See [docs/tool-input-repair.md](../tool-input-repair.md) for the validate-then-repair layer that fixes common model tool-call mistakes before execution.
+
 ## Index
 
 - bash: docs/tools/bash.md

@@ -142,6 +142,11 @@ function applyDefaults(config: Partial<Config>): Config {
 
 let cachedConfig: Config | null = null;
 
+/** Clear in-memory config after home migration or external config edits. */
+export function invalidateConfigCache(): void {
+  cachedConfig = null;
+}
+
 export async function load(): Promise<Config> {
   if (cachedConfig !== null) {
     return cachedConfig;

@@ -15,6 +15,10 @@ Search the web for current external information.
 - `site` (optional): domain filter such as `github.com`.
 - `browserFallback` (optional): use bundled `agent-browser` if direct search fails. Defaults to true.
 
+## Notes
+
+- Omitted `maxResults` defaults to 5; omitted `browserFallback` defaults to true. A `Note:` in the result explains any defaults applied.
+
 ## Workflow
 
 1. Call `web_search` with a focused query.

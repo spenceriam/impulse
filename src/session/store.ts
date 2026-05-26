@@ -34,9 +34,19 @@ export interface Session {
   metadata?: Record<string, unknown>
 }
 
+/** API payload for user messages (text or multimodal); persisted for session resume. */
+export type UserMessageApiContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
 export interface Message {
   role: "user" | "assistant" | "system"
   content: string
+  /** Expanded provider content when display differs (paste tokens, images). */
+  apiContent?: UserMessageApiContent
   reasoning_content?: string
   content_blocks?: MessageContentBlock[]
   validation?: MessageValidation
@@ -81,6 +91,7 @@ export interface Todo {
 class SessionStoreImpl {
   private static instance: SessionStoreImpl;
   private saveTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private pendingUpdates: Map<string, Partial<Session>> = new Map();
   private saveDelay: number = 1000;
   
   // Cache projectID -> sessionID mapping for quick lookups
@@ -147,9 +158,16 @@ class SessionStoreImpl {
       clearTimeout(existingTimeout);
     }
 
+    const pending = this.pendingUpdates.get(sessionID) ?? {};
+    this.pendingUpdates.set(sessionID, { ...pending, ...updates });
+
     const timeout = setTimeout(async () => {
       try {
-        await this.update(sessionID, updates);
+        const merged = this.pendingUpdates.get(sessionID);
+        if (merged && Object.keys(merged).length > 0) {
+          await this.update(sessionID, merged);
+          this.pendingUpdates.delete(sessionID);
+        }
       } catch (e) {
         console.error(`Failed to auto-save session ${sessionID}:`, e);
       } finally {
@@ -158,6 +176,14 @@ class SessionStoreImpl {
     }, this.saveDelay);
 
     this.saveTimeouts.set(sessionID, timeout);
+  }
+
+  /**
+   * Write a full session snapshot immediately (used on flush/exit).
+   */
+  async writeSnapshot(session: Session): Promise<void> {
+    this.sessionProjectMap.set(session.id, session.projectID);
+    await Storage.write(this.getKey(session.id, session.projectID), session);
   }
 
   /**
@@ -219,6 +245,42 @@ class SessionStoreImpl {
     await Storage.remove(this.getKey(sessionID, projectID));
     this.sessionProjectMap.delete(sessionID);
     Bus.publish(SessionEvents.Deleted, { sessionID });
+  }
+
+  /**
+   * Immediately flush a pending auto-save for a session to disk.
+   * Clears any debounce timeout and writes immediately.
+   */
+  async flushSave(sessionID: string): Promise<void> {
+    const timeout = this.saveTimeouts.get(sessionID);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.saveTimeouts.delete(sessionID);
+    }
+
+    const pending = this.pendingUpdates.get(sessionID);
+    if (pending && Object.keys(pending).length > 0) {
+      try {
+        await this.update(sessionID, pending);
+      } catch (e) {
+        console.error(`Failed to flush session ${sessionID}:`, e);
+      }
+      this.pendingUpdates.delete(sessionID);
+    }
+  }
+
+  /**
+   * Flush all pending auto-saves across all sessions.
+   * Used on exit to ensure no data loss.
+   */
+  async flushAllSaves(): Promise<void> {
+    const sessionIDs = new Set([
+      ...this.saveTimeouts.keys(),
+      ...this.pendingUpdates.keys(),
+    ]);
+    for (const id of sessionIDs) {
+      await this.flushSave(id);
+    }
   }
 
   cancelAutoSave(sessionID: string): void {

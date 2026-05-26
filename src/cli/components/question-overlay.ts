@@ -5,6 +5,7 @@ import {
   type Component,
 } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
+import { overlayBoxWidth } from "../layout.js";
 
 const A = {
   reset: "\x1b[0m",
@@ -248,7 +249,7 @@ export class QuestionOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = Math.max(60, width);
+    const boxWidth = overlayBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
     const titleText = `${A.bold}${A.fg(39, "Need your input")}${A.reset}`;
     const topRight = "─".repeat(Math.max(0, boxWidth - 20));

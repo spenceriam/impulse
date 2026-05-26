@@ -4,7 +4,7 @@
  * This module provides a simple way for tool handlers to access the current mode
  * without needing to pass it through the entire execution chain.
  * 
- * The mode is set by App.tsx before each API call and read by tools that need
+ * The mode is set by the CLI renderer before each API call and read by tools that need
  * mode-aware behavior (like file_write restrictions in PLAN mode).
  */
 
@@ -15,7 +15,7 @@ type Mode = typeof MODES[number];
 let currentMode: Mode = "AGENT";
 
 /**
- * Set the current mode (called by App.tsx before API calls)
+ * Set the current mode (called by the CLI renderer before API calls)
  */
 export function setCurrentMode(mode: Mode): void {
   currentMode = mode;

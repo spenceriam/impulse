@@ -15,6 +15,7 @@ Fast content search across files using regular expressions.
 
 ## Notes
 
+- If `path` is omitted, search runs from the current working directory; the tool result may include a `Note:` explaining that default.
 - Results limited to 100 matches
 - Long lines are truncated to 120 characters
 - Use bash + rg for full raw output

@@ -17,6 +17,10 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 - **Advisor mode** — Plan/approve/execute pattern with separate advisor model and approval overlay
 - **Web research** — Built-in `web_search` and `web_fetch` with bundled `agent-browser` fallback
 - **Ollama provider** — Full integration with capability discovery via `/api/show`
+- **Session management** — `impulse --list-sessions`, `--enrich-session-titles`; `/resume` picker with titles; empty sessions hidden
+- **Full-width pickers** — `/model`, `/resume`, and provider setup use arrow-key overlays with wrapped labels
+- **DEBUG workflow** — Tab DEBUG mode uses evidence-first debugging; `/debug` toggles session log file only
+- **Profile** — `/user` overlay to view and edit preferences
 
 ## Installation
 
@@ -31,8 +35,8 @@ On first run, IMPULSE will guide you through interactive provider setup. You can
 export OLLAMA_API_KEY=your_key_here
 export OPENROUTER_API_KEY=your_key_here
 
-# Or config file (~/.config/impulse/config.json)
-echo '{"providers":{"ollama":{"baseUrl":"https://ollama.com"}},"defaultProvider":"ollama","defaultModel":"ollama/deepseek-v4-pro"}' > ~/.config/impulse/config.json
+# Or config file (~/.impulse/config.json)
+echo '{"providers":{"ollama":{"baseUrl":"https://ollama.com"}},"defaultProvider":"ollama","defaultModel":"ollama/deepseek-v4-pro"}' > ~/.impulse/config.json
 ```
 
 ## Quick Start
@@ -53,6 +57,11 @@ impulse --version
 | Flag | Description |
 |------|-------------|
 | `--setup` | Interactive provider configuration |
+| `--list-sessions` | Print session counts (total, resumeable, empty, titled) |
+| `--enrich-session-titles` | Backfill AI titles on saved sessions |
+| `--dry-run` | With `--enrich-session-titles`, preview without writing |
+| `--limit N` | With `--enrich-session-titles`, cap sessions processed |
+| `--project current` | With `--enrich-session-titles`, scope to cwd project only (default: all) |
 | `-v, --version` | Show version |
 | `-h, --help` | Show help |
 
@@ -78,7 +87,8 @@ Press `Tab` to cycle modes, `Shift+Tab` to cycle reasoning levels.
 | `/reason` | Set reasoning level (`off`, `low`, `medium`, `high`) |
 | `/user` | View/update profile and preferences |
 | `/new` | Start a new session |
-| `/debug` | Toggle debug logging |
+| `/debug` | Toggle session debug log file (not Tab DEBUG mode) |
+| `/resume` | Resume a saved session (picker) |
 | `/clear` | Clear the chat view |
 | `/help` | Show commands and keyboard shortcuts |
 | `/quit` | Exit |
@@ -99,7 +109,7 @@ IMPULSE includes provider-neutral web tools. The model can use `web_search` to d
 
 ## Configuration
 
-Config file: `~/.config/impulse/config.json`
+Config file: `~/.impulse/config.json` (migrates from `~/.config/impulse` on first run if present)
 
 ```json
 {

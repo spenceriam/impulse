@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { Bus, HeaderEvents } from "../bus";
+import { SessionManager } from "../session/manager.js";
 
 /**
  * Maximum length for header title (context portion only, not including "[IMPULSE] | ")
@@ -39,7 +40,7 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
         };
       }
 
-      // Emit event for UI to pick up
+      await SessionManager.setHeaderTitle(title);
       Bus.publish(HeaderEvents.Updated, { title });
 
       return {

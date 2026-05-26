@@ -2,7 +2,7 @@
  * ContextBar — footer component shown at the bottom of every turn.
  *
  * Layout (wide):
- *   model | 68k/200k 34% ████████░░░░ | dir ⎇ branch | mode | ⚡ tk/s ◷ secs
+ *   model | 68k/200k 34% | dir ⎇ branch | mode | ⚡ tk/s ◷ secs
  *
  * Narrow viewport: stats move to row 2, then mode, then dir/branch are dropped
  * from row 1 to keep the model name visible without truncation.
@@ -11,6 +11,10 @@
 import type { Component } from "@mariozechner/pi-tui";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { GUTTER, GUTTER_WIDTH } from "../gutter.js";
+import {
+  COMPACT_WARNING_THRESHOLD,
+  COMPACT_TRIGGER_THRESHOLD,
+} from "../../session/compact.js";
 import * as os from "os";
 import * as path from "path";
 import { execSync } from "child_process";
@@ -27,9 +31,8 @@ const clr = {
   model:   (s: string) => c.fg(36, s),   // cyan
   sep:     (s: string) => c.fg(90, s),   // dark gray
   ctx:     (s: string) => c.fg(33, s),   // yellow
-  bar:     (s: string) => c.fg(32, s),   // green
-  barWarn: (s: string) => c.fg(33, s),   // yellow (>70%)
-  barCrit: (s: string) => c.fg(31, s),   // red (>85%)
+  warn:    (s: string) => c.fg(33, s),   // orange/yellow — compaction approaching (50–59%)
+  crit:    (s: string) => c.fg(31, s),   // red — at/over auto-compact (60%+)
   dir:     (s: string) => c.fg(37, s),   // white
   branch:  (s: string) => c.fg(35, s),   // magenta
   mode:    (s: string) => c.fg(34, s),   // blue
@@ -62,13 +65,10 @@ function formatPercent(pct: number): string {
   return `${Math.round(percent)}%`;
 }
 
-function contextBar(pct: number, width = 12): string {
-  const filled = Math.round(pct * width);
-  const empty = width - filled;
-  const bar = "█".repeat(filled) + "░".repeat(empty);
-  if (pct >= 0.85) return clr.barCrit(bar);
-  if (pct >= 0.70) return clr.barWarn(bar);
-  return clr.bar(bar);
+function formatPercentColored(pct: number, pctStr: string): string {
+  if (pct >= COMPACT_TRIGGER_THRESHOLD) return clr.crit(pctStr);
+  if (pct >= COMPACT_WARNING_THRESHOLD) return clr.warn(pctStr);
+  return clr.ctx(pctStr);
 }
 
 function gitBranch(cwd: string): string {
@@ -162,8 +162,8 @@ export class ContextBarComponent implements Component {
       (s.visionMode && s.visionModel ? ` ${sep}${clr.advisor(shortModel(s.visionModel))} ${clr.advisor("(eye)")}` : "");
     const modelWidth = visibleWidth(modelFull);
 
-    // Context: "68k/200k 34% ████░░░░"
-    const ctxSeg = `${clr.ctx(tokStr)} ${clr.ctx(pctStr)} ${contextBar(pct)}`;
+    // Context: "68k/200k 34%"
+    const ctxSeg = `${clr.ctx(tokStr)} ${formatPercentColored(pct, pctStr)}`;
     const ctxWidth = visibleWidth(ctxSeg);
 
     // Dir + branch (optional — may be dropped)
@@ -256,9 +256,20 @@ export class ContextBarComponent implements Component {
 
     // Option E: Model alone on row 1 (never truncate), everything else on row 2
     const row2Parts = [ctxSeg, dirBranchFull, modeFull, statsFull].filter(s => visibleWidth(s.trim()) > 0);
+    const row2Joined = row2Parts.join(sep);
+    if (visibleWidth(row2Joined) <= avail) {
+      return [
+        truncateToWidth(GUTTER + modelFull, width),
+        truncateToWidth(GUTTER + row2Joined, width),
+        "",
+      ];
+    }
+
+    // Option F: ultra-narrow — one segment per row (model never truncated)
+    const stacked = [modelFull, ctxSeg, dirBranchFull, modeFull, statsFull].filter(s => visibleWidth(s.trim()) > 0);
     return [
-      truncateToWidth(GUTTER + modelFull, width),
-      truncateToWidth(GUTTER + row2Parts.join(sep), width),
+      truncateToWidth(GUTTER + stacked[0]!, width),
+      truncateToWidth(GUTTER + stacked.slice(1).join(sep), width),
       "",
     ];
   }

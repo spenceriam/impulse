@@ -3,6 +3,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ToolDefinition } from "../api/types";
 import type { MODES } from "../constants";
 import { getCurrentMode } from "./mode-state";
+import { validateToolInput } from "./input-repair";
 
 type Mode = typeof MODES[number];
 
@@ -180,24 +181,6 @@ export namespace Tool {
       });
   }
 
-  /**
-   * Strip null values from an object (AI may send null for optional fields)
-   * Zod's .optional() doesn't accept null, only undefined or absent
-   */
-  function stripNullValues(obj: unknown): unknown {
-    if (obj === null || obj === undefined) return undefined;
-    if (typeof obj !== "object") return obj;
-    if (Array.isArray(obj)) return obj.map(stripNullValues);
-    
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      if (value !== null && value !== undefined) {
-        result[key] = stripNullValues(value);
-      }
-    }
-    return result;
-  }
-
   export async function execute<TInput>(
     name: string,
     input: unknown
@@ -220,9 +203,14 @@ export namespace Tool {
     }
 
     try {
-      // Strip null values before validation - AI may send null for optional fields
-      const cleanedInput = stripNullValues(input);
-      const validated = tool.schema.parse(cleanedInput);
+      const validation = validateToolInput(tool.schema, input, { toolName: name });
+      if (!validation.success) {
+        return {
+          success: false,
+          output: validation.error,
+        };
+      }
+      const validated = validation.data;
 
       if (tool.timeout) {
         const result = await withTimeout(

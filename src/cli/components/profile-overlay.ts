@@ -1,0 +1,141 @@
+import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import type { UserProfile } from "../../util/config.js";
+import { overlayBoxWidth } from "../layout.js";
+import {
+  bgLine,
+  overlayAnsi,
+  overlayBottomBorder,
+  overlayDim,
+  overlayEmptyLine,
+  overlayMuted,
+  overlayTitleLine,
+  padToWidth,
+} from "./overlay-theme.js";
+
+export interface ProfileOverlayOptions {
+  profile?: UserProfile;
+}
+
+function fieldLines(
+  label: string,
+  value: string,
+  innerWidth: number
+): string[] {
+  const prefix = `${overlayDim(`${label}:`)} `;
+  const prefixWidth = visibleWidth(stripAnsi(prefix));
+  const wrapped = wrapTextWithAnsi(
+    value || overlayMuted("(not set)"),
+    Math.max(8, innerWidth - prefixWidth)
+  );
+  const lines: string[] = [];
+  for (let i = 0; i < wrapped.length; i++) {
+    const part = wrapped[i]!;
+    lines.push(i === 0 ? `${prefix}${part}` : `${" ".repeat(prefixWidth)}${part}`);
+  }
+  return lines.length > 0 ? lines : [`${prefix}${overlayMuted("(not set)")}`];
+}
+
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+export class ProfileOverlay implements Component {
+  private profile?: UserProfile;
+  private selectedAction = 0;
+  private readonly actions = [
+    { key: "edit", label: "Edit profile", hint: "e or Enter" },
+    { key: "close", label: "Close", hint: "Esc" },
+  ] as const;
+
+  onEdit?: () => void;
+  onCancel?: () => void;
+
+  constructor(opts: ProfileOverlayOptions) {
+    this.profile = opts.profile;
+  }
+
+  invalidate(): void {}
+
+  handleInput(data: string): void {
+    if (data === "\x1b") {
+      this.onCancel?.();
+      return;
+    }
+
+    if (data === "\x1b[A") {
+      this.selectedAction = Math.max(0, this.selectedAction - 1);
+      return;
+    }
+
+    if (data === "\x1b[B") {
+      this.selectedAction = Math.min(
+        this.actions.length - 1,
+        this.selectedAction + 1
+      );
+      return;
+    }
+
+    if (data === "e" || data === "E" || data === "\r") {
+      if (this.selectedAction === 0) {
+        this.onEdit?.();
+      } else {
+        this.onCancel?.();
+      }
+      return;
+    }
+
+    if (data === "n" || data === "N") {
+      this.onCancel?.();
+    }
+  }
+
+  render(width: number): string[] {
+    const boxWidth = overlayBoxWidth(width);
+    const innerWidth = Math.max(20, boxWidth - 4);
+    const lines: string[] = [];
+
+    lines.push(overlayTitleLine("User profile", boxWidth));
+    lines.push(overlayEmptyLine(boxWidth));
+
+    const name = this.profile?.name?.trim() ?? "";
+    const preference = this.profile?.responsePreference?.trim() || "concise";
+    const instructions = this.profile?.customInstructions?.trim() ?? "";
+
+    for (const inner of fieldLines("name", name, innerWidth)) {
+      lines.push(bgLine(`│ ${padToWidth(inner, innerWidth)} │`, boxWidth));
+    }
+    lines.push(overlayEmptyLine(boxWidth));
+
+    for (const inner of fieldLines("preference", preference, innerWidth)) {
+      lines.push(bgLine(`│ ${padToWidth(inner, innerWidth)} │`, boxWidth));
+    }
+    lines.push(overlayEmptyLine(boxWidth));
+
+    for (const inner of fieldLines("instructions", instructions || "(none)", innerWidth)) {
+      lines.push(bgLine(`│ ${padToWidth(inner, innerWidth)} │`, boxWidth));
+    }
+
+    lines.push(overlayEmptyLine(boxWidth));
+
+    for (let i = 0; i < this.actions.length; i++) {
+      const action = this.actions[i]!;
+      const isSelected = i === this.selectedAction;
+      const pointer = isSelected ? overlayAnsi.fg(39, ">") : " ";
+      const label = isSelected
+        ? overlayAnsi.fg(39, action.label)
+        : overlayMuted(action.label);
+      const row = `  ${pointer} ${label}  ${overlayDim(action.hint)}`;
+      lines.push(bgLine(`│ ${padToWidth(row, innerWidth)} │`, boxWidth));
+    }
+
+    lines.push(overlayEmptyLine(boxWidth));
+    lines.push(
+      bgLine(
+        `│ ${padToWidth(overlayDim("↑/↓ navigate   e: edit   Esc: close"), innerWidth)} │`,
+        boxWidth
+      )
+    );
+    lines.push(overlayBottomBorder(boxWidth));
+    return lines;
+  }
+}

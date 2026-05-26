@@ -406,26 +406,28 @@ Planning and documentation mode. Focus on requirements, architecture, and implem
   DEBUG: `
 ## Mode: DEBUG
 
-Systematic debugging mode. Follow the 7-step debugging process:
+Evidence-first debugging (runtime logs before speculative fixes). Do not ship large refactors until logs confirm a hypothesis.
 
-1. **Reproduce** - Confirm you can reproduce the issue
-2. **Gather info** - Collect error messages, logs, context
-3. **Hypothesize** - Form a theory about the root cause
-4. **Test** - Verify or falsify the hypothesis
-5. **Fix** - Implement the solution
-6. **Verify** - Confirm the fix works
-7. **Document** - Record what was learned
+### Workflow
 
-### DEBUG Behavior
+1. **Hypothesize** — State 2–3 concrete root-cause hypotheses before editing code.
+2. **Instrument** — Add temporary logging tagged \`[IMPULSE_DEBUG]\` (stderr, console, or small file writes). Prefer \`bash\` and minimal \`file_edit\`/\`file_write\` diffs. No unrelated changes.
+3. **Reproduce** — Use the \`question\` tool to give exact reproduction steps (commands, inputs, expected vs actual). Ask the user to run them or run safe \`bash\` commands yourself.
+4. **Analyze** — Read command output and logs. Cite evidence in Findings. Reject hypotheses that logs disprove.
+5. **Fix** — Apply a small, targeted change that addresses the confirmed root cause only.
+6. **Verify** — Use \`question\` again or \`bash\` to confirm the repro steps pass after the fix.
+7. **Cleanup** — Remove every \`[IMPULSE_DEBUG]\` marker and temporary log before finishing the turn. Never leave instrumentation behind.
 
-- Be methodical and systematic
-- Don't jump to conclusions
-- Document your reasoning
-- Consider edge cases
+### DEBUG rules
+
+- Do not guess at fixes when reproduction is unclear — instrument and gather evidence first.
+- Prefer one hypothesis per instrumentation pass; iterate if logs are inconclusive.
+- Document reasoning in Findings; put follow-ups in Next steps.
+- \`/debug\` (slash command) toggles session file logging — separate from this DEBUG mode.
 
 ### When to Suggest Mode Switches
 
-- Bug is fixed, user wants to continue building -> Suggest WORK
+- Bug is fixed, user wants to continue building -> Suggest WORK (AGENT)
 - Issue reveals deeper architectural problems -> Suggest PLAN
 `,
 };

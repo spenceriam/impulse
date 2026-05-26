@@ -1,6 +1,6 @@
 # PRINCIPLES.md
 
-> Non-negotiable rules for glm-cli development. Violations break user trust.
+> Non-negotiable rules for IMPULSE development. Violations break user trust.
 
 ## UI/UX Principles
 
@@ -10,10 +10,9 @@
 - Use text symbols where indicators needed (arrows, bullets)
 
 ### Flicker-Free Rendering
-- 16ms event batching for all streaming updates
-- Use `batch()` from solid-js for coalesced state updates
-- Use `reconcile()` for efficient deep state updates
-- Target 60fps minimum
+- Batch streaming updates to avoid terminal flicker
+- Target smooth redraws during tool execution and token streaming
+- pi-tui components re-render on terminal resize without pixel scaling
 
 ### Double-Press Safety
 - `Esc` requires 2 presses to cancel operation
@@ -24,7 +23,7 @@
 ## API Principles
 
 ### No Silent Fallbacks
-- Never silently switch API endpoints or models
+- Never silently switch providers, models, or endpoints
 - Always notify user of any fallback action
 - Explicit error dialogs with clear options
 - User must acknowledge before proceeding
@@ -35,10 +34,11 @@
 - Exponential backoff between retries
 - After 5 failures, show explicit error dialog
 
-### Single API Endpoint
-- Use `https://api.z.ai/api/coding/paas/v4/` exclusively
-- No fallback to standard endpoints
-- Coding Plan endpoint enables thinking mode
+### Multi-Provider Architecture
+- Provider selection is explicit via config and `/model`
+- Each provider implements the shared `Provider` interface in `src/api/providers/`
+- Z.ai remains a supported provider (Coding Plan endpoint) but is not the only path
+- No silent fallback between providers
 
 ## Git Principles
 
@@ -48,88 +48,46 @@
 - Show what will be pushed before confirming
 
 ### Per-Message Checkpoints
-- Create git checkpoint after every assistant message
-- Enable granular undo/redo per interaction
-- Checkpoint includes all file changes in that turn
-- Use lightweight tags or stash for checkpoints
+- Git checkpoint created before each user message
+- Enables `/undo` to revert to prior state
+- Checkpoint branches use `impulse-checkpoint-*` prefix (legacy `glm-checkpoint-*` still readable)
 
-### Commit Discipline
-- Conventional commits format required
-- Commit after each discrete, working change
-- Never commit broken code
-- Clear, descriptive commit messages
+## Permission Principles
+
+### Explicit Approval
+- Destructive tools require user approval unless express mode is on
+- Permission prompts show tool name, target path/command, and scope options
+- Rejection messages guide the agent with `[USER DECISION]` prefix
+
+### Express Mode Safety
+- Express mode auto-approves tool permissions for the session only
+- First enable shows a warning; user must acknowledge
+- Never persisted across sessions by default
 
 ## Session Principles
 
-### Auto-Save
-- Save session state every 30 seconds
-- Save on any destructive operation
-- Save before exit (even on crash if possible)
+### Session Integrity
+- All messages persisted through `SessionManager`
+- Tool results stored with matching `tool_call_id`
+- Reasoning content preserved in assistant messages for providers that support it
 
-### Auto-Compact
-- Trigger at 70% context window usage
-- AI-powered summarization preserves key context
-- Never lose critical information
-- Show notification when compacting
+### Context Management
+- Auto-compact at 60% context fill
+- Manual `/compact` available
+- Context usage shown in footer context bar
 
-### Thinking Preservation
-- Preserve `reasoning_content` in conversation history
-- Thinking mode ON by default for GLM-4.7
-- Collapsible display in UI
-- Track thinking tokens separately in stats
-
-## Tool Principles
-
-### Explicit Tool Results
-- Always show tool execution status
-- Collapsible blocks for verbose output
-- Never hide errors from user
-- Clear success/failure indicators
-
-### File Operation Safety
-- Confirm before overwriting existing files
-- Show diff preview for edits when practical
-- Never delete without confirmation
-- Respect .gitignore patterns
-
-## Error Handling Principles
-
-### User-Facing Errors
-- Clear, actionable error messages
-- No stack traces in UI (log them separately)
-- Always provide next steps or options
-- Retry / Change Config / Quit pattern
-
-### Graceful Degradation
-- MCP server failures don't crash the app
-- Missing config prompts for setup
-- Network issues trigger retry flow
-- Always maintain usable state
-
-## Code Quality Principles
+## Code Principles
 
 ### TypeScript Strict
-- `strict: true` in tsconfig
 - No `any` types
-- Explicit return types on public functions
-- Zod for runtime validation at boundaries
+- Zod for runtime validation at tool and command boundaries
+- Branded tool schemas in `src/tools/schemas/`
 
-### No Magic
-- Explicit over implicit
-- Clear data flow
-- Minimal abstraction layers
-- Code should be readable without comments
+### Tool Input Repair
+- Use `validateToolInput()` from `src/tools/input-repair/` before Zod parse
+- Do not use legacy `stripNullValues()` — removed in favor of the repair layer
 
-## Documentation Principles
-
-### Living Documentation
-- AGENTS.md is the project brain
-- Update docs with code changes
-- Decision log for architectural choices
-- Date-stamp all generated docs
-
-### Consistency
-- Follow established naming conventions
-- Match existing patterns in codebase
-- Use templates for similar content
-- Keep structure predictable
+### Minimal Scope
+- Smallest correct diff
+- Match existing conventions in surrounding code
+- No drive-by refactors

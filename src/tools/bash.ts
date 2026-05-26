@@ -11,6 +11,7 @@ import {
   type ShellOutputEvent,
   type PtyHandle,
 } from "../pty";
+import { zCommandString, zFilePath } from "./schemas/branded";
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
@@ -19,9 +20,9 @@ Required: command, description. Optional: workdir, timeout, interactive.
 See docs/tools/bash.md for safety rules and usage details.`;
 
 const BashSchema = z.object({
-  command: z.string(),
+  command: zCommandString(),
   description: z.string(),
-  workdir: z.string().optional(),
+  workdir: zFilePath().optional(),
   timeout: z.number().optional(),
   interactive: z.boolean().optional(),
 });

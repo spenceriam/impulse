@@ -64,7 +64,7 @@ async function handleHelp() {
     "─".repeat(78),
     `${"(Thinking)".padEnd(24)}AI is using provider-supported extended reasoning`,
     `${"[EXPRESS]".padEnd(24)}Express mode - all permissions auto-approved (orange)`,
-    `${"[████░░░░] 45%".padEnd(24)}Context window usage - auto-compacts at 70%`,
+    `${"68k/200k 45%".padEnd(24)}Context window usage - orange % at 50%, auto-compacts at 60%`,
     `${"web_search".padEnd(24)}Discover current external sources`,
     `${"web_fetch".padEnd(24)}Read exact URLs from search results or user input`,
     "",
@@ -81,7 +81,7 @@ async function handleHelp() {
     "─".repeat(78),
     `${"/new".padEnd(14)}New session${"".padEnd(10)}${"/model".padEnd(14)}Switch model`,
     `${"/save".padEnd(14)}Save session${"".padEnd(9)}${"/mode".padEnd(14)}Switch mode`,
-    `${"/continue".padEnd(14)}Continue session${"".padEnd(5)}${"/stats".padEnd(14)}Session statistics`,
+    `${"/resume".padEnd(14)}Resume session${"".padEnd(8)}${"/stats".padEnd(14)}Session statistics`,
     `${"/compact".padEnd(14)}Summarize context${"".padEnd(4)}${"/user".padEnd(14)}User profile`,
     `${"/quit".padEnd(14)}Exit with summary${"".padEnd(4)}${"/express".padEnd(14)}Toggle express mode`,
     `${"/engage".padEnd(14)}Toggle engage mode`,
@@ -443,7 +443,7 @@ export function registerInfoCommands(): void {
       category: "info",
       description: "Show welcome screen",
       handler: async () => {
-        // Handled specially in App.tsx - returns signal to show overlay
+        // Handled in the CLI renderer — returns signal to show overlay
         return { success: true, output: "__SHOW_START_OVERLAY__" };
       },
       examples: ["/start"],
@@ -453,7 +453,7 @@ export function registerInfoCommands(): void {
       category: "info",
       description: "Show current todo list",
       handler: async () => {
-        // Handled specially in App.tsx - returns signal to show todo overlay
+        // Handled in the CLI renderer — returns signal to show todo overlay
         return { success: true, output: "__SHOW_TODO_OVERLAY__" };
       },
       examples: ["/todo"],
@@ -463,7 +463,7 @@ export function registerInfoCommands(): void {
       category: "info",
       description: "View release changelog",
       handler: async () => {
-        // Handled specially in App.tsx - returns signal to show changelog overlay
+        // Handled in the CLI renderer — returns signal to show changelog overlay
         return { success: true, output: "__SHOW_CHANGELOG_OVERLAY__" };
       },
       examples: ["/changelog"],
