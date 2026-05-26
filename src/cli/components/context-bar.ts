@@ -269,8 +269,8 @@ export class ContextBarComponent implements Component {
     const stacked = [modelFull, ctxSeg, dirBranchFull, modeFull, statsFull].filter(s => visibleWidth(s.trim()) > 0);
     return [
       truncateToWidth(GUTTER + stacked[0]!, width),
-      truncateToWidth(GUTTER + (stacked[1] ?? ""), width),
-      truncateToWidth(GUTTER + stacked.slice(2).join(sep), width),
+      truncateToWidth(GUTTER + stacked.slice(1).join(sep), width),
+      "",
     ];
   }
 }
