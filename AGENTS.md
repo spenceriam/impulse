@@ -300,7 +300,7 @@ Version bumping happens after task completion, before committing:
 5. Commit: `git commit -m "feat/diff/fix: description"`
 6. Create git tag: `git tag -a v0.X.Y -m "Release v0.X.Y"`
 7. **Ask user before pushing**: Push tags and commits?
-8. **Release trigger reminder**: npm/GitHub Packages publishing runs on tag push (`v*`), not PR merge alone
+8. **Release trigger reminder**: merging to `main` with a new `package.json` version auto-creates `v*` tag (see `release-on-main.yml`); tag push runs `release.yml` (npm publish + draft GitHub Release)
 
 ### Verification Commands
 
@@ -1381,11 +1381,16 @@ impulse --verbose
 
 IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipeline builds standalone binaries for 6 platform/architecture combinations and publishes them as scoped npm packages.
 
-### Workflow: `.github/workflows/release.yml`
+### Workflows
 
-**Triggers:**
-- Push to tags matching `v*` (e.g., `v0.15.6`)
-- Manual workflow dispatch with version input
+**`.github/workflows/release-on-main.yml`** — on push to `main`:
+- Reads `version` from root `package.json`
+- If tag `v{version}` does not exist, creates and pushes it (idempotent)
+
+**`.github/workflows/release.yml`** — on push to tags `v*` or manual dispatch:
+- Builds platform binaries and publishes to npm + GitHub Packages
+- Generates `release-notes.md` from `CHANGELOG.md` via `scripts/changelog-to-release-notes.mjs`
+- Creates a **draft** GitHub Release (publish manually on GitHub when ready)
 
 ### Build Matrix
 
@@ -1441,23 +1446,20 @@ IMPULSE uses GitHub Actions for automated builds and npm publishing. The pipelin
 ### Release Workflow
 
 ```bash
-# 1. Update version
-npm version patch  # or minor/major
-
-# 2. Update CHANGELOG.md
-# 3. Commit changes
-git add -A && git commit -m "fix/feat: description"
-
-# 4. Create and push tag
-git tag -a v0.X.Y -m "Release v0.X.Y"
+# 1. Bump version in package.json (bun version patch|minor|major)
+# 2. Add CHANGELOG.md entry for that version (Title + Added/Changed/Fixed)
+# 3. Commit and merge to main
+git add -A && git commit -m "chore: release vX.Y.Z"
 git push origin main
-git push origin v0.X.Y
 
-# 5. Monitor workflow
-gh run watch
+# 4. CI auto-tags vX.Y.Z if missing, then release.yml builds + publishes npm
+# 5. Publish the draft GitHub Release when notes look right
+gh run watch --workflow=Release
 ```
 
-**Important:** Merging to `main` does not publish a release by itself. Publishing is triggered by pushing the `vX.Y.Z` tag (or manual workflow dispatch).
+**Manual fallback:** push `vX.Y.Z` tag yourself or run Release workflow dispatch with version input.
+
+**Important:** npm publishes automatically when the tag is created. The GitHub Release stays a **draft** until you click Publish on the releases page.
 
 ### Secrets Required
 

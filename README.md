@@ -160,6 +160,12 @@ IMPULSE wouldn't exist without these projects:
 - **[OpenCode](https://opencode.ai)** — The original inspiration
 - **[Pi Coding Agent](https://pi.dev)** — Inspiration for the rework and simplification
 
+## Releasing
+
+1. Bump `version` in `package.json` and add a `CHANGELOG.md` section for that version.
+2. Merge to `main`. CI creates tag `vX.Y.Z` if it does not exist yet, then builds and publishes `@spenceriam/impulse` to npm.
+3. Open the **draft** [GitHub Release](https://github.com/spenceriam/impulse/releases), review notes (generated from CHANGELOG), and click **Publish release**.
+
 ## License
 
 [GNU AGPL-3.0](LICENSE)

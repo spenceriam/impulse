@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -235,3 +235,18 @@ jobs:
         run: |
           cd packages/cli
           npm publish --registry=https://npm.pkg.github.com
+
+      - name: Generate release notes from CHANGELOG
+        run: node scripts/changelog-to-release-notes.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Read release title
+        id: release_title
+        run: echo "title=$(cat release-title.txt)" >> $GITHUB_OUTPUT
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: ${{ steps.release_title.outputs.title }}
+          body_path: release-notes.md
+          draft: true
