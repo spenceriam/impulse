@@ -51,6 +51,15 @@ const PATH_WITH_SPACES_RE = new RegExp(
   "i"
 );
 
+/**
+ * Global-flagged variants for {@link String.prototype.matchAll}, which throws
+ * a TypeError when given a non-global RegExp. The non-global versions above are
+ * retained for stateless `.test()` calls (a global regex would advance
+ * `lastIndex` across calls and yield inconsistent results).
+ */
+const PATH_BODY_RE_GLOBAL = new RegExp(PATH_BODY_RE.source, "gi");
+const PATH_WITH_SPACES_RE_GLOBAL = new RegExp(PATH_WITH_SPACES_RE.source, "gi");
+
 const QUOTED_PATH_RE = new RegExp(
   `("([^"]+\\.(?:${EXT_PATTERN}))"|'([^']+\\.(?:${EXT_PATTERN}))')`,
   "gi"
@@ -179,7 +188,7 @@ export function extractImagePathRefs(text: string): ImagePathRef[] {
     addRef(m.index!, m.index! + raw.length, raw, m[1]!);
   }
 
-  for (const re of [PATH_WITH_SPACES_RE, PATH_BODY_RE]) {
+  for (const re of [PATH_WITH_SPACES_RE_GLOBAL, PATH_BODY_RE_GLOBAL]) {
     for (const m of text.matchAll(re)) {
       const raw = m[0]!;
       const start = m.index!;
