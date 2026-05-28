@@ -9,14 +9,22 @@
 ### Identity
 
 - **Name:** IMPULSE
-- **Version:** v1.1.0
+- **Version:** v1.1.2
 - **Tagline:** Provider-flexible terminal AI coding agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.1.0 released (2026-05-23) — session management, full-width pickers, DEBUG workflow
+**Status:** v1.1.2 release candidate (2026-05-23) — CLI polish, advisor/experimental UX, help overlay scroll
+
+### v1.1.2 (Release candidate 2026-05-23)
+
+- [x] `/help` scrollable overlay with full command descriptions and wrapped table layout
+- [x] Permission overlay content-sized height; Why/Policy lines; file overwrite prompts
+- [x] `/speedo`, prompt history (↑), welcome hints; prompt clear at turn start
+- [x] `/experimental` gating, plan approval overlay, advisor path allowlist, thinking/busy shimmer
+- [x] `/update`, model picker sections, model persistence, co-partner AGENT prompts (since v1.1.0)
 
 ### v1.1.0 (Released 2026-05-23)
 
@@ -817,6 +825,7 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 | `/vision` | Toggle vision model translation (`on` / `off`) |
 | `/advisor` | Configure or toggle advisor mode (`on` / `off` / model id) |
 | `/debug` | Toggle session debug log file (not Tab DEBUG mode) |
+| `/speedo` | Toggle turn tokens/second and elapsed turn time on the status bar |
 | `/undo` | Git-based revert to checkpoint |
 | `/redo` | Restore undone changes |
 | `/model` | Switch configured model |
