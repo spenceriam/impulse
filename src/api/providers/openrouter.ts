@@ -51,7 +51,7 @@ export class OpenRouterProvider implements AIProvider {
       maxRetries: 0,
       defaultHeaders: {
         "HTTP-Referer": "https://github.com/spenceriam/impulse",
-        "X-Title": "Impulse",
+        "X-Title": "impulse",
       },
     });
     return this.client;

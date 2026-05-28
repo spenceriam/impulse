@@ -39,9 +39,9 @@ async function handleStats() {
 
 async function handleHelp() {
   const lines: string[] = [
-    "IMPULSE Quick Reference",
+    "impulse Quick Reference",
     "",
-    "IMPULSE is a provider-flexible AI coding agent. Use natural language",
+    "impulse is a provider-flexible AI coding agent. Use natural language",
     "to build, debug, and explore codebases with full tool access.",
     "",
     "MODES (Tab to cycle)",
@@ -83,8 +83,7 @@ async function handleHelp() {
     `${"/save".padEnd(14)}Save session${"".padEnd(9)}${"/mode".padEnd(14)}Switch mode`,
     `${"/resume".padEnd(14)}Resume session${"".padEnd(8)}${"/stats".padEnd(14)}Session statistics`,
     `${"/compact".padEnd(14)}Summarize context${"".padEnd(4)}${"/user".padEnd(14)}User profile`,
-    `${"/quit".padEnd(14)}Exit with summary${"".padEnd(4)}${"/express".padEnd(14)}Toggle express mode`,
-    `${"/engage".padEnd(14)}Toggle engage mode`,
+    `${"/quit".padEnd(14)}Exit with summary${"".padEnd(4)}${"/allow-all".padEnd(14)}Bypass permission prompts`,
   ];
 
   return {

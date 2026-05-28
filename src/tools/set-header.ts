@@ -2,18 +2,21 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { Bus, HeaderEvents } from "../bus";
 import { SessionManager } from "../session/manager.js";
+import { isWeakHeaderTitle } from "../util/header-title.js";
 
 /**
- * Maximum length for header title (context portion only, not including "[IMPULSE] | ")
+ * Maximum length for header title (context portion only, not including "[impulse] | ")
  */
-const MAX_TITLE_LENGTH = 50;
+const MAX_TITLE_LENGTH = 60;
 
 /**
  * Tool description for AI
  */
-const DESCRIPTION = `Set the session header title.
+const DESCRIPTION = `Set the session header title for session management (/resume lists).
 
-Required: title (max ${MAX_TITLE_LENGTH} chars).
+Required: title (max ${MAX_TITLE_LENGTH} chars) — short human description (e.g. "Math question", "API client refactor").
+Do NOT use answer echoes, numbers only, or "# 625".
+Use only on substantive work turns, not trivial Q&A.
 See docs/tools/set-header.md for guidelines.`;
 
 const SetHeaderSchema = z.object({
@@ -40,12 +43,20 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
         };
       }
 
+      if (isWeakHeaderTitle(title)) {
+        return {
+          success: false,
+          output:
+            "Title must be a short descriptive phrase (e.g. 'Math question'), not an answer or number only.",
+        };
+      }
+
       await SessionManager.setHeaderTitle(title);
       Bus.publish(HeaderEvents.Updated, { title });
 
       return {
         success: true,
-        output: `Header updated to: [IMPULSE] | ${title}`,
+        output: `Header updated to: [impulse] | ${title}`,
         metadata: {
           title,
         },

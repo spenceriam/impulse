@@ -59,20 +59,18 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       
       const content = await readFile(safePath, "utf-8");
       
-      // Only ask permission for files outside the working directory
-      if (!isWithinCwd(safePath)) {
-        await askPermission({
-          sessionID: "current",
-          permission: "edit",
-          patterns: [safePath],
-          message: `Edit file outside cwd: ${safePath}`,
-          metadata: {
-            oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
-            newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
-            reason: "Path outside working directory",
-          },
-        });
-      }
+      const outsideCwd = !isWithinCwd(safePath);
+      await askPermission({
+        sessionID: "current",
+        permission: "edit",
+        patterns: [safePath],
+        message: outsideCwd ? `Edit file outside cwd: ${safePath}` : `Edit file: ${safePath}`,
+        metadata: {
+          oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
+          newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
+          ...(outsideCwd ? { reason: "Path outside working directory" } : {}),
+        },
+      });
       
       const occurrences = (content.match(new RegExp(escapeRegex(input.oldString), "g")) ?? []).length;
 

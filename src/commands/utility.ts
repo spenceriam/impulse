@@ -280,17 +280,11 @@ async function handleThinkingBlocks() {
   };
 }
 
-async function handleExpress() {
+async function handleAllowAll() {
   return {
     success: true,
-    output: "Use /express in the CLI to toggle auto-approve permissions.",
-  };
-}
-
-async function handleEngage() {
-  return {
-    success: true,
-    output: "Use /engage in the CLI to toggle high-autonomy mode (AGENT + express).",
+    output:
+      "Use /allow-all in the CLI to toggle bypassing all permission prompts (session-only, disclaimer required).",
   };
 }
 
@@ -359,18 +353,11 @@ export function registerUtilityCommands(): void {
       examples: ["/thinking-blocks", "/thinking"],
     },
     {
-      name: "express",
+      name: "allow-all",
       category: "utility",
-      description: "Toggle Express mode (auto-approve all permissions)",
-      handler: handleExpress,
-      examples: ["/express"],
-    },
-    {
-      name: "engage",
-      category: "utility",
-      description: "Toggle Engage mode (WORK + express + deeper autonomous loop)",
-      handler: handleEngage,
-      examples: ["/engage"],
+      description: "Toggle bypassing all tool permission prompts (session-only)",
+      handler: handleAllowAll,
+      examples: ["/allow-all"],
     },
     {
       name: "verbose",

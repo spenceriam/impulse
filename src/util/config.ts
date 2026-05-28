@@ -1,4 +1,5 @@
 import { Global } from "../global";
+import { SessionManager } from "../session/manager";
 import fs from "fs/promises";
 import path from "path";
 import z from "zod";
@@ -34,8 +35,11 @@ const ConfigSchema = z.object({
   /** Default provider name (e.g. "openai", "anthropic", "z.ai", "openrouter", "groq", "gemini", "nous") */
   defaultProvider: z.string().default("ollama").describe("Which provider to use by default"),
 
-  /** Default model — include provider prefix when ambiguous (e.g. "openai/gpt-4o") */
-  defaultModel: z.string().default("ollama/llama3.2").describe("Default model to use"),
+  /** Default model — include provider prefix when ambiguous (e.g. "ollama/kimi-k2.6") */
+  defaultModel: z.string().default("").describe("Default model to use"),
+
+  /** True after user explicitly picks a model via /model or provider setup */
+  modelExplicitlySet: z.boolean().default(false).describe("User chose default model"),
 
   /** Advisor model — optional second model for strategic guidance */
   advisorModel: z.string().optional().describe("Advisor model for strategic guidance"),
@@ -79,6 +83,13 @@ const ConfigSchema = z.object({
     /** Custom instructions injected into every system prompt */
     customInstructions: z.string().default(""),
   }).optional(),
+
+  /** Experimental features — off by default until stable */
+  experimental: z
+    .object({
+      advisor: z.boolean().default(false),
+    })
+    .default({ advisor: false }),
 
   // Legacy — kept for smooth migration; prefer providers[].apiKey
   apiKey: z.string().optional().describe("Legacy: use providers[defaultProvider].apiKey instead"),
@@ -149,7 +160,7 @@ export function invalidateConfigCache(): void {
 
 export async function load(): Promise<Config> {
   if (cachedConfig !== null) {
-    return cachedConfig;
+    return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
   }
 
   const fileConfig = await loadConfigFile();
@@ -171,8 +182,59 @@ export async function load(): Promise<Config> {
     ...envConfig,
     providers,
   };
-  cachedConfig = applyDefaults(merged as Partial<Config>);
-  return cachedConfig;
+  const parsed = applyDefaults(merged as Partial<Config>);
+  // Legacy configs: existing defaultModel implies explicit choice
+  if (
+    fileConfig.defaultModel &&
+    typeof (fileConfig as { modelExplicitlySet?: boolean }).modelExplicitlySet !== "boolean"
+  ) {
+    parsed.modelExplicitlySet = true;
+  }
+  // Advisor requires experimental flag
+  if (parsed.advisorMode && !isExperimentalAdvisorEnabled(parsed)) {
+    parsed.advisorMode = false;
+  }
+  cachedConfig = parsed;
+  return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
+}
+
+/** Experimental advisor feature enabled in config. */
+export function isExperimentalAdvisorEnabled(config: Config): boolean {
+  return config.experimental?.advisor === true;
+}
+
+/** Session-scoped advisor: active only when toggled in-session or restored on resume. */
+export function applySessionAdvisor(config: Config): Config {
+  if (!isExperimentalAdvisorEnabled(config)) {
+    return { ...config, advisorMode: false };
+  }
+  const session = SessionManager.getCurrentSession();
+  if (session?.advisorMode === true) {
+    return {
+      ...config,
+      advisorMode: true,
+      advisorModel: session.advisorModel ?? config.advisorModel,
+    };
+  }
+  return { ...config, advisorMode: false };
+}
+
+/** Session-scoped vision: active only when toggled in-session or restored on resume. */
+export function applySessionVision(config: Config): Config {
+  const session = SessionManager.getCurrentSession();
+  if (session?.visionMode === true) {
+    return {
+      ...config,
+      visionMode: true,
+      visionModel: session.visionModel ?? config.visionModel,
+    };
+  }
+  return { ...config, visionMode: false };
+}
+
+/** Whether the user has saved a default model (required before chat). */
+export function isModelConfigured(config: Config): boolean {
+  return Boolean(config.modelExplicitlySet && config.defaultModel?.trim());
 }
 
 export async function save(config: Config): Promise<void> {

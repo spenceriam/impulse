@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { isAbsolute, relative, resolve } from "path";
 import { Tool, ToolResult } from "./registry";
 import { Bus } from "../bus/bus";
 import { SubagentEvents } from "../bus/events";
+import type { TaskActionEntry } from "../types/tool-metadata.js";
 import { getProviderManager } from "../api/manager";
 import type { CompletionOptions } from "../api/provider";
 import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
@@ -69,7 +71,7 @@ async function executeSubagent(
   prompt: string,
   _description: string,  // Kept for potential future logging
   thoroughness?: Thoroughness
-): Promise<{ success: boolean; output: string; summary: string[] }> {
+): Promise<{ success: boolean; output: string; summary: string[]; actions: TaskActionEntry[] }> {
   let systemPrompt = getSubagentPrompt(type);
   
   // Add thoroughness instructions for explore subagent
@@ -91,8 +93,8 @@ async function executeSubagent(
     { role: "user", content: prompt },
   ];
   
-  // Summary of actions taken (for display)
   const actionSummary: string[] = [];
+  const actionEntries: TaskActionEntry[] = [];
   
   // Conversation loop
   const manager = await getProviderManager();
@@ -113,7 +115,7 @@ async function executeSubagent(
     
     const choice = response.choices[0];
     if (!choice) {
-      return { success: false, output: "No response from model", summary: actionSummary };
+      return { success: false, output: "No response from model", summary: actionSummary, actions: actionEntries };
     }
     
     const assistantMessage = choice.message;
@@ -145,6 +147,7 @@ async function executeSubagent(
         success: true,
         output: contentText,
         summary: actionSummary,
+        actions: actionEntries,
       };
     }
     
@@ -167,13 +170,14 @@ async function executeSubagent(
         // Parse arguments
         const args = JSON.parse(toolCall.function.arguments || "{}");
         
-        // Execute tool
+        const label = formatSubagentToolLabel(toolName, args);
+        const toolStart = Date.now();
         const result = await Tool.execute(toolName, args);
-        
-        // Add to summary
-        const argSummary = extractArgSummary(args);
-        actionSummary.push(`${toolName}${argSummary ? ` ${argSummary}` : ""}`);
-        Bus.publish(SubagentEvents.Progress, { type: "tool", content: `${toolName}${argSummary ? " " + argSummary : ""}` });
+        const durationMs = Date.now() - toolStart;
+
+        actionSummary.push(label);
+        actionEntries.push({ label, durationMs });
+        Bus.publish(SubagentEvents.Progress, { type: "tool", content: label, durationMs });
         
         toolResults.push({
           tool_call_id: toolCall.id,
@@ -204,21 +208,38 @@ async function executeSubagent(
     success: false,
     output: "Subagent reached maximum iterations without completing",
     summary: actionSummary,
+    actions: actionEntries,
   };
 }
 
+function formatArgForDisplay(value: string): string {
+  const cwd = process.cwd();
+  if (isAbsolute(value)) {
+    const rel = relative(cwd, resolve(value));
+    if (rel && !rel.startsWith("..")) {
+      return rel.startsWith(".") ? rel : `./${rel}`;
+    }
+  }
+  return value;
+}
+
 /**
- * Extract a brief summary from tool arguments for display
+ * Full argument summary for sub-agent progress lines (no truncation).
  */
-function extractArgSummary(args: Record<string, unknown>): string {
+export function extractArgSummary(args: Record<string, unknown>): string {
   const keys = ["path", "filePath", "file", "command", "pattern", "query"];
   for (const key of keys) {
     if (args[key]) {
-      const val = String(args[key]);
-      return val.length > 30 ? val.slice(0, 27) + "..." : val;
+      return formatArgForDisplay(String(args[key]));
     }
   }
   return "";
+}
+
+/** Label shown in sub-agent tool progress: `toolName argSummary`. */
+export function formatSubagentToolLabel(toolName: string, args: Record<string, unknown>): string {
+  const argSummary = extractArgSummary(args);
+  return `${toolName}${argSummary ? ` ${argSummary}` : ""}`;
 }
 
 export const taskTool: Tool<TaskInput> = Tool.define(
@@ -278,8 +299,8 @@ export const taskTool: Tool<TaskInput> = Tool.define(
           type: "task",
           subagentType: input.subagent_type,
           description: input.description,
-          toolCallCount: result.summary.length,
-          actions: result.summary,
+          toolCallCount: result.actions.length,
+          actions: result.actions,
         },
       };
     } catch (error) {

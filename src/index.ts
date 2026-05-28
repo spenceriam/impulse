@@ -38,6 +38,21 @@ if (args.includes("--version") || args.includes("-v")) {
   process.exit(0);
 }
 
+// ─── --update ────────────────────────────────────────────────────────────────
+if (args.includes("--update")) {
+  const { checkForUpdate, performUpdate, getCurrentVersion } = await import(
+    "./util/update-check.js"
+  );
+  const update = await checkForUpdate();
+  if (!update) {
+    console.log(`Already on latest (v${getCurrentVersion()}).`);
+    process.exit(0);
+  }
+  console.log(`Updating ${update.currentVersion} -> ${update.latestVersion}...`);
+  performUpdate(update.latestVersion);
+  process.exit(0);
+}
+
 // ─── --help ──────────────────────────────────────────────────────────────────
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
@@ -53,6 +68,7 @@ if (args.includes("--help") || args.includes("-h")) {
     impulse --enrich-session-titles Backfill AI titles on saved sessions
     impulse --list-sessions           Count sessions (total, empty, titled)
     impulse --version                 Show version
+    impulse --update                  Install latest from npm and exit
 `);
   process.exit(0);
 }

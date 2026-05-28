@@ -2,14 +2,15 @@ import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi
 import type { UserProfile } from "../../util/config.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
-  bgLine,
+  intrinsicFramedBoxWidth,
   overlayAnsi,
   overlayBottomBorder,
   overlayDim,
   overlayEmptyLine,
   overlayMuted,
+  overlayRenderBoxWidth,
+  overlaySideLine,
   overlayTitleLine,
-  padToWidth,
 } from "./overlay-theme.js";
 
 export interface ProfileOverlayOptions {
@@ -42,6 +43,7 @@ function stripAnsi(s: string): string {
 export class ProfileOverlay implements Component {
   private profile?: UserProfile;
   private selectedAction = 0;
+  private measureTerminalWidth: number | null = null;
   private readonly actions = [
     { key: "edit", label: "Edit profile", hint: "e or Enter" },
     { key: "close", label: "Close", hint: "Esc" },
@@ -52,6 +54,25 @@ export class ProfileOverlay implements Component {
 
   constructor(opts: ProfileOverlayOptions) {
     this.profile = opts.profile;
+  }
+
+  setMeasureTerminalWidth(cols: number): void {
+    this.measureTerminalWidth = cols;
+  }
+
+  preferredBoxWidth(terminalWidth: number): number {
+    const terminal = this.measureTerminalWidth ?? terminalWidth;
+    const name = this.profile?.name?.trim() ?? "";
+    const preference = this.profile?.responsePreference?.trim() || "concise";
+    const instructions = this.profile?.customInstructions?.trim() ?? "";
+    const widths: number[] = [
+      visibleWidth(`name: ${name || "(not set)"}`),
+      visibleWidth(`preference: ${preference}`),
+      visibleWidth(instructions || "(none)"),
+      visibleWidth("  > Edit profile  e or Enter"),
+      visibleWidth("↑/↓ navigate   e: edit   Esc: close"),
+    ];
+    return intrinsicFramedBoxWidth(terminal, "User profile", widths);
   }
 
   invalidate(): void {}
@@ -90,7 +111,7 @@ export class ProfileOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = overlayBoxWidth(width);
+    const boxWidth = overlayRenderBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
     const lines: string[] = [];
 
@@ -102,17 +123,17 @@ export class ProfileOverlay implements Component {
     const instructions = this.profile?.customInstructions?.trim() ?? "";
 
     for (const inner of fieldLines("name", name, innerWidth)) {
-      lines.push(bgLine(`│ ${padToWidth(inner, innerWidth)} │`, boxWidth));
+      lines.push(overlaySideLine(inner, innerWidth, boxWidth));
     }
     lines.push(overlayEmptyLine(boxWidth));
 
     for (const inner of fieldLines("preference", preference, innerWidth)) {
-      lines.push(bgLine(`│ ${padToWidth(inner, innerWidth)} │`, boxWidth));
+      lines.push(overlaySideLine(inner, innerWidth, boxWidth));
     }
     lines.push(overlayEmptyLine(boxWidth));
 
     for (const inner of fieldLines("instructions", instructions || "(none)", innerWidth)) {
-      lines.push(bgLine(`│ ${padToWidth(inner, innerWidth)} │`, boxWidth));
+      lines.push(overlaySideLine(inner, innerWidth, boxWidth));
     }
 
     lines.push(overlayEmptyLine(boxWidth));
@@ -125,13 +146,14 @@ export class ProfileOverlay implements Component {
         ? overlayAnsi.fg(39, action.label)
         : overlayMuted(action.label);
       const row = `  ${pointer} ${label}  ${overlayDim(action.hint)}`;
-      lines.push(bgLine(`│ ${padToWidth(row, innerWidth)} │`, boxWidth));
+      lines.push(overlaySideLine(row, innerWidth, boxWidth));
     }
 
     lines.push(overlayEmptyLine(boxWidth));
     lines.push(
-      bgLine(
-        `│ ${padToWidth(overlayDim("↑/↓ navigate   e: edit   Esc: close"), innerWidth)} │`,
+      overlaySideLine(
+        overlayDim("↑/↓ navigate   e: edit   Esc: close"),
+        innerWidth,
         boxWidth
       )
     );

@@ -10,6 +10,12 @@ import {
   type Focusable,
 } from "@mariozechner/pi-tui";
 import { GUTTER } from "./gutter.js";
+import {
+  extractImagePathRefs,
+  filePathInPasteRegex,
+  isImagePathCandidate,
+  resolveImagePath,
+} from "./image-paths.js";
 
 export type PasteGroup = {
   display: string;
@@ -127,6 +133,23 @@ export function buildUserMessageContent(
   return parts;
 }
 
+/**
+ * After path attachment, use refreshed payload only when editor text changed.
+ * Preserves slash-command payload when the editor was cleared before handling.
+ */
+export function resolveSubmitPayloadAfterPathAttach(
+  initial: PromptSubmitPayload,
+  editorText: string,
+  getFreshPayload: () => PromptSubmitPayload
+): PromptSubmitPayload {
+  const trimmed = editorText.trim();
+  const initialTrim = initial.displayMessage.trim();
+  if (trimmed && trimmed !== initialTrim) {
+    return getFreshPayload();
+  }
+  return initial;
+}
+
 export function buildSubmitPayload(editorText: string, groups: PasteGroup[]): PromptSubmitPayload {
   const segments = buildPromptSegments(editorText, groups);
   return {
@@ -141,6 +164,7 @@ export class PromptInput implements Component, Focusable {
   focused = false;
 
   private editor: Editor;
+  /** @deprecated Arrow uses dim styling; mode color is context-bar only. */
   private _modeColorCode = 34;
   private _pasteGroups: PasteGroup[] = [];
   private _detectedImages: string[] = [];
@@ -167,8 +191,9 @@ export class PromptInput implements Component, Focusable {
     this.editor = new Editor(t, theme ?? ({} as EditorTheme), { paddingX: 0 });
   }
 
-  setModeColor(code: number): void {
-    this._modeColorCode = code;
+  /** No-op: prompt chevron uses dim styling to match separator lines. */
+  setModeColor(_code: number): void {
+    this._modeColorCode = _code;
   }
   setSecretMode(enabled: boolean): void {
     this._secretMode = enabled;
@@ -222,6 +247,44 @@ export class PromptInput implements Component, Focusable {
     return this.getSubmitPayload().orderedImages;
   }
 
+  /**
+   * Resolve file/@ paths in the editor into [Pasted image #N] tokens.
+   * Mutates editor text and paste groups. Returns error messages for missing files.
+   */
+  async attachImagePathsFromEditor(cwd: string = process.cwd()): Promise<string[]> {
+    const errors: string[] = [];
+    let text = this.editor.getText();
+    const refs = extractImagePathRefs(text);
+    if (refs.length === 0) return errors;
+
+    for (const ref of [...refs].reverse()) {
+      const resolved = await resolveImagePath(ref.path, cwd);
+      if (!resolved.ok) {
+        errors.push(resolved.reason);
+        continue;
+      }
+
+      const idx = this._nextImageIndex;
+      const label = `[Pasted image #${idx}]`;
+      this._pasteGroups.push({
+        display: label,
+        content: resolved.uri,
+        originalDisplay: label,
+        kind: "image",
+        imageIndex: idx,
+      });
+      this._detectedImages.push(resolved.uri);
+      this._nextImageIndex = idx + 1;
+
+      text = text.slice(0, ref.start) + label + text.slice(ref.end);
+    }
+
+    this.editor.setText(text);
+    this._syncPasteGroupsAfterEdit();
+
+    return errors;
+  }
+
   private _detectImages(content: string): number {
     let found = 0;
     const base64Regex = /data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[A-Za-z0-9+/=]+/gi;
@@ -235,13 +298,7 @@ export class PromptInput implements Component, Focusable {
       }
     }
 
-    const extGroup = "(?:png|jpg|jpeg|gif|webp|bmp)";
-    const fileRegex = new RegExp(
-      `(?:/(?:tmp|home|var|Users)/[^\\s\\n]*\\.${extGroup}|
-         [A-Za-z]:\\\\[^\\s\\n]*\\.${extGroup}|
-         file:///[^\\s\\n]*\\.${extGroup})`,
-      "gi"
-    );
+    const fileRegex = filePathInPasteRegex();
     const fileMatches = content.match(fileRegex);
     if (fileMatches) {
       for (const match of fileMatches) {
@@ -464,9 +521,18 @@ export class PromptInput implements Component, Focusable {
     const content = this._pasteBuffer;
     this._pasteBuffer = "";
 
+    const lines = content.split("\n").filter((l) => l.length > 0);
+
+    if (lines.length === 1 && isImagePathCandidate(lines[0]!)) {
+      this.editor.setText(lines[0]!.trim());
+      void this.attachImagePathsFromEditor().then(() => {
+        this.onChange?.(this.editor.getText());
+      });
+      return;
+    }
+
     const imagesBefore = this._detectedImages.length;
     const imageCount = this._detectImages(content);
-    const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (imageCount > 0) {
       const startIndex = this._nextImageIndex;
@@ -517,14 +583,15 @@ export class PromptInput implements Component, Focusable {
   }
 
   render(width: number): string[] {
-    const editorWidth = Math.max(1, width - 5);
+    const arrowVisible = 2;
+    const editorWidth = Math.max(1, width - GUTTER.length - arrowVisible);
     const rawLines = this.editor.render(editorWidth);
     const innerLines = (rawLines.length > 2 ? rawLines.slice(1, -1) : rawLines).map((l) =>
       l.replace(/\x1b_pi:c\x07/g, "")
     );
     const firstLine = innerLines[0] ?? "";
     const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
-    const ARROW = `${GUTTER}\x1b[${this._modeColorCode}m\u276f\x1b[0m `;
+    const ARROW = `${GUTTER}\x1b[2m\u276f\x1b[0m `;
 
     if (this._secretMode) {
       const valueLength = this.editor.getText().length;

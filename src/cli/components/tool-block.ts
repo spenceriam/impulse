@@ -11,6 +11,9 @@ import { GUTTER } from "../gutter.js";
 
 /** Sub-indent for continuation lines under a tool block (GUTTER + 3 more spaces) */
 const SUB_INDENT = GUTTER + "   ";
+
+/** Sub-agent / task-action list lines: SUB_INDENT + 2 gutter widths + bullet */
+export const SUBAGENT_LINE_PREFIX = SUB_INDENT + GUTTER + GUTTER + "- ";
 import {
   TypeGuards,
   type FileEditMetadata,
@@ -18,6 +21,7 @@ import {
   type GlobMetadata,
   type GrepMetadata,
   type ToolMetadata,
+  type TaskActionEntry,
   type TodoMetadata,
 } from "../../types/tool-metadata.js";
 
@@ -53,13 +57,114 @@ type RenderedResult = {
   metadata?: Record<string, unknown>;
 };
 
-export type ToolBlockState =
-  | { status: "running"; name: string; argsSummary: string }
-  | { status: "done"; name: string; argsSummary: string; result: RenderedResult; durationMs: number };
+export type ToolBlockOptions = {
+  subagentCodename?: string;
+};
 
-export type SubagentProgressLine = { type: "text" | "tool" | "thinking"; content: string };
+type TodoPreviewItem = TodoMetadata["todos"][number];
+
+export type ToolBlockState =
+  | {
+      status: "running";
+      name: string;
+      argsSummary: string;
+      subagentCodename?: string;
+      previewTodos?: TodoPreviewItem[];
+      taskStartedAt?: number;
+    }
+  | {
+      status: "done";
+      name: string;
+      argsSummary: string;
+      subagentCodename?: string;
+      result: RenderedResult;
+      durationMs: number;
+    };
+
+export function displayToolName(name: string, codename?: string): string {
+  if (name === "task" && codename) return `task (${codename})`;
+  if (name === "task") return "task (sub-agent)";
+  return name;
+}
+
+export function formatSubagentAbortLabel(codename?: string): string {
+  if (codename) return `[${codename} sub-agent aborted]`;
+  return "[sub-agent aborted]";
+}
+
+export type SubagentProgressLine = {
+  type: "text" | "tool" | "thinking";
+  content: string;
+  durationMs?: number;
+};
+
+export function isUserDecisionToolOutput(output: string): boolean {
+  return output.toLowerCase().includes("[user decision]");
+}
 
 type Outcome = "success" | "failed" | "blocked" | "aborted";
+
+const TODO_STATUSES = new Set(["pending", "in_progress", "completed", "cancelled"]);
+
+function parseTodosFromArgs(args: Record<string, unknown>): TodoPreviewItem[] | undefined {
+  const raw = args["todos"];
+  if (!Array.isArray(raw)) return undefined;
+
+  const parsed: TodoPreviewItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const id = typeof record["id"] === "string" ? record["id"] : "";
+    const content = typeof record["content"] === "string" ? record["content"] : "";
+    const status = typeof record["status"] === "string" ? record["status"] : "";
+    if (!id || !content || !TODO_STATUSES.has(status)) continue;
+    const priority =
+      record["priority"] === "high" || record["priority"] === "low"
+        ? record["priority"]
+        : "medium";
+    parsed.push({
+      id,
+      content,
+      status: status as TodoPreviewItem["status"],
+      priority,
+    });
+  }
+
+  return parsed.length > 0 ? parsed : undefined;
+}
+
+function summarizeTodoCounts(todos: TodoPreviewItem[]): string {
+  const total = todos.length;
+  const completed = todos.filter((t) => t.status === "completed").length;
+  const inProgress = todos.filter((t) => t.status === "in_progress").length;
+  const cancelled = todos.filter((t) => t.status === "cancelled").length;
+  const done = completed + cancelled;
+
+  if (total === 0) return "todos";
+  if (done === total) return `${done}/${total} done`;
+  if (inProgress > 0 && completed > 0) {
+    return `${completed} done, ${inProgress} in progress`;
+  }
+  if (inProgress > 0) return `${inProgress} in progress`;
+  return `${done}/${total} done`;
+}
+
+export function summarizeTodoArgs(name: string, args: Record<string, unknown>): string {
+  if (name === "todo_read") return "read todos";
+  if (name === "todo_write") {
+    const todos = parseTodosFromArgs(args);
+    if (todos) return summarizeTodoCounts(todos).slice(0, 50);
+    return "todos";
+  }
+  return "todos";
+}
+
+function summarizeTodoDoneSummary(name: string, metadata: TodoMetadata): string {
+  const counts = summarizeTodoCounts(metadata.todos);
+  if (name === "todo_write") return `todos updated · ${counts}`.slice(0, 70);
+  if (metadata.total === 0) return "read todos · empty";
+  return `read todos · ${counts}`.slice(0, 70);
+}
 
 function summarizeArgs(name: string, args: Record<string, unknown>): string {
   if (name === "question") {
@@ -67,8 +172,9 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
     return context.length > 0 ? context.slice(0, 70) : "waiting for your answer…";
   }
 
-  if (name === "todo_write") return "updating todos";
-  if (name === "todo_read") return "reading todos";
+  if (name === "todo_write" || name === "todo_read") {
+    return summarizeTodoArgs(name, args);
+  }
 
   if (name === "task") {
     const description = typeof args["description"] === "string" ? String(args["description"]) : "delegating subagent task";
@@ -147,15 +253,19 @@ function todoLine(todo: TodoMetadata["todos"][number]): string {
   }
 }
 
-function renderTodoList(metadata: TodoMetadata, width: number): string[] {
-  const visibleTodos = metadata.todos.slice(0, MAX_TODO_ROWS);
+function renderTodoListFromTodos(todos: TodoPreviewItem[], width: number): string[] {
+  const visibleTodos = todos.slice(0, MAX_TODO_ROWS);
   const lines = visibleTodos.flatMap((todo) => wrapPrefixed(SUB_INDENT, todoLine(todo), width));
 
-  if (metadata.todos.length > MAX_TODO_ROWS) {
-    lines.push(truncateToWidth(`       ${clr.dim(`… ${metadata.todos.length - MAX_TODO_ROWS} more items`)}`, width));
+  if (todos.length > MAX_TODO_ROWS) {
+    lines.push(truncateToWidth(`       ${clr.dim(`… ${todos.length - MAX_TODO_ROWS} more items`)}`, width));
   }
 
   return lines;
+}
+
+function renderTodoList(metadata: TodoMetadata, width: number): string[] {
+  return renderTodoListFromTodos(metadata.todos, width);
 }
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
@@ -281,21 +391,61 @@ function classifyOutcome(result: RenderedResult): Outcome {
   if (output.includes("[user decision]") || output.includes("permission denied")) {
     return "blocked";
   }
-  if (output.includes("aborted") || output.includes("cancelled") || output.includes("canceled")) {
+  if (
+    output.includes("aborted") ||
+    output.includes("sub-agent aborted") ||
+    output.includes("cancelled") ||
+    output.includes("canceled")
+  ) {
     return "aborted";
   }
   return "failed";
 }
 
-function outcomeLabel(outcome: Outcome): string {
+function outcomeLabel(
+  outcome: Outcome,
+  toolName: string,
+  subagentCodename?: string
+): string {
   switch (outcome) {
     case "blocked":
       return clr.dim("[blocked]");
     case "aborted":
+      if (toolName === "task") return clr.dim(formatSubagentAbortLabel(subagentCodename));
       return clr.dim("[aborted]");
     default:
       return "";
   }
+}
+
+function formatTaskActionLabel(entry: TaskActionEntry | string): string {
+  if (typeof entry === "string") return entry;
+  return `${entry.label}  ${formatDuration(entry.durationMs)}`;
+}
+
+function formatSubagentProgressText(line: SubagentProgressLine): string {
+  const duration =
+    line.durationMs !== undefined ? `  ${formatDuration(line.durationMs)}` : "";
+  return `${line.content}${duration}`;
+}
+
+function renderSubagentProgressLines(lines: SubagentProgressLine[], width: number): string[] {
+  return lines.flatMap((line) =>
+    wrapPrefixed(SUBAGENT_LINE_PREFIX, clr.dim(formatSubagentProgressText(line)), width)
+  );
+}
+
+function renderTaskActionLines(actions: TaskActionEntry[], width: number, maxRows = 6): string[] {
+  const visible = actions.slice(0, maxRows);
+  const rendered = visible.flatMap((action) =>
+    wrapPrefixed(SUBAGENT_LINE_PREFIX, clr.dim(formatTaskActionLabel(action)), width)
+  );
+  if (actions.length > maxRows) {
+    rendered.push(
+      truncateToWidth(`       ${clr.dim(`… ${actions.length - maxRows} more actions`)}`, width)
+    );
+  }
+  return rendered;
 }
 
 function formatDuration(durationMs: number): string {
@@ -319,11 +469,10 @@ function renderMetadata(metadata: ToolMetadata | null, output: string, success: 
   }
 
   if (metadata && TypeGuards.isTask(metadata) && metadata.actions.length > 0) {
-    const actions = metadata.actions.slice(0, 6).flatMap((action) => wrapPrefixed("     - ", action, width));
-    if (metadata.actions.length > 6) {
-      actions.push(truncateToWidth(`       ${clr.dim(`… ${metadata.actions.length - 6} more actions`)}`, width));
-    }
-    return actions;
+    const normalized: TaskActionEntry[] = metadata.actions.map((action) =>
+      typeof action === "string" ? { label: action, durationMs: 0 } : action
+    );
+    return renderTaskActionLines(normalized, width);
   }
 
   if (success && metadata && TypeGuards.isFileEdit(metadata)) {
@@ -343,6 +492,9 @@ function renderMetadata(metadata: ToolMetadata | null, output: string, success: 
   }
 
   if (!success) {
+    if (isUserDecisionToolOutput(output)) {
+      return [];
+    }
     return renderTrimmedOutput(output, width, MAX_OUTPUT_ROWS);
   }
 
@@ -353,11 +505,15 @@ export class ToolBlock implements Component {
   private state: ToolBlockState;
   private subagentLines: SubagentProgressLine[] = [];
 
-  constructor(name: string, args: Record<string, unknown>) {
+  constructor(name: string, args: Record<string, unknown>, opts?: ToolBlockOptions) {
+    const previewTodos = name === "todo_write" ? parseTodosFromArgs(args) : undefined;
     this.state = {
       status: "running",
       name,
       argsSummary: summarizeArgs(name, args),
+      ...(opts?.subagentCodename ? { subagentCodename: opts.subagentCodename } : {}),
+      ...(previewTodos ? { previewTodos } : {}),
+      ...(name === "task" ? { taskStartedAt: Date.now() } : {}),
     };
   }
 
@@ -371,13 +527,34 @@ export class ToolBlock implements Component {
 
 
   setDone(result: RenderedResult, durationMs: number): void {
+    const codename =
+      this.state.status === "running" ? this.state.subagentCodename : undefined;
+    const name = this.state.name;
+    let argsSummary = this.state.argsSummary;
+    const metadata = asToolMetadata(result.metadata);
+    if (metadata && TypeGuards.isTodo(metadata)) {
+      argsSummary = summarizeTodoDoneSummary(name, metadata);
+    }
     this.state = {
       status: "done",
-      name: this.state.name,
-      argsSummary: this.state.argsSummary,
+      name,
+      argsSummary,
+      ...(codename ? { subagentCodename: codename } : {}),
       result,
       durationMs,
     };
+  }
+
+  /** Completed tool row for session replay (no running spinner). */
+  static fromCompleted(
+    name: string,
+    args: Record<string, unknown>,
+    result: RenderedResult,
+    durationMs = 0
+  ): ToolBlock {
+    const block = new ToolBlock(name, args);
+    block.setDone(result, durationMs);
+    return block;
   }
 
   invalidate(): void {}
@@ -385,17 +562,45 @@ export class ToolBlock implements Component {
   render(width: number): string[] {
     const state = this.state;
 
+    const toolLabel = displayToolName(state.name, state.subagentCodename);
+
     if (state.status === "running") {
       const spinner = clr.running(currentSpinner(state.name));
-      return [truncateToWidth(`${GUTTER}${spinner} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}`, width)];
+      const liveElapsed =
+        state.name === "task" && state.taskStartedAt !== undefined
+          ? `  ${clr.duration(formatDuration(Date.now() - state.taskStartedAt))}`
+          : "";
+      const lines = [
+        truncateToWidth(
+          `${GUTTER}${spinner} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}${liveElapsed}`,
+          width
+        ),
+      ];
+      if (state.previewTodos && state.previewTodos.length > 0) {
+        lines.push(...renderTodoListFromTodos(state.previewTodos, width));
+      }
+      if (state.name === "task" && this.subagentLines.length > 0) {
+        lines.push(...renderSubagentProgressLines(this.subagentLines, width));
+      }
+      return lines;
     }
 
     const outcome = classifyOutcome(state.result);
-    const icon = outcome === "success" ? clr.success("✓") : clr.error("✗");
-    const label = outcomeLabel(outcome);
+    const taskAborted = state.name === "task" && outcome === "aborted";
+    const icon = taskAborted
+      ? clr.dim("✓")
+      : outcome === "success"
+        ? clr.success("✓")
+        : clr.error("✗");
+    const label = outcomeLabel(outcome, state.name, state.subagentCodename);
     const duration = clr.duration(formatDuration(state.durationMs));
     const suffix = label.length > 0 ? `  ${label}` : "";
-    const lines = [truncateToWidth(`${GUTTER}${icon} ${clr.toolName(state.name)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`, width)];
+    const lines = [
+      truncateToWidth(
+        `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`,
+        width
+      ),
+    ];
     const metadata = asToolMetadata(state.result.metadata);
     lines.push(...renderMetadata(metadata, state.result.output, state.result.success, width));
     return lines;

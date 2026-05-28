@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import os from "os";
 
 class SecurityError extends Error {
   constructor(message: string) {
@@ -44,8 +45,26 @@ function resolveWithExistingAncestors(targetPath: string): string {
   return resolved;
 }
 
+function advisorPlansDir(): string {
+  return path.join(os.homedir(), ".impulse", "advisor-plans");
+}
+
 function sanitizePath(filePath: string, baseDir: string = process.cwd()): string {
-  const resolved = path.resolve(baseDir, filePath);
+  const resolved = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(baseDir, filePath);
+
+  const plansBase = path.resolve(advisorPlansDir());
+  try {
+    const plansReal = realpathOrResolved(plansBase);
+    const targetResolved = resolveWithExistingAncestors(resolved);
+    if (isWithinBase(plansReal, targetResolved)) {
+      return targetResolved;
+    }
+  } catch {
+    // plans dir may not exist yet
+  }
+
   const normalizedBaseDir = path.resolve(baseDir);
 
   if (!isWithinBase(normalizedBaseDir, resolved)) {

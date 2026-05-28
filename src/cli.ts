@@ -230,12 +230,15 @@ async function runSetup(): Promise<void> {
     providers: {},
     defaultProvider: providerKey,
     defaultModel,
+    modelExplicitlySet: Boolean(defaultModel?.trim()),
     defaultMode: "AGENT",
     thinking: true,
     reasoningLevel: "medium",
     maxOutputTokens: 32000,
     hasSeenWelcome: false,
-    advisorMode: false, visionMode: false,
+    advisorMode: false,
+    visionMode: false,
+    experimental: { advisor: false },
   }));
 
   cfg.providers[providerKey as keyof Config["providers"]] = {
@@ -245,6 +248,7 @@ async function runSetup(): Promise<void> {
   };
   cfg.defaultProvider = providerKey;
   cfg.defaultModel = defaultModel;
+  cfg.modelExplicitlySet = true;
   if (envVar) process.env[envVar] = key;
 
   await saveConfig(cfg);

@@ -9,10 +9,16 @@ import {
   type ModelProviderOption,
 } from "../model-setup.js";
 import { load as loadConfig, type Config } from "../../util/config.js";
-import type { ModelInfo } from "../model-catalog.js";
+import {
+  formatContextK,
+  formatModelDate,
+  type ModelInfo,
+} from "../model-catalog.js";
+import { modelSupportsVision } from "../../api/providers/capabilities.js";
 import {
   SelectableListOverlay,
   type SelectableListRow,
+  type SelectableListTableHeaders,
 } from "./selectable-list-overlay.js";
 
 export interface ModelPickerState {
@@ -23,28 +29,72 @@ export interface ModelPickerState {
   discover: () => Promise<void>;
 }
 
-function flatRows(
+const PROVIDER_SEPARATOR = "--------------------";
+
+export const MODEL_PICKER_TABLE_HEADERS: SelectableListTableHeaders = {
+  title: "Model",
+  mode: "Ctx",
+  model: "",
+  updated: "Added",
+};
+
+export function modelInfoToTableCells(info: ModelInfo): {
+  title: string;
+  mode: string;
+  model: string;
+  updated: string;
+} {
+  const title = `${info.vendor}/${info.displayName} (${info.id})`;
+  const mode =
+    info.contextTokens != null ? formatContextK(info.contextTokens) : "—";
+  const updated = info.addedAt ? formatModelDate(info.addedAt) : "—";
+  return { title, mode, model: "", updated };
+}
+
+/** Build grouped rows for model picker (exported for tests). */
+export function buildProviderGroupedRows(
   entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>
 ): SelectableListRow[] {
   const rows: SelectableListRow[] = [];
-  const multi = entries.filter((e) => e.infos.length > 0).length > 1;
+  const withModels = entries.filter((e) => e.infos.length > 0);
+  let first = true;
 
-  for (const entry of entries) {
-    if (entry.infos.length === 0) continue;
-    if (multi) {
+  for (const entry of withModels) {
+    if (!first) {
       rows.push({
-        id: `__header__${entry.providerKey}`,
-        label: `── ${entry.label} ──`,
+        id: `__sep__${entry.providerKey}`,
+        label: PROVIDER_SEPARATOR,
       });
     }
+    first = false;
+    rows.push({
+      id: `__header__${entry.providerKey}`,
+      label: `${entry.label}:`,
+    });
     for (const info of entry.infos) {
+      const cells = modelInfoToTableCells(info);
       rows.push({
         id: `${entry.providerKey}\0${info.id}`,
         label: info.pickerLine,
+        tableCells: cells,
       });
     }
   }
   return rows;
+}
+
+function flatRows(
+  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>
+): SelectableListRow[] {
+  return buildProviderGroupedRows(entries);
+}
+
+export interface BuildModelPickerOptions {
+  maxHeight?: number;
+  visionOnly?: boolean;
+  title?: string;
+  emptyMessage?: string;
+  helpLines?: string[];
 }
 
 /**
@@ -52,14 +102,8 @@ function flatRows(
  */
 export async function buildModelPickerState(
   config: Config,
-  opts?: { maxHeight?: number }
+  opts?: BuildModelPickerOptions
 ): Promise<ModelPickerState> {
-  const providers =
-    (config.providers as Record<
-      string,
-      { apiKey?: string; baseUrl?: string; type?: string }
-    >) ?? {};
-
   const entries: Array<{
     provider: ModelProviderOption;
     providerKey: string;
@@ -97,13 +141,35 @@ export async function buildModelPickerState(
     });
   }
 
+  const filterVision = (infos: ModelInfo[]) =>
+    opts?.visionOnly
+      ? infos.filter((i) => modelSupportsVision(i.id))
+      : infos;
+
   const overlay = new SelectableListOverlay({
-    title: "Switch model",
-    rows: flatRows(entries),
+    title: opts?.title ?? (opts?.visionOnly ? "Switch vision model" : "Switch model"),
+    rows: flatRows(
+      entries.map((e) => ({
+        providerKey: e.providerKey,
+        label: e.label,
+        infos: filterVision(e.infos),
+      }))
+    ),
     loading: entries.some((e) => e.loading),
     loadingMessage: "  Discovering models…",
-    emptyMessage: "  No models available",
+    emptyMessage:
+      opts?.emptyMessage ??
+      (opts?.visionOnly
+        ? "  No vision-capable models for configured providers"
+        : "  No models available"),
     maxHeight: opts?.maxHeight ?? 18,
+    boxSizing: "responsive",
+    layout: "table",
+    tableHeaders: MODEL_PICKER_TABLE_HEADERS,
+    tableOmitModelColumn: true,
+    helpLines: opts?.helpLines ?? [
+      "↑/↓ navigate   Type to filter   Enter select   m: Manage providers   Esc cancel",
+    ],
   });
 
   const state: ModelPickerState = {
@@ -129,9 +195,17 @@ export async function buildModelPickerState(
           entry.error = (err as Error).message;
         }
       }
-      const rows = flatRows(entries);
+      const rows = flatRows(
+        entries.map((e) => ({
+          providerKey: e.providerKey,
+          label: e.label,
+          infos: filterVision(e.infos),
+        }))
+      );
       const stillLoading = entries.some((e) => e.loading);
-      const anyModels = rows.some((r) => !r.id.startsWith("__header__"));
+      const anyModels = rows.some(
+        (r) => !r.id.startsWith("__header__") && !r.id.startsWith("__sep__")
+      );
       overlay.setRows(rows);
       if (!anyModels && !stillLoading) {
         overlay.setLoading(false);
@@ -141,6 +215,19 @@ export async function buildModelPickerState(
   };
 
   return state;
+}
+
+/** Vision-only model picker. */
+export async function buildVisionModelPickerState(
+  config: Config,
+  opts?: { maxHeight?: number }
+): Promise<ModelPickerState> {
+  return buildModelPickerState(config, {
+    ...opts,
+    visionOnly: true,
+    title: "Switch vision model",
+    emptyMessage: "  No vision-capable models for configured providers",
+  });
 }
 
 /** @deprecated Use buildModelPickerState */
@@ -186,7 +273,7 @@ export class ModelPickerOverlay implements Component {
 export function parseModelPickerSelection(
   compoundId: string
 ): { providerKey: string; modelId: string } | null {
-  if (compoundId.startsWith("__header__")) return null;
+  if (compoundId.startsWith("__header__") || compoundId.startsWith("__sep__")) return null;
   const idx = compoundId.indexOf("\0");
   if (idx < 0) return null;
   return {

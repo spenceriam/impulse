@@ -21,7 +21,7 @@ export * from "./types";
  * - session: Auto-approve for current session (in-memory)
  * - always: Save to project config (persisted to .impulse/permissions.json)
  * 
- * When Express mode is ON, all permissions are auto-approved.
+ * When /allow-all bypass is ON, all permissions are auto-approved (session-scoped, not persisted).
  */
 
 // Project permissions file path
@@ -76,17 +76,8 @@ const sessionApprovals = new Map<string, Map<string, Set<string>>>();
  */
 let projectApprovals: Map<string, Set<string>> | null = null;
 
-/**
- * Express mode state
- */
-let expressMode = false;
-let expressAcknowledged = false;
-
-/**
- * "Allow All Edits" mode - auto-approves file_edit and file_write only
- * Session-scoped, cleared when session ends (NOT persisted on /save + /resume)
- */
-let allowAllEditsMode = false;
+/** /allow-all bypass — auto-approve all tool permissions (in-memory only). */
+let allowAllBypass = false;
 
 /**
  * Load project permissions from .impulse/permissions.json
@@ -170,78 +161,17 @@ function isProjectApproved(permission: string, pattern: string): boolean {
   return permissionApprovals.has(pattern) || permissionApprovals.has("*");
 }
 
-/**
- * Check if Express mode is enabled
- */
-export function isExpressMode(): boolean {
-  return expressMode;
+export function isAllowAllBypass(): boolean {
+  return allowAllBypass;
 }
 
-/**
- * Check if Express mode has been acknowledged (warning shown)
- */
-export function isExpressAcknowledged(): boolean {
-  return expressAcknowledged;
+export function setAllowAllBypass(on: boolean): void {
+  allowAllBypass = on;
 }
 
-/**
- * Enable Express mode
- * @returns true if this is the first time enabling (needs warning)
- */
-export function enableExpress(): boolean {
-  const needsWarning = !expressAcknowledged;
-  expressMode = true;
-  return needsWarning;
-}
-
-/**
- * Acknowledge Express mode (after user sees warning)
- */
-export function acknowledgeExpress(): void {
-  expressAcknowledged = true;
-}
-
-/**
- * Disable Express mode
- */
-export function disableExpress(): void {
-  expressMode = false;
-}
-
-/**
- * Toggle Express mode
- * @returns { enabled: boolean, needsWarning: boolean }
- */
-export function toggleExpress(): { enabled: boolean; needsWarning: boolean } {
-  if (expressMode) {
-    disableExpress();
-    return { enabled: false, needsWarning: false };
-  } else {
-    const needsWarning = enableExpress();
-    return { enabled: true, needsWarning };
-  }
-}
-
-/**
- * Check if "Allow All Edits" mode is enabled
- */
-export function isAllowAllEdits(): boolean {
-  return allowAllEditsMode;
-}
-
-/**
- * Enable "Allow All Edits" mode (session-scoped)
- * Only auto-approves file_edit and file_write permissions
- */
-export function enableAllowAllEdits(): void {
-  allowAllEditsMode = true;
-}
-
-/**
- * Disable "Allow All Edits" mode
- */
-export function disableAllowAllEdits(): void {
-  allowAllEditsMode = false;
+/** Reset bypass (new session, resume, /new — never persisted). */
+export function resetAllowAllBypass(): void {
+  allowAllBypass = false;
 }
 
 /**
@@ -293,16 +223,10 @@ export async function ask(input: {
   metadata?: Record<string, unknown>;
   tool?: { messageID: string; callID: string };
 }): Promise<void> {
-  // Express mode - auto-approve everything
-  if (expressMode) {
+  if (allowAllBypass) {
     return;
   }
-  
-  // "Allow All Edits" mode - auto-approve file_edit and file_write only
-  if (allowAllEditsMode && (input.permission === "edit" || input.permission === "write")) {
-    return;
-  }
-  
+
   // Check if all patterns are already approved
   const unapprovedPatterns = input.patterns.filter(
     (p) => !isApproved(input.sessionID, input.permission, p)
@@ -431,11 +355,9 @@ export function getPermissionLabel(permission: string): string {
 
 /**
  * Clear all approvals for a session (e.g., when session ends)
- * Also clears "Allow All Edits" mode since it's session-scoped
  */
 export function clearSessionApprovals(sessionID: string): void {
   sessionApprovals.delete(sessionID);
-  allowAllEditsMode = false;
 }
 
 /**

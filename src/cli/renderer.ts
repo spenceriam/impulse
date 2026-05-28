@@ -25,15 +25,47 @@ import {
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import type { EditorTheme } from "@mariozechner/pi-tui";
-import { PromptInput, type PromptSubmitPayload } from "./prompt-input.js";
-import { shouldShowSlashAutocomplete } from "./slash-autocomplete.js";
-import { GUTTER, GUTTER_WIDTH, gutterSeparator } from "./gutter.js";
+import {
+  PromptInput,
+  resolveSubmitPayloadAfterPathAttach,
+  type PromptSubmitPayload,
+} from "./prompt-input.js";
+import { shouldTreatAsSlashCommand } from "./image-paths.js";
+import {
+  completeSlashCommand,
+  isSlashCommandInput,
+  shouldShowSlashAutocomplete,
+} from "./slash-autocomplete.js";
+import { buildSlashCommandList } from "./slash-commands.js";
+import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
+import { GUTTER, GUTTER_WIDTH, gutterContent, gutterSeparator, innerWidth } from "./gutter.js";
+import {
+  formatLogoLine,
+  formatWelcomeMeta,
+  IMPULSE_SLANT_LOGO,
+  shouldUseAsciiLogo,
+  welcomeMetaText,
+} from "./welcome-banner.js";
+import {
+  BUSY_PROCESSING,
+  BUSY_WORKING,
+  busyPhraseUsesDimBase,
+  busyStatusOverridesFixedPhrase,
+  resolveBusyPhrase,
+  FIXED_BUSY_PHRASES,
+} from "./busy-status.js";
 import { dimRuleIndented } from "./format-helpers.js";
 
 /** pi-tui maxHeight for session/model list overlays */
 const LIST_OVERLAY_MAX_HEIGHT = 18;
 import { overlayMinWidth } from "./layout.js";
-import { toggleExpress, isExpressMode, acknowledgeExpress } from "../permission/index.js";
+import { overlayMaxHeightForContent } from "./overlay-height.js";
+import { PromptHistory } from "./prompt-history.js";
+import {
+  isAllowAllBypass,
+  resetAllowAllBypass,
+  setAllowAllBypass,
+} from "../permission/index.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import { ToolBlock } from "./components/tool-block.js";
@@ -43,6 +75,16 @@ import { QuestionOverlay } from "./components/question-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
 import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
+import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
+import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
+import { ExperimentalOverlay } from "./components/experimental-overlay.js";
+import { HelpOverlay } from "./components/help-overlay.js";
+import { SHIMMER_FRAME_MS, shimmerText } from "./shimmer-text.js";
+import { pickRandomShipName } from "./starfleet-ship-names.js";
+import { formatThinkingBodyPart } from "./thinking-style.js";
+import { filterThinkingForDisplay } from "../util/thinking-filter.js";
+import { buildReplaySteps, type ReplayStep } from "./session-replay.js";
+import type { Session } from "../session/store.js";
 import {
   buildModelSetupRows,
   buildReasoningSetupRows,
@@ -50,7 +92,15 @@ import {
 } from "./model-setup-rows.js";
 import { sessionHasResumeableContent } from "../session/session-content.js";
 import { AgentLoop, type LoopEvents } from "../agent/loop.js";
-import { load as loadConfig, save as saveConfig, type Config, type ReasoningLevel } from "../util/config.js";
+import {
+  load as loadConfig,
+  save as saveConfig,
+  isModelConfigured,
+  isExperimentalAdvisorEnabled,
+  type Config,
+  type ReasoningLevel,
+} from "../util/config.js";
+import { checkForUpdate, performUpdate, getCurrentVersion } from "../util/update-check.js";
 import {
   PROVIDER_REASONING_STYLE,
   getLevelsForStyle,
@@ -59,6 +109,7 @@ import {
   discoverOllamaReasoning,
   discoverOllamaMaxOutputTokens,
   probeReasoningSupport,
+  modelSupportsVision,
   type ReasoningCapability,
 } from "../api/providers/capabilities.js";
 import { resetProviderManager } from "../api/manager.js";
@@ -71,12 +122,15 @@ import {
   parseProviderChoice,
   providerConfig,
   saveHomeEnv,
+  removeProviderFromHomeEnv,
+  countConfiguredProviders,
+  modelUsesProvider,
   type ModelDiscoveryResult,
   type ModelProviderOption,
   type StoredProviderConfig,
 } from "./model-setup.js";
 import { Bus } from "../bus/index.js";
-import { HeaderEvents, QuestionEvents } from "../bus/events.js";
+import { HeaderEvents, ModeEvents, QuestionEvents, SubagentEvents } from "../bus/events.js";
 import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
 import { abortCurrentBashExecution } from "../tools/bash.js";
@@ -132,6 +186,11 @@ const clr = {
 /** User-visible success status (AGENTS.md: [OK], not ?). */
 const statusOk = (message: string) => `${clr.success("[OK]")} ${message}`;
 
+/** Model change feedback without [OK] prefix */
+const modelStatusLine = (message: string) => clr.dim(message);
+
+const advisorStatusLine = (message: string) => clr.dim(message);
+
 // ANSI color per mode ? used for prompt arrow and context bar mode label
 const MODE_COLORS: Record<string, number> = {
   AGENT: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31,
@@ -172,11 +231,9 @@ class ThinkingBlock implements Component {
     const label = "Thinking:";
     const firstPrefix = `${prefix}\x1b[38;5;94m${label}\x1b[0m `;
     const continuationPrefix = " ".repeat(prefix.length + label.length + 1);
-    const firstWidth = Math.max(8, width - (prefix.length + label.length + 1));
-    const continuationWidth = Math.max(8, width - continuationPrefix.length);
-    const textStyle = "\x1b[38;5;238m\x1b[3m";
-    const reset = "\x1b[0m";
-
+    const textWidth = Math.max(8, innerWidth(width) - label.length - 1);
+    const firstWidth = textWidth;
+    const continuationWidth = textWidth;
     const lines: string[] = [];
     let isFirstOutputLine = true;
 
@@ -192,7 +249,12 @@ class ThinkingBlock implements Component {
 
       for (const part of wrapped) {
         const linePrefix = isFirstOutputLine ? firstPrefix : continuationPrefix;
-        lines.push(truncateToWidth(`${linePrefix}${textStyle}${part}${reset}`, width));
+        lines.push(
+          truncateToWidth(
+            `${linePrefix}${formatThinkingBodyPart(part)}`,
+            width
+          )
+        );
         isFirstOutputLine = false;
       }
     }
@@ -230,8 +292,11 @@ interface ModelSetupState {
   apiKey?: string;
   models: string[];
   discovery?: ModelDiscoveryResult;
-  isAdvisorMode?: boolean;  // true when picking advisor model vs switching provider
+  isAdvisorMode?: boolean;  // @deprecated use setupPurpose
+  setupPurpose?: "worker" | "vision" | "advisor";
   selectedModel?: string;   // Model selected in "model" step, used in reasoning step
+  pendingRemoveProvider?: ModelProviderOption;
+  editingProvider?: boolean;
   customProviderName?: string;  // Slug for custom providers (e.g. "my-llm")
   error?: string;
   // Navigation state
@@ -265,6 +330,7 @@ export class ImpulseRenderer {
   private spinnerText!: Text;
   private contextBar!: ContextBarComponent;
   private promptInput!: PromptInput;
+  private promptHistory = new PromptHistory();
   private autocompleteText!: Text; // slash command suggestions
   private modelSetupText!: Text;
   private bottomSpacer!: BottomAnchorSpacer;
@@ -272,88 +338,9 @@ export class ImpulseRenderer {
   // Manual turn-status spinner + render ticker
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
   private currentStatusPhrase = "";
-  private statusPhraseIndex = 0;
-  private static readonly STATUS_PHRASES = [
-    "...i'm on it...",
-    "...handling that now...",
-    "...let me look into that...",
-    "...let's see what we have here...",
-    "...digging into it now...",
-    "...let's break this down...",
-    "...parsing that now...",
-    "...let's get a clear read on this...",
-    "...reading the prompt...",
-    "...checking the request...",
-    "...analyzing the context...",
-    "...reviewing the files...",
-    "...looking at the workspace...",
-    "...let me review this...",
-    "...checking the details...",
-    "...scanning the input...",
-    "Processing..",
-    "...mapping it out...",
-    "...sorting through the request...",
-    "...putting the pieces together...",
-    "...getting a handle on this...",
-    "...let's run the numbers...",
-    "...running the calculations...",
-    "...evaluating the options...",
-    "...formulating a response...",
-    "...putting a thought together...",
-    "...working on an answer...",
-    "...let me map this out...",
-    "...let's take a look...",
-    "...inspecting the request...",
-    "...reading the lines...",
-    "...gathering the context...",
-    "...breaking down the steps...",
-    "...organizing the response...",
-    "...processing the input...",
-    "...checking the structure...",
-    "...lining things up...",
-    "...focusing on this...",
-    "...getting a clear picture...",
-    "...working the problem...",
-    "...holding for the model...",
-    "...awaiting response...",
-    "...processing feedback...",
-    "...interpreting....",
-  ];
-
-  /** Pick a phrase index from STATUS_PHRASES based on the current action */
-  private pickPhraseIndex(msg: string): number {
-    const normalized = msg.toLowerCase();
-    if (normalized.includes("think")) return 16;             // "Processing.."
-    if (normalized.includes("respond")) return 25;            // "...putting a thought together..."
-    if (normalized.includes("bash") || normalized.includes("shell")) return 22; // "...running the calculations..."
-    if (normalized.includes("question") || normalized.includes("approval")) return 41; // "...awaiting response..."
-    if (normalized.includes("waiting")) return 41;            // "...awaiting response..."
-    if (normalized.includes("compact")) return 33;            // "...organizing the response..."
-    if (normalized.includes("todo")) return 5;                // "...let's break this down..."
-    if (normalized.includes("consult")) return 1;             // "...handling that now..."
-    // Fallback: pick a random phrase so the same action shows variety
-    const available = ImpulseRenderer.STATUS_PHRASES.filter((_, i) => i !== this.statusPhraseIndex);
-    return available.length > 0
-      ? ImpulseRenderer.STATUS_PHRASES.indexOf(available[Math.floor(Math.random() * available.length)]!)
-      : Math.floor(Math.random() * ImpulseRenderer.STATUS_PHRASES.length);
-  }
 
   private shimmerBusyText(message: string, dimBase = false): string {
-    const chars = Array.from(message);
-    if (chars.length === 0) return "";
-
-    const head = Math.floor(Date.now() / 80) % chars.length;
-    const baseDim = 238;
-    const baseMid = dimBase ? 240 : 236;
-    const peak = dimBase ? 248 : 248;
-
-    return chars.map((char, index) => {
-      if (/\s/.test(char)) return char;
-      const distance = Math.min(Math.abs(index - head), chars.length - Math.abs(index - head));
-      if (distance === 0) return A.fg(peak, `${A.bold}${char}${A.reset}`);
-      if (distance === 1) return A.fg(baseMid, char);
-      return A.fg(baseDim, char);
-    }).join("");
+    return shimmerText(message, dimBase);
   }
 
   private renderBusyLine(): void {
@@ -404,7 +391,7 @@ export class ImpulseRenderer {
     // Show auto-off overlay
     const lines = [
       `${clr.bold("Strategy Complete")}`,
-      `${clr.dim("?".repeat(40))}`,
+      this.setupSectionRule(),
       `All tasks from the advisor plan are complete.`,
       `The main agent suggests advisor mode is no longer needed.`,
       "",
@@ -453,6 +440,9 @@ export class ImpulseRenderer {
     if (result === "deactivate") {
       config.advisorMode = false;
       await saveConfig(config);
+      await this.persistSessionAdvisor(false);
+      this.syncAdvisorFromConfig(await loadConfig());
+      this.contextBar.update({ advisorModel: undefined });
       this.addChatLine(statusOk("Advisor mode disabled ? all tasks complete"));
       this.tui.requestRender();
     }
@@ -462,20 +452,17 @@ export class ImpulseRenderer {
   private busyDimBase = false;
 
   private setBusyStatus(msg: string, fixedPhrase?: string): void {
-    if (this.spinnerInterval && this.currentStatusPhrase && !fixedPhrase) return;
-
-    this.busyDimBase =
-      fixedPhrase === "Processing.." ||
-      fixedPhrase === "Wrapping up..." ||
-      msg.toLowerCase().includes("think");
-
-    if (fixedPhrase) {
-      this.currentStatusPhrase = fixedPhrase;
-    } else {
-      this.statusPhraseIndex = this.pickPhraseIndex(msg);
-      this.currentStatusPhrase =
-        ImpulseRenderer.STATUS_PHRASES[this.statusPhraseIndex] ?? "Processing..";
+    if (
+      !busyStatusOverridesFixedPhrase(msg, fixedPhrase) &&
+      this.spinnerInterval &&
+      this.currentStatusPhrase &&
+      FIXED_BUSY_PHRASES.has(this.currentStatusPhrase)
+    ) {
+      return;
     }
+
+    this.currentStatusPhrase = resolveBusyPhrase(msg, fixedPhrase);
+    this.busyDimBase = busyPhraseUsesDimBase(this.currentStatusPhrase, msg);
     this.renderBusyLine();
     this.tui.requestRender();
 
@@ -483,7 +470,7 @@ export class ImpulseRenderer {
       this.spinnerInterval = setInterval(() => {
         this.renderBusyLine();
         this.tui.requestRender();
-      }, 80);
+      }, SHIMMER_FRAME_MS);
     }
   }
 
@@ -503,7 +490,7 @@ export class ImpulseRenderer {
 
     const request = this.permissionQueue.shift()!;
     this.activePermission = request;
-    this.setBusyStatus("waiting for your approval?");
+    this.setBusyStatus("waiting for your approval?", "Waiting for your approval...");
 
     const overlay = new PermissionOverlay(request);
     overlay.onDecision = (response) => {
@@ -513,15 +500,15 @@ export class ImpulseRenderer {
       respond({ permissionID, response });
     };
 
-    this.permissionOverlayHandle = this.tui.showOverlay(overlay, {
-      anchor: "bottom-center",
-      offsetY: -4,
-      width: "92%",
-      minWidth: this.overlayMin(),
-      maxHeight: 10,
-      margin: { left: 2, right: 2, bottom: 4 },
+    const cols = this.terminalCols();
+    overlay.setMeasureTerminalWidth(cols);
+    const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
+    const contentLines = overlay.render(cols);
+    const maxHeight = overlayMaxHeightForContent(rows, contentLines.length);
+
+    this.permissionOverlayHandle = this.showContentSizedOverlay(overlay, {
+      maxHeight,
     });
-    this.permissionOverlayHandle.focus();
     this.tui.requestRender();
   }
 
@@ -547,7 +534,7 @@ export class ImpulseRenderer {
     if (!this.tui) return;
 
     this.dismissQuestionOverlay(false);
-    this.setBusyStatus("waiting for your answer?");
+    this.setBusyStatus("waiting for your answer?", "Waiting for your answer...");
 
     const overlay = new QuestionOverlay({ context, questions });
     overlay.onSubmit = (answers) => {
@@ -603,6 +590,13 @@ export class ImpulseRenderer {
   }
 
   private showListOverlay(overlay: Component & { handleInput: (data: string) => void }): OverlayHandle {
+    const sized = overlay as Component & {
+      preferredBoxWidth?: (w: number) => number;
+      setMeasureTerminalWidth?: (w: number) => void;
+    };
+    if (typeof sized.preferredBoxWidth === "function") {
+      return this.showContentSizedOverlay(sized, { maxHeight: LIST_OVERLAY_MAX_HEIGHT });
+    }
     const handle = this.tui.showOverlay(overlay, {
       anchor: "bottom-center",
       offsetY: -4,
@@ -613,6 +607,40 @@ export class ImpulseRenderer {
     });
     handle.focus();
     return handle;
+  }
+
+  private showContentSizedOverlay(
+    overlay: Component & {
+      handleInput: (data: string) => void;
+      preferredBoxWidth?: (w: number) => number;
+      setMeasureTerminalWidth?: (w: number) => void;
+    },
+    opts?: { maxHeight?: number }
+  ): OverlayHandle {
+    const cols = this.terminalCols();
+    overlay.setMeasureTerminalWidth?.(cols);
+    const pref =
+      typeof overlay.preferredBoxWidth === "function"
+        ? overlay.preferredBoxWidth(cols)
+        : this.overlayMin();
+    const handle = this.tui.showOverlay(overlay, {
+      anchor: "bottom-center",
+      offsetY: -4,
+      width: pref,
+      minWidth: pref,
+      maxHeight: opts?.maxHeight ?? LIST_OVERLAY_MAX_HEIGHT,
+      margin: this.listOverlayMargin(),
+    });
+    handle.focus();
+    return handle;
+  }
+
+  private showSessionPickerOverlay(
+    overlay: SessionPickerOverlay
+  ): OverlayHandle {
+    return this.showContentSizedOverlay(overlay, {
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+    });
   }
 
   private dismissModelSetupOverlay(): void {
@@ -630,6 +658,12 @@ export class ImpulseRenderer {
     if (!state?.provider) return;
 
     state.selectedModel = selectedModel;
+
+    const purpose = this.setupPurpose(state);
+    if (purpose === "vision" || purpose === "advisor") {
+      await this.finishModelSetup(selectedModel, "off");
+      return;
+    }
 
     if (
       state.provider.isCustom ||
@@ -671,14 +705,25 @@ export class ImpulseRenderer {
     }
     this.dismissModelSetupOverlay();
     const providerKey = this.providerKeyForSetup(state);
-    const rows = buildModelSetupRows(providerKey, state.models, {
+    const purpose = this.setupPurpose(state);
+    let modelIds = state.models;
+    if (purpose === "vision") {
+      modelIds = modelIds.filter((id) => modelSupportsVision(id));
+    }
+    const rows = buildModelSetupRows(providerKey, modelIds, {
       allowManual: state.provider?.isCustom,
     });
 
-    const title = state.isAdvisorMode ? "Select advisor model" : "Select model";
+    const title =
+      purpose === "vision"
+        ? "Select vision model"
+        : purpose === "advisor"
+          ? "Select advisor model"
+          : "Select model";
     const overlay = new SelectableListOverlay({
       title,
       rows,
+      boxSizing: "responsive",
       maxHeight: LIST_OVERLAY_MAX_HEIGHT,
       emptyMessage: state.provider?.isCustom
         ? "  No models listed ? choose Type custom model ID"
@@ -710,7 +755,9 @@ export class ImpulseRenderer {
     };
 
     this.renderModelSetup();
-    this.modelSetupOverlayHandle = this.showListOverlay(overlay);
+    this.modelSetupOverlayHandle = this.showContentSizedOverlay(overlay, {
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+    });
   }
 
   private openModelSetupReasoningPicker(): void {
@@ -764,23 +811,86 @@ export class ImpulseRenderer {
     } catch {
       // session may not exist yet
     }
-    this.addChatLine(
-      clr.dim(`${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${trimmed}`)
-    );
+    // Silent in chat ? title is for /resume and session management only
+  }
+
+  private clearCtrlCPending(): void {
+    this.ctrlCPending = null;
+    this.ctrlCPendingAt = 0;
+  }
+
+  private handleCtrlC(): void {
+    if (this.modelSetup) {
+      this.cancelModelSetup();
+      return;
+    }
+
+    const now = Date.now();
+
+    if (this.isRunning) {
+      if (
+        this.ctrlCPending === "cancel" &&
+        now - this.ctrlCPendingAt < ImpulseRenderer.CTRL_C_WINDOW_MS
+      ) {
+        this.clearCtrlCPending();
+        this.abortCurrentTurn();
+        return;
+      }
+      this.ctrlCPending = "cancel";
+      this.ctrlCPendingAt = now;
+      this.addChatLine(clr.dim("Hit Ctrl+C again to cancel"));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (
+      this.ctrlCPending === "exit" &&
+      now - this.ctrlCPendingAt < ImpulseRenderer.CTRL_C_WINDOW_MS
+    ) {
+      this.clearCtrlCPending();
+      void this.showExitStats();
+      this.tui.stop();
+      process.exit(0);
+      return;
+    }
+    this.ctrlCPending = "exit";
+    this.ctrlCPendingAt = now;
+    this.addChatLine(clr.dim("Hit Ctrl+C again to exit"));
     this.tui.requestRender();
   }
 
   private abortCurrentTurn(): void {
     if (!this.isRunning) return;
 
+    const hadTask = this.activeTaskToolId !== null;
+    const codename = this.activeTaskCodename;
+
     rejectQuestion(new Error("Question cancelled by user"));
     this.dismissQuestionOverlay(false);
     abortCurrentBashExecution();
+
+    if (this.activeTaskToolId) {
+      const block = this.toolBlocks.get(this.activeTaskToolId);
+      if (block) {
+        block.setDone({ success: false, output: "Sub-agent aborted by user" }, 0);
+        this.toolBlocks.delete(this.activeTaskToolId);
+      }
+      this.activeTaskToolId = null;
+      this.activeTaskCodename = null;
+    }
+
     this.loop.abort();
     this.spinStop();
     this.isRunning = false;
     this.contextBar.update({ isRunning: false });
-    this.addChatLine(`  ${clr.warn("!")}  ${clr.dim("aborted")}`);
+    this.clearCtrlCPending();
+
+    this.addSectionGap();
+    let msg: string;
+    if (hadTask && codename) msg = `${codename} sub-agent aborted`;
+    else if (hadTask) msg = "sub-agent aborted";
+    else msg = "turn cancelled";
+    this.addChatLine(`  ${clr.dim("[✓]")}  ${clr.dim(msg)}`);
     this.tui.setFocus(this.promptInput);
     this.tui.requestRender();
   }
@@ -793,6 +903,11 @@ export class ImpulseRenderer {
   private thinkingOpen = false;
   private hasTrailingGap = false;
   private toolBlocks = new Map<string, ToolBlock>();
+  private activeTaskToolId: string | null = null;
+  private activeTaskCodename: string | null = null;
+  private ctrlCPending: "cancel" | "exit" | null = null;
+  private ctrlCPendingAt = 0;
+  private static readonly CTRL_C_WINDOW_MS = 2000;
   private permissionQueue: PermissionRequest[] = [];
   private activePermission: PermissionRequest | null = null;
   private permissionOverlayHandle: OverlayHandle | null = null;
@@ -812,12 +927,19 @@ export class ImpulseRenderer {
   private contextTokens = 0;
   private contextWindow = 200000;
   private advisorModel: string | undefined;
+  private visionModel: string | undefined;
+  private helpOverlayHandle: OverlayHandle | null = null;
   private reasoningLevel: ReasoningLevel = "medium";
   private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
-  private engageMode = false;
+  private allowAllDisclaimerHandle: OverlayHandle | null = null;
   private modelSetup: ModelSetupState | null = null;
-  private pendingPlanApproval: { planPath: string; summary: string } | null = null;
+  private planApprovalOverlayHandle: OverlayHandle | null = null;
+  private planApprovalInputCleanup: (() => void) | null = null;
+  private experimentalOverlayHandle: OverlayHandle | null = null;
+  private experimentalAdvisorEnabled = false;
+  /** Session-local turn speed display on context bar (/speedo); not persisted. */
+  private speedoEnabled = false;
   private userName = "you"; // User's display name (loaded from config)
   private modeChangeText: Text | null = null; // Track mode change line for in-place updates
 
@@ -829,18 +951,14 @@ export class ImpulseRenderer {
   async submitMessage(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
-    await this.onSubmit({
-      displayMessage: trimmed,
-      apiText: trimmed,
-      segments: [{ kind: "text", value: trimmed }],
-      orderedImages: [],
-    });
+    this.promptInput.setText(trimmed);
+    await this.onSubmit(this.promptInput.getSubmitPayload());
   }
 
   async start(): Promise<void> {
-    const config = await loadConfig();
+    let config = await loadConfig();
     this.mode = normalizeMode(config.defaultMode) as Mode;
-    this.advisorModel = config.advisorModel;
+    this.experimentalAdvisorEnabled = isExperimentalAdvisorEnabled(config);
     this.reasoningLevel = config.reasoningLevel ?? (config.thinking ? "medium" : "off");
     this.reasoningCapability = await this.reasoningCapabilityForProvider(config.defaultProvider);
     this.userName = config.userProfile?.name || "you";
@@ -848,9 +966,22 @@ export class ImpulseRenderer {
 
     setCurrentMode(this.mode);
 
+    SessionManager.setOptions({
+      defaultModel: config.defaultModel ?? "",
+      defaultMode: this.mode,
+      initialContextWindow: this.contextWindow,
+    });
+
     if (!SessionManager.getCurrentSession()) {
       await SessionManager.createNew();
+      const sess = SessionManager.getCurrentSession();
+      if (sess && config.defaultModel?.trim()) {
+        await SessionManager.update({ model: config.defaultModel });
+      }
     }
+
+    config = await loadConfig();
+    this.syncAdvisorFromConfig(config);
 
     this.contextWindow = SessionManager.getCurrentSession()?.context_window ?? this.contextWindow;
     this.contextTokens = this.estimateCurrentSessionTokens();
@@ -879,6 +1010,31 @@ export class ImpulseRenderer {
       if (event.type === HeaderEvents.Updated.name) {
         const { title } = event.properties as { title: string };
         void this.onHeaderTitleUpdated(title);
+        return;
+      }
+
+      if (event.type === ModeEvents.Changed.name) {
+        const { mode } = event.properties as { mode: string };
+        this.applyModeChange(normalizeMode(mode) as Mode);
+        this.tui.requestRender();
+        return;
+      }
+
+      if (event.type === SubagentEvents.Progress.name) {
+        const payload = event.properties as {
+          type: "text" | "tool" | "thinking";
+          content: string;
+          durationMs?: number;
+        };
+        if (this.activeTaskToolId) {
+          const block = this.toolBlocks.get(this.activeTaskToolId);
+          block?.appendSubagentLine({
+            type: payload.type,
+            content: payload.content,
+            durationMs: payload.durationMs,
+          });
+          this.tui.requestRender();
+        }
       }
     });
 
@@ -891,18 +1047,23 @@ export class ImpulseRenderer {
     this.tui.addChild(this.chat);
 
     // Welcome header
+    const version = (packageJson as { version: string }).version;
     this.chat.addChild(new Spacer(1));
-    this.chat.addChild(new Text(
-      `${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${A.reset}cli coding agent ${clr.dim("|")} ${clr.dim("v" + (packageJson as {version:string}).version)}`,
-      0, 0
-    ));
-    const hintAvail = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
-    for (const line of wrapTextWithAnsi(
-      "Tab: agent mode  |  Shift+Tab: reasoning  |  /help: commands  |  Esc/Ctrl+C: abort  |  Ctrl+D: exit",
-      hintAvail
-    )) {
-      this.chat.addChild(new Text(`${GUTTER}${A.fg(90, line)}`, 0, 0));
+    if (shouldUseAsciiLogo(this.terminal.columns)) {
+      for (const line of IMPULSE_SLANT_LOGO) {
+        this.chat.addChild(new Text(`${GUTTER}${formatLogoLine(line)}`, 0, 0));
+      }
+      this.chat.addChild(new Text(`${GUTTER}${formatWelcomeMeta(version)}`, 0, 0));
+    } else {
+      this.chat.addChild(
+        new Text(
+          `${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${A.reset}${welcomeMetaText(version)}`,
+          0,
+          0
+        )
+      );
     }
+    this.chat.addChild(new WelcomeHintBlock());
     this.chat.addChild(new Spacer(1));
     this.welcomeChildCount = (this.chat as Container & { children: Component[] }).children.length;
 
@@ -924,26 +1085,44 @@ export class ImpulseRenderer {
     // 4. Prompt input (just ? , no mode label)
     this.promptInput = new PromptInput(this.tui, EDITOR_THEME);
     this.promptInput.onSubmit = (payload) => {
-      this.promptInput.clear();
       this.autocompleteText.setText("");
-      if (this.modelSetup) void this.handleModelSetupSubmit(payload.apiText);
-      else void this.onSubmit(payload);
-    };
-    this.promptInput.onTabForward  = () => { if (!this.modelSetup) this.cycleMode(1); };
-    this.promptInput.onTabBackward = () => { if (!this.modelSetup) void this.cycleReasoning(); };
-    this.promptInput.onAbort = () => {
       if (this.modelSetup) {
-        this.cancelModelSetup();
+        void this.handleModelSetupSubmit(payload.apiText);
+      } else {
+        void this.onSubmit(payload);
+      }
+    };
+    this.promptInput.onArrowUp = () => {
+      if (this.modelSetup || this.isRunning) return;
+      const prev = this.promptHistory.previous();
+      if (prev !== null) this.promptInput.setText(prev);
+    };
+    this.promptInput.onArrowDown = () => {
+      if (this.modelSetup) return;
+      this.promptHistory.resetIndex();
+      this.promptInput.clear();
+    };
+    this.promptInput.onTabForward = () => {
+      if (this.modelSetup) return;
+      const val = this.promptInput.getText();
+      if (isSlashCommandInput(val)) {
+        const completed = completeSlashCommand(val, this.slashCommands());
+        if (completed !== null) {
+          this.promptInput.setText(completed);
+          this.updateAutocomplete(completed);
+          this.tui.requestRender();
+        }
         return;
       }
-      if (this.isRunning) {
-        this.abortCurrentTurn();
-      } else {
-        // Ctrl+C while idle = exit with stats
-        void this.showExitStats();
-        this.tui.stop();
-        process.exit(0);
-      }
+      this.cycleMode(1);
+    };
+    this.promptInput.onTabBackward = () => {
+      if (this.modelSetup) return;
+      if (isSlashCommandInput(this.promptInput.getText())) return;
+      void this.cycleReasoning();
+    };
+    this.promptInput.onAbort = () => {
+      this.handleCtrlC();
     };
     this.promptInput.onExit = () => { void this.showExitStats(); this.tui.stop(); process.exit(0); };
     this.promptInput.onEscape = () => {
@@ -1006,14 +1185,19 @@ export class ImpulseRenderer {
       mode: this.mode,
       reasoningLevel: this.reasoningDisplayLabel(),
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
-      ...(config.visionModel ? { visionModel: config.visionModel } : {}),
+      ...(this.visionModel ? { visionModel: this.visionModel } : {}),
       visionMode: config.visionMode ?? false,
     });
+    this.syncVisionFromConfig(config);
+    this.syncSpeedoUi();
     this.tui.addChild(this.contextBar);
 
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
+    resetAllowAllBypass();
+    this.syncAllowAllBypassUi();
+
     this.tui.start();
     // Discover reasoning capabilities in background (non-blocking)
     void this.refreshReasoningCapability();
@@ -1027,30 +1211,50 @@ export class ImpulseRenderer {
 
   // ?? Mode cycling ?????????????????????????????????????????????????????????
 
+  private applyModeChange(
+    next: Mode,
+    options?: { prev?: Mode; transition?: "inline" | "chat" }
+  ): void {
+    const prev = options?.prev ?? this.mode;
+    if (prev === next) return;
+
+    this.mode = next;
+    setCurrentMode(next);
+    this.contextBar.update({ mode: next });
+    this.syncModeColor();
+
+    if (SessionManager.getCurrentSession()) {
+      void SessionManager.update({ mode: next });
+    }
+
+    if (options?.transition) {
+      const modeLine = `${GUTTER}${A.fg(MODE_COLORS[prev] ?? 34, prev)}${MODE_ARROW}${A.fg(MODE_COLORS[next] ?? 34, next)}`;
+      if (options.transition === "inline") {
+        if (this.modeChangeText) {
+          this.modeChangeText.setText(modeLine);
+        } else {
+          this.addChatLine("");
+          this.modeChangeText = new Text(modeLine, 0, 0);
+          this.chat.addChild(this.modeChangeText);
+        }
+      } else {
+        this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)}${MODE_ARROW}${A.fg(MODE_COLORS[next] ?? 34, next)}`);
+      }
+    }
+  }
+
   private cycleMode(dir: 1 | -1): void {
     if (this.isRunning) return;
     const modes: Mode[] = ["AGENT", "EXPLORE", "PLAN", "DEBUG"];
     const prev = this.mode;
     const idx = modes.indexOf(this.mode);
-    this.mode = modes[((idx + dir) + modes.length) % modes.length]!;
-    setCurrentMode(this.mode);
-    this.contextBar.update({ mode: this.mode });
-    this.syncModeColor();
-
-    const modeLine = `${GUTTER}${A.fg(MODE_COLORS[prev] ?? 34, prev)}${MODE_ARROW}${A.fg(MODE_COLORS[this.mode] ?? 34, this.mode)}`;
-    if (this.modeChangeText) {
-      // Update existing mode change line in place
-      this.modeChangeText.setText(modeLine);
-    } else {
-      // Create new mode change line
-      this.addChatLine("");  // Empty line before mode change
-      this.modeChangeText = new Text(modeLine, 0, 0);
-      this.chat.addChild(this.modeChangeText);
-    }
+    const next = modes[((idx + dir) + modes.length) % modes.length]!;
+    this.applyModeChange(next, { prev, transition: "inline" });
     this.tui.requestRender();
   }
 
   private syncModeColor(): void {
+    // Mode color is shown on the context bar; prompt chevron stays dim (see PromptInput).
     this.promptInput.setModeColor(MODE_COLORS[this.mode] ?? 34);
   }
 
@@ -1063,13 +1267,28 @@ export class ImpulseRenderer {
   }
 
   /** Refresh reasoning capabilities for the current model */
+  private activeModelId(config: Config): string {
+    const session = SessionManager.getCurrentSession();
+    return (
+      session?.model?.trim() ||
+      config.defaultModel?.trim() ||
+      ""
+    );
+  }
+
+  private providerKeyForModel(modelId: string, config: Config): string {
+    if (modelId.includes("/")) return modelId.split("/")[0] ?? config.defaultProvider;
+    return config.defaultProvider;
+  }
+
   private async refreshReasoningCapability(): Promise<void> {
     try {
       const config = await loadConfig();
-      const providerName = config.defaultProvider;
+      const activeModel = this.activeModelId(config);
+      const providerName = this.providerKeyForModel(activeModel, config);
       // For Ollama, query /api/show to check if this specific model supports thinking
       if (providerName === "ollama") {
-        const modelName = (config.defaultModel ?? "").replace(/^ollama\//, "");
+        const modelName = activeModel.replace(/^ollama\//, "");
         const baseUrl = (config.providers as Record<string, { baseUrl?: string }>)?.["ollama"]?.baseUrl ?? "https://ollama.com";
         const apiKey  = (config.providers as Record<string, { apiKey?: string }>)?.["ollama"]?.apiKey;
         this.reasoningCapability = await discoverOllamaReasoning(baseUrl, modelName, apiKey);
@@ -1084,8 +1303,8 @@ export class ImpulseRenderer {
         if (!PROVIDER_REASONING_STYLE[providerName]) {
           const pc = (config.providers as Record<string, { type?: string; baseUrl?: string; apiKey?: string }>)[providerName];
           const pt = pc?.type as "openai-compatible" | "anthropic-compatible" | undefined;
-          if (pt && pc?.baseUrl && pc?.apiKey && config.defaultModel) {
-            const mn = config.defaultModel.includes("/") ? config.defaultModel.split("/").slice(1).join("/") : config.defaultModel;
+          if (pt && pc?.baseUrl && pc?.apiKey && activeModel) {
+            const mn = activeModel.includes("/") ? activeModel.split("/").slice(1).join("/") : activeModel;
             try { this.reasoningCapability = await probeReasoningSupport(pt, pc.baseUrl, pc.apiKey, mn); } catch {}
           }
         }
@@ -1149,10 +1368,6 @@ export class ImpulseRenderer {
           : levels[0] ?? "off";
 
     this.reasoningLevel = next;
-    const config = await loadConfig();
-    config.reasoningLevel = next;
-    config.thinking = next !== "off";
-    await saveConfig(config);
   }
 
   private async setReasoningLevel(level: ReasoningLevel): Promise<void> {
@@ -1194,7 +1409,9 @@ export class ImpulseRenderer {
       contextTokens: localContextTokens,
       contextWindow: this.contextWindow,
       isRunning: this.isRunning,
-      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+      ...(this.speedoEnabled && tokensPerSecond !== undefined
+        ? { tokensPerSecond }
+        : { tokensPerSecond: undefined }),
     });
   }
 
@@ -1220,14 +1437,44 @@ export class ImpulseRenderer {
 
   // ?? Input submission ??????????????????????????????????????????????????????
 
-  private async onSubmit(payload: PromptSubmitPayload): Promise<void> {
+  private async onSubmit(initialPayload: PromptSubmitPayload): Promise<void> {
+    let payload = initialPayload;
+    const pathErrors = await this.promptInput.attachImagePathsFromEditor();
+    if (pathErrors.length > 0) {
+      for (const err of pathErrors) {
+        this.addChatLine(`${clr.warn("[!]")} ${err}`);
+      }
+      this.tui.requestRender();
+      return;
+    }
+
+    payload = resolveSubmitPayloadAfterPathAttach(
+      initialPayload,
+      this.promptInput.getText(),
+      () => this.promptInput.getSubmitPayload()
+    );
     const input = payload.displayMessage.trim();
     if (!input) return;
 
-    if (input.startsWith("/")) {
+    if (shouldTreatAsSlashCommand(input)) {
       await this.handleSlash(payload.apiText.trim());
       this.tui.requestRender();
       return;
+    }
+
+    const cfg = await loadConfig();
+    if (!isModelConfigured(cfg)) {
+      this.addChatLine(
+        `${clr.warn("[!]")} No model selected. Run ${clr.tool("/model")} to choose a provider and model first.`
+      );
+      this.tui.requestRender();
+      return;
+    }
+
+    if (payload.orderedImages.length > 0 && !cfg.visionMode) {
+      this.addChatLine(
+        `${clr.dim("Images attached; run /vision to translate before the worker model sees them.")}`
+      );
     }
 
     await this.runTurn(payload);
@@ -1240,9 +1487,20 @@ export class ImpulseRenderer {
     const displayMessage = payload.displayMessage;
     // Mid-turn config validation: advisor mode ON but config missing?
     const config = await loadConfig();
+    if (config.advisorMode && !isExperimentalAdvisorEnabled(config)) {
+      this.addChatLine(
+        `${clr.warn("!")} Advisor requires experimental flag. Run ${clr.tool("/experimental")} to enable.`
+      );
+      this.tui.requestRender();
+      return;
+    }
     if (config.advisorMode && !config.advisorModel) {
       this.addChatLine(`${clr.warn("!")} Advisor Mode is ON but no advisor model is configured.`);
-      this.addChatLine(`${clr.dim("Use /advisor to reconfigure or /advisor off to disable.")}`);
+      if (this.experimentalAdvisorEnabled) {
+        this.addChatLine(`${clr.dim("Use /advisor to configure, or /advisor off to disable.")}`);
+      } else {
+        this.addChatLine(`${clr.dim("Run /experimental to enable advisor features.")}`);
+      }
       this.tui.requestRender();
       return;
     }
@@ -1250,11 +1508,22 @@ export class ImpulseRenderer {
       const providerKey = config.advisorModel.split("/")[0] ?? config.defaultProvider;
       const stored = providerConfig(config, providerKey);
       if (!stored?.apiKey) {
-        this.addChatLine(`${clr.warn("!")} Advisor provider (${providerKey}) has no API key. Use /advisor to reconfigure.`);
+        const fix = this.experimentalAdvisorEnabled
+          ? "Use /advisor to reconfigure."
+          : "Run /experimental first.";
+        this.addChatLine(`${clr.warn("!")} Advisor provider (${providerKey}) has no API key. ${fix}`);
         this.tui.requestRender();
         return;
       }
     }
+
+    if (SessionManager.getCurrentSession()) {
+      void SessionManager.update({ mode: this.mode });
+    }
+
+    this.promptInput.clear();
+    this.promptHistory.push(displayMessage);
+
     this.isRunning = true;
     this.toolsRanThisTurn = false;
     this.modeChangeText = null;
@@ -1270,7 +1539,9 @@ export class ImpulseRenderer {
     this.thinkingText = null;
     this.thinkingOpen = false;
     this.resetLiveMetrics();
-    this.loop.setImages(payload.orderedImages.map((i) => i.uri));
+    this.loop.setImages(
+      payload.orderedImages.map((i) => ({ uri: i.uri, display: i.display }))
+    );
     this.contextBar.update({
       isRunning: true,
       mode: this.mode,
@@ -1278,8 +1549,14 @@ export class ImpulseRenderer {
       contextWindow: this.contextWindow,
     });
 
+    const cfgForVision = await loadConfig();
+    if (payload.orderedImages.length > 0 && cfgForVision.visionMode && cfgForVision.visionModel) {
+      this.setBusyStatus("translating images?", BUSY_PROCESSING);
+    }
+
     const events: LoopEvents = {
       onTurnStart: () => {
+        this.clearCtrlCPending();
         this.contextTokens = this.estimateCurrentSessionTokens();
         this.contextBar.update({
           contextTokens: this.contextTokens,
@@ -1288,19 +1565,13 @@ export class ImpulseRenderer {
           isRunning: true,
         });
         this.updateLiveMetrics(0, true);
-        this.setBusyStatus("thinking?", "Processing..");
+        this.setBusyStatus("thinking?", BUSY_PROCESSING);
       },
       onToken: (text) => {
-        if (this.toolsRanThisTurn) {
-          this.setBusyStatus("responding?", "Wrapping up...");
-        } else {
-          this.setBusyStatus("responding?");
-        }
+        this.setBusyStatus("responding?");
         this.closeThinking();
         if (!this.streamingText) {
-          // Add Impulse response header on first token
-          this.addSectionGap();
-          this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "Impulse")}${A.reset}`, 0, 0));
+          this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
           this.hasTrailingGap = false;
           this.streamingText = new MarkdownTextBlock(GUTTER);
           this.chat.addChild(this.streamingText);
@@ -1312,7 +1583,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onThinking: (text) => {
-        this.setBusyStatus("thinking?", "Processing..");
+        this.setBusyStatus("thinking?", BUSY_PROCESSING);
         debugLog(`onThinking: ${text.length} chars`);
         if (!this.thinkingOpen) {
           this.thinkingRaw = "";
@@ -1326,26 +1597,21 @@ export class ImpulseRenderer {
           this.hasTrailingGap = false;
           this.thinkingOpen = true;
         }
-        this.thinkingRaw += text;
+        this.thinkingRaw += filterThinkingForDisplay(text);
         this.thinkingText.setText(this.thinkingRaw);
         this.noteLiveGeneration(text);
         this.tui.requestRender();
       },
-      onAdvisorStart: (model) => {
-        const short = model.split("/").pop() ?? model;
-        this.setBusyStatus(`consulting ${short}?`);
-        this.addChatLine(`${clr.dim(`[advisor ? consulting ${short}?]`)}`);
+      onAdvisorStart: (_model) => {
+        this.setBusyStatus("", "Advisor consultation...");
         this.tui.requestRender();
       },
       onAdvisorToken: (_text) => { /* buffered */ },
-      onAdvisorEnd: (summary) => {
-        const raw = summary.trim();
-        const oneliner = raw.split(/[.!?\n]/)[0]?.trim() ?? raw;
-        const truncated = oneliner.length > 80 ? oneliner.slice(0, 77) + "?" : oneliner;
-        // Replace last chat line with summary
-        this.addChatLine(`${clr.dim(`[advisor: ${truncated}]`)}`);
+      onAdvisorEnd: (_summary) => {
+        this.spinStop();
         this.tui.requestRender();
       },
+      onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
       onToolStart: (id, name, args) => {
         // Skip rendering for silent tools (e.g., set_header)
         if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
@@ -1354,20 +1620,34 @@ export class ImpulseRenderer {
         if (this.streamingRaw) { this.addSectionGap(); this.streamingRaw = ""; this.streamingText = null; }
         this.addSectionGap();
 
-        const block = new ToolBlock(name, args);
+        let subagentCodename: string | undefined;
+        if (name === "task") {
+          subagentCodename = pickRandomShipName();
+          this.activeTaskToolId = id;
+          this.activeTaskCodename = subagentCodename;
+        }
+
+        const block = new ToolBlock(name, args, { subagentCodename });
         this.toolBlocks.set(id, block);
         this.chat.addChild(block);
         this.hasTrailingGap = false;
 
-        this.setBusyStatus(this.toolBusyStatus(name));
+        const toolPhrase =
+          name === "vision_translate" ? BUSY_PROCESSING : BUSY_WORKING;
+        this.setBusyStatus(this.toolBusyStatus(name), toolPhrase);
         this.updateLiveMetrics(0, true);
         this.tui.requestRender();
       },
-      onToolEnd: (id, name, result, durationMs) => {
+      onToolEnd: (id, _name, result, durationMs) => {
         // Skip rendering for silent tools (e.g., set_header)
-        if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
+        if (ImpulseRenderer.SILENT_TOOLS.has(_name)) return;
 
         this.toolsRanThisTurn = true;
+
+        if (id === this.activeTaskToolId) {
+          this.activeTaskToolId = null;
+          this.activeTaskCodename = null;
+        }
 
         const block = this.toolBlocks.get(id);
         if (block) {
@@ -1379,29 +1659,20 @@ export class ImpulseRenderer {
           return;
         }
 
-        // Detect advisor plan for approval overlay
-        if (name === "consult_advisor" && result.success) {
-          try {
-            const parsed = JSON.parse(result.output) as { plan_path?: string; summary?: string };
-            if (parsed.plan_path && parsed.summary) {
-              this.pendingPlanApproval = { planPath: parsed.plan_path, summary: parsed.summary };
-            }
-          } catch { /* not JSON, skip */ }
-        }
-        this.setBusyStatus(name === "question" ? "responding?" : "waiting for model?");
+        this.setBusyStatus("waiting for model?", BUSY_PROCESSING);
         this.updateLiveMetrics(result.output.length, true);
         this.tui.requestRender();
       },
       onCompacting: () => {
         this.addChatLine(`${clr.warn("?")}  ${clr.dim("compacting context?")}`);
-        this.setBusyStatus("compacting context?");
+        this.setBusyStatus("compacting context?", BUSY_PROCESSING);
         this.tui.requestRender();
       },
       onCompacted: (removedCount) => {
         this.addChatLine(
           `${clr.success("[OK]")} ${clr.dim(`compacted ? removed ${removedCount} messages`)}`
         );
-        this.setBusyStatus("thinking?");
+        this.setBusyStatus("thinking?", BUSY_PROCESSING);
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
@@ -1418,8 +1689,12 @@ export class ImpulseRenderer {
           contextWindow: this.contextWindow,
           mode: this.mode,
           isRunning: false,
-          ...(usage.tokensPerSecond > 0 ? { tokensPerSecond: usage.tokensPerSecond } : {}),
-          lastTurnMs: usage.durationMs,
+          ...(this.speedoEnabled
+            ? {
+                ...(usage.tokensPerSecond > 0 ? { tokensPerSecond: usage.tokensPerSecond } : {}),
+                lastTurnMs: usage.durationMs,
+              }
+            : { tokensPerSecond: undefined, lastTurnMs: undefined }),
         });
 
         if (usage.debugInstrumentationNudge) {
@@ -1449,12 +1724,6 @@ export class ImpulseRenderer {
       segments: payload.segments,
     });
 
-    // Show plan approval overlay if advisor was consulted
-    if (this.pendingPlanApproval) {
-      await this.showPlanApprovalOverlay();
-      this.pendingPlanApproval = null;
-    }
-
     // Auto-off suggestion: all todos complete + advisor mode ON
     await this.checkAutoOffSuggestion();
   }
@@ -1462,7 +1731,10 @@ export class ImpulseRenderer {
   // ?? Helpers ???????????????????????????????????????????????????????????????
 
   private addChatLine(text: string): void {
-    const avail = Math.max(4, this.terminal.columns - GUTTER_WIDTH); const lines = wrapTextWithAnsi(text, avail); for (const line of lines) { this.chat.addChild(new Text(GUTTER + line, 0, 0)); }
+    const avail = Math.max(8, innerWidth(this.terminal.columns));
+    for (const line of wrapTextWithAnsi(text, avail)) {
+      this.chat.addChild(new Text(gutterContent(line, this.terminal.columns), 0, 0));
+    }
     this.hasTrailingGap = false;
   }
 
@@ -1472,113 +1744,107 @@ export class ImpulseRenderer {
     this.hasTrailingGap = true;
   }
 
-  /** Show approval overlay after advisor produces a plan */
-  private async showPlanApprovalOverlay(): Promise<void> {
-    if (!this.tui || !this.pendingPlanApproval) return;
+  /** Block agent loop until user approves or declines advisor plan */
+  private async showPlanApprovalOverlay(input: {
+    planPath: string;
+    summary: string;
+    planMarkdown: string;
+  }): Promise<"proceed" | "decline"> {
+    if (!this.tui) return "decline";
 
-    const { planPath, summary } = this.pendingPlanApproval;
-    const shortPath = planPath.replace(new RegExp(`^${os.homedir()}`), "~");
+    const shortPath = input.planPath.replace(
+      new RegExp(`^${os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+      "~"
+    );
 
-    // Build a simple approval component
-    const lines = [
-      `${clr.bold("Plan Ready")}`,
-      `${clr.dim("?".repeat(40))}`,
-      `${clr.dim("Path:")} ${shortPath}`,
-      `${clr.dim("Summary:")} ${summary.slice(0, 120)}`,
-      "",
-      `${clr.dim("Press Enter to proceed, Esc to decline")}`,
-    ];
-
-    const overlayContent: Component = {
-      invalidate() {},
-      render(_width: number): string[] { return lines; },
-    };
-
-    type PlanDecision = "proceed" | "decline";
-    const result = await new Promise<PlanDecision>((resolve) => {
-      const handle = this.tui.showOverlay(overlayContent, {
-        anchor: "center",
-        width: "80%",
-        minWidth: this.overlayMin(),
-        maxHeight: 8,
-        margin: { left: 2, right: 2, bottom: 4 },
-      });
-      handle.focus();
-
-      const cleanup = this.tui.addInputListener((data: string) => {
-        if (data === "\r") {
-          cleanup();
-          handle.hide();
-          resolve("proceed");
-          return { consume: true };
-        }
-        if (data === "\x1b") {
-          cleanup();
-          handle.hide();
-          resolve("decline");
-          return { consume: true };
-        }
-        return undefined;
-      });
+    const overlay = new PlanApprovalOverlay({
+      planPath: shortPath,
+      summary: input.summary,
+      planMarkdown: input.planMarkdown,
     });
 
-    if (result === "proceed") {
-      this.addChatLine(statusOk("Plan approved ? executing"));
-    } else {
-      this.addChatLine(`${clr.dim("Plan declined ? awaiting new instructions")}`);
-    }
-    this.tui.requestRender();
+    return new Promise<"proceed" | "decline">((resolve) => {
+      this.dismissPlanApprovalOverlay();
+
+      const handle = this.tui.showOverlay(overlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: "100%",
+        minWidth: this.overlayMin(),
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+        margin: this.listOverlayMargin(),
+      });
+      this.planApprovalOverlayHandle = handle;
+      this.setBusyStatus("waiting for plan approval?", "Reviewing plan...");
+      handle.focus();
+
+      overlay.onDecision = (decision) => {
+        this.dismissPlanApprovalOverlay();
+        if (decision === "proceed") {
+          this.addChatLine(advisorStatusLine("Plan approved — continuing"));
+        } else {
+          this.addChatLine(advisorStatusLine("Plan declined — awaiting new instructions"));
+        }
+        this.tui.setFocus(this.promptInput);
+        this.tui.requestRender();
+        resolve(decision);
+      };
+
+      this.planApprovalInputCleanup = this.tui.addInputListener((data: string) => {
+        overlay.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      });
+    });
+  }
+
+  private dismissPlanApprovalOverlay(): void {
+    this.planApprovalInputCleanup?.();
+    this.planApprovalInputCleanup = null;
+    this.planApprovalOverlayHandle?.hide();
+    this.planApprovalOverlayHandle = null;
   }
 
   /**
    * Calculate total content height for bottom-anchor positioning.
    * Returns the number of lines occupied by all TUI children except the BottomAnchorSpacer.
    */
+  private measureComponentLines(component: Component | undefined, width: number): number {
+    if (!component || !("render" in component) || typeof component.render !== "function") {
+      return 0;
+    }
+    return component.render(width).length;
+  }
+
   private getContentHeight(): number {
-    // Count lines from chat container's children
     let chatLines = 0;
     const width = Math.max(20, this.tui?.terminal?.columns ?? 80);
     for (const child of this.chat.children) {
-      if ("render" in child && typeof child.render === "function") {
-        // Use the live terminal width so wrapped streaming blocks do not make
-        // bottom anchoring jump between estimated and actual row counts.
-        const lines = child.render(width);
-        chatLines += lines.length;
-      }
+      chatLines += this.measureComponentLines(child as Component, width);
     }
 
-    // Fixed components (excluding BottomAnchorSpacer and chat):
-    // status spacer (1) + spinnerText (1) + SeparatorLine (1) + modelSetupText (1)
-    // + autocompleteText (variable) + promptInput (1) + SeparatorLine (1) + contextBar (3)
-    let otherLines = 9;
-
-    // Add autocomplete lines if visible
-    if (this.autocompleteText) {
-      const acLines = this.autocompleteText.render(width);
-      otherLines += acLines.length;
-    }
+    // Spacer above spinner (1) + separator + prompt + separator + context bar (3)
+    let otherLines = 1 + 1 + 1 + 1 + 3;
+    otherLines += this.measureComponentLines(this.spinnerText, width);
+    otherLines += this.measureComponentLines(this.modelSetupText, width);
+    otherLines += this.measureComponentLines(this.autocompleteText, width);
+    otherLines += this.measureComponentLines(this.promptInput as unknown as Component, width);
 
     return chatLines + otherLines;
+  }
+
+  private requestBottomAnchorRefresh(): void {
+    this.bottomSpacer?.invalidate();
+    this.tui?.requestRender();
   }
 
   // ?? Slash autocomplete ????????????????????????????????????????????????????
 
   private slashCommands(): Array<{ cmd: string; hint: string }> {
-    return [
-      { cmd: "/advisor",  hint: "on | off | <model>  set advisor" },
-      { cmd: "/model",    hint: "choose provider, API key, and model" },
-      { cmd: "/vision",   hint: "on | off  toggle vision translation" },
-      { cmd: "/mode",     hint: "WORK | EXPLORE | PLAN | DEBUG" },
-      { cmd: "/reason",   hint: `${this.reasoningLevelsLabel()}  set reasoning level` },
-      { cmd: "/new",      hint: "[name]  start new session" },
-      { cmd: "/resume",   hint: "browse saved sessions" },
-      { cmd: "/user",     hint: "view/update name, preferences, instructions" },
-      { cmd: "/debug",    hint: "toggle debug log file" },
-      { cmd: "/help",     hint: "show commands" },
-      { cmd: "/clear",    hint: "clear screen" },
-      { cmd: "/exit",     hint: "quit" },
-      { cmd: "/quit",     hint: "quit" },
-    ];
+    return buildSlashCommandList({
+      experimentalAdvisor: this.experimentalAdvisorEnabled,
+      reasoningLevelsLabel: this.reasoningLevelsLabel(),
+    });
   }
 
   private updateAutocomplete(val: string): void {
@@ -1599,7 +1865,7 @@ export class ImpulseRenderer {
       });
       this.autocompleteText.setText(lines.join("\n"));
     }
-    this.tui.requestRender();
+    this.requestBottomAnchorRefresh();
   }
 
   // ?? Exit stats ????????????????????????????????????????????????????????????
@@ -1658,18 +1924,33 @@ export class ImpulseRenderer {
 
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
+      case "experimental": await this.cmdExperimental(); break;
+      case "update":  await this.cmdUpdate();     break;
       case "model":   await this.cmdModel(arg);   break;
       case "vision":  await this.cmdVision(arg);  break;
       case "mode":    this.cmdMode(arg);           break;
-      case "reason":  await this.cmdReason(arg);   break;
+      case "reasoning":
+        await this.cmdReason(arg);
+        break;
+      case "reason":
+        this.addChatLine(
+          clr.dim("Use /reasoning to set the model reasoning level.")
+        );
+        this.tui.requestRender();
+        break;
       case "think":
-        await this.cmdThink(arg);
+        this.addChatLine(
+          clr.dim("Removed — use /reasoning (same levels as /model setup).")
+        );
+        this.tui.requestRender();
+        break;
+      case "allow-all":
+        await this.cmdAllowAll(arg);
         break;
       case "express":
-        this.cmdExpress();
-        break;
       case "engage":
-        this.cmdEngage();
+        this.addChatLine(clr.dim("Removed — use /allow-all to bypass permission prompts."));
+        this.tui.requestRender();
         break;
       case "user":    await this.cmdUser(arg);     break;
       case "resume":
@@ -1684,21 +1965,46 @@ export class ImpulseRenderer {
           debugLog(`Debug logging enabled`);
         }
         break;
-      case "new":
+      case "speedo":
+        this.speedoEnabled = !this.speedoEnabled;
+        this.syncSpeedoUi();
+        this.addChatLine(
+          statusOk(`Turn speed display ${this.speedoEnabled ? "enabled" : "disabled"}`)
+        );
+        this.tui.requestRender();
+        break;
+      case "new": {
+        if (arg) {
+          this.addChatLine(
+            clr.dim("Optional session name is not documented; starting a new session.")
+          );
+        }
         await SessionManager.createNew(arg || undefined);
+        const newCfg = await loadConfig();
+        if (newCfg.defaultModel?.trim()) {
+          await SessionManager.update({ model: newCfg.defaultModel });
+        }
+        resetAllowAllBypass();
+        this.syncAllowAllBypassUi();
+        this.speedoEnabled = false;
+        this.syncSpeedoUi();
+        this.promptHistory.reset();
         this.resetTurnUiState();
         this.clearChatView();
         this.addChatLine(clr.dim("New session started"));
         this.applySessionToRenderer(SessionManager.getCurrentSession()!);
         break;
+      }
       case "clear":
-        // Clear chat history (keep welcome)
-        while ((this.chat as Container & { children?: Component[] }).children?.length) {
-          break; // can't easily clear ? just add a separator
-        }
-        this.addChatLine(clr.dim("?".repeat(60)));
+        this.resetTurnUiState();
+        this.clearChatView();
+        this.addChatLine(clr.dim("Screen cleared — session history preserved"));
+        this.tui.requestRender();
         break;
-      case "help": this.printHelp(); break;
+      case "show":
+        await this.cmdShow();
+        break;
+      case "help": this.showHelpOverlay(); break;
       case "quit":
       case "exit":
         await this.showExitStats();
@@ -1743,7 +2049,7 @@ export class ImpulseRenderer {
     const lines: string[] = [];
 
     if (state.step === "provider") {
-      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
 
@@ -1778,16 +2084,28 @@ export class ImpulseRenderer {
       }
 
       lines.push("");
-      lines.push(clr.dim("?/?: Navigate  Enter: Select  Esc: Cancel"));
+      if (state.pendingRemoveProvider) {
+        lines.push(
+          clr.warn(
+            `Remove ${state.pendingRemoveProvider.label}? Enter: confirm  Esc: cancel`
+          )
+        );
+      } else {
+        lines.push(
+          clr.dim(
+            "↑/↓: Navigate  Enter: Select/add  e: Edit  d: Remove  Esc: Cancel"
+          )
+        );
+      }
     } else if (state.step === "baseUrl") {
-      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`${state.provider?.label ?? "Provider"} endpoint`);
       lines.push("");
       lines.push(clr.dim("Enter a custom endpoint or press Enter to keep the default."));
     } else if (state.step === "apiKey") {
-      lines.push(clr.bold("MODEL SETUP"));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`${state.provider?.label ?? "Provider"} API key`);
@@ -1800,16 +2118,14 @@ export class ImpulseRenderer {
         lines.push(clr.dim("Type the API key. Input is shown while typing."));
       }
     } else if (state.step === "discovering") {
-      const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
-      lines.push(clr.bold(title));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
       lines.push("");
       lines.push(clr.dim("Testing connection..."));
     } else if (state.step === "model") {
-      const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
-      lines.push(clr.bold(title));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
       if (state.discovery) {
@@ -1819,16 +2135,15 @@ export class ImpulseRenderer {
       lines.push("");
       lines.push(clr.dim("  Use the overlay: ?/? navigate, Enter to select, Esc to go back."));
     } else if (state.step === "modelManual") {
-      lines.push(clr.bold(state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP"));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
       lines.push(clr.dim("  Enter the full model ID for this provider."));
     } else if (state.step === "reasoning") {
-      const title = state.isAdvisorMode ? "ADVISOR SETUP" : "MODEL SETUP";
-      lines.push(clr.bold(title));
+      lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
-      lines.push(`${clr.success("[OK]")} ${state.selectedModel ?? ""}`);
+      lines.push(modelStatusLine(`Selected: ${state.selectedModel ?? ""}`));
       lines.push("");
       lines.push(clr.dim("  Use the overlay: ?/? navigate, Enter to select, Esc to go back."));
     }
@@ -1854,23 +2169,38 @@ export class ImpulseRenderer {
     }
 
     this.modelSetupText.setText(lines.map(l => GUTTER + l).join("\n"));
-    this.tui.requestRender();
+    this.requestBottomAnchorRefresh();
   }
 
-  private async selectModelSetupProvider(provider: ModelProviderOption): Promise<void> {
+  private async selectModelSetupProvider(
+    provider: ModelProviderOption,
+    opts?: { edit?: boolean }
+  ): Promise<void> {
     const state = this.modelSetup;
     if (!state) return;
 
-    const existing = providerConfig(state.config, provider.key);
+    const effectiveKey = provider.isCustom
+      ? (state.customProviderName ?? provider.key)
+      : provider.key;
+    const existing = providerConfig(state.config, effectiveKey);
     state.provider = provider;
     state.existing = existing;
     const baseUrl = existing.baseUrl ?? provider.defaultBaseUrl;
     if (baseUrl) state.baseUrl = baseUrl;
     else delete state.baseUrl;
     delete state.error;
+    delete state.pendingRemoveProvider;
 
-    // If API key already configured, skip to model discovery
-    if (existing?.apiKey) {
+    if (opts?.edit && existing?.apiKey) {
+      await this.clearModelsUsingProvider(state.config, effectiveKey);
+      state.editingProvider = true;
+      state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+      this.renderModelSetup();
+      return;
+    }
+
+    // If API key already configured, skip to model discovery (unless editing)
+    if (existing?.apiKey && !opts?.edit) {
       state.apiKey = existing.apiKey;
       state.step = "discovering";
       this.renderModelSetup();
@@ -1946,6 +2276,8 @@ export class ImpulseRenderer {
       this.cancelModelSetup();
       return;
     }
+
+    this.promptInput.clear();
 
     delete state.error;
 
@@ -2024,8 +2356,42 @@ export class ImpulseRenderer {
 
     this.dismissModelSetupOverlay();
 
+    const purpose = this.setupPurpose(state);
+
+    if (purpose === "vision") {
+      const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
+      providers[effectiveKey] = {
+        ...(state.existing ?? {}),
+        apiKey,
+        ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+        ...(provider.customType ? { type: provider.customType } : {}),
+      };
+      state.config.providers = providers as Config["providers"];
+      state.config.visionModel = selectedModel;
+      state.config.visionMode = true;
+      await saveConfig(state.config);
+      await saveHomeEnv(provider, apiKey, state.baseUrl);
+      await this.persistSessionVision(true, selectedModel);
+      resetProviderManager();
+      this.syncVisionFromConfig(await loadConfig());
+      if (this.modelSetupInputListener) {
+        this.modelSetupInputListener();
+        this.modelSetupInputListener = null;
+      }
+      this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
+      this.modelSetup = null;
+      this.modelSetupText.setText("");
+      this.promptInput.setSecretMode(false);
+      this.promptInput.clear();
+      this.addChatLine(
+        statusOk(`Vision ON — ${selectedModel.split("/").pop() ?? selectedModel}`)
+      );
+      this.requestBottomAnchorRefresh();
+      return;
+    }
+
     // Advisor mode: only save advisorModel, don't change default provider/model
-    if (state.isAdvisorMode) {
+    if (purpose === "advisor" || state.isAdvisorMode) {
       // Save API key to providers config
       const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
       providers[effectiveKey] = {
@@ -2038,7 +2404,9 @@ export class ImpulseRenderer {
       state.config.advisorModel = selectedModel;
       state.config.advisorMode = true;
       await saveConfig(state.config);
+      await this.persistSessionAdvisor(true, selectedModel);
       await saveHomeEnv(provider, apiKey, state.baseUrl);
+      this.syncAdvisorFromConfig(await loadConfig());
       this.advisorModel = selectedModel;
       if (reasoningLevel) void this.setReasoningLevel(reasoningLevel);
       this.contextBar.update({ advisorModel: selectedModel, reasoningLevel: this.reasoningDisplayLabel(reasoningLevel) });
@@ -2051,8 +2419,8 @@ export class ImpulseRenderer {
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
-      this.addChatLine(statusOk(`Advisor: ${selectedModel}`));
-      this.tui.requestRender();
+      this.addChatLine(advisorStatusLine(`Advisor: ${selectedModel}`));
+      this.requestBottomAnchorRefresh();
       return;
     }
 
@@ -2066,6 +2434,7 @@ export class ImpulseRenderer {
     state.config.providers = providers as Config["providers"];
     state.config.defaultProvider = effectiveKey;
     state.config.defaultModel = selectedModel;
+    state.config.modelExplicitlySet = true;
     process.env[provider.envVar] = apiKey;
 
     await saveConfig(state.config);
@@ -2102,24 +2471,76 @@ export class ImpulseRenderer {
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
     const reasonLabel = reasoningLevel ? ` (${this.reasoningDisplayLabel(reasoningLevel)})` : "";
-    this.addChatLine(statusOk(`Model changed to: ${selectedModel}${reasonLabel}`));
+    this.addChatLine(modelStatusLine(`Model changed to: ${selectedModel}${reasonLabel}`));
     this.tui.requestRender();
+  }
+
+  private async cmdUpdate(): Promise<void> {
+    if (this.isRunning) {
+      this.addChatLine(`${clr.warn("[!]")} Wait for the current turn to finish.`);
+      return;
+    }
+    this.addChatLine(clr.dim("Checking for updates..."));
+    this.tui.requestRender();
+    const update = await checkForUpdate();
+    if (!update) {
+      this.addChatLine(modelStatusLine(`Already on latest (v${getCurrentVersion()}).`));
+      this.tui.requestRender();
+      return;
+    }
+    this.addChatLine(
+      modelStatusLine(`Update available: v${update.currentVersion} -> v${update.latestVersion}`)
+    );
+    this.addChatLine(clr.dim("Installing update and exiting..."));
+    this.tui.requestRender();
+    await SessionManager.flushCurrent();
+    this.tui.stop();
+    performUpdate(update.latestVersion);
+    process.exit(0);
+  }
+
+  private setupPurpose(state: ModelSetupState): "worker" | "vision" | "advisor" {
+    if (state.setupPurpose) return state.setupPurpose;
+    if (state.isAdvisorMode) return "advisor";
+    return "worker";
+  }
+
+  private setupTitle(state: ModelSetupState): string {
+    const p = this.setupPurpose(state);
+    if (p === "vision") return "VISION SETUP";
+    if (p === "advisor") return "ADVISOR SETUP";
+    return "MODEL SETUP";
   }
 
   private async cmdModel(_arg: string): Promise<void> {
     if (this.isRunning) return;
+    const config = await loadConfig();
+    if (countConfiguredProviders(config) === 0) {
+      await this.startModelSetup(config, "worker");
+      return;
+    }
+    await this.openModelPicker({ purpose: "worker" });
+  }
 
+  private async openModelPicker(opts: {
+    purpose: "worker" | "vision";
+  }): Promise<void> {
     try {
       const config = await loadConfig();
-      const { buildModelPickerState, parseModelPickerSelection } = await import(
-        "./components/model-picker-overlay.js"
-      );
-      const state = await buildModelPickerState(config, {
-        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      });
+      const { buildModelPickerState, buildVisionModelPickerState, parseModelPickerSelection } =
+        await import("./components/model-picker-overlay.js");
+
+      const state =
+        opts.purpose === "vision"
+          ? await buildVisionModelPickerState(config, {
+              maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+            })
+          : await buildModelPickerState(config, {
+              maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+            });
 
       if (state.configuredProviderCount === 0) {
-        this.addChatLine(`  ${clr.dim("No providers configured. Configure one first in ~/.impulse/.env")}`);
+        await this.startModelSetup(config, opts.purpose);
         return;
       }
 
@@ -2132,24 +2553,57 @@ export class ImpulseRenderer {
         const fullModel = parsed.modelId.includes("/")
           ? parsed.modelId
           : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
-        await SessionManager.update({ model: fullModel });
-        this.contextBar.update({ workerModel: fullModel });
-        this.addChatLine(statusOk(`Model: ${fullModel}`));
+
+        if (opts.purpose === "vision") {
+          const cfg = await loadConfig();
+          cfg.visionModel = fullModel;
+          cfg.visionMode = true;
+          await saveConfig(cfg);
+          await this.persistSessionVision(true, fullModel);
+          this.syncVisionFromConfig(await loadConfig());
+          this.addChatLine(
+            statusOk(
+              `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
+            )
+          );
+        } else {
+          const cfg = await loadConfig();
+          cfg.defaultProvider = parsed.providerKey;
+          cfg.defaultModel = fullModel;
+          cfg.modelExplicitlySet = true;
+          await saveConfig(cfg);
+          resetProviderManager();
+          SessionManager.setOptions({ defaultModel: fullModel });
+          await SessionManager.update({ model: fullModel });
+          void this.refreshReasoningCapability();
+          this.contextBar.update({ workerModel: fullModel });
+          this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
+        }
         this.tui.requestRender();
       };
 
       state.overlay.onCancel = () => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
+        this.tui.setFocus(this.promptInput);
       };
 
       state.onRowsUpdated = () => this.tui.requestRender();
 
+      state.overlay.onManageProviders = () => {
+        this.dismissListOverlay(this.modelPickerHandle);
+        this.modelPickerHandle = null;
+        void this.startModelSetup(config, opts.purpose);
+      };
+
       this.modelPickerHandle = this.showListOverlay(state.overlay);
+
       await state.discover();
       this.tui.requestRender();
     } catch (e) {
-      this.addChatLine(`${clr.error("[!]")} Model selector failed: ${(e as Error).message}`);
+      this.addChatLine(
+        `${clr.error("[!]")} Model selector failed: ${(e as Error).message}`
+      );
     }
   }
 
@@ -2177,6 +2631,44 @@ export class ImpulseRenderer {
     const handleModelNav = (data: string) => {
       if (state.step !== "provider") return undefined;
 
+      if (state.pendingRemoveProvider) {
+        if (data === "\r") {
+          const p = state.pendingRemoveProvider;
+          state.pendingRemoveProvider = undefined;
+          void this.removeConfiguredProvider(p).then(() => {
+            void this.rebuildModelSetupProviders(state.config, this.setupPurpose(state));
+          });
+          return { consume: true };
+        }
+        if (data === "\x1b") {
+          state.pendingRemoveProvider = undefined;
+          delete state.error;
+          this.renderModelSetup();
+          return { consume: true };
+        }
+        return { consume: true };
+      }
+
+      if (data === "e" || data === "E") {
+        const entry = state.providers[state.selectedIndex];
+        if (entry?.configured) {
+          state.editingProvider = true;
+          void this.selectModelSetupProvider(entry.provider, { edit: true }).then(
+            () => this.renderModelSetup()
+          );
+        }
+        return { consume: true };
+      }
+
+      if (data === "d" || data === "D") {
+        const entry = state.providers[state.selectedIndex];
+        if (entry?.configured) {
+          state.pendingRemoveProvider = entry.provider;
+          this.renderModelSetup();
+        }
+        return { consume: true };
+      }
+
       if (data === "\x1b[A") {
         state.selectedIndex = Math.max(0, state.selectedIndex - 1);
         this.renderModelSetup();
@@ -2193,7 +2685,9 @@ export class ImpulseRenderer {
       if (data === "\r") {
         const entry = state.providers[state.selectedIndex];
         if (entry) {
-          void this.selectModelSetupProvider(entry.provider);
+          void this.selectModelSetupProvider(entry.provider, {
+            edit: state.editingProvider,
+          });
         }
         return { consume: true };
       }
@@ -2203,105 +2697,162 @@ export class ImpulseRenderer {
     this.modelSetupInputListener = this.tui.addInputListener(handleModelNav);
   }
 
-  private async cmdAdvisor(arg: string): Promise<void> {
-    if (this.isRunning) return;
-    const config = await loadConfig();
-
-    // /advisor off ? toggle OFF
-    if (arg === "off") {
+  private async clearModelsUsingProvider(
+    config: Config,
+    providerKey: string
+  ): Promise<void> {
+    if (modelUsesProvider(config.defaultModel, providerKey)) {
+      config.defaultModel = "";
+      config.modelExplicitlySet = false;
+    }
+    if (modelUsesProvider(config.visionModel, providerKey)) {
+      config.visionModel = undefined;
+      config.visionMode = false;
+      await this.persistSessionVision(false);
+    }
+    if (modelUsesProvider(config.advisorModel, providerKey)) {
       config.advisorModel = undefined;
       config.advisorMode = false;
-      await saveConfig(config);
-      this.advisorModel = undefined;
-      this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
-        contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(statusOk("Advisor mode disabled"));
-      return;
+      await this.persistSessionAdvisor(false);
     }
-
-    // If already ON, /advisor or /advisor on toggles it OFF
-    if (config.advisorMode && (arg === "" || arg === "on")) {
-      config.advisorMode = false;
-      await saveConfig(config);
-      this.contextBar.update({ advisorModel: undefined, workerModel: config.defaultModel,
-        contextTokens: this.contextTokens, contextWindow: this.contextWindow, mode: this.mode });
-      this.addChatLine(statusOk("Advisor mode disabled"));
-      return;
-    }
-
-    // Direct model string: /advisor openrouter/anthropic/claude-opus-4.7
-    if (arg && arg !== "on") {
-      config.advisorModel = arg;
-      config.advisorMode = true;
-      await saveConfig(config);
-      this.advisorModel = arg;
-      this.contextBar.update({ advisorModel: arg });
-      this.addChatLine(statusOk(`Advisor: ${arg} (mode ON)`));
-      return;
-    }
-
-    // /advisor or /advisor on ? activate. Check if already configured.
-    if (config.advisorModel) {
-      const parts = config.advisorModel.split("/");
-      const modelName = parts[parts.length - 1] ?? config.advisorModel;
-      const providerName = parts[0] ?? config.defaultProvider;
-      // Ask user: keep current or change?
-      this.addChatLine(`${clr.bold("Advisor Mode")}`);
-      this.addChatLine(`Current Advisor: ${modelName} via ${providerName}`);
-      this.addChatLine(`Change configuration? (y/N)`);
-      this.tui.requestRender();
-
-      await new Promise<void>((resolve) => {
-        const prev = this.promptInput.onSubmit;
-        this.promptInput.onSubmit = (p) => {
-          this.promptInput.clear();
-          this.promptInput.onSubmit = prev;
-          const val = p.apiText;
-          const answer = val.trim().toLowerCase();
-          if (answer === "y" || answer === "yes") {
-            // Enter configuration setup
-            void this.startAdvisorSetup(config).then(resolve);
-          } else {
-            // Activate with current config
-            config.advisorMode = true;
-            void saveConfig(config).then(() => {
-              this.addChatLine(
-                statusOk(`Advisor mode ON ? ${modelName} via ${providerName}`)
-              );
-              this.tui.requestRender();
-              resolve();
-            });
-          }
-        };
-      });
-      return;
-    }
-
-    // Not configured ? force setup
-    this.addChatLine(`${clr.bold("Advisor Mode")} ? no advisor configured. Let's set one up.`);
-    await this.startAdvisorSetup(config);
+    await saveConfig(config);
+    resetProviderManager();
+    this.syncAdvisorFromConfig(config);
+    this.syncVisionFromConfig(config);
+    this.contextBar.update({
+      workerModel: config.defaultModel,
+      advisorModel: this.advisorModel,
+      visionModel: this.visionModel,
+      visionMode: config.visionMode ?? false,
+    });
   }
 
-  /** Start advisor model setup ? show provider picker, then model list */
-  private async startAdvisorSetup(config: Config): Promise<void> {
-    // Build provider list: configured first, then unconfigured
+  private async removeConfiguredProvider(
+    provider: ModelProviderOption
+  ): Promise<void> {
+    const config = await loadConfig();
+    const key = provider.isCustom
+      ? provider.key
+      : provider.key;
+    const providers = {
+      ...(config.providers as Record<string, StoredProviderConfig | undefined>),
+    };
+    delete providers[key];
+    config.providers = providers as Config["providers"];
+    await removeProviderFromHomeEnv(provider);
+    await this.clearModelsUsingProvider(config, key);
+    this.addChatLine(statusOk(`Removed provider ${provider.label}`));
+    this.tui.requestRender();
+  }
+
+  private async rebuildModelSetupProviders(
+    config: Config,
+    purpose: "worker" | "vision" | "advisor"
+  ): Promise<void> {
     const configured: ProviderEntry[] = [];
     const unconfigured: ProviderEntry[] = [];
     for (const provider of MODEL_PROVIDERS) {
       const stored = providerConfig(config, provider.key);
       if (stored?.apiKey) {
-        configured.push({ provider, configured: true, valid: true, keyPreview: maskKey(stored.apiKey) });
+        configured.push({
+          provider,
+          configured: true,
+          valid: true,
+          keyPreview: maskKey(stored.apiKey),
+        });
       } else {
-        unconfigured.push({ provider, configured: false, valid: false, keyPreview: "" });
+        unconfigured.push({
+          provider,
+          configured: false,
+          valid: false,
+          keyPreview: "",
+        });
       }
     }
-
-        // Scan config for custom providers not in MODEL_PROVIDERS
-    const allProvs2 = config.providers as Record<string, { apiKey?: string; baseUrl?: string; type?: string }>;
-    for (const [key, stored] of Object.entries(allProvs2)) {
-      if (MODEL_PROVIDERS.some(p => p.key === key)) continue;
+    const allProvs = config.providers as Record<
+      string,
+      { apiKey?: string; baseUrl?: string; type?: string }
+    >;
+    for (const [key, stored] of Object.entries(allProvs)) {
+      if (MODEL_PROVIDERS.some((p) => p.key === key)) continue;
       if (!stored?.apiKey) continue;
-      const cp2: ModelProviderOption = {
+      const cp: ModelProviderOption = {
+        key,
+        label: `Custom: ${key}`,
+        envVar: "",
+        defaultModel: config.defaultModel ?? "",
+        modelBaseUrl: stored.baseUrl ?? "",
+        ...(stored.baseUrl ? { defaultBaseUrl: stored.baseUrl } : {}),
+        needsBaseUrl: false,
+        isCustom: false,
+        ...(stored.type
+          ? { customType: stored.type as "openai-compatible" | "anthropic-compatible" }
+          : {}),
+      };
+      configured.push({
+        provider: cp,
+        configured: true,
+        valid: true,
+        keyPreview: maskKey(stored.apiKey),
+      });
+    }
+
+    if (configured.length === 0 && unconfigured.length > 0) {
+      this.modelSetup = null;
+      if (this.modelSetupInputListener) {
+        this.modelSetupInputListener();
+        this.modelSetupInputListener = null;
+      }
+      await this.startModelSetup(config, purpose);
+      return;
+    }
+
+    if (!this.modelSetup) {
+      await this.startModelSetup(config, purpose);
+      return;
+    }
+
+    this.modelSetup.config = config;
+    this.modelSetup.providers = [...configured, ...unconfigured];
+    this.modelSetup.selectedIndex = 0;
+    this.modelSetup.step = "provider";
+    delete this.modelSetup.pendingRemoveProvider;
+    this.renderModelSetup();
+    void this.validateProviderKeys();
+  }
+
+  private async startModelSetup(
+    config: Config,
+    purpose: "worker" | "vision" | "advisor"
+  ): Promise<void> {
+    const configured: ProviderEntry[] = [];
+    const unconfigured: ProviderEntry[] = [];
+    for (const provider of MODEL_PROVIDERS) {
+      const stored = providerConfig(config, provider.key);
+      if (stored?.apiKey) {
+        configured.push({
+          provider,
+          configured: true,
+          valid: true,
+          keyPreview: maskKey(stored.apiKey),
+        });
+      } else {
+        unconfigured.push({
+          provider,
+          configured: false,
+          valid: false,
+          keyPreview: "",
+        });
+      }
+    }
+    const allProvs = config.providers as Record<
+      string,
+      { apiKey?: string; baseUrl?: string; type?: string }
+    >;
+    for (const [key, stored] of Object.entries(allProvs)) {
+      if (MODEL_PROVIDERS.some((p) => p.key === key)) continue;
+      if (!stored?.apiKey) continue;
+      const cp: ModelProviderOption = {
         key,
         label: `Custom: ${key}${stored.type ? ` (${stored.type === "anthropic-compatible" ? "Anthropic" : "OpenAI"})` : ""}`,
         envVar: "",
@@ -2310,11 +2861,19 @@ export class ImpulseRenderer {
         ...(stored.baseUrl ? { defaultBaseUrl: stored.baseUrl } : {}),
         needsBaseUrl: false,
         isCustom: false,
-        ...(stored.type ? { customType: stored.type as "openai-compatible" | "anthropic-compatible" } : {}),
+        ...(stored.type
+          ? { customType: stored.type as "openai-compatible" | "anthropic-compatible" }
+          : {}),
       };
-      configured.push({ provider: cp2, configured: true, valid: true, keyPreview: maskKey(stored.apiKey) });
+      configured.push({
+        provider: cp,
+        configured: true,
+        valid: true,
+        keyPreview: maskKey(stored.apiKey),
+      });
     }
-this.modelSetup = {
+
+    this.modelSetup = {
       step: "provider",
       config,
       currentProvider: config.defaultProvider,
@@ -2323,7 +2882,8 @@ this.modelSetup = {
       selectedIndex: 0,
       page: 0,
       modelsPerPage: 20,
-      isAdvisorMode: true,
+      setupPurpose: purpose,
+      isAdvisorMode: purpose === "advisor",
     };
 
     this.promptInput.clear();
@@ -2334,85 +2894,351 @@ this.modelSetup = {
     void this.validateProviderKeys();
   }
 
-  private async cmdVision(arg: string): Promise<void> {
+  private async cmdExperimental(): Promise<void> {
+    if (this.isRunning || !this.tui) return;
     const config = await loadConfig();
-    if (!arg || arg === "on") {
-      if (config.visionModel) {
-        config.visionMode = true;
-        await saveConfig(config);
-        this.addChatLine(
-          statusOk(
-            `Vision mode ON ? ${config.visionModel.split("/").pop() ?? config.visionModel}`
-          )
-        );
-      } else {
-        this.addChatLine(`${clr.warn("!")} No vision model configured. Use /model to set up a vision-capable model.`);
-      }
+    const overlay = new ExperimentalOverlay({
+      flags: { advisor: config.experimental?.advisor ?? false },
+    });
+
+    await new Promise<void>((resolve) => {
+      const handle = this.showContentSizedOverlay(overlay, { maxHeight: 16 });
+      this.experimentalOverlayHandle = handle;
+
+      const cleanupNav = this.tui.addInputListener((data: string) => {
+        overlay.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      });
+
+      const finish = () => {
+        cleanupNav();
+        this.dismissExperimentalOverlay();
+        this.tui.setFocus(this.promptInput);
+        resolve();
+      };
+
+      overlay.onAbort = () => {
+        finish();
+      };
+
+      overlay.onSubmit = (flags) => {
+        void (async () => {
+          config.experimental = { advisor: flags.advisor };
+          if (!flags.advisor) {
+            config.advisorMode = false;
+            await this.persistSessionAdvisor(false);
+            this.syncAdvisorFromConfig(config);
+            this.contextBar.update({ advisorModel: undefined });
+          }
+          await saveConfig(config);
+          this.experimentalAdvisorEnabled = flags.advisor;
+          this.addChatLine(
+            modelStatusLine(
+              `Experimental: advisor ${flags.advisor ? "enabled" : "disabled"}`
+            )
+          );
+          if (flags.advisor && !config.advisorModel) {
+            this.addChatLine(clr.dim("Configure advisor model via /advisor"));
+          }
+          finish();
+          this.requestBottomAnchorRefresh();
+        })();
+      };
+    });
+  }
+
+  private dismissExperimentalOverlay(): void {
+    this.experimentalOverlayHandle?.hide();
+    this.experimentalOverlayHandle = null;
+  }
+
+  private async cmdAdvisor(arg: string): Promise<void> {
+    if (this.isRunning) return;
+    const config = await loadConfig();
+
+    if (!this.experimentalAdvisorEnabled) {
+      this.addChatLine(
+        `${clr.warn("!")} Advisor is experimental. Run ${clr.tool("/experimental")} to enable.`
+      );
+      this.tui.requestRender();
       return;
     }
+
+    // /advisor off ? toggle OFF
+    if (arg === "off") {
+      config.advisorMode = false;
+      await saveConfig(config);
+      await this.persistSessionAdvisor(false);
+      this.syncAdvisorFromConfig(await loadConfig());
+      this.contextBar.update({
+        advisorModel: undefined,
+        workerModel: config.defaultModel,
+        contextTokens: this.contextTokens,
+        contextWindow: this.contextWindow,
+        mode: this.mode,
+      });
+      this.addChatLine(advisorStatusLine("Advisor mode disabled"));
+      return;
+    }
+
+    // If already ON, /advisor or /advisor on toggles it OFF
+    if (config.advisorMode && (arg === "" || arg === "on")) {
+      config.advisorMode = false;
+      await saveConfig(config);
+      await this.persistSessionAdvisor(false);
+      this.syncAdvisorFromConfig(await loadConfig());
+      this.contextBar.update({
+        advisorModel: undefined,
+        workerModel: config.defaultModel,
+        contextTokens: this.contextTokens,
+        contextWindow: this.contextWindow,
+        mode: this.mode,
+      });
+      this.addChatLine(advisorStatusLine("Advisor mode disabled"));
+      return;
+    }
+
+    // Direct model string: /advisor openrouter/anthropic/claude-opus-4.7
+    if (arg && arg !== "on") {
+      config.advisorModel = arg;
+      config.advisorMode = true;
+      await saveConfig(config);
+      await this.persistSessionAdvisor(true, arg);
+      this.syncAdvisorFromConfig(await loadConfig());
+      this.advisorModel = arg;
+      this.contextBar.update({ advisorModel: arg });
+      this.addChatLine(advisorStatusLine(`Advisor: ${arg} (mode ON)`));
+      return;
+    }
+
+    if (countConfiguredProviders(config) === 0) {
+      await this.startModelSetup(config, "advisor");
+      return;
+    }
+
+    await this.openAdvisorModelPicker();
+  }
+
+  private async openAdvisorModelPicker(): Promise<void> {
+    const config = await loadConfig();
+    const { buildModelPickerState, parseModelPickerSelection } = await import(
+      "./components/model-picker-overlay.js"
+    );
+    const state = await buildModelPickerState(config, {
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      title: "Switch advisor model",
+    });
+
+    if (state.configuredProviderCount === 0) {
+      await this.startModelSetup(config, "advisor");
+      return;
+    }
+
+    state.overlay.onSelect = async (compoundId: string) => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      const parsed = parseModelPickerSelection(compoundId);
+      if (!parsed) return;
+      const fullModel = parsed.modelId.includes("/")
+        ? parsed.modelId
+        : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
+      const cfg = await loadConfig();
+      cfg.advisorModel = fullModel;
+      cfg.advisorMode = true;
+      await saveConfig(cfg);
+      await this.persistSessionAdvisor(true, fullModel);
+      this.syncAdvisorFromConfig(await loadConfig());
+      this.addChatLine(advisorStatusLine(`Advisor: ${fullModel} (mode ON)`));
+      this.tui.requestRender();
+    };
+
+    state.overlay.onCancel = () => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      this.tui.setFocus(this.promptInput);
+    };
+
+    state.overlay.onManageProviders = () => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      void this.startModelSetup(config, "advisor");
+    };
+
+    state.onRowsUpdated = () => this.tui.requestRender();
+    this.modelPickerHandle = this.showListOverlay(state.overlay);
+    await state.discover();
+    this.tui.requestRender();
+  }
+
+  private async cmdVision(arg: string): Promise<void> {
+    if (this.isRunning) {
+      this.addChatLine(`${clr.warn("[!]")} Wait for the current turn to finish.`);
+      this.tui.requestRender();
+      return;
+    }
+    const config = await loadConfig();
+
     if (arg === "off") {
       config.visionMode = false;
       await saveConfig(config);
+      await this.persistSessionVision(false);
+      this.syncVisionFromConfig(await loadConfig());
       this.addChatLine(statusOk("Vision mode OFF"));
+      this.tui.requestRender();
       return;
     }
-    this.addChatLine(`  vision: ${config.visionMode ? "on" : "off"}  |  options: on | off`);
+
+    if (arg === "on") {
+      if (config.visionModel) {
+        config.visionMode = true;
+        await saveConfig(config);
+        await this.persistSessionVision(true, config.visionModel);
+        this.syncVisionFromConfig(await loadConfig());
+        this.addChatLine(
+          statusOk(
+            `Vision ON — ${config.visionModel.split("/").pop() ?? config.visionModel}`
+          )
+        );
+      } else {
+        await this.openModelPicker({ purpose: "vision" });
+      }
+      return;
+    }
+
+    if (arg) {
+      this.addChatLine(
+        `  vision: ${config.visionMode ? "on" : "off"}  |  options: on | off | (no arg toggles / opens picker)`
+      );
+      return;
+    }
+
+    if (config.visionMode) {
+      config.visionMode = false;
+      await saveConfig(config);
+      await this.persistSessionVision(false);
+      this.syncVisionFromConfig(await loadConfig());
+      this.addChatLine(statusOk("Vision mode OFF"));
+      this.tui.requestRender();
+      return;
+    }
+
+    this.addChatLine(clr.dim("Vision model picker…"));
+    this.tui.requestRender();
+    await this.openModelPicker({ purpose: "vision" });
+  }
+
+  private async cmdShow(): Promise<void> {
+    const session = SessionManager.getCurrentSession();
+    if (!session?.messages?.length) {
+      this.addChatLine(clr.dim("No messages in this session to show."));
+      this.tui.requestRender();
+      return;
+    }
+
+    this.resetTurnUiState();
+    this.clearChatView();
+    this.hydrateChatFromSession(session);
+    this.addChatLine(clr.dim("Chat restored from session history"));
+    this.tui.requestRender();
   }
 
   private cmdMode(arg: string): void {
-    const modes: Mode[] = ["EXPLORE", "PLAN", "DEBUG"];
+    const modes: Mode[] = ["AGENT", "EXPLORE", "PLAN", "DEBUG"];
     if (!arg) {
       this.addChatLine(`  mode: ${this.mode}  |  options: ${modes.join(" | ")}`);
       return;
     }
-    const m = arg.toUpperCase() as Mode;
+    const m = normalizeMode(arg.toUpperCase()) as Mode;
     if (modes.includes(m)) {
       const prev = this.mode;
-      this.mode = m;
-      setCurrentMode(m);
-      this.contextBar.update({ mode: m });
-      this.syncModeColor();
-      this.addChatLine(`  ${A.fg(MODE_COLORS[prev] ?? 34, prev)}${MODE_ARROW}${A.fg(MODE_COLORS[m] ?? 34, m)}`);
+      this.applyModeChange(m, { prev, transition: "chat" });
+      this.tui.requestRender();
     } else {
-      this.addChatLine(`  ${clr.error("?")} Unknown mode. Options: ${modes.join(", ")}`);
+      this.addChatLine(`  ${clr.error("?")} Unknown mode. Options: ${modes.join(" | ")}`);
     }
   }
 
-  private async cmdThink(arg: string): Promise<void> {
-    if (!arg) {
-      const next = this.reasoningLevel === "off" ? "medium" : "off";
-      await this.setReasoningLevel(next);
-      this.addChatLine(`  thinking: ${this.reasoningDisplayLabel(next)}`);
+  private syncAllowAllBypassUi(): void {
+    this.contextBar.update({ allowAllBypass: isAllowAllBypass() });
+    this.tui?.requestRender();
+  }
+
+  private syncSpeedoUi(): void {
+    this.contextBar?.update({
+      showTurnSpeed: this.speedoEnabled,
+      ...(!this.speedoEnabled
+        ? { tokensPerSecond: undefined, lastTurnMs: undefined }
+        : {}),
+    });
+    this.tui?.requestRender();
+  }
+
+  private dismissAllowAllDisclaimer(): void {
+    this.allowAllDisclaimerHandle?.hide();
+    this.allowAllDisclaimerHandle = null;
+  }
+
+  private showAllowAllDisclaimer(): Promise<boolean> {
+    if (!this.tui) return Promise.resolve(false);
+
+    return new Promise<boolean>((resolve) => {
+      this.dismissAllowAllDisclaimer();
+
+      const overlay = new AllowAllDisclaimerOverlay();
+      const handle = this.tui.showOverlay(overlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: "92%",
+        minWidth: this.overlayMin(),
+        maxHeight: 16,
+        margin: { left: 2, right: 2, bottom: 4 },
+      });
+      this.allowAllDisclaimerHandle = handle;
+      handle.focus();
+
+      overlay.onDecision = (decision) => {
+        this.dismissAllowAllDisclaimer();
+        this.tui.setFocus(this.promptInput);
+        resolve(decision === "agree");
+      };
+    });
+  }
+
+  private async cmdAllowAll(arg: string): Promise<void> {
+    if (this.isRunning) {
+      this.addChatLine(`${clr.warn("[!]")} Wait for the current turn to finish.`);
+      this.tui.requestRender();
       return;
     }
-    await this.cmdReason(arg);
-  }
 
-  private cmdExpress(): void {
-    const { enabled, needsWarning } = toggleExpress();
-    if (enabled && needsWarning) {
-      acknowledgeExpress();
-      this.addChatLine(`  ${clr.warn("!")} Express mode ON ? all tool permissions auto-approved this session`);
-    } else {
-      this.addChatLine(`  express: ${enabled ? "on" : "off"}`);
+    if (arg) {
+      this.addChatLine(
+        `  ${clr.dim("/allow-all is a toggle only — run /allow-all with no arguments.")}`
+      );
+      this.tui.requestRender();
+      return;
     }
-  }
 
-  private cmdEngage(): void {
-    this.engageMode = !this.engageMode;
-    if (this.engageMode) {
-      if (!isExpressMode()) {
-        const { needsWarning } = toggleExpress();
-        if (needsWarning) acknowledgeExpress();
-      }
-      this.mode = "AGENT";
-      setCurrentMode("AGENT");
-      this.contextBar.update({ mode: "AGENT" });
-      this.syncModeColor();
-      this.addChatLine(`  engage: on  (AGENT + express)`);
-    } else {
-      this.addChatLine(`  engage: off`);
+    if (isAllowAllBypass()) {
+      setAllowAllBypass(false);
+      this.syncAllowAllBypassUi();
+      this.addChatLine(statusOk("Permission bypass off"));
+      this.tui.requestRender();
+      return;
     }
+
+    const agreed = await this.showAllowAllDisclaimer();
+    if (!agreed) {
+      this.addChatLine(clr.dim("Allow-all not enabled."));
+      this.tui.requestRender();
+      return;
+    }
+
+    setAllowAllBypass(true);
+    this.syncAllowAllBypassUi();
+    this.addChatLine(statusOk("All permissions bypassed"));
+    this.tui.requestRender();
   }
 
   private async cmdReason(arg: string): Promise<void> {
@@ -2481,6 +3307,9 @@ this.modelSetup = {
 
   private resetTurnUiState(): void {
     this.toolBlocks.clear();
+    this.activeTaskToolId = null;
+    this.activeTaskCodename = null;
+    this.clearCtrlCPending();
     this.streamingRaw = "";
     this.streamingText = null;
     this.thinkingRaw = "";
@@ -2488,11 +3317,83 @@ this.modelSetup = {
     this.thinkingOpen = false;
   }
 
+  private syncAdvisorFromConfig(config: Config): void {
+    const active =
+      config.advisorMode &&
+      this.experimentalAdvisorEnabled &&
+      Boolean(config.advisorModel?.trim());
+    this.advisorModel = active ? config.advisorModel : undefined;
+  }
+
+  private syncVisionFromConfig(config: Config): void {
+    const active = config.visionMode && Boolean(config.visionModel?.trim());
+    this.visionModel = active ? config.visionModel : undefined;
+    this.contextBar.update({
+      visionModel: this.visionModel,
+      visionMode: config.visionMode ?? false,
+    });
+  }
+
+  private async persistSessionAdvisor(
+    advisorMode: boolean,
+    advisorModel?: string
+  ): Promise<void> {
+    if (!SessionManager.getCurrentSession()) return;
+    await SessionManager.update({
+      advisorMode,
+      advisorModel: advisorMode ? advisorModel : undefined,
+    });
+  }
+
+  private async persistSessionVision(
+    visionMode: boolean,
+    visionModel?: string
+  ): Promise<void> {
+    if (!SessionManager.getCurrentSession()) return;
+    await SessionManager.update({
+      visionMode,
+      visionModel: visionMode ? visionModel : undefined,
+    });
+  }
+
+  private helpOverlayMaxHeight(): number {
+    const rows = this.tui?.terminal?.rows ?? 24;
+    const reserved = 10;
+    return Math.min(40, Math.max(20, rows - reserved));
+  }
+
+  private showHelpOverlay(): void {
+    if (this.isRunning) return;
+    const maxHeight = this.helpOverlayMaxHeight();
+    const overlay = new HelpOverlay({
+      opts: {
+        reasoningLevelsLabel: this.reasoningLevelsLabel(),
+        experimentalAdvisor: this.experimentalAdvisorEnabled,
+      },
+      maxHeight,
+    });
+    overlay.onCancel = () => {
+      this.helpOverlayHandle?.hide();
+      this.helpOverlayHandle = null;
+      this.tui.setFocus(this.promptInput);
+      this.tui.requestRender();
+    };
+    overlay.onScroll = () => {
+      this.tui.requestRender();
+    };
+    this.helpOverlayHandle = this.showContentSizedOverlay(overlay, {
+      maxHeight,
+    });
+    this.tui.requestRender();
+  }
+
   private applySessionToRenderer(session: import("../session/store.js").Session): void {
     const mode = normalizeMode(session.mode) as Mode;
     this.mode = mode;
     setCurrentMode(mode);
     this.syncModeColor();
+    this.speedoEnabled = false;
+    this.syncSpeedoUi();
 
     if (session.model) {
       this.contextBar.update({ workerModel: session.model });
@@ -2501,28 +3402,86 @@ this.modelSetup = {
       this.contextWindow = session.context_window;
     }
     this.contextTokens = this.estimateCurrentSessionTokens();
-    this.contextBar.update({
-      mode: this.mode,
-      contextTokens: this.contextTokens,
-      contextWindow: this.contextWindow,
-      ...(session.model ? { workerModel: session.model } : {}),
+    void loadConfig().then((cfg) => {
+      this.syncAdvisorFromConfig(cfg);
+      this.syncVisionFromConfig(cfg);
+      this.contextBar.update({
+        mode: this.mode,
+        contextTokens: this.contextTokens,
+        contextWindow: this.contextWindow,
+        advisorModel: this.advisorModel,
+        visionModel: this.visionModel,
+        visionMode: cfg.visionMode ?? false,
+        ...(session.model ? { workerModel: session.model } : {}),
+      });
+      this.tui.requestRender();
     });
   }
 
-  private showSessionRestored(session: import("../session/store.js").Session): void {
+  private showSessionRestored(session: Session): void {
     const title = session.headerTitle ?? session.name;
     this.addChatLine(clr.dim(`${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${title}`));
     this.addChatLine(clr.dim("Session restored"));
     this.addSectionGap();
   }
 
+  private hydrateChatFromSession(session: Session): void {
+    const steps = buildReplaySteps(session.messages);
+    for (const step of steps) {
+      this.appendReplayStep(step);
+    }
+  }
+
+  private appendReplayStep(step: ReplayStep): void {
+    switch (step.type) {
+      case "user":
+        this.addSectionGap();
+        this.addChatLine(`${A.fg(36, this.userName)}`);
+        this.addChatLine(step.text);
+        this.addSectionGap();
+        break;
+      case "thinking": {
+        const filtered = filterThinkingForDisplay(step.text);
+        if (!filtered.trim()) break;
+        this.addSectionGap();
+        const block = new ThinkingBlock();
+        block.setText(filtered);
+        this.chat.addChild(block);
+        this.hasTrailingGap = false;
+        break;
+      }
+      case "assistantText":
+        this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
+        this.hasTrailingGap = false;
+        {
+          const md = new MarkdownTextBlock(GUTTER);
+          md.setText(step.text);
+          this.chat.addChild(md);
+          this.hasTrailingGap = false;
+        }
+        break;
+      case "tool":
+        this.addSectionGap();
+        this.chat.addChild(
+          ToolBlock.fromCompleted(step.name, step.args, step.result, step.durationMs)
+        );
+        this.hasTrailingGap = false;
+        break;
+      default:
+        break;
+    }
+  }
+
   private async applyResumeSession(sessionID: string): Promise<void> {
     try {
       const session = await SessionManager.load(sessionID);
+      resetAllowAllBypass();
+      this.syncAllowAllBypassUi();
       this.resetTurnUiState();
       this.clearChatView();
       this.applySessionToRenderer(session);
       this.showSessionRestored(session);
+      this.hydrateChatFromSession(session);
       this.tui.requestRender();
     } catch (e) {
       this.addChatLine(`${clr.error("[!]")} Failed to load session: ${(e as Error).message}`);
@@ -2559,38 +3518,8 @@ this.modelSetup = {
       this.sessionPickerHandle = null;
     };
 
-    this.sessionPickerHandle = this.showListOverlay(overlay);
+    this.sessionPickerHandle = this.showSessionPickerOverlay(overlay);
     this.tui.requestRender();
   }
 
-  private printHelp(): void {
-    const reasonLevels = this.reasoningLevelsLabel();
-    const rule = dimRuleIndented(this.terminalCols(), 2);
-    const h = [
-      "",
-      `  ${clr.bold("Commands")}`,
-      rule,
-      `  ${clr.tool("/advisor on")}      ${clr.dim("Set advisor model")}`,
-      `  ${clr.tool("/advisor off")}     ${clr.dim("Disable advisor")}`,
-      `  ${clr.tool("/advisor <model>")} ${clr.dim("Set advisor directly")}`,
-      `  ${clr.tool("/model")}            ${clr.dim("Browse and switch models")}`,
-      `  ${clr.tool("/mode <MODE>")}     ${clr.dim("EXPLORE | PLAN | DEBUG")}`,
-      `  ${clr.tool("/reason <level>")} ${clr.dim(reasonLevels)}`,
-      `  ${clr.tool("/new [name]")}      ${clr.dim("Start new session")}`,
-      `  ${clr.tool("/resume")}         ${clr.dim("Browse saved sessions")}`,
-      `  ${clr.tool("/user")}            ${clr.dim("View/update profile & preferences")}`,
-      `  ${clr.tool("/debug")}           ${clr.dim("Toggle session debug log file (not DEBUG mode)")}`,
-      `  ${clr.tool("/help ")}${clr.dim("This message")}`,
-      `  ${clr.tool("/exit ")}${clr.dim("Quit")}`,
-      "",
-      `  ${clr.bold("Keyboard")}`,
-      rule,
-      `  ${clr.dim("Tab")}              ${clr.dim("Cycle mode (DEBUG = evidence-first debugging)")}`,
-      `  ${clr.dim("Shift+Tab")}        ${clr.dim(`Cycle reasoning level (${reasonLevels})`)}`,
-      `  ${clr.dim("Ctrl+C")}           ${clr.dim("Abort current turn")}`,
-      `  ${clr.dim("Ctrl+D")}           ${clr.dim("Exit")}`,
-      "",
-    ];
-    for (const line of h) this.addChatLine(line);
-  }
 }

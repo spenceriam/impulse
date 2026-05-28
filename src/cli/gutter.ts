@@ -21,7 +21,8 @@ export function innerWidth(totalWidth: number): number {
  * Prepend left gutter and truncate to fit total width.
  */
 export function gutterContent(content: string, totalWidth: number): string {
-  return truncateToWidth(GUTTER + content, totalWidth);
+  const inner = innerWidth(totalWidth);
+  return GUTTER + truncateToWidth(content, inner);
 }
 
 /**
