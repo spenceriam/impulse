@@ -151,6 +151,11 @@ function applyDefaults(config: Partial<Config>): Config {
   return ConfigSchema.parse(config);
 }
 
+/** Build a full Config from partial values (Zod defaults applied). */
+export function createDefaultConfig(overrides?: Partial<Config>): Config {
+  return applyDefaults(overrides ?? {});
+}
+
 let cachedConfig: Config | null = null;
 
 /** Clear in-memory config after home migration or external config edits. */
@@ -238,7 +243,8 @@ export function isModelConfigured(config: Config): boolean {
 }
 
 export async function save(config: Config): Promise<void> {
+  const parsed = applyDefaults(config);
   await fs.mkdir(Global.Path.config, { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
-  cachedConfig = config;
+  await fs.writeFile(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+  cachedConfig = parsed;
 }

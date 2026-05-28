@@ -11,6 +11,7 @@
 
 import { registerCrashRecoveryHandlers } from "./util/crash-recovery.js";
 import {
+  createDefaultConfig,
   load as loadConfig,
   save as saveConfig,
   invalidateConfigCache,
@@ -401,15 +402,14 @@ async function runSetup(): Promise<void> {
   }
 
   // Save config
-  const cfg = await loadConfig().catch(() => ({
-    providers: {} as Record<string, unknown>,
-    defaultProvider: providerKey,
-    defaultModel,
-    defaultMode: "AGENT",
-    thinking: true,
-    maxOutputTokens: 32000,
-    hasSeenWelcome: true,
-  }));
+  const cfg = await loadConfig().catch(() =>
+    createDefaultConfig({
+      providers: {},
+      defaultProvider: providerKey,
+      defaultModel,
+      hasSeenWelcome: true,
+    })
+  );
 
   const providers = cfg.providers as Record<string, unknown>;
   providers[providerKey] = {
@@ -496,20 +496,18 @@ export async function runOnboarding(): Promise<void> {
   const customInstructions = await ask("  Any custom instructions? (optional): ");
 
   // Load config and save user profile
-  const cfg = await loadConfig().catch(() => ({
-    providers: {} as Record<string, unknown>,
-    defaultProvider: "ollama",
-    defaultModel: "ollama/llama3.2",
-    defaultMode: "AGENT",
-    thinking: true,
-    maxOutputTokens: 32000,
-    hasSeenWelcome: true,
-    userProfile: {
-      name: "",
-      responsePreference: "concise",
-      customInstructions: "",
-    },
-  }));
+  const cfg = await loadConfig().catch(() =>
+    createDefaultConfig({
+      defaultProvider: "ollama",
+      defaultModel: "ollama/llama3.2",
+      hasSeenWelcome: true,
+      userProfile: {
+        name: "",
+        responsePreference: "concise",
+        customInstructions: "",
+      },
+    })
+  );
 
   cfg.userProfile = {
     name,

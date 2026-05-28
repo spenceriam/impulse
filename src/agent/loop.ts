@@ -51,6 +51,7 @@ import {
 import { generateSystemPrompt } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
 import { buildDebugInstrumentationNudge } from "./self-check.js";
+import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
 import { modelSupportsVision } from "../api/providers/capabilities.js";
@@ -447,9 +448,6 @@ export class AgentLoop {
           if (fp) debugEditedFiles.add(fp);
         };
 
-        // Hard tool gate: block write/edit/bash/task/todo_write until advisor consulted
-        const BLOCKED_BEFORE_ADVISOR = new Set(["file_write", "file_edit", "task", "todo_write"]);
-
         for (const tc of toolCalls) {
           if (signal.aborted) break;
 
@@ -466,44 +464,22 @@ export class AgentLoop {
             isExperimentalAdvisorEnabled(config) &&
             !advisorCalledThisTurn
           ) {
-            if (BLOCKED_BEFORE_ADVISOR.has(tc.name)) {
+            if (shouldBlockBeforeAdvisor(tc.name, args)) {
               events.onToolStart(tc.id, tc.name, args);
               events.onToolEnd(tc.id, tc.name, {
                 success: false,
-                output: "[GATE] Advisor Mode is active. Call consult_advisor before making changes.",
+                output: ADVISOR_GATE_MESSAGE,
               }, 0);
               allSucceeded = false;
 
               const blockedMsg = {
                 role: "tool" as const,
-                content: "[GATE] Advisor Mode is active. Call consult_advisor before making changes.",
+                content: ADVISOR_GATE_MESSAGE,
                 tool_call_id: tc.id,
                 timestamp: new Date().toISOString(),
               } as unknown as Message;
               await SessionManager.addMessage(blockedMsg as unknown as Message);
               continue;
-            }
-            if (tc.name === "bash" && typeof args["command"] === "string") {
-              // Allow read-only bash commands
-              const cmd = (args["command"] as string).toLowerCase().trim();
-              const isReadOnly = /^(ls|dir|cat|head|tail|wc|grep|find|which|where|type|pwd|echo|printenv|env|whoami|date|uname|git\s+status|git\s+log|git\s+branch|git\s+diff)/i.test(cmd);
-              if (!isReadOnly) {
-                events.onToolStart(tc.id, tc.name, args);
-                events.onToolEnd(tc.id, tc.name, {
-                  success: false,
-                  output: "[GATE] Advisor Mode is active. Call consult_advisor before executing write commands.",
-                }, 0);
-                allSucceeded = false;
-
-                const blockedMsg = {
-                  role: "tool" as const,
-                  content: "[GATE] Advisor Mode is active. Call consult_advisor before executing write commands.",
-                  tool_call_id: tc.id,
-                  timestamp: new Date().toISOString(),
-                } as unknown as Message;
-                await SessionManager.addMessage(blockedMsg as unknown as Message);
-                continue;
-              }
             }
           }
 

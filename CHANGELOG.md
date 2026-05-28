@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Fixed
   - **Image path extraction** — `extractImagePathRefs` no longer crashes with a `TypeError` when scanning messages for multiple inline image paths. The internal `PATH_WITH_SPACES_RE` / `PATH_BODY_RE` patterns are now passed to `matchAll` with the required global flag, while the non-global versions are retained for stateless `.test()` checks.
+  - **Config fallbacks** — `loadConfig().catch()` recovery uses `createDefaultConfig()` (Zod defaults) and `save()` re-parses before writing, so partial objects are not persisted when config load fails.
+  - **Advisor bash gate** — unified pre-consult gate blocks non-readonly bash (including empty/missing commands) with the same message as writes/edits/subagents; mutating bash prefixes are denylisted.
 
 ## [1.1.2] - 2026-05-23
 
