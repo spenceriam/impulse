@@ -57,7 +57,7 @@ function tableMetaColumnWidths(
   );
   modeW = Math.max(modeW, TABLE_MODE_MIN);
   updatedW = Math.max(updatedW, TABLE_UPDATED_MIN);
-  const metaBlockW = modeW + modelW + updatedW + TABLE_COL_SEP_COLS * 3;
+  const metaBlockW = modeW + modelW + updatedW + TABLE_COL_SEP_COLS * 2;
   return { modeW, modelW, updatedW, metaBlockW };
 }
 
@@ -140,11 +140,46 @@ export function resolveSessionPickerOverlayWidth(
   );
 }
 
-function computeTableIntrinsicInnerWidth(
+export interface TableColumnWidths {
+  session: number;
+  mode: number;
+  model: number;
+  updated: number;
+}
+
+export interface ComputedTableLayout {
+  widths: TableColumnWidths;
+  innerWidth: number;
+  metaBlockW: number;
+  sepW: number;
+}
+
+/**
+ * Shared table column width computation for list overlays.
+ * Computes optimal column widths from headers + data rows, respecting min/max constraints.
+ */
+export function computeTableColumnLayout(
   headers: ListOverlayTableHeaders,
-  rows: ListOverlayContentMeasure["rows"],
-  terminalCapInner: number
-): number {
+  rows: Array<{
+    id: string;
+    tableCells?: {
+      title: string;
+      mode: string;
+      model: string;
+      updated: string;
+    };
+  }>,
+  terminalCapInner: number,
+  opts?: {
+    prefixCols?: number;
+    headerPrefix?: number;
+    omitModelColumn?: boolean;
+  }
+): ComputedTableLayout {
+  const prefixCols = opts?.prefixCols ?? LIST_ROW_SELECTED_PREFIX_COLS;
+  const headerPrefix = opts?.headerPrefix ?? 4;
+  const omitModelColumn = opts?.omitModelColumn ?? false;
+
   const dataRows = rows.filter(
     (r) => r.tableCells && !r.id.startsWith("__header__") && !r.id.startsWith("__sep__")
   );
@@ -165,22 +200,27 @@ function computeTableIntrinsicInnerWidth(
     );
   }
 
-  modelW = Math.min(TABLE_MODEL_MAX, Math.max(8, modelW));
+  if (omitModelColumn) {
+    modelW = 0;
+  } else {
+    modelW = Math.min(TABLE_MODEL_MAX, Math.max(8, modelW));
+  }
   modeW = Math.max(modeW, TABLE_MODE_MIN);
   updatedW = Math.max(updatedW, TABLE_UPDATED_MIN);
   sessionW = Math.max(TABLE_SESSION_MIN, sessionW);
 
   const sepW = TABLE_COL_SEP_COLS;
-  const metaBlockW = modeW + modelW + updatedW + sepW * 3;
-  const headerPrefix = 4;
+  const metaBlockW = omitModelColumn
+    ? modeW + updatedW + sepW
+    : modeW + modelW + updatedW + sepW * 2;
+
   let innerWidth =
     headerPrefix + visibleWidth(headers.title) + sepW + metaBlockW;
 
   for (const row of dataRows) {
     const c = row.tableCells!;
     const titleLen = visibleWidth(c.title.replace(/[\r\n]+/g, " ").trim());
-    const rowW =
-      LIST_ROW_SELECTED_PREFIX_COLS + titleLen + 1 + sepW + metaBlockW;
+    const rowW = prefixCols + titleLen + 1 + sepW + metaBlockW;
     innerWidth = Math.max(innerWidth, rowW);
   }
 
@@ -188,7 +228,20 @@ function computeTableIntrinsicInnerWidth(
     innerWidth = terminalCapInner;
   }
 
-  return innerWidth;
+  return {
+    widths: { session: sessionW, mode: modeW, model: modelW, updated: updatedW },
+    innerWidth,
+    metaBlockW,
+    sepW,
+  };
+}
+
+function computeTableIntrinsicInnerWidth(
+  headers: ListOverlayTableHeaders,
+  rows: ListOverlayContentMeasure["rows"],
+  terminalCapInner: number
+): number {
+  return computeTableColumnLayout(headers, rows, terminalCapInner).innerWidth;
 }
 
 /**

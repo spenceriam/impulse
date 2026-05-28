@@ -6,6 +6,7 @@ import {
 } from "@mariozechner/pi-tui";
 import {
   computeListOverlayContentBoxWidth,
+  computeTableColumnLayout,
   overlayBoxWidth,
   resolveSessionPickerOverlayWidth,
   type ListOverlayContentMeasure,
@@ -88,10 +89,6 @@ export interface TableLayout {
 }
 
 const TABLE_COL_SEP = "  ";
-const TABLE_MODE_MIN = 6;
-const TABLE_UPDATED_MIN = 9;
-const TABLE_MODEL_MAX = 32;
-const TABLE_SESSION_MIN = 12;
 export const TABLE_HEADER_ROW_ID = "__header__table__";
 
 const DEFAULT_TABLE_HEADERS: SelectableListTableHeaders = {
@@ -145,64 +142,20 @@ export function computeTableLayout(
   prefixCols = visibleWidth(stripAnsi("  > ")),
   omitModelColumn = false
 ): TableLayout {
-  const dataRows = rows.filter(
-    (r) => r.tableCells && !isNonSelectableRowId(r.id)
-  );
-
-  let modeW = Math.max(TABLE_MODE_MIN, visibleWidth(headers.mode));
-  let updatedW = Math.max(TABLE_UPDATED_MIN, visibleWidth(headers.updated));
-  let modelW = visibleWidth(headers.model);
-  let sessionW = visibleWidth(headers.title);
-
-  for (const row of dataRows) {
-    const c = row.tableCells!;
-    modeW = Math.max(modeW, visibleWidth(c.mode));
-    updatedW = Math.max(updatedW, visibleWidth(c.updated));
-    modelW = Math.max(modelW, visibleWidth(c.model));
-    sessionW = Math.max(
-      sessionW,
-      visibleWidth(c.title.replace(/[\r\n]+/g, " ").trim())
-    );
-  }
-
-  if (omitModelColumn) {
-    modelW = 0;
-  } else {
-    modelW = Math.min(TABLE_MODEL_MAX, Math.max(8, modelW));
-  }
-  modeW = Math.max(modeW, TABLE_MODE_MIN);
-  updatedW = Math.max(updatedW, TABLE_UPDATED_MIN);
-  sessionW = Math.max(TABLE_SESSION_MIN, sessionW);
-
-  const sepW = visibleWidth(TABLE_COL_SEP);
-  const metaBlockW =
-    modeW +
-    updatedW +
-    (omitModelColumn ? sepW : modelW + sepW * 3);
   const headerPrefix = visibleWidth(stripAnsi("    "));
-  let innerWidth =
-    headerPrefix + visibleWidth(headers.title) + sepW + metaBlockW;
-
-  for (const row of dataRows) {
-    const c = row.tableCells!;
-    const titleLen = visibleWidth(c.title.replace(/[\r\n]+/g, " ").trim());
-    const rowW = prefixCols + titleLen + 1 + sepW + metaBlockW;
-    innerWidth = Math.max(innerWidth, rowW);
-  }
-
-  sessionW = Math.max(
-    TABLE_SESSION_MIN,
-    sessionW,
-    visibleWidth(headers.title)
+  const result = computeTableColumnLayout(
+    headers,
+    rows,
+    terminalCapInner,
+    {
+      prefixCols,
+      headerPrefix,
+      omitModelColumn,
+    }
   );
-
-  if (innerWidth > terminalCapInner) {
-    innerWidth = terminalCapInner;
-  }
-
   return {
-    widths: { session: sessionW, mode: modeW, model: modelW, updated: updatedW },
-    innerWidth,
+    widths: result.widths,
+    innerWidth: result.innerWidth,
   };
 }
 
