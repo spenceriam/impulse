@@ -17,7 +17,7 @@ export const SLASH_COMMAND_NAMES = new Set([
   "model",
   "vision",
   "mode",
-  "reason",
+  "reasoning",
   "think",
   "new",
   "resume",
@@ -27,6 +27,9 @@ export const SLASH_COMMAND_NAMES = new Set([
   "clear",
   "exit",
   "quit",
+  "allow-all",
+  "show",
+  "speedo",
 ]);
 
 const PASTED_IMAGE_TOKEN_RE = /\[Pasted images? #\d+(?:-#\d+)?\]/;

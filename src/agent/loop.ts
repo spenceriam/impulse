@@ -779,7 +779,7 @@ export class AgentLoop {
           {
             role: "user",
             content: [
-              { type: "text", text: "Describe this image in detail. Focus on visible text, UI elements, code, errors, layout, and anything relevant to a coding task. Be concise but thorough." },
+              { type: "text", text: buildVisionTranslatePrompt(userRequest) },
               { type: "image_url", image_url: { url: imageUrl } },
             ] as any,
           },

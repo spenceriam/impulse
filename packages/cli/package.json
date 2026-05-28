@@ -36,10 +36,10 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@spenceriam/impulse-linux-x64": "1.1.0",
-    "@spenceriam/impulse-linux-arm64": "1.1.0",
-    "@spenceriam/impulse-darwin-x64": "1.1.0",
-    "@spenceriam/impulse-darwin-arm64": "1.1.0",
-    "@spenceriam/impulse-windows-x64": "1.1.0"
+    "@spenceriam/impulse-linux-x64": "1.1.2",
+    "@spenceriam/impulse-linux-arm64": "1.1.2",
+    "@spenceriam/impulse-darwin-x64": "1.1.2",
+    "@spenceriam/impulse-darwin-arm64": "1.1.2",
+    "@spenceriam/impulse-windows-x64": "1.1.2"
   }
 }
