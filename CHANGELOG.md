@@ -5,6 +5,14 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-05-28
+
+  **Type:** patch
+  **Title:** Fix image path extraction crash on multi-path matching
+
+  ### Fixed
+  - **Image path extraction** — `extractImagePathRefs` no longer crashes with a `TypeError` when scanning messages for multiple inline image paths. The internal `PATH_WITH_SPACES_RE` / `PATH_BODY_RE` patterns are now passed to `matchAll` with the required global flag, while the non-global versions are retained for stateless `.test()` checks.
+
 ## [1.1.2] - 2026-05-23
 
   **Type:** patch
