@@ -19,7 +19,12 @@ const DIM = "\x1b[2m\x1b[38;5;90m";
 const RESET = "\x1b[0m";
 
 const FOOTER_IDLE = "Esc close";
-const FOOTER_SCROLL = "↑↓ scroll · PgUp/PgDn · Esc close";
+const FOOTER_SCROLL = "↑↓ scroll · PgUp/PgDn · Home/End · Esc close";
+
+/** Title + top spacer. */
+const CHROME_TOP_LINES = 2;
+/** Spacer + footer + bottom border. */
+const CHROME_BOTTOM_LINES = 3;
 
 export type BuildHelpOverlayOptions = BuildSlashCommandsOptions;
 
@@ -135,7 +140,8 @@ export function buildHelpContent(
   for (const keyLine of [
     "Tab — Cycle mode, or complete /command when line starts with /",
     `Shift+Tab — Cycle reasoning (${reasoningLevelsLabel}); ignored while typing /commands`,
-    "Esc — Abort current turn",
+    "↑ — Recall previous submitted prompt",
+    "Esc — Close overlays (e.g. /help) or abort current turn",
     "Ctrl+C — Hit again to cancel turn (while busy) or exit (idle)",
     "Ctrl+C Ctrl+C — Exit with session summary when idle",
     "Ctrl+D — Exit",
@@ -161,7 +167,7 @@ export class HelpOverlay implements Component {
 
   constructor(options: HelpOverlayOptions) {
     this.opts = options.opts;
-    this.maxHeight = Math.max(1, options.maxHeight);
+    this.maxHeight = Math.max(CHROME_TOP_LINES + CHROME_BOTTOM_LINES + 1, options.maxHeight);
   }
 
   setMeasureTerminalWidth(cols: number): void {
@@ -178,37 +184,42 @@ export class HelpOverlay implements Component {
     return intrinsicFramedBoxWidth(terminal, "Help", widths);
   }
 
-  private buildFullFrame(boxWidth: number): string[] {
+  private viewportBodyLines(): number {
+    return Math.max(1, this.maxHeight - CHROME_TOP_LINES - CHROME_BOTTOM_LINES);
+  }
+
+  private buildScrollBodyLines(boxWidth: number): string[] {
     const innerWidth = Math.max(20, boxWidth - 4);
     const content = buildHelpContent(this.opts, innerWidth);
+    return content.map((line) => overlaySideLine(line, innerWidth, boxWidth));
+  }
 
-    const out: string[] = [];
-    out.push(overlayTitleLine("Help", boxWidth));
-    out.push(overlayEmptyLine(boxWidth));
+  private buildChromeTop(boxWidth: number): string[] {
+    return [overlayTitleLine("Help", boxWidth), overlayEmptyLine(boxWidth)];
+  }
 
-    for (const line of content) {
-      out.push(overlaySideLine(line, innerWidth, boxWidth));
-    }
-
-    out.push(overlayEmptyLine(boxWidth));
-    const needsScroll = content.length + 5 > this.maxHeight;
-    out.push(
+  private buildChromeBottom(
+    boxWidth: number,
+    innerWidth: number,
+    needsScroll: boolean
+  ): string[] {
+    return [
+      overlayEmptyLine(boxWidth),
       overlaySideLine(
         overlayDim(needsScroll ? FOOTER_SCROLL : FOOTER_IDLE),
         innerWidth,
         boxWidth
-      )
-    );
-    out.push(overlayBottomBorder(boxWidth));
-    return out;
+      ),
+      overlayBottomBorder(boxWidth),
+    ];
   }
 
-  private maxScrollTop(fullLength: number): number {
-    return Math.max(0, fullLength - this.maxHeight);
+  private maxScrollTop(bodyLength: number): number {
+    return Math.max(0, bodyLength - this.viewportBodyLines());
   }
 
   private pageStep(): number {
-    return Math.max(1, this.maxHeight - 3);
+    return Math.max(1, this.viewportBodyLines() - 1);
   }
 
   invalidate(): void {}
@@ -219,8 +230,8 @@ export class HelpOverlay implements Component {
       return;
     }
 
-    const full = this.buildFullFrame(this.lastBoxWidth || 80);
-    const maxTop = this.maxScrollTop(full.length);
+    const body = this.buildScrollBodyLines(this.lastBoxWidth || 80);
+    const maxTop = this.maxScrollTop(body.length);
     if (maxTop === 0) return;
 
     let next = this.scrollTop;
@@ -258,16 +269,26 @@ export class HelpOverlay implements Component {
 
   render(width: number): string[] {
     const boxWidth = overlayRenderBoxWidth(width);
+    const innerWidth = Math.max(20, boxWidth - 4);
     this.lastBoxWidth = boxWidth;
 
-    const full = this.buildFullFrame(boxWidth);
-    if (full.length <= this.maxHeight) {
+    const chromeTop = this.buildChromeTop(boxWidth);
+    const scrollBody = this.buildScrollBodyLines(boxWidth);
+    const needsScroll = scrollBody.length > this.viewportBodyLines();
+    const chromeBottom = this.buildChromeBottom(boxWidth, innerWidth, needsScroll);
+
+    if (!needsScroll) {
       this.scrollTop = 0;
-      return full;
+      return [...chromeTop, ...scrollBody, ...chromeBottom];
     }
 
-    const maxTop = this.maxScrollTop(full.length);
+    const maxTop = this.maxScrollTop(scrollBody.length);
     this.scrollTop = Math.min(this.scrollTop, maxTop);
-    return full.slice(this.scrollTop, this.scrollTop + this.maxHeight);
+    const visibleBody = scrollBody.slice(
+      this.scrollTop,
+      this.scrollTop + this.viewportBodyLines()
+    );
+
+    return [...chromeTop, ...visibleBody, ...chromeBottom];
   }
 }

@@ -936,6 +936,7 @@ export class ImpulseRenderer {
   private modelSetup: ModelSetupState | null = null;
   private planApprovalOverlayHandle: OverlayHandle | null = null;
   private planApprovalInputCleanup: (() => void) | null = null;
+  private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
   private experimentalAdvisorEnabled = false;
   /** Session-local turn speed display on context bar (/speedo); not persisted. */
@@ -1126,6 +1127,11 @@ export class ImpulseRenderer {
     };
     this.promptInput.onExit = () => { void this.showExitStats(); this.tui.stop(); process.exit(0); };
     this.promptInput.onEscape = () => {
+      if (this.helpOverlayHandle) {
+        this.dismissHelpOverlay();
+        return;
+      }
+
       if (this.modelSetup) {
         const state = this.modelSetup;
         // Go back to previous step, or cancel if at first step
@@ -3358,12 +3364,24 @@ export class ImpulseRenderer {
 
   private helpOverlayMaxHeight(): number {
     const rows = this.tui?.terminal?.rows ?? 24;
-    const reserved = 10;
-    return Math.min(40, Math.max(20, rows - reserved));
+    const reserved = 8;
+    return Math.min(50, Math.max(20, rows - reserved));
+  }
+
+  private dismissHelpOverlay(): void {
+    this.helpInputCleanup?.();
+    this.helpInputCleanup = null;
+    this.helpOverlayHandle?.hide();
+    this.helpOverlayHandle = null;
+    this.tui.setFocus(this.promptInput);
+    this.tui.requestRender();
   }
 
   private showHelpOverlay(): void {
     if (this.isRunning) return;
+
+    this.dismissHelpOverlay();
+
     const maxHeight = this.helpOverlayMaxHeight();
     const overlay = new HelpOverlay({
       opts: {
@@ -3372,15 +3390,21 @@ export class ImpulseRenderer {
       },
       maxHeight,
     });
-    overlay.onCancel = () => {
-      this.helpOverlayHandle?.hide();
-      this.helpOverlayHandle = null;
-      this.tui.setFocus(this.promptInput);
-      this.tui.requestRender();
-    };
+    overlay.onCancel = () => this.dismissHelpOverlay();
     overlay.onScroll = () => {
       this.tui.requestRender();
     };
+
+    this.helpInputCleanup = this.tui.addInputListener((data: string) => {
+      if (data === "\x1b") {
+        this.dismissHelpOverlay();
+        return { consume: true };
+      }
+      overlay.handleInput(data);
+      this.tui.requestRender();
+      return { consume: true };
+    });
+
     this.helpOverlayHandle = this.showContentSizedOverlay(overlay, {
       maxHeight,
     });

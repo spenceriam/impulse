@@ -206,27 +206,81 @@ function renderWideTableRow(
   return `${clr.border("│")}${parts.join(clr.border("│"))}${clr.border("│")}`;
 }
 
+const HELP_TABLE_GUTTER = 2;
+const HELP_TABLE_MIN_HALF_WIDTH = 36;
+const HELP_TABLE_BORDER_OVERHEAD = 7;
+
+/** Column widths so the boxed table fits within maxWidth (2-column layout). */
+export function helpTableColumnWidths(
+  defs: SlashCommandDef[],
+  maxWidth: number
+): [number, number] {
+  const cmdW = Math.max(
+    7,
+    visibleWidth("Command"),
+    ...(defs.length > 0 ? defs.map((d) => visibleWidth(d.cmd)) : [0])
+  );
+  const minDesc = 8;
+  let descW = Math.max(minDesc, maxWidth - cmdW - HELP_TABLE_BORDER_OVERHEAD);
+  while (descW > minDesc && tableTotalWidth([cmdW, descW]) > maxWidth) {
+    descW -= 1;
+  }
+  while (tableTotalWidth([cmdW, descW]) > maxWidth && descW > 3) {
+    descW -= 1;
+  }
+  return [cmdW, descW];
+}
+
+/** Pad a rendered table line to a fixed visible width for side-by-side merge. */
+export function padTableLineToWidth(line: string, width: number): string {
+  const plainLen = visibleWidth(stripAnsi(line));
+  if (plainLen >= width) return line;
+  return `${line}${" ".repeat(width - plainLen)}`;
+}
+
+/** Pad or truncate so each half of a merged row fits halfWidth. */
+export function fitTableLineToWidth(line: string, width: number): string {
+  const plainLen = visibleWidth(stripAnsi(line));
+  const fitted = plainLen > width ? truncateToWidth(line, width) : line;
+  return padTableLineToWidth(fitted, width);
+}
+
+/** Empty bordered row matching a help table (continuation rows when one side is taller). */
+export function helpTableSpacerRow(widths: [number, number]): string {
+  return renderWideTableRow(["", " "], widths, false);
+}
+
+/** Place two table render passes on one row each (for dual-column /help). */
+export function mergeTableLinesSideBySide(
+  left: string[],
+  right: string[],
+  halfWidth: number,
+  gutter = HELP_TABLE_GUTTER,
+  rightSpacerLine?: string
+): string[] {
+  const gap = " ".repeat(gutter);
+  const rows = Math.max(left.length, right.length);
+  const lines: string[] = [];
+  for (let i = 0; i < rows; i++) {
+    const l = fitTableLineToWidth(left[i] ?? "", halfWidth);
+    const rawRight = right[i] ?? rightSpacerLine ?? "";
+    const r = rawRight ? fitTableLineToWidth(rawRight, halfWidth) : padTableLineToWidth("", halfWidth);
+    lines.push(`${l}${gap}${r}`);
+  }
+  return lines;
+}
+
 /**
- * Help /help command table: dynamic column widths, wrap descriptions (no ellipsis).
+ * Single bordered Command | Description table; descriptions wrap (no ellipsis).
  */
-export function renderHelpCommandsTable(
+export function renderHelpCommandsTableSingle(
   defs: SlashCommandDef[],
   innerWidth: number
 ): string[] {
   if (defs.length === 0) return [];
 
-  const table = slashCommandsToTable(defs);
-  const cmdW = Math.max(
-    7,
-    visibleWidth("Command"),
-    ...defs.map((d) => visibleWidth(d.cmd))
-  );
-  const descW = Math.max(12, innerWidth - cmdW - 3);
-  const widths: [number, number] = [cmdW, descW];
-
-  if (tableTotalWidth(widths) > innerWidth) {
-    return renderStackedTable(table, innerWidth);
-  }
+  const widths = helpTableColumnWidths(defs, innerWidth);
+  const descW = widths[1];
 
   const lines: string[] = [
     renderBorder("┌", "┬", "┐", widths),
@@ -247,4 +301,47 @@ export function renderHelpCommandsTable(
 
   lines.push(renderBorder("└", "┴", "┘", widths));
   return lines;
+}
+
+/**
+ * Two Command | Description tables side by side (or stacked when too narrow).
+ */
+export function renderHelpCommandsDualColumn(
+  defs: SlashCommandDef[],
+  innerWidth: number
+): string[] {
+  if (defs.length === 0) return [];
+
+  const mid = Math.ceil(defs.length / 2);
+  const leftDefs = defs.slice(0, mid);
+  const rightDefs = defs.slice(mid);
+
+  const minDual = 2 * HELP_TABLE_MIN_HALF_WIDTH + HELP_TABLE_GUTTER;
+  if (innerWidth < minDual) {
+    const left = renderHelpCommandsTableSingle(leftDefs, innerWidth);
+    const right = renderHelpCommandsTableSingle(rightDefs, innerWidth);
+    if (rightDefs.length === 0) return left;
+    return [...left, "", ...right];
+  }
+
+  const half = Math.floor((innerWidth - HELP_TABLE_GUTTER) / 2);
+  const left = renderHelpCommandsTableSingle(leftDefs, half);
+  if (rightDefs.length === 0) {
+    return left;
+  }
+
+  const rightWidths = helpTableColumnWidths(rightDefs, half);
+  const right = renderHelpCommandsTableSingle(rightDefs, half);
+  const rightSpacer = helpTableSpacerRow(rightWidths);
+  return mergeTableLinesSideBySide(left, right, half, HELP_TABLE_GUTTER, rightSpacer);
+}
+
+/**
+ * Help /help command tables: dual column when wide, wrapped boxed tables only.
+ */
+export function renderHelpCommandsTable(
+  defs: SlashCommandDef[],
+  innerWidth: number
+): string[] {
+  return renderHelpCommandsDualColumn(defs, innerWidth);
 }

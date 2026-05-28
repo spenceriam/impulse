@@ -70,12 +70,11 @@ describe("renderHelpCommandsTable", () => {
             "Toggle vision and choose a vision model (same or different provider)",
         },
       ],
-      50
+      52
     );
-    const dataRows = lines.filter(
-      (l) => stripAnsi(l).includes("/vision") || stripAnsi(l).includes("Toggle")
-    );
-    expect(dataRows.length).toBeGreaterThanOrEqual(2);
+    const plain = stripAnsi(lines.join("\n"));
+    expect(plain).toContain("provider");
+    expect(lines.length).toBeGreaterThanOrEqual(5);
   });
 });
 
@@ -94,6 +93,16 @@ describe("buildHelpContent", () => {
 });
 
 describe("HelpOverlay", () => {
+  test("Esc invokes onCancel", () => {
+    let cancelled = false;
+    const overlay = new HelpOverlay({ opts: HELP_OPTS, maxHeight: 30 });
+    overlay.onCancel = () => {
+      cancelled = true;
+    };
+    overlay.handleInput("\x1b");
+    expect(cancelled).toBe(true);
+  });
+
   test("every rendered line matches host width", () => {
     const hostWidth = 92;
     const overlay = new HelpOverlay({ opts: HELP_OPTS, maxHeight: 40 });
@@ -107,13 +116,13 @@ describe("HelpOverlay", () => {
   test("section rules are not terminal-wide", () => {
     const innerWidth = 60;
     const content = buildHelpContent({ reasoningLevelsLabel: "off", experimentalAdvisor: false }, innerWidth);
-    const rules = content.filter((l) => stripAnsi(l).includes("──"));
+    const rules = content.filter((l) => /^\s+─+$/.test(stripAnsi(l)));
     for (const rule of rules) {
       expect(lineWidth(rule)).toBeLessThanOrEqual(innerWidth);
     }
   });
 
-  test("scrolled viewport shows bottom border", () => {
+  test("scrolled viewport keeps title and bottom border", () => {
     const hostWidth = 100;
     const overlay = new HelpOverlay({ opts: HELP_OPTS, maxHeight: 20 });
     overlay.setMeasureTerminalWidth(120);
@@ -122,6 +131,7 @@ describe("HelpOverlay", () => {
     const bottom = overlay.render(hostWidth);
     expect(bottom.length).toBe(20);
     const plain = bottom.map(stripAnsi).join("\n");
+    expect(plain).toContain("Help");
     expect(plain).toContain("└");
   });
 
