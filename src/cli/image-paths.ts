@@ -42,13 +42,13 @@ const PATH_BODY_RE = new RegExp(
     `|` +
     `[^\\s\\n"'\\]]+\\.(?:${EXT_PATTERN})` +
   `)`,
-  "gi"
+  "i"
 );
 
 /** Paths that may contain spaces (after shell escape normalization). */
 const PATH_WITH_SPACES_RE = new RegExp(
   `(?:~\\/|\\.\\.?\\/|[A-Za-z]:[\\\\/]|\\/)[^\\n\\[\\]]+\\.(?:${EXT_PATTERN})`,
-  "gi"
+  "i"
 );
 
 const QUOTED_PATH_RE = new RegExp(

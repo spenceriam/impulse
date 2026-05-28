@@ -688,9 +688,11 @@ export class SelectableListOverlay implements Component {
       return;
     }
 
-    if ((data === "m" || data === "M") && this.onManageProviders) {
-      this.onManageProviders();
-      return;
+    if (data === "m" || data === "M") {
+      if (this.onManageProviders) {
+        this.onManageProviders();
+        return;
+      }
     }
 
     if (data === "\x1b[A") {

@@ -257,7 +257,14 @@ export class PromptInput implements Component, Focusable {
     const refs = extractImagePathRefs(text);
     if (refs.length === 0) return errors;
 
-    for (const ref of [...refs].reverse()) {
+    type ResolvedPair = {
+      ref: typeof refs[number];
+      group: PasteGroup;
+      label: string;
+    };
+    const resolvedPairs: ResolvedPair[] = [];
+
+    for (const ref of refs) {
       const resolved = await resolveImagePath(ref.path, cwd);
       if (!resolved.ok) {
         errors.push(resolved.reason);
@@ -266,17 +273,25 @@ export class PromptInput implements Component, Focusable {
 
       const idx = this._nextImageIndex;
       const label = `[Pasted image #${idx}]`;
-      this._pasteGroups.push({
+      const group: PasteGroup = {
         display: label,
         content: resolved.uri,
         originalDisplay: label,
         kind: "image",
         imageIndex: idx,
-      });
+      };
       this._detectedImages.push(resolved.uri);
       this._nextImageIndex = idx + 1;
 
+      resolvedPairs.push({ ref, group, label });
+    }
+
+    for (const { ref, label } of [...resolvedPairs].reverse()) {
       text = text.slice(0, ref.start) + label + text.slice(ref.end);
+    }
+
+    for (const { group } of resolvedPairs) {
+      this._pasteGroups.push(group);
     }
 
     this.editor.setText(text);
