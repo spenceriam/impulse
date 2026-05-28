@@ -683,16 +683,21 @@ export class SelectableListOverlay implements Component {
 
       for (let ri = 0; ri < this.filtered.length; ri++) {
         const row = this.filtered[ri]!;
-        if (!row.tableCells) continue;
         const isSelected = ri === this.selectedIndex;
-        for (const inner of formatTableRowDisplayLines(
-          row,
-          widths,
-          innerWidth,
-          isSelected,
-          this.tableOmitModelColumn
-        )) {
-          out.push({ rowIndex: ri, inner });
+        if (!row.tableCells) {
+          for (const inner of formatRowDisplayLines(row, innerWidth, isSelected)) {
+            out.push({ rowIndex: ri, inner });
+          }
+        } else {
+          for (const inner of formatTableRowDisplayLines(
+            row,
+            widths,
+            innerWidth,
+            isSelected,
+            this.tableOmitModelColumn
+          )) {
+            out.push({ rowIndex: ri, inner });
+          }
         }
       }
       return out;
@@ -730,8 +735,8 @@ export class SelectableListOverlay implements Component {
       return;
     }
 
-    if (data === "m" || data === "M") {
-      this.onManageProviders?.();
+    if ((data === "m" || data === "M") && this.onManageProviders) {
+      this.onManageProviders();
       return;
     }
 
