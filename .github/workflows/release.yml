@@ -220,37 +220,61 @@ jobs:
       - name: Publish platform packages
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          
+
+          # Publish all platform packages first. Verification happens in a
+          # later step so npm CDN propagation for early packages overlaps with
+          # publishing the rest (avoids racing a per-package 404 right after publish).
           for platform_dir in artifacts/impulse-*/; do
             platform_name=$(basename "$platform_dir")
             pkg="@spenceriam/${platform_name}"
-            tarball_url="https://registry.npmjs.org/@spenceriam/${platform_name}/-/${platform_name}-${VERSION}.tgz"
             cd "$platform_dir"
 
             if npm view "${pkg}@${VERSION}" version >/dev/null 2>&1; then
-              echo "${pkg}@${VERSION} already on npm — skipping publish, verifying tarball only"
+              echo "${pkg}@${VERSION} already on npm — skipping publish"
             else
               echo "Publishing ${pkg}@${VERSION}..."
               npm publish --access public
             fi
 
+            cd - >/dev/null
+          done
+
+      - name: Verify platform tarballs
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Gate before publishing the wrapper: every platform tarball the
+          # wrapper's optionalDependencies point at must be downloadable.
+          # Generous retry (~10 min total) tolerates normal registry propagation;
+          # only a genuine ghost publish (permanent 404) fails the job.
+          fail=0
+          for platform_dir in artifacts/impulse-*/; do
+            platform_name=$(basename "$platform_dir")
+            pkg="@spenceriam/${platform_name}"
+            tarball_url="https://registry.npmjs.org/@spenceriam/${platform_name}/-/${platform_name}-${VERSION}.tgz"
+
             echo "Verifying tarball: ${tarball_url}"
             ok=false
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            for attempt in $(seq 1 40); do
               if curl -fsSL -o /dev/null "${tarball_url}"; then
                 ok=true
                 break
               fi
-              echo "Tarball not downloadable yet (attempt ${attempt}/12), waiting 15s..."
+              echo "Tarball not downloadable yet (attempt ${attempt}/40), waiting 15s..."
               sleep 15
             done
             if [ "${ok}" != "true" ]; then
-              echo "::error::${pkg}@${VERSION} tarball still missing after publish (npm registry 404)."
-              exit 1
+              echo "::error::${pkg}@${VERSION} tarball still missing after ~10m (npm registry 404)."
+              fail=1
+            else
+              echo "Tarball verified for ${pkg}@${VERSION}"
             fi
-            echo "Tarball verified for ${pkg}@${VERSION}"
-            cd -
           done
+
+          if [ "${fail}" != "0" ]; then
+            echo "::error::One or more platform tarballs are missing; not publishing the wrapper."
+            exit 1
+          fi
 
       - name: Create CLI wrapper package
         run: |

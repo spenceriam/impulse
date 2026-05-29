@@ -5,6 +5,15 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-05-29
+
+  **Type:** patch
+  **Title:** Clean cross-platform republish and propagation-safe release verification
+
+  ### Fixed
+  - **Consistent npm install on every OS** — republish all six platform packages and the `@spenceriam/impulse` wrapper at one matching version, so `npm i -g @spenceriam/impulse@latest` resolves to a working binary on macOS (arm64/x64), Linux (x64/arm64), and Windows. (The split 1.2.0/1.2.1 state, including the broken darwin 1.2.0 tarballs, is superseded.)
+  - **Release CI** — publish all platform packages first, then verify every tarball is downloadable with a generous (~10 min) retry before publishing the wrapper. Verification no longer races npm CDN propagation and aborts a successful publish.
+
 ## [1.2.1] - 2026-05-29
 
   **Type:** patch
