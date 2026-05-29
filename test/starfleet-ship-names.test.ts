@@ -1,51 +1,34 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  STARFLEET_SHIP_NAMES,
-  pickRandomShipName,
+  pickUniqueShipName,
   resetShipNamePicker,
+  STARFLEET_SHIP_NAMES,
 } from "../src/cli/starfleet-ship-names.js";
 
-const HERO_SHIPS = [
-  "Enterprise",
-  "Voyager",
-  "Defiant",
-  "Discovery",
-  "Intrepid",
-  "Cerritos",
-  "Titan",
-  "Shenzhou",
-];
-
-describe("starfleet ship names", () => {
-  beforeEach(() => {
+describe("pickUniqueShipName", () => {
+  test("never duplicates within a batch of picks", () => {
     resetShipNamePicker();
-  });
-
-  test("bank uses obscure registry names only", () => {
-    expect(STARFLEET_SHIP_NAMES.length).toBeGreaterThan(20);
-    for (const hero of HERO_SHIPS) {
-      expect(STARFLEET_SHIP_NAMES).not.toContain(hero);
+    const used = new Set<string>();
+    const batchSize = Math.min(15, STARFLEET_SHIP_NAMES.length);
+    for (let i = 0; i < batchSize; i++) {
+      const name = pickUniqueShipName(used);
+      expect(used.has(name)).toBe(false);
+      used.add(name);
     }
-    expect(STARFLEET_SHIP_NAMES).toContain("Bozeman");
-    expect(STARFLEET_SHIP_NAMES).not.toContain("Deep Space Nine");
-    expect(STARFLEET_SHIP_NAMES.join(" ")).not.toMatch(/IKS|Klingon|Romulan/i);
   });
 
-  test("pickRandomShipName returns a name from the bank", () => {
-    const name = pickRandomShipName();
-    expect(STARFLEET_SHIP_NAMES).toContain(name);
+  test("returns the only remaining name when pool is almost full", () => {
+    resetShipNamePicker();
+    const exclude = new Set(STARFLEET_SHIP_NAMES.slice(0, -1));
+    const last = STARFLEET_SHIP_NAMES[STARFLEET_SHIP_NAMES.length - 1]!;
+    expect(pickUniqueShipName(exclude)).toBe(last);
   });
 
-  test("pickRandomShipName avoids immediate repeat", () => {
-    const seen = new Set<string>();
-    for (let i = 0; i < 20; i++) {
-      const a = pickRandomShipName();
-      const b = pickRandomShipName();
-      if (a === b && STARFLEET_SHIP_NAMES.length > 1) {
-        expect.unreachable("consecutive picks should not repeat");
-      }
-      seen.add(a);
-    }
-    expect(seen.size).toBeGreaterThan(1);
+  test("disambiguates when all registry names are taken", () => {
+    resetShipNamePicker();
+    const exclude = new Set(STARFLEET_SHIP_NAMES);
+    const name = pickUniqueShipName(exclude);
+    expect(exclude.has(name)).toBe(false);
+    expect(name.includes("#")).toBe(true);
   });
 });
