@@ -5,6 +5,37 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-29
+
+  **Type:** minor
+  **Title:** Startup splash, shell mode, parallel sub-agents, and layout polish
+
+  ### Added
+  - **Pre-TUI startup splash** — branding, silent npm version check, config path, provider/model lines
+  - **`! <command>`** — one-shot shell runs with per-command output blocks in chat history
+  - **`@ <question>`** — interpret last shell output in the main chat stream (full session context)
+  - **PTY support** via `node-pty` for interactive commands with Cmd/Ctrl+Shift+T takeover
+  - **Graceful exit** — clear screen + session resume hints (`impulse --resume`, `/resume`)
+  - **Mid-turn message queue** — preview line above the prompt; `↑` to edit the next queued message
+  - **`/steer`** — inject steering notes during the current agent turn
+  - **`/side`** — isolated side prompt overlay (parallel Q&A, no tools; `-c` for main-chat context; `--history` to review; `C` to copy into chat view)
+  - **Parallel sub-agents** — up to **8** concurrent `task` runs per batch; extra tasks queue; **1.5s stagger** per slot index
+  - **Batch permission** — one approval dialog when a turn includes **more than 8** `general` tasks (explore tasks are not gated)
+  - **Sub-agent progress UI** — per-task rows with codenames, interleaved thinking/tool lines, **wrapping up...** once at end, human-readable durations
+
+  ### Changed
+  - Branding: **co-partner agent** in splash, welcome banner, and help text
+  - Shell commands no longer use a persistent “shell mode” or a single overwriting output panel
+  - **Release CI** — draft GitHub Release (with platform binary archives) is created independently of npm publish; `release-on-main` can dispatch `release.yml` after auto-tag
+
+  ### Fixed
+  - **Table inline markdown** — `**bold**` and `` `code` `` render inside table cells (not literal markers)
+  - **Table row layout** — multi-line cells align within row borders; horizontal separators between body rows
+  - **Table streaming** — incomplete tables stay prose until complete; layout mode locked per block
+  - **Mid-turn submit** — queued instead of starting overlapping agent turns
+  - **Bilateral gutters** — wrapped/truncated lines respect left and right margins across tool blocks, shell output, prompts, and thinking
+  - **Turn anchor flicker** — bottom spacer empty lines frozen for the duration of each agent turn
+
 ## [1.1.4] - 2026-05-29
 
   **Type:** patch
