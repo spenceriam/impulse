@@ -5,6 +5,15 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-05-29
+
+  **Type:** patch
+  **Title:** Fix missing macOS npm platform tarballs for 1.2.0
+
+  ### Fixed
+  - **npm install on macOS** — `@spenceriam/impulse-darwin-arm64` and `impulse-darwin-x64` at 1.2.0 had registry metadata but no downloadable tarball (404), so global `npm i -g @spenceriam/impulse@latest` failed postinstall on Apple Silicon and Intel Macs
+  - **Release CI** — fail the publish job when a platform tarball is not downloadable after publish (no silent `|| echo` skip)
+
 ## [1.2.0] - 2026-05-29
 
   **Type:** minor
