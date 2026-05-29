@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: write
+  # Required to dispatch release.yml after pushing a tag with GITHUB_TOKEN
+  # (tag pushes do not trigger other workflows; see release-on-main comment).
+  actions: write
 
 jobs:
   tag-if-needed:

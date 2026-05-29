@@ -49,4 +49,9 @@ release-title.txt
 "# Impulse temp"  
 ".impulse/"  
 "temp-test/"  
-"temp_testing/" 
+"temp_testing/"
+.habittracker/
+Library/
+stress-test-output/
+test_folder/
+tmp_test/

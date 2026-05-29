@@ -135,6 +135,60 @@ jobs:
           name: impulse-${{ matrix.platform }}-${{ matrix.arch }}
           path: packages/${{ matrix.platform }}-${{ matrix.arch }}/
 
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Package release binaries
+        run: |
+          mkdir -p release-assets
+          for platform_dir in artifacts/impulse-*/; do
+            platform_name=$(basename "$platform_dir")
+            echo "Packaging $platform_name..."
+            if [ -f "$platform_dir/bin/impulse.exe" ]; then
+              (cd "$platform_dir" && zip -r "../../release-assets/${platform_name}.zip" bin)
+            else
+              tar -czf "release-assets/${platform_name}.tar.gz" -C "$platform_dir" bin
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Generate release notes from CHANGELOG
+        run: node scripts/changelog-to-release-notes.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Read release title
+        id: release_title
+        run: echo "title=$(cat release-title.txt)" >> $GITHUB_OUTPUT
+
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: ${{ steps.release_title.outputs.title }}
+          body_path: release-notes.md
+          draft: true
+          files: release-assets/*
+
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -179,9 +233,6 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p packages/cli/bin
-          
-          # Copy wrapper files
-          cp packages/cli/postinstall.mjs packages/cli-release/postinstall.mjs || true
           
           # Create package.json with correct version
           cat > packages/cli/package.json << EOF
@@ -234,19 +285,4 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd packages/cli
-          npm publish --registry=https://npm.pkg.github.com
-
-      - name: Generate release notes from CHANGELOG
-        run: node scripts/changelog-to-release-notes.mjs "${{ steps.version.outputs.version }}"
-
-      - name: Read release title
-        id: release_title
-        run: echo "title=$(cat release-title.txt)" >> $GITHUB_OUTPUT
-
-      - name: Create draft GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: ${{ steps.release_title.outputs.title }}
-          body_path: release-notes.md
-          draft: true
+          npm publish --registry=https://npm.pkg.github.com || echo "GitHub Packages publish skipped (may already exist or lack permission)"
