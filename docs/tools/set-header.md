@@ -4,7 +4,7 @@ Sets the session header title shown as "[IMPULSE] | <title>".
 
 ## Parameters
 
-- title (required): Concise description (max 50 characters)
+- title (required): Concise description (max 60 characters)
 
 ## Usage
 

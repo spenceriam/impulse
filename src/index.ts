@@ -11,6 +11,7 @@
 
 import { registerCrashRecoveryHandlers } from "./util/crash-recovery.js";
 import {
+  createDefaultConfig,
   load as loadConfig,
   save as saveConfig,
   invalidateConfigCache,
@@ -38,6 +39,21 @@ if (args.includes("--version") || args.includes("-v")) {
   process.exit(0);
 }
 
+// ─── --update ────────────────────────────────────────────────────────────────
+if (args.includes("--update")) {
+  const { checkForUpdate, performUpdate, getCurrentVersion } = await import(
+    "./util/update-check.js"
+  );
+  const update = await checkForUpdate();
+  if (!update) {
+    console.log(`Already on latest (v${getCurrentVersion()}).`);
+    process.exit(0);
+  }
+  console.log(`Updating ${update.currentVersion} -> ${update.latestVersion}...`);
+  performUpdate(update.latestVersion);
+  process.exit(0);
+}
+
 // ─── --help ──────────────────────────────────────────────────────────────────
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
@@ -53,6 +69,7 @@ if (args.includes("--help") || args.includes("-h")) {
     impulse --enrich-session-titles Backfill AI titles on saved sessions
     impulse --list-sessions           Count sessions (total, empty, titled)
     impulse --version                 Show version
+    impulse --update                  Install latest from npm and exit
 `);
   process.exit(0);
 }
@@ -385,15 +402,14 @@ async function runSetup(): Promise<void> {
   }
 
   // Save config
-  const cfg = await loadConfig().catch(() => ({
-    providers: {} as Record<string, unknown>,
-    defaultProvider: providerKey,
-    defaultModel,
-    defaultMode: "AGENT",
-    thinking: true,
-    maxOutputTokens: 32000,
-    hasSeenWelcome: true,
-  }));
+  const cfg = await loadConfig().catch(() =>
+    createDefaultConfig({
+      providers: {},
+      defaultProvider: providerKey,
+      defaultModel,
+      hasSeenWelcome: true,
+    })
+  );
 
   const providers = cfg.providers as Record<string, unknown>;
   providers[providerKey] = {
@@ -480,20 +496,18 @@ export async function runOnboarding(): Promise<void> {
   const customInstructions = await ask("  Any custom instructions? (optional): ");
 
   // Load config and save user profile
-  const cfg = await loadConfig().catch(() => ({
-    providers: {} as Record<string, unknown>,
-    defaultProvider: "ollama",
-    defaultModel: "ollama/llama3.2",
-    defaultMode: "AGENT",
-    thinking: true,
-    maxOutputTokens: 32000,
-    hasSeenWelcome: true,
-    userProfile: {
-      name: "",
-      responsePreference: "concise",
-      customInstructions: "",
-    },
-  }));
+  const cfg = await loadConfig().catch(() =>
+    createDefaultConfig({
+      defaultProvider: "ollama",
+      defaultModel: "ollama/llama3.2",
+      hasSeenWelcome: true,
+      userProfile: {
+        name: "",
+        responsePreference: "concise",
+        customInstructions: "",
+      },
+    })
+  );
 
   cfg.userProfile = {
     name,

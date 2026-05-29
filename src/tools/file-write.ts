@@ -73,17 +73,23 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       let existingContent = "";
       let existingSize = 0;
       
-      // Only ask permission for files outside the working directory
-      if (!isWithinCwd(safePath)) {
+      const outsideCwd = !isWithinCwd(safePath);
+      const needsPermission = outsideCwd || !isNewFile;
+      if (needsPermission) {
+        const message = isNewFile
+          ? `Create file outside cwd: ${safePath}`
+          : outsideCwd
+            ? `Overwrite file outside cwd: ${safePath}`
+            : `Overwrite file: ${safePath}`;
         await askPermission({
           sessionID: "current",
           permission: permissionType,
           patterns: [safePath],
-          message: isNewFile ? `Create file outside cwd: ${safePath}` : `Overwrite file outside cwd: ${safePath}`,
+          message,
           metadata: {
             contentLength: input.content.length,
             isNewFile,
-            reason: "Path outside working directory",
+            ...(outsideCwd ? { reason: "Path outside working directory" } : {}),
           },
         });
       }

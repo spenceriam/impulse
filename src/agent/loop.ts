@@ -18,13 +18,13 @@ import type { ChatMessage, ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
 import { runAdvisorConsultation } from "./advisor.js";
-import { providerConfig, parseProviderChoice, discoverModels } from "../cli/model-setup.js";
-import { load as loadConfig } from "../util/config";
+import { isExperimentalAdvisorEnabled, load as loadConfig } from "../util/config";
 import * as fs from "fs";
 import * as path from "path";
 import { Global } from "../global.js";
 import { Tool } from "../tools/registry";
 import { type Message } from "../session/store";
+import { buildVisionTranslatePrompt } from "./vision-prompt.js";
 
 // ── Debug logging ────────────────────────────────────────────────────────────
 const debugLogPath = path.join(Global.Path.logs, "debug.log");
@@ -43,9 +43,15 @@ import { generateTitle } from "../session/title-generator.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
 import { Bus, HeaderEvents } from "../bus/index.js";
 import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
+import {
+  ALLOW_ALL_TODO_NUDGE_MESSAGE,
+  isTodoOnlyToolBatch,
+  shouldInjectAllowAllTodoNudge,
+} from "./allow-all-nudge.js";
 import { generateSystemPrompt } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
 import { buildDebugInstrumentationNudge } from "./self-check.js";
+import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
 import { modelSupportsVision } from "../api/providers/capabilities.js";
@@ -68,6 +74,12 @@ export interface LoopEvents {
   onAdvisorToken(text: string): void;
   /** Called when advisor finishes — passes the full response text as summary */
   onAdvisorEnd(summary: string): void;
+  /** Block until user approves or declines an advisor plan (optional). */
+  onPlanApproval?: (input: {
+    planPath: string;
+    summary: string;
+    planMarkdown: string;
+  }) => Promise<"proceed" | "decline">;
   /** Tool call lifecycle */
   onToolStart(id: string, name: string, args: Record<string, unknown>): void;
   onToolEnd(
@@ -151,10 +163,13 @@ export class AgentLoop {
   private abortController: AbortController | null = null;
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
-  private pendingImages: string[] = [];
+  private pendingImages: Array<{ uri: string; display: string }> = [];
+  private pendingUserRequest = "";
 
-  /** Set images to translate before next turn (legacy flat list) */
-  setImages(images: string[]): void { this.pendingImages = images; }
+  /** Images to translate before next turn (uri + display label for tool UI). */
+  setImages(images: Array<{ uri: string; display: string }>): void {
+    this.pendingImages = images;
+  }
 
   async run(
     userMessage: string,
@@ -168,7 +183,6 @@ export class AgentLoop {
     try {
       const config = await loadConfig();
       const manager = await getProviderManager();
-      const model = config.defaultModel;
 
       // Sync mode to tool-state so mode-restricted tools work
       setCurrentMode(mode);
@@ -179,7 +193,13 @@ export class AgentLoop {
         session = await SessionManager.createNew();
       }
 
+      const model =
+        session.model?.trim() ||
+        config.defaultModel?.trim() ||
+        "";
+
       const displayMessage = turnOptions?.displayMessage ?? userMessage;
+      this.pendingUserRequest = displayMessage;
       const segments = turnOptions?.segments;
       const nativeVision = modelSupportsVision(model);
 
@@ -188,12 +208,12 @@ export class AgentLoop {
           ? (buildUserMessageContent(segments, nativeVision) as Message["apiContent"])
           : userMessage;
 
-      const orderedUris =
+      const orderedImages =
         segments && segments.length > 0
           ? segments
               .filter((s): s is Extract<PromptSegment, { kind: "image" }> => s.kind === "image")
               .sort((a, b) => a.index - b.index)
-              .map((s) => s.uri)
+              .map((s) => ({ uri: s.uri, display: s.display }))
           : [...this.pendingImages];
 
       const userMsg: Message = {
@@ -205,25 +225,29 @@ export class AgentLoop {
       await SessionManager.addMessage(userMsg);
       session = SessionManager.getCurrentSession()!;
 
-      if (orderedUris.length > 0 && !nativeVision) {
-        this.pendingImages = orderedUris;
-        await this.translateImages(config, events, signal);
+      if (orderedImages.length > 0 && config.visionMode) {
+        this.pendingImages = orderedImages;
+        await this.translateImages(config, events, signal, this.pendingUserRequest);
       }
       this.pendingImages = [];
 
       // ── Tool definitions ───────────────────────────────────────────────────
       const toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
 
-      // Add consult_advisor tool if advisor model is configured and mode is ON
-      if (config.advisorModel && config.advisorMode) {
+      // Add consult_advisor tool if experimental advisor is enabled
+      if (
+        config.advisorModel &&
+        config.advisorMode &&
+        isExperimentalAdvisorEnabled(config)
+      ) {
         toolDefs.push({
           type: "function",
           function: {
             name: "consult_advisor",
             description:
-              "Consult the strategic advisor model before executing. The advisor will review the full conversation " +
-              "and produce a structured plan saved to .impulse/advisor-plans/. " +
-              "MUST be called before any file writes, edits, bash execution, or subagent launches.",
+              "Consult the strategic advisor before mutating work. Include an **Executor draft** in context (your approach). " +
+              "Returns plan_markdown in the tool result — do NOT file_read the plan path. " +
+              "MUST be called before file writes, edits, non-readonly bash, or subagent launches.",
             parameters: {
               type: "object",
               properties: {
@@ -233,7 +257,8 @@ export class AgentLoop {
                 },
                 context: {
                   type: "string",
-                  description: "Full context: project map, relevant files, recent output, what you need guidance on",
+                  description:
+                    "Full context plus **Executor draft**: your reasoning, proposed approach, and what you need from the advisor",
                 },
                 type: {
                   type: "string",
@@ -258,6 +283,8 @@ export class AgentLoop {
       let estimatedGeneratedTokens = 0;
       let lastSystemPrompt = "";
       let languageRetryUsed = false;
+      let consecutiveTodoOnlyRounds = 0;
+      let allowAllTodoNudgeUsed = false;
       const debugEditedFiles = new Set<string>();
 
       const noteGeneratedChunk = (text: string): void => {
@@ -421,9 +448,6 @@ export class AgentLoop {
           if (fp) debugEditedFiles.add(fp);
         };
 
-        // Hard tool gate: block write/edit/bash/task/todo_write until advisor consulted
-        const BLOCKED_BEFORE_ADVISOR = new Set(["file_write", "file_edit", "task", "todo_write"]);
-
         for (const tc of toolCalls) {
           if (signal.aborted) break;
 
@@ -435,45 +459,27 @@ export class AgentLoop {
           }
 
           // Tool gate enforcement
-          if (config.advisorMode && !advisorCalledThisTurn) {
-            if (BLOCKED_BEFORE_ADVISOR.has(tc.name)) {
+          if (
+            config.advisorMode &&
+            isExperimentalAdvisorEnabled(config) &&
+            !advisorCalledThisTurn
+          ) {
+            if (shouldBlockBeforeAdvisor(tc.name, args)) {
               events.onToolStart(tc.id, tc.name, args);
               events.onToolEnd(tc.id, tc.name, {
                 success: false,
-                output: "[GATE] Advisor Mode is active. Call consult_advisor before making changes.",
+                output: ADVISOR_GATE_MESSAGE,
               }, 0);
               allSucceeded = false;
 
               const blockedMsg = {
                 role: "tool" as const,
-                content: "[GATE] Advisor Mode is active. Call consult_advisor before making changes.",
+                content: ADVISOR_GATE_MESSAGE,
                 tool_call_id: tc.id,
                 timestamp: new Date().toISOString(),
               } as unknown as Message;
               await SessionManager.addMessage(blockedMsg as unknown as Message);
               continue;
-            }
-            if (tc.name === "bash" && typeof args["command"] === "string") {
-              // Allow read-only bash commands
-              const cmd = (args["command"] as string).toLowerCase().trim();
-              const isReadOnly = /^(ls|dir|cat|head|tail|wc|grep|find|which|where|type|pwd|echo|printenv|env|whoami|date|uname|git\s+status|git\s+log|git\s+branch|git\s+diff)/i.test(cmd);
-              if (!isReadOnly) {
-                events.onToolStart(tc.id, tc.name, args);
-                events.onToolEnd(tc.id, tc.name, {
-                  success: false,
-                  output: "[GATE] Advisor Mode is active. Call consult_advisor before executing write commands.",
-                }, 0);
-                allSucceeded = false;
-
-                const blockedMsg = {
-                  role: "tool" as const,
-                  content: "[GATE] Advisor Mode is active. Call consult_advisor before executing write commands.",
-                  tool_call_id: tc.id,
-                  timestamp: new Date().toISOString(),
-                } as unknown as Message;
-                await SessionManager.addMessage(blockedMsg as unknown as Message);
-                continue;
-              }
             }
           }
 
@@ -501,12 +507,30 @@ export class AgentLoop {
               signal,
             });
 
+            let userDecision: "proceed" | "decline" | undefined;
+            if (
+              advisorResult.success &&
+              advisorResult.planPath &&
+              advisorResult.planMarkdown &&
+              events.onPlanApproval
+            ) {
+              userDecision = await events.onPlanApproval({
+                planPath: advisorResult.planPath,
+                summary: advisorResult.summary,
+                planMarkdown: advisorResult.planMarkdown,
+              });
+            }
+
             const resultText = advisorResult.success
               ? JSON.stringify({
                   summary: advisorResult.summary,
                   plan_path: advisorResult.planPath,
+                  plan_markdown: advisorResult.planMarkdown,
+                  user_decision: userDecision,
                   advisor_model: advisorResult.advisorModel,
                   self_check_passed: advisorResult.selfCheckPassed,
+                  note:
+                    "Use plan_markdown from this result. Do not file_read plan_path unless verifying on disk.",
                 })
               : `Advisor error: ${advisorResult.error ?? "unknown error"}`;
 
@@ -560,6 +584,7 @@ export class AgentLoop {
           if (
             this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES &&
             config.advisorModel &&
+            isExperimentalAdvisorEnabled(config) &&
             !signal.aborted
           ) {
             this.consecutiveFailures = 0;
@@ -598,6 +623,26 @@ export class AgentLoop {
 
         if (!allSucceeded && toolCalls.length > 0) {
           // Keep looping to let the model handle the errors
+        }
+
+        if (isTodoOnlyToolBatch(toolCalls.map((tc) => tc.name))) {
+          consecutiveTodoOnlyRounds++;
+        } else {
+          consecutiveTodoOnlyRounds = 0;
+        }
+
+        if (
+          shouldInjectAllowAllTodoNudge({
+            consecutiveTodoOnlyRounds,
+            nudgeUsed: allowAllTodoNudgeUsed,
+          })
+        ) {
+          allowAllTodoNudgeUsed = true;
+          await SessionManager.addMessage({
+            role: "user",
+            content: ALLOW_ALL_TODO_NUDGE_MESSAGE,
+            timestamp: new Date().toISOString(),
+          });
         }
 
         session = SessionManager.getCurrentSession()!;
@@ -670,32 +715,10 @@ export class AgentLoop {
     this.abortController?.abort();
   }
 
-  /** Auto-detect a vision-capable model from configured providers */
+  /** Vision translator model when session vision is on (explicit /vision setup only). */
   private async findVisionModel(config: Awaited<ReturnType<typeof loadConfig>>): Promise<string | null> {
-    // Use explicitly configured vision model first
     if (config.visionMode && config.visionModel) {
       return config.visionModel;
-    }
-    // Check advisor model first
-    if (config.advisorModel && modelSupportsVision(config.advisorModel)) {
-      return config.advisorModel;
-    }
-    // Check providers for known vision models
-    const providerKey = config.defaultProvider;
-    const stored = providerConfig(config, providerKey);
-    if (stored?.apiKey) {
-      // Try to discover models and find a vision-capable one
-      try {
-        const provider = parseProviderChoice(providerKey, providerKey);
-        if (provider) {
-          const discovery = await discoverModels(provider, stored.apiKey, stored.baseUrl);
-          for (const m of discovery.models) {
-            if (modelSupportsVision(m)) {
-              return `${provider.key}/${m}`;
-            }
-          }
-        }
-      } catch { /* ignore discovery failure */ }
     }
     return null;
   }
@@ -704,14 +727,15 @@ export class AgentLoop {
   private async translateImages(
     config: Awaited<ReturnType<typeof loadConfig>>,
     events: LoopEvents,
-    signal: AbortSignal
+    signal: AbortSignal,
+    userRequest: string
   ): Promise<void> {
     const visionModel = await this.findVisionModel(config);
     if (!visionModel) {
       // No vision model available — inject a warning
       const warningMsg: Message = {
         role: "assistant" as any,
-        content: "[Image detected but no vision model available. Configure a vision-capable model to process images.]",
+        content: "[Image detected but vision is not configured. Run /vision to set a vision model and enable translation.]",
         timestamp: new Date().toISOString(),
       } as unknown as Message;
       await SessionManager.addMessage(warningMsg);
@@ -721,18 +745,17 @@ export class AgentLoop {
     const manager = await getProviderManager();
 
     for (let i = 0; i < this.pendingImages.length; i++) {
-      const imageUrl = this.pendingImages[i]!;
+      const { uri: imageUrl, display: imageLabel } = this.pendingImages[i]!;
       const toolId = `vision_${Date.now()}_${i}`;
 
-      // Fire tool start event for UI
-      events.onToolStart(toolId, "vision_translate", { image: `Image ${i + 1}` });
+      events.onToolStart(toolId, "vision_translate", { image: imageLabel });
 
       try {
         const visionMessages: ChatMessage[] = [
           {
             role: "user",
             content: [
-              { type: "text", text: "Describe this image in detail. Focus on visible text, UI elements, code, errors, layout, and anything relevant to a coding task. Be concise but thorough." },
+              { type: "text", text: buildVisionTranslatePrompt(userRequest) },
               { type: "image_url", image_url: { url: imageUrl } },
             ] as any,
           },
@@ -753,7 +776,7 @@ export class AgentLoop {
           tool_calls: [{
             id: toolId,
             tool: "vision_translate",
-            arguments: { image: `Image ${i + 1}` },
+            arguments: { image: imageLabel },
             timestamp: new Date().toISOString(),
           }],
           timestamp: new Date().toISOString(),
@@ -762,7 +785,7 @@ export class AgentLoop {
 
         const toolMsg: Message = {
           role: "tool" as any,
-          content: `[Image ${i + 1}]: ${description}`,
+          content: `[${imageLabel}]: ${description}`,
           tool_call_id: toolId,
           timestamp: new Date().toISOString(),
         } as unknown as Message;
@@ -770,7 +793,7 @@ export class AgentLoop {
 
         events.onToolEnd(toolId, "vision_translate", {
           success: true,
-          output: `[Image ${i + 1}]: ${description.slice(0, 200)}`,
+          output: `[${imageLabel}]: ${description.slice(0, 200)}`,
         }, 0);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);

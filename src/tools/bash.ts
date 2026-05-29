@@ -591,6 +591,7 @@ export const bashTool: Tool<BashInput> = Tool.define(
             command: input.command,
             workdir: input.workdir,
             reason: permCheck.reason,
+            description: input.description,
           },
         });
       }

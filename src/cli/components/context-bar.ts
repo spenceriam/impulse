@@ -18,6 +18,7 @@ import {
 import * as os from "os";
 import * as path from "path";
 import { execSync } from "child_process";
+import { visionStatusSuffix } from "../symbols.js";
 
 // ANSI helpers (no external dep needed)
 const c = {
@@ -34,7 +35,6 @@ const clr = {
   warn:    (s: string) => c.fg(33, s),   // orange/yellow — compaction approaching (50–59%)
   crit:    (s: string) => c.fg(31, s),   // red — at/over auto-compact (60%+)
   dir:     (s: string) => c.fg(37, s),   // white
-  branch:  (s: string) => c.fg(35, s),   // magenta
   mode:    (s: string) => c.fg(34, s),   // blue
   advisor: (s: string) => c.fg(35, s),   // magenta
   dim:     (s: string) => c.fg(90, s),   // dark gray (stats)
@@ -113,6 +113,10 @@ export interface ContextBarState {
   cwd?: string;
   tokensPerSecond?: number;
   lastTurnMs?: number;
+  /** When true, stats slot shows bypass warning instead of tk/s and turn time. */
+  allowAllBypass?: boolean;
+  /** When true, show turn tk/s and elapsed time in the stats slot (/speedo). */
+  showTurnSpeed?: boolean;
 }
 
 export class ContextBarComponent implements Component {
@@ -157,9 +161,11 @@ export class ContextBarComponent implements Component {
     const rlSeg = s.reasoningLevel && s.reasoningLevel !== "off"
       ? ` (${clr.model(s.reasoningLevel)})` : "";
     const advisorSeg = s.advisorModel
-      ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))} ${clr.advisor("(adv)")}` : "";
+      ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))}` : "";
     const modelFull = modelSeg + rlSeg + advisorSeg +
-      (s.visionMode && s.visionModel ? ` ${sep}${clr.advisor(shortModel(s.visionModel))} ${clr.advisor("(eye)")}` : "");
+      (s.visionMode && s.visionModel
+        ? ` ${sep}${clr.advisor(shortModel(s.visionModel))}${clr.advisor(visionStatusSuffix())}`
+        : "");
     const modelWidth = visibleWidth(modelFull);
 
     // Context: "68k/200k 34%"
@@ -168,7 +174,7 @@ export class ContextBarComponent implements Component {
 
     // Dir + branch (optional — may be dropped)
     const dirSeg = clr.dir(shortDir(cwd));
-    const branchSeg = this.cachedBranch ? ` ${clr.branch("⎇")} ${clr.branch(this.cachedBranch)}` : "";
+    const branchSeg = this.cachedBranch ? ` ${clr.dir("⎇")} ${clr.dir(this.cachedBranch)}` : "";
     const dirBranchFull = dirSeg + branchSeg;
     const dirBranchWidth = visibleWidth(dirBranchFull);
 
@@ -179,12 +185,16 @@ export class ContextBarComponent implements Component {
 
     // Stats (always last — moved to row 2 in narrow viewports)
     let statsFull = "";
-    if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
-      statsFull += clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`); // ⚡
-    }
-    if (s.lastTurnMs !== undefined && s.lastTurnMs > 0) {
-      const secs = (s.lastTurnMs / 1000).toFixed(1);
-      statsFull += ` ${clr.dim(`\u29d7 ${secs}s`)}`; // ◷
+    if (s.allowAllBypass) {
+      statsFull = c.fg(214, "All Permissions Bypassed");
+    } else if (s.showTurnSpeed) {
+      if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
+        statsFull += clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`); // ⚡
+      }
+      if (s.lastTurnMs !== undefined && s.lastTurnMs > 0) {
+        const secs = (s.lastTurnMs / 1000).toFixed(1);
+        statsFull += ` ${clr.dim(`\u29d7 ${secs}s`)}`; // ◷
+      }
     }
     const statsWidth = visibleWidth(statsFull);
     const hasStats = statsWidth > 0;

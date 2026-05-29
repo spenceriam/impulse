@@ -38,6 +38,10 @@ coverage/
 # Temporary files
 *.tmp
 .cache/
+artifacts/
+sessions/
+release-notes.md
+release-title.txt
 ""  
 "# PowerShell temp scripts"  
 "fix_*.ps1"  

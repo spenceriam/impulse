@@ -44,7 +44,7 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     key: "ollama",
     label: "Ollama Cloud",
     envVar: "OLLAMA_API_KEY",
-    defaultModel: "ollama/llama3.2",
+    defaultModel: "",
     modelBaseUrl: "https://ollama.com",
     defaultBaseUrl: "https://ollama.com",
     needsBaseUrl: true,
@@ -391,6 +391,61 @@ export async function saveHomeEnv(
 
   const lines = [...values.entries()].map(([key, value]) => `${key}=${value}`);
   await fs.writeFile(envPath, `${lines.join("\n")}\n`, { mode: 0o600 });
+}
+
+/** Remove provider API key (and related vars) from ~/.impulse/.env */
+export async function removeProviderFromHomeEnv(
+  provider: ModelProviderOption
+): Promise<void> {
+  const homeDir = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
+  if (!homeDir) return;
+
+  const envPath = path.join(homeDir, ".impulse", ".env");
+  const values = new Map<string, string>();
+  try {
+    const existing = await fs.readFile(envPath, "utf-8");
+    for (const line of existing.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+      const idx = trimmed.indexOf("=");
+      values.set(trimmed.slice(0, idx), trimmed.slice(idx + 1));
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return;
+  }
+
+  if (provider.envVar) values.delete(provider.envVar);
+  if (provider.key === "ollama") values.delete("OLLAMA_BASE_URL");
+
+  const lines = [...values.entries()].map(([key, value]) => `${key}=${value}`);
+  if (lines.length === 0) {
+    try {
+      await fs.unlink(envPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    return;
+  }
+  await fs.writeFile(envPath, `${lines.join("\n")}\n`, { mode: 0o600 });
+}
+
+export function modelUsesProvider(model: string | undefined, providerKey: string): boolean {
+  if (!model?.trim()) return false;
+  const prefix = `${providerKey}/`;
+  return model === providerKey || model.startsWith(prefix);
+}
+
+export function countConfiguredProviders(config: Config): number {
+  let n = 0;
+  for (const key of listConfiguredCustomProviderKeys(config)) {
+    if (providerConfig(config, key).apiKey) n++;
+  }
+  for (const mp of MODEL_PROVIDERS) {
+    if (mp.isCustom) continue;
+    if (providerConfig(config, mp.key).apiKey) n++;
+  }
+  return n;
 }
 
 /** Wire up fuzzy model autocomplete on the pi-tui Editor during model selection */

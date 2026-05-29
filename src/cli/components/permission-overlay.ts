@@ -1,15 +1,19 @@
-import {
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-  type Component,
-} from "@mariozechner/pi-tui";
+import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import {
   getPermissionLabel,
   type PermissionRequest,
   type PermissionResponse,
 } from "../../permission/index.js";
+import { formatPermissionWhyPolicy } from "../permission-display.js";
 import { overlayBoxWidth } from "../layout.js";
+import {
+  intrinsicFramedBoxWidth,
+  measureOverlayTopChromeWidth,
+  overlayBottomBorder,
+  overlayRenderBoxWidth,
+  overlaySideLine,
+  overlayTitleLine,
+} from "./overlay-theme.js";
 
 const A = {
   reset: "\x1b[0m",
@@ -26,21 +30,14 @@ const OPTIONS: Array<{ value: PermissionResponse; label: string }> = [
   { value: "always", label: "Always" },
 ];
 
-function padToWidth(line: string, width: number): string {
-  const truncated = truncateToWidth(line, width);
-  const padding = Math.max(0, width - visibleWidth(truncated));
-  return `${truncated}${" ".repeat(padding)}`;
-}
-
-function bgLine(line: string, width: number): string {
-  const bg = "\x1b[48;5;233m";
-  const padded = padToWidth(line, width).replace(/\x1b\[0m/g, `${A.reset}${bg}`);
-  return `${bg}${padded}${A.reset}`;
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 export class PermissionOverlay implements Component {
   private request: PermissionRequest;
-  private selectedIndex = 1; // Default to Allow once
+  private selectedIndex = 1;
+  private measureTerminalWidth: number | null = null;
 
   onDecision?: (response: PermissionResponse) => void;
 
@@ -51,6 +48,40 @@ export class PermissionOverlay implements Component {
   setRequest(request: PermissionRequest): void {
     this.request = request;
     this.selectedIndex = 1;
+  }
+
+  setMeasureTerminalWidth(cols: number): void {
+    this.measureTerminalWidth = cols;
+  }
+
+  preferredBoxWidth(terminalWidth: number): number {
+    const terminal = this.measureTerminalWidth ?? terminalWidth;
+    const cap = overlayBoxWidth(terminal);
+    const innerWidth = Math.max(8, cap - 4);
+    const plainWidths: number[] = [measureOverlayTopChromeWidth("Permission required", 33)];
+
+    plainWidths.push(visibleWidth(getPermissionLabel(this.request.permission)));
+
+    const subject = permissionSubject(this.request);
+    for (const line of wrapTextWithAnsi(subject, innerWidth)) {
+      plainWidths.push(visibleWidth(line));
+    }
+
+    const { why, policy } = formatPermissionWhyPolicy(this.request);
+    if (why) {
+      plainWidths.push(visibleWidth(`Why: ${why}`));
+    }
+    if (policy) {
+      plainWidths.push(visibleWidth(`Policy: ${policy}`));
+    }
+
+    const optionLine = OPTIONS.map((o) => `[ ${o.label} ]`).join("   ");
+    for (const line of wrapTextWithAnsi(optionLine, innerWidth)) {
+      plainWidths.push(visibleWidth(line));
+    }
+    plainWidths.push(visibleWidth("←/→ choose   Enter confirm   Esc deny"));
+
+    return Math.min(cap, intrinsicFramedBoxWidth(terminal, "Permission required", plainWidths));
   }
 
   invalidate(): void {}
@@ -84,27 +115,17 @@ export class PermissionOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = overlayBoxWidth(width);
+    const boxWidth = overlayRenderBoxWidth(width);
     const innerWidth = Math.max(8, boxWidth - 4);
 
-    const subject = String(
-      this.request.metadata?.["command"]
-        ?? this.request.patterns[0]
-        ?? this.request.message
-    );
-    const reason = typeof this.request.metadata?.["reason"] === "string"
-      ? String(this.request.metadata["reason"])
-      : undefined;
+    const subject = permissionSubject(this.request);
+    const { why, policy } = formatPermissionWhyPolicy(this.request);
 
-    const titleText = `${A.bold}${A.fg(33, "Permission required")}${A.reset}`;
-    const topRight = "─".repeat(Math.max(0, boxWidth - 24));
-    const top = bgLine(`┌─ ${titleText} ${topRight}┐`, boxWidth);
-    const bottom = bgLine(`└${"─".repeat(Math.max(0, boxWidth - 2))}┘`, boxWidth);
+    const lines: string[] = [];
+    lines.push(overlayTitleLine("Permission required", boxWidth, 33));
 
-    const lines: string[] = [top];
     const pushBoxLine = (content = "") => {
-      const padded = padToWidth(content, innerWidth);
-      lines.push(bgLine(`│ ${padded} │`, boxWidth));
+      lines.push(overlaySideLine(content, innerWidth, boxWidth));
     };
 
     pushBoxLine(`${A.bold}${getPermissionLabel(this.request.permission)}${A.reset}`);
@@ -113,9 +134,16 @@ export class PermissionOverlay implements Component {
       pushBoxLine(A.fg(39, line));
     }
 
-    if (reason) {
+    if (why) {
       pushBoxLine("");
-      for (const line of wrapTextWithAnsi(`${A.dim}reason:${A.reset} ${reason}`, innerWidth)) {
+      for (const line of wrapTextWithAnsi(`${A.dim}Why:${A.reset} ${why}`, innerWidth)) {
+        pushBoxLine(line);
+      }
+    }
+
+    if (policy) {
+      if (!why) pushBoxLine("");
+      for (const line of wrapTextWithAnsi(`${A.dim}Policy:${A.reset} ${policy}`, innerWidth)) {
         pushBoxLine(line);
       }
     }
@@ -136,8 +164,25 @@ export class PermissionOverlay implements Component {
 
     pushBoxLine("");
     pushBoxLine(`${A.dim}←/→ choose   Enter confirm   Esc deny${A.reset}`);
-    lines.push(bottom);
+    lines.push(overlayBottomBorder(boxWidth));
 
     return lines;
   }
+}
+
+function permissionSubject(request: PermissionRequest): string {
+  return String(
+    request.metadata?.["command"] ?? request.patterns[0] ?? request.message
+  );
+}
+
+/** Plain widths for tests. */
+export function measurePermissionOverlayPlainWidths(
+  request: PermissionRequest,
+  terminalWidth: number
+): number[] {
+  const overlay = new PermissionOverlay(request);
+  overlay.setMeasureTerminalWidth(terminalWidth);
+  const lines = overlay.render(terminalWidth);
+  return lines.map((l) => visibleWidth(stripAnsi(l)));
 }

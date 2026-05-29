@@ -12,9 +12,13 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 ## Features
 
 - **Custom provider support** — Any OpenAI-compatible or Anthropic-compatible endpoint. Unlimited custom providers with automatic model discovery, reasoning capability probing, and persistent configuration
-- **4 Modes** — WORK, EXPLORE, PLAN, DEBUG (Tab to cycle)
-- **Vision model** — Optional vision-capable model for image/screenshot interpretation with automatic fallback
-- **Advisor mode** — Plan/approve/execute pattern with separate advisor model and approval overlay
+- **4 Modes** — AGENT (default), EXPLORE, PLAN, DEBUG (Tab to cycle)
+- **Vision** — Paste screenshots or attach image paths (`~/…`, relative, `@file.png`). With `/vision` on, a vision model translates images to text for the worker; vision-capable worker models can also receive images natively
+- **Images** — Attachments appear as `[Pasted image #N]` in chat and tool output
+- **Chat view** — `/clear` hides the on-screen transcript while session history stays on disk and in context; `/show` restores the view from the saved session
+- **Turn status** — Busy line shows `Processing...` during model/thinking/vision work and `Working...` during tool runs
+- **Allow-all** — `/allow-all` bypasses permission prompts for the current session only (disclaimer required; not restored on `/new` or `/resume`)
+- **Advisor mode (experimental)** — Enable via `/experimental`, then `/advisor`; plan/approve/execute with embedded plan markdown
 - **Web research** — Built-in `web_search` and `web_fetch` with bundled `agent-browser` fallback
 - **Ollama provider** — Full integration with capability discovery via `/api/show`
 - **Session management** — `impulse --list-sessions`, `--enrich-session-titles`; `/resume` picker with titles; empty sessions hidden
@@ -69,39 +73,61 @@ impulse --version
 
 | Mode | Purpose |
 |------|---------|
-| **WORK** | Full execution with all tools |
+| **AGENT** | Full execution with all tools (default) |
 | **EXPLORE** | Read-only understanding — patient, curious |
 | **PLAN** | Planning and documentation |
 | **DEBUG** | Systematic debugging |
 
 Press `Tab` to cycle modes, `Shift+Tab` to cycle reasoning levels.
 
+## Vision and images
+
+1. **Attach images** — Paste from the clipboard, type or paste a file path, or include `@path/to/image.png` in your message. The prompt shows `[Pasted image #N]` tokens.
+2. **Enable translation** — Run `/vision` when vision is off to pick a vision model (or `/vision on`). When vision is on, bare `/vision` turns it off; use `/vision off` explicitly anytime.
+3. **Worker sees content** — With `visionMode` on, images are described by the vision model before the worker turn (unless the worker model accepts images natively). If vision is off but images are attached, IMPULSE warns you to run `/vision`.
+4. **Describe-only** — The vision prompt follows your message and describes what is visible; it does not push coding tasks unless you asked for them.
+5. **Restore transcript** — `/show` replays the session into the chat view (tool blocks render as completed summaries, not a live stream replay).
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/model` | Choose provider, API key, and model |
-| `/vision` | Toggle vision model translation (`on` / `off`) |
-| `/advisor` | Configure and toggle advisor mode |
-| `/mode` | Switch mode (WORK, EXPLORE, PLAN, DEBUG) |
-| `/reason` | Set reasoning level (`off`, `low`, `medium`, `high`) |
-| `/user` | View/update profile and preferences |
-| `/new` | Start a new session |
+| `/model` | Choose or change model; set up provider via API key and endpoint |
+| `/vision` | Toggle vision mode; pick a vision model (same or different provider) |
+| `/experimental` | Toggle experimental features such as advisor |
+| `/mode` | Change agent mode (AGENT, EXPLORE, PLAN, DEBUG) |
+| `/update` | Check and install latest release from npm |
+| `/reasoning` | Set reasoning level for the worker model (same options as `/model` setup) |
+| `/allow-all` | Toggle bypassing all permission prompts for this session only |
+| `/user` | View or update profile and preferences |
+| `/new` | Start a new Impulse session |
 | `/debug` | Toggle session debug log file (not Tab DEBUG mode) |
+| `/speedo` | Toggle turn tokens/second and elapsed turn time on the status bar |
 | `/resume` | Resume a saved session (picker) |
-| `/clear` | Clear the chat view |
-| `/help` | Show commands and keyboard shortcuts |
-| `/quit` | Exit |
+| `/clear` | Clear the on-screen chat view only (session history preserved) |
+| `/show` | Restore the chat view from session history |
+| `/help` | Scrollable command reference (↑↓ / PgUp/PgDn when the list overflows) |
+| `/quit` | End Impulse (alias `/exit`) |
+| `/exit` | End Impulse (alias `/quit`) |
+
+After enabling **Advisor** in `/experimental`, these commands also appear in help and autocomplete:
+
+| Command | Description |
+|---------|-------------|
+| `/advisor` | Configure and toggle advisor model (`on`, `off`, or `<model>`) |
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Cycle modes forward |
-| `Shift+Tab` | Cycle reasoning level |
+| `Tab` | Cycle modes forward, or complete a `/command` when the line starts with `/` |
+| `Shift+Tab` | Cycle reasoning level (ignored while typing a `/command`) |
+| `↑` | Recall previous submitted prompt (older on repeated Up) |
+| `↓` | Clear the prompt input |
 | `Enter` | Submit |
 | `Esc` (2x) | Abort current turn |
-| `Ctrl+C` (2x) | Exit |
+| `Ctrl+C` (2x) | Exit with session summary |
+| `Ctrl+D` | Exit |
 
 ## Web Research
 
@@ -135,6 +161,8 @@ Config file: `~/.impulse/config.json` (migrates from `~/.config/impulse` on firs
   "visionMode": false
 }
 ```
+
+When `visionMode` is `true` and you attach images, IMPULSE runs the configured `visionModel` to produce text descriptions before the worker model's turn (in addition to native multimodal input when the worker supports it).
 
 ## Project Instructions
 

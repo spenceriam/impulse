@@ -145,7 +145,7 @@ describe("enrichSessionTitles integration", () => {
   });
 
   it("writes headerTitle to disk", async () => {
-    const base = sampleSession({ projectID });
+    const base = sampleSession({ projectID, model: "ollama/glm-4.7" });
     await SessionStoreInstance.create({
       ...base,
       id: "sess_write_test",

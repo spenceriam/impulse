@@ -7,6 +7,10 @@ import { zFilePath } from "../src/tools/schemas/branded";
 import { buildFileReadRangeNote } from "../src/tools/file-read";
 import "../src/tools/init";
 import { Tool } from "../src/tools/registry";
+import {
+  resetAllowAllBypass,
+  setAllowAllBypass,
+} from "../src/permission";
 
 const ReadTestSchema = z.object({
   filePath: zFilePath(),
@@ -178,16 +182,21 @@ describe("Tool.execute branded schema integration", () => {
     const filePath = join(dir, "target.txt");
     writeFileSync(filePath, "hello world\n", "utf-8");
 
-    const result = await Tool.execute("file_edit", {
-      filePath: `${dir}/[target.txt](http://target.txt)`,
-      oldString: "hello",
-      newString: "hi",
-    });
+    setAllowAllBypass(true);
+    try {
+      const result = await Tool.execute("file_edit", {
+        filePath: `${dir}/[target.txt](http://target.txt)`,
+        oldString: "hello",
+        newString: "hi",
+      });
 
-    expect(result.success).toBe(true);
-    expect(result.output).toContain("edited successfully");
-    const { readFileSync } = await import("node:fs");
-    expect(readFileSync(filePath, "utf-8")).toContain("hi");
+      expect(result.success).toBe(true);
+      expect(result.output).toContain("edited successfully");
+      const { readFileSync } = await import("node:fs");
+      expect(readFileSync(filePath, "utf-8")).toContain("hi");
+    } finally {
+      resetAllowAllBypass();
+    }
   });
 });
 

@@ -5,6 +5,84 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-05-28
+
+  **Type:** patch
+  **Title:** Fix image path extraction crash on multi-path matching
+
+  ### Fixed
+  - **Image path extraction** — `extractImagePathRefs` no longer crashes with a `TypeError` when scanning messages for multiple inline image paths. The internal `PATH_WITH_SPACES_RE` / `PATH_BODY_RE` patterns are now passed to `matchAll` with the required global flag, while the non-global versions are retained for stateless `.test()` checks.
+  - **Config fallbacks** — `loadConfig().catch()` recovery uses `createDefaultConfig()` (Zod defaults) and `save()` re-parses before writing, so partial objects are not persisted when config load fails.
+  - **Advisor bash gate** — unified pre-consult gate blocks non-readonly bash (including empty/missing commands) with the same message as writes/edits/subagents; mutating bash prefixes are denylisted.
+
+## [1.1.2] - 2026-05-23
+
+  **Type:** patch
+  **Title:** CLI polish, advisor UX, and help overlay fixes
+
+  ### Added
+  - **`/update` command** and **`impulse --update`** — check npm and install latest release
+  - **`/experimental` overlay** — toggle experimental features (Advisor mode) before use
+  - **Plan approval overlay** — bordered UI blocks the agent immediately after `consult_advisor`
+  - **`plan_markdown` in tool result** — executor gets plan content without `file_read` on home paths
+  - **Model picker sections** — `Ollama Cloud:` style headers and separators between providers
+  - **Advisor consultation** status in footer and busy line while `consult_advisor` runs
+  - **`modelExplicitlySet` config** — block chat until user picks a model via `/model` or setup
+  - **`/help` overlay** — full command descriptions, scroll (↑↓ / PgUp/PgDn / Home/End), preserved bottom border
+  - **`/speedo`** — toggle turn tokens/second and elapsed turn time on the status bar
+  - **Prompt history** — ↑ recalls previous submitted prompts; prompt clears at turn start (not after submit)
+  - **Welcome hints** — startup hints under the FIGlet Slant banner
+  - **File overwrite permissions** — `file_write` / `file_edit` prompt before overwriting existing files
+  - **Permission overlay Why/Policy** — shows tool description and policy reason; content-sized height
+
+  ### Changed
+  - **AGENT mode prompts** — bounded technical chat, co-partner pillars (honesty, verify, no option spam)
+  - **Advisor gated** — requires `experimental.advisor` in config; `/advisor` points to `/experimental` when off
+  - **Advisor plans** — Assumptions and Executor must verify sections; executor treats plans as advisory
+  - **Session headers** — `set_header` silent in chat; reject numeric-only titles
+  - **Status line** — advisor model without `(adv)` suffix; consultation text on busy line only
+  - **Advisor setup** — `ADVISOR SETUP` title on provider step; feedback without `[OK]` prefix
+  - **Model status lines** — `Model: …` without `[OK]` prefix
+  - **Bottom anchor** — spacer counts model setup, autocomplete, and spinner height accurately
+  - **Subagent display names** — obscure ship-registry codenames in tool/task UI
+  - **Tool block layout** — deeper indent and full paths in subagent tool previews
+  - **Thinking display** — static dim text in thinking blocks; shimmer on busy line (Processing.., Wrapping up, advisor consult)
+
+  ### Fixed
+  - Agent uses `session.model || config.defaultModel`; `/model` updates config and session
+  - Reasoning probe uses active model; no silent config clobber on startup normalize
+  - Extra blank line before `Impulse` response label
+  - `file_read` / path allowlist for `~/.impulse/advisor-plans/`
+  - Plan Ready modal separator and late/frozen approval flow
+  - DSML-style markup filtered from thinking display
+  - `/advisor` hidden from help and autocomplete until Advisor is enabled in `/experimental`
+  - `/help` truncated descriptions (`...`) and missing bottom border when command list overflows
+  - Permission overlay clipped content and missing bash `description` in metadata
+  - Prompt cleared too early on submit (now clears at turn start)
+
+## [1.1.1] - 2026-05-26
+
+  **Type:** patch
+  **Title:** CLI polish, model persistence, and co-partner prompts
+
+  ### Added
+  - **`/update` command** and **`impulse --update`** — check npm and install latest release
+  - **Model picker sections** — `Ollama Cloud:` style headers and separators between providers
+  - **Advisor consultation** status in footer and busy line while `consult_advisor` runs
+  - **`modelExplicitlySet` config** — block chat until user picks a model via `/model` or setup
+
+  ### Changed
+  - **AGENT mode** prompts — bounded technical chat, co-partner pillars (honesty, verify, no option spam)
+  - **Advisor plans** — Assumptions and Executor must verify sections; executor treats plans as advisory
+  - **Session headers** — `set_header` silent in chat; reject numeric-only titles
+  - **Model status lines** — `Model: …` without `[OK]` prefix
+
+  ### Fixed
+  - Extra blank line before `Impulse` response label
+  - Agent uses `session.model || config.defaultModel`; `/model` updates config and session
+  - Reasoning probe uses active model; no silent config clobber on startup normalize
+  - Processing / Wrapping up / Advisor busy shimmer matches thinking dim base
+
 ## [1.1.0] - 2026-05-23
 
   **Type:** minor

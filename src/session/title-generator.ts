@@ -2,8 +2,10 @@ import { getProviderManager } from "../api/manager.js";
 import type { Message } from "./store.js";
 import type { ChatMessage } from "../api/types.js";
 
+const TITLE_MAX_LENGTH = 60;
+
 const TITLE_SYSTEM_PROMPT =
-  "Generate a concise session title (max 50 chars) based on this conversation. " +
+  `Generate a concise session title (max ${TITLE_MAX_LENGTH} chars) based on this conversation. ` +
   "Return ONLY the title text — no quotes, no prefixes, no explanation.";
 
 /**
@@ -45,9 +47,8 @@ export async function generateTitle(
       .replace(/^(title|session|summary):?\s*/i, "")
       .trim();
 
-    // Enforce max 50 characters
-    if (title.length > 50) {
-      title = title.slice(0, 47) + "...";
+    if (title.length > TITLE_MAX_LENGTH) {
+      title = title.slice(0, TITLE_MAX_LENGTH - 3) + "...";
     }
 
     return title || null;

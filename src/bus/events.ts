@@ -159,6 +159,7 @@ export const SubagentEvents = {
     z.object({
       type: z.enum(["text", "tool", "thinking"]),
       content: z.string(),
+      durationMs: z.number().optional(),
     })
   ),
 };

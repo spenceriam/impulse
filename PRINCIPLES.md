@@ -55,7 +55,7 @@
 ## Permission Principles
 
 ### Explicit Approval
-- Destructive tools require user approval unless express mode is on
+- Destructive tools require user approval unless `/allow-all` bypass is on (session-only)
 - Permission prompts show tool name, target path/command, and scope options
 - Rejection messages guide the agent with `[USER DECISION]` prefix
 

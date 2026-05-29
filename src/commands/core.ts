@@ -96,7 +96,7 @@ async function handleExit() {
 async function handleClear() {
   return {
     success: true,
-    output: "Use /clear in the CLI to reset the current session view.",
+    output: "Use /clear in the CLI to clear the chat view (session history is preserved). Use /show to restore.",
   };
 }
 
@@ -143,7 +143,7 @@ export function registerCoreCommands(): void {
     {
       name: "clear",
       category: "core",
-      description: "Clear the current session (same as /new)",
+      description: "Clear the chat view in the CLI (history preserved; use /show to restore)",
       handler: handleClear,
       examples: ["/clear"],
     },

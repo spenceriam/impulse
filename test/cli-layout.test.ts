@@ -9,6 +9,7 @@ import { ContextBarComponent } from "../src/cli/components/context-bar";
 import {
   SessionPickerOverlay,
   sessionRowForTest,
+  sessionTableCellsForTest,
 } from "../src/cli/components/session-picker-overlay";
 import {
   SelectableListOverlay,
@@ -211,9 +212,9 @@ describe("session picker row labels", () => {
   });
 
   test("uses em dash for missing model", () => {
-    const row = sessionRowForTest(baseSession);
-    expect(row.secondary).toContain("—");
-    expect(row.secondary).not.toContain("unknown");
+    const cells = sessionTableCellsForTest(baseSession);
+    expect(cells.model).toContain("—");
+    expect(cells.model).not.toContain("unknown");
   });
 });
 

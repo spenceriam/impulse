@@ -14,12 +14,25 @@ import * as os from "os";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const PLAN_REQUIRED_SECTIONS = ["## Goals", "## Approach", "## Task List", "## Dependencies", "## Risks", "## Self-Check"];
+const PLAN_REQUIRED_SECTIONS = [
+  "## Goals",
+  "## Approach",
+  "## Task List",
+  "## Dependencies",
+  "## Risks",
+  "## Assumptions",
+  "## Executor must verify",
+  "## Self-Check",
+];
+
+/** Max plan markdown embedded in consult_advisor tool JSON for the executor. */
+export const PLAN_MARKDOWN_MAX_CHARS = 12_000;
 
 export interface AdvisorResult {
   success: boolean;
   summary: string;
   planPath?: string;
+  planMarkdown?: string;
   advisorModel: string;
   selfCheckPassed: boolean;
   error?: string;
@@ -116,7 +129,15 @@ export async function runAdvisorConsultation(params: AdvisorCallParams): Promise
     const summary = extractSummary(advisorResponse);
 
     events.onAdvisorEnd(advisorResponse || "(no advisor response)");
-    return { success: true, summary, planPath, advisorModel, selfCheckPassed: true };
+    const planMarkdown = advisorResponse.slice(0, PLAN_MARKDOWN_MAX_CHARS);
+    return {
+      success: true,
+      summary,
+      planPath,
+      planMarkdown,
+      advisorModel,
+      selfCheckPassed: true,
+    };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     events.onAdvisorEnd(`(advisor error: ${errMsg})`);
@@ -144,13 +165,19 @@ function buildAdvisorPrompt(
     .join("\n");
 
   const historySummary = fullHistory
-    .map((m) => `[${m.role}]: ${typeof m.content === "string" ? m.content.slice(0, 500) : JSON.stringify(m.content).slice(0, 500)}`)
+    .map((m) => {
+      const raw =
+        typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      return `[${m.role}]: ${raw.slice(0, 4000)}`;
+    })
     .join("\n\n");
 
   const system = `${fullSystemPrompt}
 
 ## Advisor Role
-You are a STRATEGIC ADVISOR for an AI coding agent (the "executor"). You do not write code.
+You are a STRATEGIC ADVISOR for an AI coding agent (the "executor"). You do not write code or read the repo.
+Your output is hypotheses and checklists — NOT ground truth. Do not invent file paths; say "executor should verify X exists."
+
 You produce ${callType === "plan" ? "architectural plans" : "course corrections"} in structured Markdown.
 
 The executor has access to these tools:
@@ -168,6 +195,9 @@ ${historySummary}
 ${context}
 
 ## Instructions
+The executor may include an **Executor draft** in the context below — your initial approach or plan sketch.
+Critique that draft objectively. Do not rubber-stamp it. Note disagreements in **Assumptions** and **Risks**.
+
 Produce a structured Markdown document with ALL of these sections:
 
 ## Goals
@@ -185,13 +215,21 @@ Produce a structured Markdown document with ALL of these sections:
 ## Risks
 - Potential issues and mitigation strategies
 
+## Assumptions
+- What you are assuming (may be wrong — executor must verify)
+
+## Executor must verify
+- Concrete steps: files to read, commands to run, tests (cwd-relative paths only)
+
 ## Self-Check
 - [ ] All required sections present
 - [ ] Task list is actionable (each task has a clear description)
 - [ ] Dependencies identified
 - [ ] Risks assessed
+- [ ] Unverified assumptions listed
+- [ ] Executor verification steps listed
 
-Keep the response focused and actionable. The executor will read this file and act on it.`;
+Keep the response focused and actionable. The executor will read this file, verify, then act.`;
 
   return { system, user };
 }
@@ -212,12 +250,21 @@ function validatePlanStructure(text: string, _callType: "plan" | "advisory"): Va
     }
   }
 
-  // Check self-check checkboxes are present
   if (text.includes("## Self-Check")) {
     const selfCheckSection = text.split("## Self-Check")[1]?.split("##")[0] ?? "";
-    if (!selfCheckSection.includes("- [") && !selfCheckSection.includes("- [")) {
+    if (!selfCheckSection.includes("- [")) {
       missing.push("Self-Check checkboxes");
     }
+  }
+
+  const assumptions = text.split("## Assumptions")[1]?.split("##")[0]?.trim() ?? "";
+  if (assumptions.length < 8) {
+    missing.push("Assumptions content");
+  }
+
+  const verify = text.split("## Executor must verify")[1]?.split("##")[0]?.trim() ?? "";
+  if (verify.length < 8) {
+    missing.push("Executor must verify content");
   }
 
   return { passed: missing.length === 0, missing };

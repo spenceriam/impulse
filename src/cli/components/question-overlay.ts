@@ -1,11 +1,12 @@
-import {
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-  type Component,
-} from "@mariozechner/pi-tui";
+import { type Component } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
 import { overlayBoxWidth } from "../layout.js";
+import {
+  overlayBottomBorder,
+  overlayPushWrapped,
+  overlaySideLine,
+  overlayTitleLine,
+} from "./overlay-theme.js";
 
 const A = {
   reset: "\x1b[0m",
@@ -15,26 +16,6 @@ const A = {
   bg: (code: number, s: string) => `\x1b[48;5;${code}m${s}\x1b[0m`,
 };
 const dimText = (s: string) => A.fg(90, s);
-
-function padToWidth(line: string, width: number): string {
-  const truncated = truncateToWidth(line, width);
-  const padding = Math.max(0, width - visibleWidth(truncated));
-  return `${truncated}${" ".repeat(padding)}`;
-}
-
-function bgLine(line: string, width: number): string {
-  const bg = "\x1b[48;5;233m";
-  const padded = padToWidth(line, width).replace(/\x1b\[0m/g, `${A.reset}${bg}`);
-  return `${bg}${padded}${A.reset}`;
-}
-
-function pushWrapped(lines: string[], content: string, innerWidth: number, boxWidth: number): void {
-  const wrapped = wrapTextWithAnsi(content, innerWidth);
-  for (const line of wrapped) {
-    const padded = padToWidth(line, innerWidth);
-    lines.push(bgLine(`│ ${padded} │`, boxWidth));
-  }
-}
 
 export class QuestionOverlay implements Component {
   private readonly context: string | undefined;
@@ -251,34 +232,56 @@ export class QuestionOverlay implements Component {
   render(width: number): string[] {
     const boxWidth = overlayBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
-    const titleText = `${A.bold}${A.fg(39, "Need your input")}${A.reset}`;
-    const topRight = "─".repeat(Math.max(0, boxWidth - 20));
-    const top = bgLine(`┌─ ${titleText} ${topRight}┐`, boxWidth);
-    const bottom = bgLine(`└${"─".repeat(Math.max(0, boxWidth - 2))}┘`, boxWidth);
 
-    const lines: string[] = [top];
+    const lines: string[] = [];
+    lines.push(overlayTitleLine("Need your input", boxWidth));
+
     const pushBoxLine = (content = "") => {
-      const padded = padToWidth(content, innerWidth);
-      lines.push(bgLine(`│ ${padded} │`, boxWidth));
+      lines.push(overlaySideLine(content, innerWidth, boxWidth));
     };
 
     if (this.reviewMode) {
-      pushWrapped(lines, `${A.bold}${A.fg(39, "Review your answers")}${A.reset}`, innerWidth, boxWidth);
+      overlayPushWrapped(
+        lines,
+        `${A.bold}${A.fg(39, "Review your answers")}${A.reset}`,
+        innerWidth,
+        boxWidth
+      );
       pushBoxLine("");
       for (let i = 0; i < this.questions.length; i++) {
         const q = this.questions[i]!;
         const answer = (this.answers[i] ?? []).join(", ") || A.dim + "(no answer)" + A.reset;
-        pushWrapped(lines, `${A.fg(39, "[" + (i + 1) + "]")} ${q.question}`, innerWidth, boxWidth);
-        pushWrapped(lines, `  ${A.bold}→${A.reset} ${answer}`, innerWidth, boxWidth);
+        overlayPushWrapped(
+          lines,
+          `${A.fg(39, "[" + (i + 1) + "]")} ${q.question}`,
+          innerWidth,
+          boxWidth
+        );
+        overlayPushWrapped(
+          lines,
+          `  ${A.bold}→${A.reset} ${answer}`,
+          innerWidth,
+          boxWidth
+        );
         pushBoxLine("");
       }
-      pushWrapped(lines, `${A.dim}Enter submit  e edit  Esc go back${A.reset}`, innerWidth, boxWidth);
-      lines.push(bottom);
+      overlayPushWrapped(
+        lines,
+        `${A.dim}Enter submit  e edit  Esc go back${A.reset}`,
+        innerWidth,
+        boxWidth
+      );
+      lines.push(overlayBottomBorder(boxWidth));
       return lines;
     }
 
     if (this.context) {
-      pushWrapped(lines, `${A.dim}Context:${A.reset} ${this.context}`, innerWidth, boxWidth);
+      overlayPushWrapped(
+        lines,
+        `${A.dim}Context:${A.reset} ${this.context}`,
+        innerWidth,
+        boxWidth
+      );
       pushBoxLine("");
     }
 
@@ -292,18 +295,33 @@ export class QuestionOverlay implements Component {
         return `${A.fg(250, `[ ${label} ]`)}`;
       })
       .join(" ");
-    pushWrapped(lines, tabs, innerWidth, boxWidth);
+    overlayPushWrapped(lines, tabs, innerWidth, boxWidth);
     pushBoxLine("");
 
-    pushWrapped(lines, `${A.bold}${this.currentQuestion.question}${A.reset}`, innerWidth, boxWidth);
+    overlayPushWrapped(
+      lines,
+      `${A.bold}${this.currentQuestion.question}${A.reset}`,
+      innerWidth,
+      boxWidth
+    );
     pushBoxLine("");
 
     if (this.customMode) {
-      pushWrapped(lines, `${A.fg(39, "Custom answer")}`, innerWidth, boxWidth);
-      pushWrapped(lines, `${A.fg(250, "> ")}${this.customInput}${A.dim}_${A.reset}`, innerWidth, boxWidth);
+      overlayPushWrapped(lines, `${A.fg(39, "Custom answer")}`, innerWidth, boxWidth);
+      overlayPushWrapped(
+        lines,
+        `${A.fg(250, "> ")}${this.customInput}${A.dim}_${A.reset}`,
+        innerWidth,
+        boxWidth
+      );
       pushBoxLine("");
-      pushWrapped(lines, `${A.dim}Type answer   Enter submit   Esc abort${A.reset}`, innerWidth, boxWidth);
-      lines.push(bottom);
+      overlayPushWrapped(
+        lines,
+        `${A.dim}Type answer   Enter submit   Esc abort${A.reset}`,
+        innerWidth,
+        boxWidth
+      );
+      lines.push(overlayBottomBorder(boxWidth));
       return lines;
     }
 
@@ -313,23 +331,23 @@ export class QuestionOverlay implements Component {
       const selected = this.isSelected(option.label);
       const marker = this.optionMarker(selected);
       const line = `${pointer} ${marker} ${A.bold}${option.label}${A.reset} ${A.dim}— ${option.description}${A.reset}`;
-      pushWrapped(lines, line, innerWidth, boxWidth);
+      overlayPushWrapped(lines, line, innerWidth, boxWidth);
     }
 
     const customPointer = this.selectedOption === this.maxSelectableIndex ? A.fg(39, ">") : " ";
-    pushWrapped(
+    overlayPushWrapped(
       lines,
       `${customPointer} ${dimText("( )")} ${A.bold}Type your own answer${A.reset}`,
       innerWidth,
-      boxWidth,
+      boxWidth
     );
 
     pushBoxLine("");
     const hints = this.currentQuestion.multiple
       ? `${A.dim}↑/↓ move   Space toggle   Enter confirm/custom   Tab next topic   Esc abort${A.reset}`
       : `${A.dim}↑/↓ move   Enter select/advance   Space select   Tab next topic   Esc abort${A.reset}`;
-    pushWrapped(lines, hints, innerWidth, boxWidth);
-    lines.push(bottom);
+    overlayPushWrapped(lines, hints, innerWidth, boxWidth);
+    lines.push(overlayBottomBorder(boxWidth));
 
     return lines;
   }

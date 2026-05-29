@@ -89,11 +89,16 @@ export interface GrepMetadata {
 // ============================================
 // Task (Subagent) Tool Metadata
 // ============================================
+export interface TaskActionEntry {
+  label: string;
+  durationMs: number;
+}
+
 export interface TaskMetadata {
   type: "task";
   subagentType: string;      // "explore" | "general"
   description: string;       // Task description
-  actions: string[];         // Summary of actions taken (max 5)
+  actions: TaskActionEntry[];
   toolCallCount: number;     // Total tool calls made by subagent
 }
 
