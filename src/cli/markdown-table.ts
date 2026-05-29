@@ -98,13 +98,15 @@ export function tableTotalWidth(widths: number[]): number {
   return widths.reduce((sum, width) => sum + width, 0) + widths.length * 3 + 1;
 }
 
-export function tableColumnWidths(table: MarkdownTable): number[] {
+export function tableColumnWidths(table: MarkdownTable, maxWidth?: number): number[] {
   return table.header.map((header, column) => {
     const rowMax = table.rows.reduce(
       (max, row) => Math.max(max, visibleWidth(row[column] ?? "")),
       0
     );
-    return Math.max(3, Math.min(60, Math.max(visibleWidth(header), rowMax)));
+    const naturalWidth = Math.max(visibleWidth(header), rowMax);
+    const maxColWidth = maxWidth ? Math.floor(maxWidth * 0.8) : 120;
+    return Math.max(3, Math.min(maxColWidth, naturalWidth));
   });
 }
 
@@ -176,7 +178,7 @@ function stripAnsi(s: string): string {
 }
 
 export function renderTable(table: MarkdownTable, width: number): string[] {
-  const widths = tableColumnWidths(table);
+  const widths = tableColumnWidths(table, width);
   if (tableTotalWidth(widths) <= width) {
     return renderWideTable(table, widths);
   }

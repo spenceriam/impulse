@@ -5,6 +5,14 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-05-29
+
+  **Type:** patch
+  **Title:** Fix table column truncation in wide viewports
+
+  ### Fixed
+  - **Table column width** — Markdown tables now scale to use available viewport width instead of being hardcoded to 60 characters per column. Tables will expand up to 80% of available width, allowing content to display fully in wide terminals while still maintaining readability and wrapping when needed.
+
 ## [1.1.3] - 2026-05-28
 
   **Type:** patch
