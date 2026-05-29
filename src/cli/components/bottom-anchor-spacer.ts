@@ -30,8 +30,6 @@ export class BottomAnchorSpacer implements Component {
   }
 
   render(_width: number): string[] {
-    if (this.cachedLines) return this.cachedLines;
-
     const terminalHeight = this.tui.terminal.rows;
     const frozen = this.getAnchorEmptyLines();
     const emptyLines =
@@ -43,6 +41,12 @@ export class BottomAnchorSpacer implements Component {
       this.cachedLines = [];
       return this.cachedLines;
     }
+    
+    // Only use cache if we have one and are in frozen mode
+    if (this.cachedLines && frozen !== null) {
+      return this.cachedLines;
+    }
+    
     this.cachedLines = Array.from({ length: emptyLines }, () => "");
     return this.cachedLines;
   }

@@ -38,9 +38,12 @@ export class MarkdownTextBlock implements Component {
 
   setText(text: string): void {
     this.raw = text;
+    this.tableLayout = null;
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.tableLayout = null;
+  }
 
   render(width: number): string[] {
     const indentW = visibleWidth(this.indent);

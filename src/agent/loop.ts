@@ -594,9 +594,10 @@ export class AgentLoop {
               toRun = [];
               let runCount = 0;
               for (const item of runnable) {
-                if (runCount < limit) {
+                const isExplore = item.args["subagent_type"] === "explore";
+                if (isExplore || runCount < limit) {
                   toRun.push(item);
-                  runCount += 1;
+                  if (!isExplore) runCount += 1;
                 } else {
                   skipped.set(item.tc.id, {
                     success: false,
