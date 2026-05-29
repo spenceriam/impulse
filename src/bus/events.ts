@@ -157,9 +157,10 @@ export const SubagentEvents = {
   Progress: BusEvent.define(
     "subagent.progress",
     z.object({
-      type: z.enum(["text", "tool", "thinking"]),
+      type: z.enum(["text", "tool", "thinking", "status"]),
       content: z.string(),
       durationMs: z.number().optional(),
+      parentToolCallId: z.string(),
     })
   ),
 };

@@ -13,14 +13,39 @@ const A = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
   bold: "\x1b[1m",
+  italic: "\x1b[3m",
   fg: (code: number, s: string) => `\x1b[${code}m${s}\x1b[0m`,
 };
+
+/** Inline markdown for table cells and help text (bold, italic, code). */
+export function formatInlineMarkdown(line: string): string {
+  let result = line;
+  result = result.replace(/\*\*(.+?)\*\*/g, (_, text) => A.bold + text + A.reset);
+  result = result.replace(
+    /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,
+    (_, text) => A.italic + text + A.reset
+  );
+  result = result.replace(/`([^`]+)`/g, (_, text) => A.dim + text + A.reset);
+  return result;
+}
+
+function formatTable(table: MarkdownTable): MarkdownTable {
+  return {
+    header: table.header.map(formatInlineMarkdown),
+    rows: table.rows.map((row) => row.map(formatInlineMarkdown)),
+  };
+}
 
 const clr = {
   border: (s: string) => A.fg(90, s),
   header: (s: string) => `\x1b[1m${s}${A.reset}`,
   dim: (s: string) => A.fg(90, s),
 };
+
+/** Gray foreground for table borders and help section rules (no dim). */
+export function tableBorderFg(text: string): string {
+  return clr.border(text);
+}
 
 export interface MarkdownTable {
   header: string[];
@@ -61,6 +86,11 @@ function normalizeRow(row: string[], width: number): string[] {
   return [...row, ...Array.from({ length: width - row.length }, () => "")];
 }
 
+/** True when a full markdown table (header + separator + ≥1 row) is present at startIndex. */
+export function isCompleteMarkdownTable(lines: string[], startIndex: number): boolean {
+  return parseTable(lines, startIndex) !== null;
+}
+
 export function parseTable(
   lines: string[],
   startIndex: number
@@ -99,8 +129,9 @@ export function tableTotalWidth(widths: number[]): number {
 }
 
 export function tableColumnWidths(table: MarkdownTable, maxWidth?: number): number[] {
-  return table.header.map((header, column) => {
-    const rowMax = table.rows.reduce(
+  const formatted = formatTable(table);
+  return formatted.header.map((header, column) => {
+    const rowMax = formatted.rows.reduce(
       (max, row) => Math.max(max, visibleWidth(row[column] ?? "")),
       0
     );
@@ -114,22 +145,52 @@ function renderBorder(left: string, middle: string, right: string, widths: numbe
   return clr.border(`${left}${widths.map((width) => "─".repeat(width + 2)).join(middle)}${right}`);
 }
 
-export function renderWideTable(table: MarkdownTable, widths: number[]): string[] {
-  const renderRow = (row: string[], header: boolean): string => {
-    const cells = widths.map((width, index) => {
-      const value = padCell(row[index] ?? "", width);
-      return ` ${header ? clr.header(value) : value} `;
-    });
-    return `${clr.border("│")}${cells.join(clr.border("│"))}${clr.border("│")}`;
-  };
+function wrapCellLines(cell: string, colWidth: number): string[] {
+  const formatted = formatInlineMarkdown(cell);
+  if (!formatted.trim()) return [""];
+  return wrapTextWithAnsi(formatted, colWidth);
+}
 
-  return [
+function renderWideTableRowLines(
+  row: string[],
+  widths: number[],
+  header: boolean
+): string[] {
+  const cellLines = widths.map((width, index) => wrapCellLines(row[index] ?? "", width));
+  const lineCount = Math.max(...cellLines.map((lines) => lines.length), 1);
+  const out: string[] = [];
+
+  for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+    const cells = widths.map((width, colIndex) => {
+      const line = cellLines[colIndex]![lineIndex] ?? "";
+      const padded = padCell(line, width);
+      const value = header && lineIndex === 0 ? clr.header(padded) : padded;
+      return ` ${value} `;
+    });
+    out.push(`${clr.border("│")}${cells.join(clr.border("│"))}${clr.border("│")}`);
+  }
+
+  return out;
+}
+
+export function renderWideTable(table: MarkdownTable, widths: number[]): string[] {
+  const formatted = formatTable(table);
+  const lines: string[] = [
     renderBorder("┌", "┬", "┐", widths),
-    renderRow(table.header, true),
+    ...renderWideTableRowLines(formatted.header, widths, true),
     renderBorder("├", "┼", "┤", widths),
-    ...table.rows.map((row) => renderRow(row, false)),
-    renderBorder("└", "┴", "┘", widths),
   ];
+
+  for (let rowIndex = 0; rowIndex < formatted.rows.length; rowIndex += 1) {
+    const row = formatted.rows[rowIndex]!;
+    lines.push(...renderWideTableRowLines(row, widths, false));
+    if (rowIndex < formatted.rows.length - 1) {
+      lines.push(renderBorder("├", "┼", "┤", widths));
+    }
+  }
+
+  lines.push(renderBorder("└", "┴", "┘", widths));
+  return lines;
 }
 
 export function renderStackedTable(table: MarkdownTable, width: number): string[] {
@@ -145,10 +206,11 @@ export function renderStackedTable(table: MarkdownTable, width: number): string[
     lines.push(clr.dim(`[${rowIndex + 1}]`));
 
     for (let column = 0; column < table.header.length; column += 1) {
-      const value = row[column] ?? "";
+      const value = formatInlineMarkdown(row[column] ?? "");
+      const headerLabel = formatInlineMarkdown(table.header[column] ?? "");
 
       if (useTwoLineFields) {
-        const label = truncateToWidth(table.header[column] ?? "", Math.max(8, width - 2));
+        const label = truncateToWidth(headerLabel, Math.max(8, width - 2));
         lines.push(`  ${clr.dim(label)}`);
         const wrapped = wrapTextWithAnsi(value.length > 0 ? value : " ", Math.max(8, width - 4));
         for (const wrappedLine of wrapped) {
@@ -157,7 +219,7 @@ export function renderStackedTable(table: MarkdownTable, width: number): string[
         continue;
       }
 
-      const label = padCell(table.header[column] ?? "", labelWidth);
+      const label = padCell(headerLabel, labelWidth);
       const prefix = `  ${clr.dim(label)}  `;
       const wrapped = wrapTextWithAnsi(
         value.length > 0 ? value : " ",
@@ -177,9 +239,21 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
-export function renderTable(table: MarkdownTable, width: number): string[] {
+export type TableLayoutMode = "wide" | "stacked";
+
+export function resolveTableLayoutMode(table: MarkdownTable, width: number): TableLayoutMode {
   const widths = tableColumnWidths(table, width);
-  if (tableTotalWidth(widths) <= width) {
+  return tableTotalWidth(widths) <= width ? "wide" : "stacked";
+}
+
+export function renderTable(
+  table: MarkdownTable,
+  width: number,
+  layout?: TableLayoutMode
+): string[] {
+  const mode = layout ?? resolveTableLayoutMode(table, width);
+  if (mode === "wide") {
+    const widths = tableColumnWidths(table, width);
     return renderWideTable(table, widths);
   }
   return renderStackedTable(table, width);
@@ -247,26 +321,22 @@ export function fitTableLineToWidth(line: string, width: number): string {
   return padTableLineToWidth(fitted, width);
 }
 
-/** Empty bordered row matching a help table (continuation rows when one side is taller). */
-export function helpTableSpacerRow(widths: [number, number]): string {
-  return renderWideTableRow(["", " "], widths, false);
-}
-
 /** Place two table render passes on one row each (for dual-column /help). */
 export function mergeTableLinesSideBySide(
   left: string[],
   right: string[],
   halfWidth: number,
-  gutter = HELP_TABLE_GUTTER,
-  rightSpacerLine?: string
+  gutter = HELP_TABLE_GUTTER
 ): string[] {
   const gap = " ".repeat(gutter);
   const rows = Math.max(left.length, right.length);
   const lines: string[] = [];
   for (let i = 0; i < rows; i++) {
     const l = fitTableLineToWidth(left[i] ?? "", halfWidth);
-    const rawRight = right[i] ?? rightSpacerLine ?? "";
-    const r = rawRight ? fitTableLineToWidth(rawRight, halfWidth) : padTableLineToWidth("", halfWidth);
+    const rawRight = i < right.length ? (right[i] ?? "") : "";
+    const r = rawRight
+      ? fitTableLineToWidth(rawRight, halfWidth)
+      : padTableLineToWidth("", halfWidth);
     lines.push(`${l}${gap}${r}`);
   }
   return lines;
@@ -290,14 +360,19 @@ export function renderHelpCommandsTableSingle(
     renderBorder("├", "┼", "┤", widths),
   ];
 
-  for (const def of defs) {
-    const detail = helpDetail(def);
+  for (let defIndex = 0; defIndex < defs.length; defIndex += 1) {
+    const def = defs[defIndex]!;
+    const detail = formatInlineMarkdown(helpDetail(def));
     const descLines = wrapTextWithAnsi(detail.length > 0 ? detail : " ", descW);
     const rows = descLines.length > 0 ? descLines : [""];
 
     for (let i = 0; i < rows.length; i++) {
       const cmd = i === 0 ? def.cmd : "";
       lines.push(renderWideTableRow([cmd, rows[i] ?? ""], widths, false));
+    }
+
+    if (defIndex < defs.length - 1) {
+      lines.push(renderBorder("├", "┼", "┤", widths));
     }
   }
 
@@ -332,10 +407,8 @@ export function renderHelpCommandsDualColumn(
     return left;
   }
 
-  const rightWidths = helpTableColumnWidths(rightDefs, half);
   const right = renderHelpCommandsTableSingle(rightDefs, half);
-  const rightSpacer = helpTableSpacerRow(rightWidths);
-  return mergeTableLinesSideBySide(left, right, half, HELP_TABLE_GUTTER, rightSpacer);
+  return mergeTableLinesSideBySide(left, right, half, HELP_TABLE_GUTTER);
 }
 
 /**

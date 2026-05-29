@@ -17,6 +17,20 @@ export function getCurrentProjectID(): string {
   return getProjectID(process.cwd());
 }
 
+/** Isolated side Q&A during a main turn; not included in main agent messages. */
+export interface SideExchange {
+  id: string
+  createdAt: string
+  userText: string
+  assistantText: string
+  /** Full thinking when the provider streamed reasoning. */
+  thinkingText?: string
+  /** Snapshot shown in overlay when -c was used. */
+  contextSnapshot?: string
+  usedContext: boolean
+  copiedToMain?: boolean
+}
+
 export interface Session {
   id: string
   name: string
@@ -25,6 +39,8 @@ export interface Session {
   created_at: string
   updated_at: string
   messages: Message[]
+  /** Side prompts for this session; excluded from main agent context. */
+  sideExchanges?: SideExchange[]
   mode: string
   model: string
   todos: Todo[]

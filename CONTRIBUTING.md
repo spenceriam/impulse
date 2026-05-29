@@ -1,10 +1,10 @@
-# Contributing to IMPULSE
+# Contributing to impulse
 
-Thank you for your interest in contributing to IMPULSE! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to impulse! This document provides guidelines and instructions for contributing.
 
 ## Prerequisites
 
-**Bun is required.** IMPULSE uses Bun for development and compiled binaries.
+**Bun is required.** impulse uses Bun for development and compiled binaries.
 
 ```bash
 # Install Bun (macOS, Linux, WSL)
@@ -119,7 +119,7 @@ git commit -m "refactor: simplify Y"
 
 When reporting bugs, please include:
 
-1. **IMPULSE version** (`impulse --version`)
+1. **impulse version** (`impulse --version`)
 2. **Operating system** and version
 3. **Steps to reproduce** the issue
 4. **Expected behavior** vs actual behavior

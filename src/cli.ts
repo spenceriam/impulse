@@ -81,7 +81,7 @@ async function runSetup(): Promise<void> {
   const ask = (q: string): Promise<string> =>
     new Promise((res) => iface.question(q, (a) => res(a.trim())));
 
-  console.log("\n=== IMPULSE Setup ===\n");
+  console.log("\n=== impulse Setup ===\n");
   console.log("Choose a provider to configure:\n");
   console.log("  1. Ollama Cloud  (https://ollama.com)");
   console.log("  2. OpenRouter    (https://openrouter.ai)");
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
   }
 
   if (!prompt) {
-    console.log(`\n=== IMPULSE CLI ===`);
+    console.log(`\n=== impulse CLI ===`);
     console.log(`provider: ${config.defaultProvider}  model: ${model}`);
     console.log("Type a prompt, or 'quit' to exit.\n");
 

@@ -197,7 +197,9 @@ export function buildReplaySteps(messages: Message[]): ReplayStep[] {
     if (isToolRoleMessage(msg)) continue;
 
     if (msg.role === "user") {
-      steps.push({ type: "user", text: msg.content ?? "" });
+      const text =
+        typeof msg.apiContent === "string" ? msg.apiContent : (msg.content ?? "");
+      steps.push({ type: "user", text });
       continue;
     }
 

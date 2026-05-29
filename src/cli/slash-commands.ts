@@ -92,6 +92,18 @@ export function buildSlashCommandDefs(
       helpDetail: "Restore the on-screen chat from session history",
     },
     {
+      cmd: "/side",
+      hint: "side prompt during active turn; --history to review",
+      helpDetail:
+        "Ask a isolated clarification while the main agent is working (no tools). Use -c for main-chat context. /side --history to review past side prompts. Copy into main chat with C in the overlay.",
+    },
+    {
+      cmd: "/steer",
+      hint: "steer the current turn",
+      helpDetail:
+        "Inject steering instructions before the model's next action in the current turn",
+    },
+    {
       cmd: "/speedo",
       hint: "toggle turn tk/s and elapsed time",
       helpDetail: "Toggle to show turn tokens/second speed and total elasped turn time",

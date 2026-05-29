@@ -1,10 +1,11 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import { overlayBoxWidth } from "../layout.js";
-import { renderHelpCommandsTable } from "../markdown-table.js";
+import { renderHelpCommandsTable, tableBorderFg } from "../markdown-table.js";
 import {
   buildSlashCommandDefs,
   type BuildSlashCommandsOptions,
 } from "../slash-commands.js";
+import { shellTakeoverHint } from "../shell-shortcuts.js";
 import {
   intrinsicFramedBoxWidth,
   overlayBottomBorder,
@@ -14,9 +15,6 @@ import {
   overlaySideLine,
   overlayTitleLine,
 } from "./overlay-theme.js";
-
-const DIM = "\x1b[2m\x1b[38;5;90m";
-const RESET = "\x1b[0m";
 
 const FOOTER_IDLE = "Esc close";
 const FOOTER_SCROLL = "↑↓ scroll · PgUp/PgDn · Home/End · Esc close";
@@ -43,7 +41,7 @@ function plainWidth(s: string): number {
 
 /** Section divider sized to overlay inner width (not full terminal). */
 export function helpSectionRule(innerWidth: number): string {
-  return `${DIM}  ${"─".repeat(Math.max(8, innerWidth - 2))}${RESET}`;
+  return tableBorderFg(`  ${"─".repeat(Math.max(8, innerWidth - 2))}`);
 }
 
 /** Wrap prose with consistent `  ` indent on every line. */
@@ -118,6 +116,27 @@ export function buildHelpContent(
   }
   for (const row of wrapIndentedProse(
     "/vision — Toggle vision and choose a vision model (same or different provider)",
+    innerWidth
+  )) {
+    push(row);
+  }
+  pushBlank();
+
+  pushSection("Shell commands");
+  for (const row of wrapIndentedProse(
+    "! cmd or !cmd — Run a shell command; output appears as its own block in chat (not a persistent shell session).",
+    innerWidth
+  )) {
+    push(row);
+  }
+  for (const row of wrapIndentedProse(
+    "@ question — Ask the agent to interpret the last shell output with full session context.",
+    innerWidth
+  )) {
+    push(row);
+  }
+  for (const row of wrapIndentedProse(
+    `${shellTakeoverHint()} while a long-running command is active to type directly into that shell.`,
     innerWidth
   )) {
     push(row);

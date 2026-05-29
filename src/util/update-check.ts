@@ -1,5 +1,5 @@
 /**
- * Update checker for IMPULSE
+ * Update checker for impulse
  * Checks npm registry for newer versions and prompts user to update.
  * 
  * NEW APPROACH (v0.27.12):
@@ -154,7 +154,7 @@ export function performUpdate(latestVersion: string): void {
     writeSync(1, msg + "\n");
   };
   
-  rawPrint(`\nUpdating IMPULSE to v${latestVersion}...`);
+  rawPrint(`\nUpdating impulse to v${latestVersion}...`);
   rawPrint(`Running: npm install -g ${PACKAGE_NAME}\n`);
 
   const result = spawnSync("npm", ["install", "-g", PACKAGE_NAME], {
@@ -178,12 +178,12 @@ export function performUpdate(latestVersion: string): void {
     // Print success message using raw file descriptor write
     rawPrint(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     if (installedVersion === latestVersion) {
-      rawPrint(`  Update successful! IMPULSE is now v${latestVersion}`);
+      rawPrint(`  Update successful! impulse is now v${latestVersion}`);
     } else if (installedVersion) {
       rawPrint(`  Update completed. Installed version: v${installedVersion}`);
       rawPrint(`  (Expected v${latestVersion} - you may need to restart your shell)`);
     } else {
-      rawPrint(`  Update completed! IMPULSE should now be v${latestVersion}`);
+      rawPrint(`  Update completed! impulse should now be v${latestVersion}`);
     }
     rawPrint(`  Run 'impulse' to start the new version.`);
     rawPrint(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);

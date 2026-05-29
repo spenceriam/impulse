@@ -66,7 +66,7 @@ function findBinary() {
     }
     
     throw new Error(
-      `Could not find IMPULSE binary for ${platform}-${arch}.\n` +
+      `Could not find impulse binary for ${platform}-${arch}.\n` +
       `Package ${packageName} may not be installed.\n` +
       `Try reinstalling: npm install -g @spenceriam/impulse`
     );
@@ -82,7 +82,7 @@ try {
   });
 
   child.on("error", (err) => {
-    console.error("Failed to start IMPULSE:", err.message);
+    console.error("Failed to start impulse:", err.message);
     process.exit(1);
   });
 

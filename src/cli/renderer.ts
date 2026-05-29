@@ -28,6 +28,7 @@ import type { EditorTheme } from "@mariozechner/pi-tui";
 import {
   PromptInput,
   resolveSubmitPayloadAfterPathAttach,
+  userTranscriptText,
   type PromptSubmitPayload,
 } from "./prompt-input.js";
 import { shouldTreatAsSlashCommand } from "./image-paths.js";
@@ -38,13 +39,22 @@ import {
 } from "./slash-autocomplete.js";
 import { buildSlashCommandList } from "./slash-commands.js";
 import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
-import { GUTTER, GUTTER_WIDTH, gutterContent, gutterSeparator, innerWidth } from "./gutter.js";
+import {
+  GUTTER,
+  GUTTER_WIDTH,
+  gutterContent,
+  gutterSeparator,
+  innerWidth,
+  truncateGutterLine,
+} from "./gutter.js";
 import {
   formatLogoLine,
   formatWelcomeMeta,
-  IMPULSE_SLANT_LOGO,
+  IMPULSE_GEN_TINY_LOGO,
   shouldUseAsciiLogo,
+  welcomeLogoPrefix,
   welcomeMetaText,
+  welcomeSublinePrefix,
 } from "./welcome-banner.js";
 import {
   BUSY_PROCESSING,
@@ -68,8 +78,24 @@ import {
 } from "../permission/index.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
-import { ToolBlock } from "./components/tool-block.js";
+import {
+  DIFF_REVEAL_TICK_MS,
+  extractDiffLinesFromMetadata,
+  ToolBlock,
+} from "./components/tool-block.js";
+import { TaskBatchPermissionOverlay } from "./components/task-batch-permission-overlay.js";
+import type { TaskBatchDecision } from "../permission/task-batch.js";
 import { MarkdownTextBlock } from "./components/markdown-text.js";
+import { ShellCommandBlock } from "./components/shell-command-block.js";
+import { isLoneBang, parseAtReview, parseBangCommand } from "./shell-bang.js";
+import { isShellTakeoverChord } from "./shell-shortcuts.js";
+import {
+  abortUserShell,
+  runUserShellCommand,
+  writeToUserShell,
+  type ShellRunResult,
+} from "./user-shell.js";
+import { printSessionExitMessage } from "./exit-message.js";
 import { PermissionOverlay } from "./components/permission-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
@@ -79,8 +105,17 @@ import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import { SideOverlay } from "./components/side-overlay.js";
+import {
+  buildSideContextSnapshot,
+  formatSideCopyMarkdown,
+  parseSideSlashArgs,
+  runSideChat,
+} from "../agent/side-chat.js";
+import type { SideExchange } from "../session/store.js";
+import crypto from "crypto";
 import { SHIMMER_FRAME_MS, shimmerText } from "./shimmer-text.js";
-import { pickRandomShipName } from "./starfleet-ship-names.js";
+import { pickUniqueShipName } from "./starfleet-ship-names.js";
 import { formatThinkingBodyPart } from "./thinking-style.js";
 import { filterThinkingForDisplay } from "../util/thinking-filter.js";
 import { buildReplaySteps, type ReplayStep } from "./session-replay.js";
@@ -250,16 +285,13 @@ class ThinkingBlock implements Component {
       for (const part of wrapped) {
         const linePrefix = isFirstOutputLine ? firstPrefix : continuationPrefix;
         lines.push(
-          truncateToWidth(
-            `${linePrefix}${formatThinkingBodyPart(part)}`,
-            width
-          )
+          truncateGutterLine(`${linePrefix}${formatThinkingBodyPart(part)}`, width)
         );
         isFirstOutputLine = false;
       }
     }
 
-    return lines.length > 0 ? lines : [truncateToWidth(firstPrefix, width)];
+    return lines.length > 0 ? lines : [truncateGutterLine(firstPrefix, width)];
   }
 
   invalidate() {}
@@ -328,12 +360,25 @@ export class ImpulseRenderer {
   // Layout components
   private chat!: Container;
   private spinnerText!: Text;
+  private queuePreviewText!: Text;
+  private turnQueue: PromptSubmitPayload[] = [];
+  private queueHoldDrain = false;
+  private shellTakeoverActive = false;
+  private shellCommandRunning = false;
+  private shellEscArmed = false;
+  private shellEscTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeShellBlock: ShellCommandBlock | null = null;
+  private lastShellOutput: ShellRunResult | null = null;
+  private shellInputListener: (() => void) | null = null;
+  private static readonly MAX_TURN_QUEUE = 20;
   private contextBar!: ContextBarComponent;
   private promptInput!: PromptInput;
   private promptHistory = new PromptHistory();
   private autocompleteText!: Text; // slash command suggestions
   private modelSetupText!: Text;
   private bottomSpacer!: BottomAnchorSpacer;
+  /** Frozen top spacer line count during an active turn (prevents welcome-header flash). */
+  private turnAnchorEmptyLines: number | null = null;
 
   // Manual turn-status spinner + render ticker
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
@@ -349,7 +394,7 @@ export class ImpulseRenderer {
       return;
     }
     this.spinnerText.setText(
-      `${GUTTER}${this.shimmerBusyText(this.currentStatusPhrase, this.busyDimBase)}`
+      gutterContent(this.shimmerBusyText(this.currentStatusPhrase, this.busyDimBase), this.terminalCols())
     );
   }
 
@@ -510,6 +555,67 @@ export class ImpulseRenderer {
       maxHeight,
     });
     this.tui.requestRender();
+  }
+
+  private dismissTaskBatchPermissionOverlay(): void {
+    this.taskBatchOverlayHandle?.hide();
+    this.taskBatchOverlayHandle = null;
+  }
+
+  private showTaskBatchPermission(count: number): Promise<TaskBatchDecision> {
+    return new Promise((resolve) => {
+      if (!this.tui) {
+        resolve({ action: "approve" });
+        return;
+      }
+
+      this.dismissTaskBatchPermissionOverlay();
+      this.setBusyStatus("waiting for your approval?", "Waiting for your approval...");
+
+      const overlay = new TaskBatchPermissionOverlay(count);
+      overlay.onDecision = (decision) => {
+        this.dismissTaskBatchPermissionOverlay();
+        if (this.isRunning) {
+          this.setBusyStatus("running parallel sub-agents?", BUSY_WORKING);
+        }
+        resolve(decision);
+      };
+
+      const cols = this.terminalCols();
+      overlay.setMeasureTerminalWidth(cols);
+      const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
+      const contentLines = overlay.render(cols);
+      const maxHeight = overlayMaxHeightForContent(rows, contentLines.length);
+
+      this.taskBatchOverlayHandle = this.showContentSizedOverlay(overlay, {
+        maxHeight,
+      });
+      this.tui.requestRender();
+    });
+  }
+
+  private ensureDiffRevealLoop(): void {
+    if (this.diffRevealInterval || !this.tui) return;
+
+    this.diffRevealInterval = setInterval(() => {
+      let anyRevealing = false;
+      for (const [id, block] of this.toolBlocks) {
+        if (!block.isRevealing()) continue;
+        anyRevealing = true;
+        if (block.tickDiffReveal()) {
+          this.toolBlocks.delete(id);
+        }
+      }
+
+      if (!anyRevealing) {
+        if (this.diffRevealInterval) {
+          clearInterval(this.diffRevealInterval);
+          this.diffRevealInterval = null;
+        }
+      }
+
+      this.tui?.requestRender();
+    }, DIFF_REVEAL_TICK_MS);
   }
 
   private dismissPermissionOverlay(resumeStatus?: string): void {
@@ -825,6 +931,10 @@ export class ImpulseRenderer {
       return;
     }
 
+    if (this.abortActiveShell()) {
+      return;
+    }
+
     const now = Date.now();
 
     if (this.isRunning) {
@@ -848,9 +958,7 @@ export class ImpulseRenderer {
       now - this.ctrlCPendingAt < ImpulseRenderer.CTRL_C_WINDOW_MS
     ) {
       this.clearCtrlCPending();
-      void this.showExitStats();
-      this.tui.stop();
-      process.exit(0);
+      void this.gracefulExit();
       return;
     }
     this.ctrlCPending = "exit";
@@ -862,27 +970,41 @@ export class ImpulseRenderer {
   private abortCurrentTurn(): void {
     if (!this.isRunning) return;
 
-    const hadTask = this.activeTaskToolId !== null;
-    const codename = this.activeTaskCodename;
+    let hadTask = false;
+    let lastCodename: string | undefined;
 
     rejectQuestion(new Error("Question cancelled by user"));
     this.dismissQuestionOverlay(false);
     abortCurrentBashExecution();
 
-    if (this.activeTaskToolId) {
-      const block = this.toolBlocks.get(this.activeTaskToolId);
-      if (block) {
-        block.setDone({ success: false, output: "Sub-agent aborted by user" }, 0);
-        this.toolBlocks.delete(this.activeTaskToolId);
+    for (const [id, block] of this.toolBlocks) {
+      if (block.isRunning() && block.getToolName() === "task") {
+        hadTask = true;
+        lastCodename = this.taskCodenames.get(id);
+        block.setDone(
+          { success: false, output: "Sub-agent aborted by user" },
+          block.getElapsedMs(),
+          { collapsed: true }
+        );
+        this.toolBlocks.delete(id);
+        this.taskCodenames.delete(id);
       }
-      this.activeTaskToolId = null;
-      this.activeTaskCodename = null;
     }
+    const codename = lastCodename;
 
     this.loop.abort();
     this.spinStop();
     this.isRunning = false;
-    this.contextBar.update({ isRunning: false });
+    this.releaseTurnAnchor();
+    if (this.speedoEnabled && this.liveTurnStartedAt > 0) {
+      this.contextBar.update({
+        isRunning: false,
+        lastTurnMs: Date.now() - this.liveTurnStartedAt,
+        tokensPerSecond: undefined,
+      });
+    } else {
+      this.contextBar.update({ isRunning: false });
+    }
     this.clearCtrlCPending();
 
     this.addSectionGap();
@@ -893,6 +1015,136 @@ export class ImpulseRenderer {
     this.addChatLine(`  ${clr.dim("[✓]")}  ${clr.dim(msg)}`);
     this.tui.setFocus(this.promptInput);
     this.tui.requestRender();
+    this.drainTurnQueue();
+  }
+
+  private updateQueuePreview(): void {
+    if (!this.queuePreviewText) return;
+    if (this.queueHoldDrain) {
+      this.queuePreviewText.setText(`${GUTTER}${clr.dim("editing queued message…")}`);
+      return;
+    }
+    if (this.turnQueue.length === 0) {
+      this.queuePreviewText.setText("");
+      return;
+    }
+    const head = this.turnQueue[0]!.displayMessage.trim();
+    const truncated =
+      head.length > 56 ? `${head.slice(0, 53)}…` : head;
+    const more =
+      this.turnQueue.length > 1 ? clr.dim(` (+${this.turnQueue.length - 1} more)`) : "";
+    this.queuePreviewText.setText(
+      `${GUTTER}${clr.dim("queued:")} ${clr.dim(truncated)}${more}`
+    );
+  }
+
+  private enqueueTurn(payload: PromptSubmitPayload): void {
+    if (this.turnQueue.length >= ImpulseRenderer.MAX_TURN_QUEUE) {
+      this.addChatLine(`${clr.warn("[!]")} Queue full (${ImpulseRenderer.MAX_TURN_QUEUE} messages)`);
+      this.tui.requestRender();
+      return;
+    }
+    this.turnQueue.push(payload);
+    this.updateQueuePreview();
+    this.requestBottomAnchorRefresh();
+  }
+
+  private drainTurnQueue(): void {
+    if (this.queueHoldDrain || this.turnQueue.length === 0 || this.isRunning) return;
+    const next = this.turnQueue.shift()!;
+    this.updateQueuePreview();
+    const reviewQ = parseAtReview(next.displayMessage.trim());
+    if (reviewQ && this.lastShellOutput) {
+      void this.runShellReview(reviewQ, this.lastShellOutput);
+      return;
+    }
+    void this.runTurn(next);
+  }
+
+  private beginQueueEdit(): boolean {
+    if (this.turnQueue.length === 0) return false;
+    const head = this.turnQueue.shift()!;
+    this.queueHoldDrain = true;
+    this.promptInput.setText(head.displayMessage);
+    this.updateQueuePreview();
+    return true;
+  }
+
+  private commitQueueEdit(payload: PromptSubmitPayload): void {
+    if (!this.queueHoldDrain) return;
+    this.turnQueue.unshift(payload);
+    this.queueHoldDrain = false;
+    this.promptInput.clear();
+    this.updateQueuePreview();
+  }
+
+  private abortActiveShell(): boolean {
+    if (this.shellCommandRunning) {
+      abortUserShell();
+      this.shellCommandRunning = false;
+      this.shellTakeoverActive = false;
+      this.activeShellBlock?.setCancelled();
+      this.activeShellBlock = null;
+      this.shellEscArmed = false;
+      if (this.shellEscTimer) clearTimeout(this.shellEscTimer);
+      this.addChatLine(`  ${clr.dim("[✓]")}  ${clr.dim("Shell command cancelled")}`);
+      this.tui.requestRender();
+      return true;
+    }
+    return false;
+  }
+
+  private handleShellEscape(): boolean {
+    if (!this.shellCommandRunning) return false;
+
+    if (!this.shellEscArmed) {
+      this.shellEscArmed = true;
+      this.addChatLine(clr.dim("Press Esc again to cancel shell command"));
+      if (this.shellEscTimer) clearTimeout(this.shellEscTimer);
+      this.shellEscTimer = setTimeout(() => {
+        this.shellEscArmed = false;
+      }, 2500);
+      this.tui.requestRender();
+      return true;
+    }
+    this.shellEscArmed = false;
+    return this.abortActiveShell();
+  }
+
+  private async runBangCommand(command: string): Promise<void> {
+    this.addSectionGap();
+    const block = new ShellCommandBlock(command);
+    this.activeShellBlock = block;
+    this.chat.addChild(block);
+    this.hasTrailingGap = false;
+    this.shellCommandRunning = true;
+    this.shellTakeoverActive = false;
+    this.requestBottomAnchorRefresh();
+
+    const interactive = /\bsudo\b/.test(command) || command.includes("ssh");
+    if (interactive) {
+      block.setInteractiveHint(true);
+    }
+
+    const result = await runUserShellCommand({
+      command,
+      cols: this.terminalCols(),
+      rows: Math.max(8, (this.tui.terminal?.rows ?? 24) - 12),
+      onData: (chunk) => {
+        block.appendOutput(chunk);
+        this.requestBottomAnchorRefresh();
+      },
+      forceInteractive: interactive,
+    });
+
+    this.shellCommandRunning = false;
+    this.shellTakeoverActive = false;
+    block.setInteractiveHint(false);
+    block.setTakeoverActive(false);
+    block.setDone(result.exitCode, result.durationMs);
+    this.lastShellOutput = result;
+    this.activeShellBlock = null;
+    this.requestBottomAnchorRefresh();
   }
 
   // Streaming state: current assistant text block (updated in-place)
@@ -903,8 +1155,9 @@ export class ImpulseRenderer {
   private thinkingOpen = false;
   private hasTrailingGap = false;
   private toolBlocks = new Map<string, ToolBlock>();
-  private activeTaskToolId: string | null = null;
-  private activeTaskCodename: string | null = null;
+  private taskCodenames = new Map<string, string>();
+  private diffRevealInterval: ReturnType<typeof setInterval> | null = null;
+  private taskBatchOverlayHandle: OverlayHandle | null = null;
   private ctrlCPending: "cancel" | "exit" | null = null;
   private ctrlCPendingAt = 0;
   private static readonly CTRL_C_WINDOW_MS = 2000;
@@ -929,6 +1182,12 @@ export class ImpulseRenderer {
   private advisorModel: string | undefined;
   private visionModel: string | undefined;
   private helpOverlayHandle: OverlayHandle | null = null;
+  private sideOverlayHandle: OverlayHandle | null = null;
+  private sideOverlay: SideOverlay | null = null;
+  private sideInputCleanup: (() => void) | null = null;
+  private sideAbortController: AbortController | null = null;
+  private sideStreamActive = false;
+  private currentSideExchangeId: string | null = null;
   private reasoningLevel: ReasoningLevel = "medium";
   private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
@@ -1023,13 +1282,14 @@ export class ImpulseRenderer {
 
       if (event.type === SubagentEvents.Progress.name) {
         const payload = event.properties as {
-          type: "text" | "tool" | "thinking";
+          type: "text" | "tool" | "thinking" | "status";
           content: string;
           durationMs?: number;
+          parentToolCallId: string;
         };
-        if (this.activeTaskToolId) {
-          const block = this.toolBlocks.get(this.activeTaskToolId);
-          block?.appendSubagentLine({
+        const block = this.toolBlocks.get(payload.parentToolCallId);
+        if (block) {
+          block.appendSubagentLine({
             type: payload.type,
             content: payload.content,
             durationMs: payload.durationMs,
@@ -1040,7 +1300,11 @@ export class ImpulseRenderer {
     });
 
     // 0. Bottom anchor spacer ? pushes content down so contextBar stays at terminal bottom
-    this.bottomSpacer = new BottomAnchorSpacer(this.tui, () => this.getContentHeight());
+    this.bottomSpacer = new BottomAnchorSpacer(
+      this.tui,
+      () => this.getContentHeight(),
+      () => this.turnAnchorEmptyLines
+    );
     this.tui.addChild(this.bottomSpacer);
 
     // 1. Chat history ? grows as turns are added
@@ -1051,14 +1315,14 @@ export class ImpulseRenderer {
     const version = (packageJson as { version: string }).version;
     this.chat.addChild(new Spacer(1));
     if (shouldUseAsciiLogo(this.terminal.columns)) {
-      for (const line of IMPULSE_SLANT_LOGO) {
-        this.chat.addChild(new Text(`${GUTTER}${formatLogoLine(line)}`, 0, 0));
+      for (const line of IMPULSE_GEN_TINY_LOGO) {
+        this.chat.addChild(new Text(`${welcomeLogoPrefix()}${formatLogoLine(line)}`, 0, 0));
       }
-      this.chat.addChild(new Text(`${GUTTER}${formatWelcomeMeta(version)}`, 0, 0));
+      this.chat.addChild(new Text(`${welcomeSublinePrefix()}${formatWelcomeMeta(version)}`, 0, 0));
     } else {
       this.chat.addChild(
         new Text(
-          `${GUTTER}${clr.bold("impulse")} ${clr.dim("|")} ${A.reset}${welcomeMetaText(version)}`,
+          `${welcomeSublinePrefix()}${clr.bold("impulse")} ${clr.dim("|")} ${A.reset}${welcomeMetaText(version)}`,
           0,
           0
         )
@@ -1072,6 +1336,9 @@ export class ImpulseRenderer {
     this.tui.addChild(new Spacer(1));
     this.spinnerText = new Text("", 0, 0);
     this.tui.addChild(this.spinnerText);
+
+    this.queuePreviewText = new Text("", 0, 0);
+    this.tui.addChild(this.queuePreviewText);
 
     // 3. Separator ABOVE input
     this.tui.addChild(new SeparatorLine());
@@ -1094,7 +1361,12 @@ export class ImpulseRenderer {
       }
     };
     this.promptInput.onArrowUp = () => {
-      if (this.modelSetup || this.isRunning) return;
+      if (this.modelSetup) return;
+      if (this.isRunning && this.turnQueue.length > 0 && this.promptInput.getText().trim() === "") {
+        this.beginQueueEdit();
+        return;
+      }
+      if (this.isRunning) return;
       const prev = this.promptHistory.previous();
       if (prev !== null) this.promptInput.setText(prev);
     };
@@ -1125,8 +1397,25 @@ export class ImpulseRenderer {
     this.promptInput.onAbort = () => {
       this.handleCtrlC();
     };
-    this.promptInput.onExit = () => { void this.showExitStats(); this.tui.stop(); process.exit(0); };
+    this.promptInput.onExit = () => {
+      void this.gracefulExit();
+    };
     this.promptInput.onEscape = () => {
+      if (this.queueHoldDrain) {
+        const payload = this.promptInput.getSubmitPayload();
+        this.turnQueue.unshift(payload);
+        this.queueHoldDrain = false;
+        this.promptInput.clear();
+        this.updateQueuePreview();
+        return;
+      }
+      if (this.handleShellEscape()) return;
+
+      if (this.sideOverlayHandle) {
+        this.dismissSideOverlay();
+        return;
+      }
+
       if (this.helpOverlayHandle) {
         this.dismissHelpOverlay();
         return;
@@ -1186,6 +1475,7 @@ export class ImpulseRenderer {
     // 6. Context bar ? sticky absolute bottom
     this.contextBar = new ContextBarComponent({
       workerModel: config.defaultModel,
+      impulseVersion: (packageJson as { version: string }).version,
       contextTokens: this.contextTokens,
       contextWindow: this.contextWindow,
       mode: this.mode,
@@ -1203,6 +1493,33 @@ export class ImpulseRenderer {
     this.tui.setFocus(this.promptInput);
     resetAllowAllBypass();
     this.syncAllowAllBypassUi();
+
+    this.shellInputListener = this.tui.addInputListener((data) => {
+      if (this.shellTakeoverActive && this.shellCommandRunning) {
+        if (data === "\r") {
+          writeToUserShell("\n");
+          return { consume: true };
+        }
+        if (data === "\x7f" || data === "\b") {
+          writeToUserShell("\b");
+          return { consume: true };
+        }
+        if (data.length === 1 && data >= " " && data !== "\x1b") {
+          writeToUserShell(data);
+          return { consume: true };
+        }
+      }
+      if (
+        this.shellCommandRunning &&
+        isShellTakeoverChord(data)
+      ) {
+        this.shellTakeoverActive = true;
+        this.activeShellBlock?.setTakeoverActive(true);
+        this.requestBottomAnchorRefresh();
+        return { consume: true };
+      }
+      return undefined;
+    });
 
     this.tui.start();
     // Discover reasoning capabilities in background (non-blocking)
@@ -1462,6 +1779,41 @@ export class ImpulseRenderer {
     const input = payload.displayMessage.trim();
     if (!input) return;
 
+    if (this.queueHoldDrain) {
+      this.commitQueueEdit(payload);
+      this.tui.requestRender();
+      return;
+    }
+
+    if (isLoneBang(input)) {
+      this.addChatLine(clr.dim("Usage: ! <command>"));
+      this.tui.requestRender();
+      return;
+    }
+
+    const bangCommand = parseBangCommand(input);
+    if (bangCommand) {
+      this.promptInput.clear();
+      void this.runBangCommand(bangCommand);
+      return;
+    }
+
+    const atQuestion = parseAtReview(input);
+    if (atQuestion) {
+      if (!this.lastShellOutput) {
+        this.addChatLine(`${clr.warn("[!]")} No shell output to review yet`);
+        this.tui.requestRender();
+        return;
+      }
+      this.promptInput.clear();
+      if (this.isRunning) {
+        this.enqueueTurn(payload);
+        return;
+      }
+      await this.runShellReview(atQuestion, this.lastShellOutput);
+      return;
+    }
+
     if (shouldTreatAsSlashCommand(input)) {
       await this.handleSlash(payload.apiText.trim());
       this.tui.requestRender();
@@ -1483,6 +1835,12 @@ export class ImpulseRenderer {
       );
     }
 
+    if (this.isRunning) {
+      this.promptInput.clear();
+      this.enqueueTurn(payload);
+      return;
+    }
+
     await this.runTurn(payload);
   }
 
@@ -1491,6 +1849,7 @@ export class ImpulseRenderer {
   private async runTurn(payload: PromptSubmitPayload): Promise<void> {
     const userMessage = payload.apiText;
     const displayMessage = payload.displayMessage;
+    const transcript = userTranscriptText(payload);
     // Mid-turn config validation: advisor mode ON but config missing?
     const config = await loadConfig();
     if (config.advisorMode && !isExperimentalAdvisorEnabled(config)) {
@@ -1528,7 +1887,7 @@ export class ImpulseRenderer {
     }
 
     this.promptInput.clear();
-    this.promptHistory.push(displayMessage);
+    this.promptHistory.push(transcript);
 
     this.isRunning = true;
     this.toolsRanThisTurn = false;
@@ -1536,7 +1895,7 @@ export class ImpulseRenderer {
 
     this.addSectionGap();
     this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(`${displayMessage}`);
+    this.addChatLine(transcript);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -1572,6 +1931,7 @@ export class ImpulseRenderer {
         });
         this.updateLiveMetrics(0, true);
         this.setBusyStatus("thinking?", BUSY_PROCESSING);
+        this.freezeTurnAnchor();
       },
       onToken: (text) => {
         this.setBusyStatus("responding?");
@@ -1618,6 +1978,14 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
+      onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
+      onSubagentTaskStatus: (id, status) => {
+        const block = this.toolBlocks.get(id);
+        if (block) {
+          block.setSubagentTaskStatus(status);
+          this.tui.requestRender();
+        }
+      },
       onToolStart: (id, name, args) => {
         // Skip rendering for silent tools (e.g., set_header)
         if (ImpulseRenderer.SILENT_TOOLS.has(name)) return;
@@ -1628,9 +1996,8 @@ export class ImpulseRenderer {
 
         let subagentCodename: string | undefined;
         if (name === "task") {
-          subagentCodename = pickRandomShipName();
-          this.activeTaskToolId = id;
-          this.activeTaskCodename = subagentCodename;
+          subagentCodename = pickUniqueShipName(new Set(this.taskCodenames.values()));
+          this.taskCodenames.set(id, subagentCodename);
         }
 
         const block = new ToolBlock(name, args, { subagentCodename });
@@ -1650,15 +2017,22 @@ export class ImpulseRenderer {
 
         this.toolsRanThisTurn = true;
 
-        if (id === this.activeTaskToolId) {
-          this.activeTaskToolId = null;
-          this.activeTaskCodename = null;
-        }
+        this.taskCodenames.delete(id);
 
         const block = this.toolBlocks.get(id);
         if (block) {
-          block.setDone(result, durationMs);
-          this.toolBlocks.delete(id);
+          const collapsed = _name === "task";
+          const shouldReveal =
+            (_name === "file_write" || _name === "file_edit") &&
+            result.success &&
+            extractDiffLinesFromMetadata(result.metadata).length > 0;
+
+          if (shouldReveal && block.beginDiffReveal(result, durationMs)) {
+            this.ensureDiffRevealLoop();
+          } else {
+            block.setDone(result, durationMs, { collapsed });
+            this.toolBlocks.delete(id);
+          }
         }
         if (!this.isRunning) {
           this.tui.requestRender();
@@ -1713,6 +2087,7 @@ export class ImpulseRenderer {
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
+        this.drainTurnQueue();
       },
       onError: (err) => {
         this.spinStop();
@@ -1722,6 +2097,7 @@ export class ImpulseRenderer {
         this.isRunning = false;
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
+        this.drainTurnQueue();
       },
     };
 
@@ -1844,6 +2220,18 @@ export class ImpulseRenderer {
     this.tui?.requestRender();
   }
 
+  private freezeTurnAnchor(): void {
+    const rows = this.tui?.terminal?.rows ?? 24;
+    this.turnAnchorEmptyLines = Math.max(0, rows - this.getContentHeight());
+    this.requestBottomAnchorRefresh();
+  }
+
+  private releaseTurnAnchor(): void {
+    if (this.turnAnchorEmptyLines === null) return;
+    this.turnAnchorEmptyLines = null;
+    this.requestBottomAnchorRefresh();
+  }
+
   // ?? Slash autocomplete ????????????????????????????????????????????????????
 
   private slashCommands(): Array<{ cmd: string; hint: string }> {
@@ -1874,31 +2262,26 @@ export class ImpulseRenderer {
     this.requestBottomAnchorRefresh();
   }
 
-  // ?? Exit stats ????????????????????????????????????????????????????????????
+  // ?? Exit ??????????????????????????????????????????????????????????????????
+
+  private async gracefulExit(): Promise<void> {
+    await SessionManager.flushCurrent();
+    const session = SessionManager.getCurrentSession();
+    this.tui.stop();
+    if (session?.id) {
+      const title =
+        session.headerTitle?.trim() || session.name?.trim() || "Untitled session";
+      printSessionExitMessage({
+        id: session.id,
+        title,
+        model: session.model,
+      });
+    }
+    process.exit(0);
+  }
 
   private async showExitStats(): Promise<void> {
-    await SessionManager.flushCurrent();
-
-    const session = SessionManager.getCurrentSession();
-    if (!session) return;
-    const msgs    = session.messages.length;
-    const turns   = session.messages.filter((m) => m.role === "user").length;
-    const created = new Date(session.created_at);
-    const now     = new Date();
-    const diffMs  = now.getTime() - created.getTime();
-    const mins    = Math.floor(diffMs / 60000);
-    const dur     = mins < 60 ? `${mins}m` : `${Math.floor(mins/60)}h ${mins%60}m`;
-    this.addChatLine("");
-    this.addChatLine(`${clr.dim("?".repeat(46))}`);
-    this.addChatLine(`${clr.bold("Session summary")}`);
-    this.addChatLine(`${clr.dim("session")}   ${session.name}`);
-    this.addChatLine(`${clr.dim("duration")}  ${dur}`);
-    this.addChatLine(`${clr.dim("turns")}     ${turns}`);
-    this.addChatLine(`${clr.dim("messages")}  ${msgs}`);
-    this.addChatLine(`${clr.dim("model")}     ${session.model || "(none)"}`);
-    this.addChatLine(`${clr.dim("?".repeat(46))}`);
-    this.addChatLine("");
-    this.tui.requestRender();
+    await this.gracefulExit();
   }
 
   private closeThinking(): void {
@@ -2011,11 +2394,23 @@ export class ImpulseRenderer {
         await this.cmdShow();
         break;
       case "help": this.showHelpOverlay(); break;
+      case "steer":
+        if (!arg) {
+          this.addChatLine(clr.dim("Usage: /steer <instruction>"));
+        } else if (!this.isRunning) {
+          this.addChatLine(clr.dim("No active turn — /steer applies during an agent turn"));
+        } else {
+          this.loop.setSteer(arg);
+          this.addChatLine(clr.dim(`steer: ${arg}`));
+        }
+        this.tui.requestRender();
+        break;
+      case "side":
+        await this.cmdSide(arg);
+        break;
       case "quit":
       case "exit":
-        await this.showExitStats();
-        this.tui.stop();
-        process.exit(0);
+        await this.gracefulExit();
         break;
       default:
         this.addChatLine(`${clr.warn("[!]")} Unknown: /${cmd} ? try /help`);
@@ -3313,8 +3708,12 @@ export class ImpulseRenderer {
 
   private resetTurnUiState(): void {
     this.toolBlocks.clear();
-    this.activeTaskToolId = null;
-    this.activeTaskCodename = null;
+    this.taskCodenames.clear();
+    if (this.diffRevealInterval) {
+      clearInterval(this.diffRevealInterval);
+      this.diffRevealInterval = null;
+    }
+    this.dismissTaskBatchPermissionOverlay();
     this.clearCtrlCPending();
     this.streamingRaw = "";
     this.streamingText = null;
@@ -3360,6 +3759,243 @@ export class ImpulseRenderer {
       visionMode,
       visionModel: visionMode ? visionModel : undefined,
     });
+  }
+
+  private sideOverlayMaxHeight(): number {
+    const rows = this.tui?.terminal?.rows ?? 24;
+    const cap = Math.floor(rows * 0.55);
+    return Math.min(50, Math.max(14, cap));
+  }
+
+  private dismissSideOverlay(): void {
+    this.sideAbortController?.abort();
+    this.sideAbortController = null;
+    this.sideStreamActive = false;
+    this.sideInputCleanup?.();
+    this.sideInputCleanup = null;
+    this.sideOverlayHandle?.hide();
+    this.sideOverlayHandle = null;
+    this.sideOverlay = null;
+    this.currentSideExchangeId = null;
+    this.tui.setFocus(this.promptInput);
+    this.tui.requestRender();
+  }
+
+  private mountSideOverlay(overlay: SideOverlay): void {
+    this.dismissSideOverlay();
+    this.sideOverlay = overlay;
+
+    const maxHeight = this.sideOverlayMaxHeight();
+    overlay.onCancel = () => this.dismissSideOverlay();
+    overlay.onScroll = () => this.tui.requestRender();
+    overlay.onCopy = () => this.handleSideCopy();
+
+    overlay.onOpenDetail = (exchange) => {
+      this.showSideHistoryDetail(exchange);
+    };
+    overlay.onBackToList = () => {
+      this.showSideHistoryOverlay();
+    };
+
+    this.sideInputCleanup = this.tui.addInputListener((data: string) => {
+      if (data === "\x1b") {
+        this.dismissSideOverlay();
+        return { consume: true };
+      }
+      overlay.handleInput(data);
+      this.tui.requestRender();
+      return { consume: true };
+    });
+
+    this.sideOverlayHandle = this.showContentSizedOverlay(overlay, {
+      maxHeight,
+    });
+    this.tui.requestRender();
+  }
+
+  private handleSideCopy(): void {
+    const overlay = this.sideOverlay;
+    if (!overlay) return;
+
+    let userText = "";
+    let assistantText = "";
+    let exchangeId: string | null = this.currentSideExchangeId;
+
+    if (overlay.mode === "live") {
+      const live = overlay.getLiveState();
+      if (!live?.complete || !live.answerText.trim()) {
+        this.addChatLine(clr.dim("Side prompt not ready to copy yet"));
+        this.tui.requestRender();
+        return;
+      }
+      userText = live.userText;
+      assistantText = live.answerText;
+    } else if (overlay.mode === "history-detail") {
+      const ex = overlay.getDetailExchange();
+      if (!ex?.assistantText.trim()) {
+        this.addChatLine(clr.dim("Side prompt not ready to copy yet"));
+        this.tui.requestRender();
+        return;
+      }
+      userText = ex.userText;
+      assistantText = ex.assistantText;
+      exchangeId = ex.id;
+    } else {
+      return;
+    }
+
+    const block = formatSideCopyMarkdown(userText, assistantText);
+    this.promptInput.injectSideCopyBlock(block);
+    this.tui.setFocus(this.promptInput);
+
+    if (exchangeId) {
+      void SessionManager.markSideExchangeCopied(exchangeId);
+    }
+    this.tui.requestRender();
+  }
+
+  private showSideHistoryOverlay(): void {
+    const session = SessionManager.getCurrentSession();
+    const exchanges = session?.sideExchanges ?? [];
+    const overlay = new SideOverlay({
+      mode: "history-list",
+      maxHeight: this.sideOverlayMaxHeight(),
+      exchanges,
+    });
+    this.mountSideOverlay(overlay);
+  }
+
+  private showSideHistoryDetail(exchange: SideExchange): void {
+    const overlay = new SideOverlay({
+      mode: "history-detail",
+      maxHeight: this.sideOverlayMaxHeight(),
+      exchanges: SessionManager.getCurrentSession()?.sideExchanges ?? [],
+    });
+    overlay.openDetail(exchange);
+    this.currentSideExchangeId = exchange.id;
+    this.mountSideOverlay(overlay);
+  }
+
+  private async cmdSide(arg: string): Promise<void> {
+    const parsed = parseSideSlashArgs(arg);
+
+    if (parsed.kind === "usage") {
+      this.addChatLine(
+        clr.dim(
+          "Usage: /side <question>  |  /side -c <question>  |  /side --history"
+        )
+      );
+      this.tui.requestRender();
+      return;
+    }
+
+    if (parsed.kind === "history") {
+      this.showSideHistoryOverlay();
+      return;
+    }
+
+    if (this.sideStreamActive) {
+      this.addChatLine(clr.dim("A side prompt is already open — Esc to close it first."));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (!this.isRunning) {
+      this.addChatLine(
+        clr.dim("No active turn — /side <question> applies during an agent turn")
+      );
+      this.tui.requestRender();
+      return;
+    }
+
+    await this.startSidePrompt(parsed.question, parsed.useContext);
+  }
+
+  private async startSidePrompt(question: string, useContext: boolean): Promise<void> {
+    const session = SessionManager.getCurrentSession();
+    if (!session) {
+      this.addChatLine(clr.dim("No active session."));
+      this.tui.requestRender();
+      return;
+    }
+
+    const config = await loadConfig();
+    const model =
+      session.model?.trim() || config.defaultModel?.trim() || "";
+    if (!model) {
+      this.addChatLine(clr.dim("No model configured — use /model first."));
+      this.tui.requestRender();
+      return;
+    }
+
+    const contextSnapshot = useContext
+      ? buildSideContextSnapshot(session.messages)
+      : undefined;
+
+    const live = SideOverlay.liveInitial(question, {
+      contextSnapshot,
+      usedContext: useContext && Boolean(contextSnapshot?.trim()),
+    });
+
+    const overlay = new SideOverlay({
+      mode: "live",
+      maxHeight: this.sideOverlayMaxHeight(),
+      live,
+    });
+    this.mountSideOverlay(overlay);
+
+    const exchangeId = `side_${crypto.randomUUID()}`;
+    this.currentSideExchangeId = exchangeId;
+    this.sideAbortController = new AbortController();
+    this.sideStreamActive = true;
+    const signal = this.sideAbortController.signal;
+    const reasoningLevel =
+      config.reasoningLevel ?? (config.thinking ? "medium" : "off");
+
+    try {
+      const result = await runSideChat({
+        model,
+        userText: question,
+        useContext: live.usedContext,
+        contextSnapshot,
+        reasoningLevel,
+        signal,
+        events: {
+          onToken: (text) => {
+            this.sideOverlay?.appendAnswer(text);
+            this.tui.requestRender();
+          },
+          onThinking: (text) => {
+            this.sideOverlay?.appendThinking(text);
+            this.tui.requestRender();
+          },
+        },
+      });
+
+      this.sideOverlay?.setComplete();
+
+      if (!result.aborted && (result.assistantText.trim() || result.thinkingText.trim())) {
+        const exchange: SideExchange = {
+          id: exchangeId,
+          createdAt: new Date().toISOString(),
+          userText: question,
+          assistantText: result.assistantText,
+          thinkingText: result.thinkingText || undefined,
+          contextSnapshot: live.usedContext ? contextSnapshot : undefined,
+          usedContext: live.usedContext,
+        };
+        await SessionManager.appendSideExchange(exchange);
+      }
+    } catch (e) {
+      this.sideOverlay?.appendAnswer(
+        `\n[Side prompt error: ${e instanceof Error ? e.message : String(e)}]`
+      );
+      this.sideOverlay?.setComplete();
+    } finally {
+      this.sideStreamActive = false;
+      this.sideAbortController = null;
+      this.tui.requestRender();
+    }
   }
 
   private helpOverlayMaxHeight(): number {
@@ -3544,6 +4180,95 @@ export class ImpulseRenderer {
 
     this.sessionPickerHandle = this.showSessionPickerOverlay(overlay);
     this.tui.requestRender();
+  }
+
+  private async runShellReview(
+    question: string,
+    shellResult: ShellRunResult
+  ): Promise<void> {
+    const userMessage = [
+      "The user ran a shell command and wants help interpreting the output.",
+      `Command: ${shellResult.command}`,
+      `Directory: ${shellResult.cwd}`,
+      `Exit code: ${shellResult.exitCode}`,
+      "Output:",
+      shellResult.output.slice(0, 12000),
+      "",
+      `Question: ${question}`,
+    ].join("\n");
+
+    this.isRunning = true;
+    this.loop.setImages([]);
+    this.addSectionGap();
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(`@ ${question}`);
+    this.addSectionGap();
+
+    this.streamingRaw = "";
+    this.streamingText = null;
+
+    const events: LoopEvents = {
+      onTurnStart: () => {
+        this.setBusyStatus("", "Reviewing shell output..");
+      },
+      onToken: (text) => {
+        if (!this.streamingText) {
+          this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
+          this.streamingText = new MarkdownTextBlock(GUTTER);
+          this.chat.addChild(this.streamingText);
+          this.hasTrailingGap = false;
+        }
+        this.streamingRaw += text;
+        this.streamingText.setText(this.streamingRaw);
+        this.requestBottomAnchorRefresh();
+      },
+      onThinking: (text) => {
+        this.setBusyStatus("thinking?", BUSY_PROCESSING);
+        if (!this.thinkingText) {
+          this.thinkingText = new ThinkingBlock();
+          this.chat.addChild(this.thinkingText);
+        }
+        this.thinkingRaw += filterThinkingForDisplay(text);
+        this.thinkingText.setText(this.thinkingRaw);
+        this.requestBottomAnchorRefresh();
+      },
+      onAdvisorStart: () => {},
+      onAdvisorToken: () => {},
+      onAdvisorEnd: () => {},
+      onToolStart: () => {},
+      onToolEnd: () => {},
+      onCompacting: () => {},
+      onCompacted: () => {},
+      onTurnEnd: () => {
+        this.spinStop();
+        if (this.streamingRaw) this.addSectionGap();
+        this.streamingRaw = "";
+        this.streamingText = null;
+        this.thinkingRaw = "";
+        this.thinkingText = null;
+        this.isRunning = false;
+        this.addSectionGap();
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+      onError: (err) => {
+        this.spinStop();
+        this.addChatLine(`${clr.error("Error:")} ${err.message}`);
+        this.isRunning = false;
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+    };
+
+    try {
+      await this.loop.run(userMessage, this.mode, events, {
+        displayMessage: `@ ${question}`,
+        segments: [{ kind: "text", value: userMessage }],
+      });
+    } catch {
+      this.isRunning = false;
+      this.drainTurnQueue();
+    }
   }
 
 }
