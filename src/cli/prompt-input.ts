@@ -4,12 +4,13 @@
 
 import {
   Editor,
+  matchesKey,
   truncateToWidth,
   type EditorTheme,
   type Component,
   type Focusable,
 } from "@mariozechner/pi-tui";
-import { GUTTER } from "./gutter.js";
+import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } from "./gutter.js";
 import {
   extractImagePathRefs,
   filePathInPasteRegex,
@@ -23,6 +24,12 @@ export type PasteGroup = {
   originalDisplay: string;
   kind: "text" | "image";
   imageIndex?: number;
+};
+
+type PasteSpan = { start: number; len: number; group: PasteGroup };
+
+type EditorWithCursor = Editor & {
+  state: { cursorLine: number; cursorCol: number };
 };
 
 export type PromptSegment =
@@ -158,6 +165,12 @@ export function buildSubmitPayload(editorText: string, groups: PasteGroup[]): Pr
     segments,
     orderedImages: segmentsToOrderedImages(segments),
   };
+}
+
+/** Chat transcript / history text: expand collapsed paste tokens to full apiText. */
+export function userTranscriptText(payload: PromptSubmitPayload): string {
+  const hasTextPaste = payload.segments.some((s) => s.kind === "paste");
+  return hasTextPaste ? payload.apiText : payload.displayMessage;
 }
 
 export class PromptInput implements Component, Focusable {
@@ -373,6 +386,7 @@ export class PromptInput implements Component, Focusable {
   }
 
   private _syncPasteGroupsAfterEdit(): void {
+    const prevTextCount = this._pasteGroups.filter((g) => g.kind === "text").length;
     const text = this.editor.getText();
     const remaining: PasteGroup[] = [];
     const removedImageUriIndices: number[] = [];
@@ -402,6 +416,136 @@ export class PromptInput implements Component, Focusable {
     if (removedImageUriIndices.length > 0) {
       this._reindexImageGroups();
     }
+    const newTextCount = remaining.filter((g) => g.kind === "text").length;
+    if (newTextCount < prevTextCount) {
+      this._reindexTextPasteSeq();
+    }
+  }
+
+  private _textPasteSeqFromDisplay(display: string): number | null {
+    const m = display.match(/#(\d+)\]$/);
+    return m ? parseInt(m[1]!, 10) : null;
+  }
+
+  private _reindexTextPasteSeq(): void {
+    let max = 0;
+    for (const group of this._pasteGroups) {
+      if (group.kind !== "text") continue;
+      const n = this._textPasteSeqFromDisplay(group.originalDisplay);
+      if (n !== null) max = Math.max(max, n);
+    }
+    this._nextTextPasteSeq = max > 0 ? max + 1 : 1;
+  }
+
+  private _cursorOffsetInText(): number {
+    const { line, col } = this.editor.getCursor();
+    const lines = this.editor.getLines();
+    let offset = 0;
+    for (let i = 0; i < line && i < lines.length; i++) {
+      offset += lines[i]!.length + 1;
+    }
+    const current = lines[line] ?? "";
+    return offset + Math.min(col, current.length);
+  }
+
+  private _setCursorOffset(offset: number): void {
+    const text = this.editor.getText();
+    const o = Math.max(0, Math.min(offset, text.length));
+    const lines = text.split("\n");
+    let remaining = o;
+    let line = 0;
+    let col = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const lineLen = lines[i]!.length;
+      if (remaining <= lineLen) {
+        line = i;
+        col = remaining;
+        break;
+      }
+      remaining -= lineLen + 1;
+      if (i === lines.length - 1) {
+        line = i;
+        col = lineLen;
+      }
+    }
+    const ed = this.editor as EditorWithCursor;
+    ed.state.cursorLine = line;
+    ed.state.cursorCol = col;
+  }
+
+  private _collectPasteSpans(text: string): PasteSpan[] {
+    const spans: PasteSpan[] = [];
+    let pos = 0;
+    for (const group of this._pasteGroups) {
+      const match = this._findGroupInText(text, group, pos);
+      if (!match) continue;
+      spans.push({ ...match, group });
+      pos = match.start + match.len;
+    }
+    return spans;
+  }
+
+  private _findPasteSpanForDelete(
+    offset: number,
+    kind: "backspace" | "forward"
+  ): PasteSpan | null {
+    const text = this.editor.getText();
+    for (const span of this._collectPasteSpans(text)) {
+      const end = span.start + span.len;
+      if (kind === "backspace") {
+        if (offset > span.start && offset <= end) return span;
+      } else if (offset >= span.start && offset < end) {
+        return span;
+      }
+    }
+    return null;
+  }
+
+  private _removePasteSpan(span: PasteSpan): void {
+    const text = this.editor.getText();
+    const newText = text.slice(0, span.start) + text.slice(span.start + span.len);
+    const { group } = span;
+
+    if (group.kind === "image" && group.imageIndex !== undefined) {
+      const uriIdx = group.imageIndex - 1;
+      if (uriIdx >= 0 && uriIdx < this._detectedImages.length) {
+        this._detectedImages.splice(uriIdx, 1);
+      }
+    }
+    this._pasteGroups = this._pasteGroups.filter((g) => g !== group);
+
+    this.editor.setText(newText);
+    this._setCursorOffset(span.start);
+
+    if (group.kind === "image") {
+      this._reindexImageGroups();
+    } else {
+      this._reindexTextPasteSeq();
+    }
+    this._submitPayload = null;
+    this.onChange?.(this.editor.getText());
+  }
+
+  private _tryAtomicPasteDelete(kind: "backspace" | "forward"): boolean {
+    if (this._pasteGroups.length === 0) return false;
+    const offset = this._cursorOffsetInText();
+    const span = this._findPasteSpanForDelete(offset, kind);
+    if (!span) return false;
+    this._removePasteSpan(span);
+    return true;
+  }
+
+  private _isBackspaceInput(data: string): boolean {
+    return (
+      data === "\x7f" ||
+      data === "\x08" ||
+      matchesKey(data, "backspace") ||
+      matchesKey(data, "shift+backspace")
+    );
+  }
+
+  private _isForwardDeleteInput(data: string): boolean {
+    return matchesKey(data, "delete") || matchesKey(data, "shift+delete");
   }
 
   private _removeImageGroupAtDisplay(display: string): void {
@@ -514,6 +658,13 @@ export class PromptInput implements Component, Focusable {
       return;
     }
 
+    if (this._isBackspaceInput(data)) {
+      if (this._tryAtomicPasteDelete("backspace")) return;
+    }
+    if (this._isForwardDeleteInput(data)) {
+      if (this._tryAtomicPasteDelete("forward")) return;
+    }
+
     const beforeText = this.editor.getText();
     this.editor.handleInput(data);
     this._submitPayload = null;
@@ -598,32 +749,51 @@ export class PromptInput implements Component, Focusable {
   }
 
   render(width: number): string[] {
-    const arrowVisible = 2;
-    const editorWidth = Math.max(1, width - GUTTER.length - arrowVisible);
+    const ARROW = `${GUTTER}\x1b[2m\u276f\x1b[0m `;
+    const arrowSuffixWidth = 3;
+    const editorWidth = Math.max(1, innerWidth(width) - arrowSuffixWidth);
     const rawLines = this.editor.render(editorWidth);
     const innerLines = (rawLines.length > 2 ? rawLines.slice(1, -1) : rawLines).map((l) =>
       l.replace(/\x1b_pi:c\x07/g, "")
     );
     const firstLine = innerLines[0] ?? "";
     const content = firstLine.startsWith("> ") ? firstLine.slice(2) : firstLine;
-    const ARROW = `${GUTTER}\x1b[2m\u276f\x1b[0m `;
+    const lineCap = maxLineWidth(width);
 
     if (this._secretMode) {
       const valueLength = this.editor.getText().length;
       const masked =
-        valueLength > 0 ? "*".repeat(Math.min(valueLength, Math.max(0, width - 4))) : "";
-      return [truncateToWidth(ARROW + masked, width)];
+        valueLength > 0
+          ? "*".repeat(Math.min(valueLength, Math.max(0, lineCap - ARROW.length)))
+          : "";
+      return [truncateGutterLine(ARROW + masked, width)];
     }
 
     return [
-      truncateToWidth(ARROW + content, width, ""),
-      ...innerLines.slice(1).map((line) => truncateToWidth(GUTTER + line, width, "")),
+      truncateGutterLine(ARROW + content, width),
+      ...innerLines.slice(1).map((line) => gutterContent(line, width)),
     ];
   }
 
   setText(text: string): void {
     this.editor.setText(text);
     this._syncPasteGroupsAfterEdit();
+  }
+
+  /**
+   * Append side-prompt copy as plain visible editor text (not collapsed paste tokens).
+   */
+  injectSideCopyBlock(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const current = this.editor.getText();
+    const next =
+      current.trim().length > 0 ? `${current.replace(/\s+$/, "")}\n\n${trimmed}` : trimmed;
+
+    this.editor.setText(next);
+    this._submitPayload = null;
+    this.onChange?.(this.editor.getText());
   }
 
   getText(): string {

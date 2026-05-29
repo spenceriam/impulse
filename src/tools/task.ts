@@ -1,20 +1,13 @@
 import { z } from "zod";
-import { isAbsolute, relative, resolve } from "path";
 import { Tool, ToolResult } from "./registry";
-import { Bus } from "../bus/bus";
-import { SubagentEvents } from "../bus/events";
-import type { TaskActionEntry } from "../types/tool-metadata.js";
-import { getProviderManager } from "../api/manager";
-import type { CompletionOptions } from "../api/provider";
-import { getSubagentPrompt, getSubagentTools } from "../agent/prompts";
-import type { ChatMessage, ToolDefinition } from "../api/types";
-import { ask as askPermission } from "../permission";
+import { executeSubagent } from "../agent/task-runner.js";
+import { formatTaskToolResultFromRun } from "../agent/task-pool.js";
 import { getCurrentMode } from "./mode-state";
-import { buildTaskThoroughnessNote, prependToolNote } from "./tool-notes";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
 
 Required: prompt, description, subagent_type. Optional: thoroughness (explore only).
+Multiple task calls in one turn run in parallel (up to 8 concurrent; additional tasks queue).
 See docs/tools/task.md for guidance and examples.`;
 
 const TaskSchema = z.object({
@@ -25,223 +18,17 @@ const TaskSchema = z.object({
 });
 
 type TaskInput = z.infer<typeof TaskSchema>;
-type Thoroughness = "quick" | "medium" | "thorough";
 
-// Maximum iterations to prevent infinite loops
-const MAX_ITERATIONS = 50;
-
-/**
- * Get thoroughness instructions for explore subagent
- */
-function getThoroughnessInstructions(level: Thoroughness): string {
-  switch (level) {
-    case "quick":
-      return `
-THOROUGHNESS: QUICK
-- Do 1-2 targeted searches maximum
-- Return first relevant findings
-- Don't explore tangential paths
-- Prioritize speed over completeness`;
-    case "medium":
-      return `
-THOROUGHNESS: MEDIUM (default)
-- Do 3-5 searches as needed
-- Follow up on promising leads
-- Cover main patterns but don't exhaustively search
-- Balance speed and completeness`;
-    case "thorough":
-      return `
-THOROUGHNESS: THOROUGH
-- Do comprehensive search across the codebase
-- Check multiple directories and naming conventions
-- Follow all relevant paths
-- Ensure nothing is missed
-- Take time to be complete`;
-    default:
-      return "";
-  }
-}
+/** Re-exported for tests and CLI. */
+export {
+  extractArgSummary,
+  formatSubagentToolLabel,
+} from "../agent/task-runner.js";
 
 /**
- * Execute a subagent with its own conversation loop
- * Returns the final response or aggregated tool results
+ * Direct single-task execution (used when not batched by the agent loop).
+ * Batch permission and pooling are handled in loop.ts for normal turns.
  */
-async function executeSubagent(
-  type: "explore" | "general",
-  prompt: string,
-  _description: string,  // Kept for potential future logging
-  thoroughness?: Thoroughness
-): Promise<{ success: boolean; output: string; summary: string[]; actions: TaskActionEntry[] }> {
-  let systemPrompt = getSubagentPrompt(type);
-  
-  // Add thoroughness instructions for explore subagent
-  if (type === "explore" && thoroughness) {
-    systemPrompt += getThoroughnessInstructions(thoroughness);
-  }
-  
-  const allowedToolNames = getSubagentTools(type);
-  
-  // Get tool definitions for allowed tools only
-  const allTools = Tool.getAPIDefinitions();
-  const filteredTools: ToolDefinition[] = allTools.filter(
-    (t) => allowedToolNames.includes(t.function.name)
-  );
-  
-  // Build initial messages
-  const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: prompt },
-  ];
-  
-  const actionSummary: string[] = [];
-  const actionEntries: TaskActionEntry[] = [];
-  
-  // Conversation loop
-  const manager = await getProviderManager();
-
-  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    // Make non-streaming completion (subagents work in batch mode)
-    // Only include tools if we have any (undefined vs empty array matters)
-    // Use default model from config for subagent (no hardcoded z.ai model)
-    const completionOptions: CompletionOptions = {
-      messages,
-    };
-    
-    if (filteredTools.length > 0) {
-      completionOptions.tools = filteredTools;
-    }
-    
-    const response = await manager.complete(completionOptions);
-    
-    const choice = response.choices[0];
-    if (!choice) {
-      return { success: false, output: "No response from model", summary: actionSummary, actions: actionEntries };
-    }
-    
-    const assistantMessage = choice.message;
-    
-    // Add assistant message to conversation
-    // Extract text content (handle both string and content array types)
-    const assistantContent = typeof assistantMessage.content === "string" 
-      ? assistantMessage.content 
-      : assistantMessage.content === null 
-        ? ""
-        : JSON.stringify(assistantMessage.content);
-    
-    messages.push({
-      role: "assistant",
-      content: assistantContent,
-      tool_calls: assistantMessage.tool_calls,
-    });
-    
-    // If no tool calls, we're done
-    if (choice.finish_reason !== "tool_calls" || !assistantMessage.tool_calls?.length) {
-      // Extract text content (handle both string and content array types)
-      const contentText = typeof assistantMessage.content === "string" 
-        ? assistantMessage.content 
-        : assistantMessage.content === null 
-          ? ""
-          : JSON.stringify(assistantMessage.content);
-      
-      return {
-        success: true,
-        output: contentText,
-        summary: actionSummary,
-        actions: actionEntries,
-      };
-    }
-    
-    // Execute tool calls
-    const toolResults: Array<{ tool_call_id: string; content: string }> = [];
-    
-    for (const toolCall of assistantMessage.tool_calls) {
-      const toolName = toolCall.function.name;
-      
-      // Security check: only execute allowed tools
-      if (!allowedToolNames.includes(toolName)) {
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          content: `Error: Tool "${toolName}" is not allowed for ${type} subagent`,
-        });
-        continue;
-      }
-      
-      try {
-        // Parse arguments
-        const args = JSON.parse(toolCall.function.arguments || "{}");
-        
-        const label = formatSubagentToolLabel(toolName, args);
-        const toolStart = Date.now();
-        const result = await Tool.execute(toolName, args);
-        const durationMs = Date.now() - toolStart;
-
-        actionSummary.push(label);
-        actionEntries.push({ label, durationMs });
-        Bus.publish(SubagentEvents.Progress, { type: "tool", content: label, durationMs });
-        
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          content: result.success 
-            ? result.output 
-            : `Error: ${result.output}`,
-        });
-      } catch (error) {
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        });
-      }
-    }
-    
-    // Add tool results to conversation
-    for (const result of toolResults) {
-      messages.push({
-        role: "tool",
-        content: result.content,
-        tool_call_id: result.tool_call_id,
-      });
-    }
-  }
-  
-  // Max iterations reached
-  return {
-    success: false,
-    output: "Subagent reached maximum iterations without completing",
-    summary: actionSummary,
-    actions: actionEntries,
-  };
-}
-
-function formatArgForDisplay(value: string): string {
-  const cwd = process.cwd();
-  if (isAbsolute(value)) {
-    const rel = relative(cwd, resolve(value));
-    if (rel && !rel.startsWith("..")) {
-      return rel.startsWith(".") ? rel : `./${rel}`;
-    }
-  }
-  return value;
-}
-
-/**
- * Full argument summary for sub-agent progress lines (no truncation).
- */
-export function extractArgSummary(args: Record<string, unknown>): string {
-  const keys = ["path", "filePath", "file", "command", "pattern", "query"];
-  for (const key of keys) {
-    if (args[key]) {
-      return formatArgForDisplay(String(args[key]));
-    }
-  }
-  return "";
-}
-
-/** Label shown in sub-agent tool progress: `toolName argSummary`. */
-export function formatSubagentToolLabel(toolName: string, args: Record<string, unknown>): string {
-  const argSummary = extractArgSummary(args);
-  return `${toolName}${argSummary ? ` ${argSummary}` : ""}`;
-}
-
 export const taskTool: Tool<TaskInput> = Tool.define(
   "task",
   DESCRIPTION,
@@ -256,53 +43,23 @@ export const taskTool: Tool<TaskInput> = Tool.define(
         };
       }
 
-      if (input.subagent_type !== "explore") {
-        await askPermission({
-        sessionID: "current",
-        permission: "task",
-        patterns: [`${input.subagent_type}:${input.description}`],
-        message: `Launch ${input.subagent_type} subagent: ${input.description}`,
-        metadata: {
-          subagentType: input.subagent_type,
-          description: input.description,
-          promptPreview: input.prompt.slice(0, 200),
-        },
-      });
-      }
-
-      const thoroughnessNote = buildTaskThoroughnessNote(input);
-
-      const result = await executeSubagent(
+      const run = await executeSubagent(
         input.subagent_type,
         input.prompt,
         input.description,
-        input.thoroughness
+        input.thoroughness,
+        { parentToolCallId: "standalone-task" }
       );
-      
-      // Format output with summary
-      let output = result.output;
-      
-      // Add action summary if there were tool calls
-      if (result.summary.length > 0) {
-        const summaryText = result.summary
-          .map((s) => `  - ${s}`)
-          .join("\n");
-        output = `Actions taken:\n${summaryText}\n\nResult:\n${output}`;
-      }
 
-      output = prependToolNote(output, thoroughnessNote);
-
-      return {
-        success: result.success,
-        output,
-        metadata: {
-          type: "task",
+      return formatTaskToolResultFromRun(
+        {
           subagentType: input.subagent_type,
+          prompt: input.prompt,
           description: input.description,
-          toolCallCount: result.actions.length,
-          actions: result.actions,
+          thoroughness: input.thoroughness,
         },
-      };
+        run
+      );
     } catch (error) {
       if (error instanceof Error) {
         return {

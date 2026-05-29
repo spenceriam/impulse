@@ -193,7 +193,7 @@ const SAFE_PATTERNS = [
 /**
  * Check if a command likely needs interactive mode
  */
-function needsInteractiveMode(command: string): boolean {
+export function needsInteractiveMode(command: string): boolean {
   const trimmed = command.trim().toLowerCase();
   for (const interactive of INTERACTIVE_COMMANDS) {
     if (trimmed.startsWith(interactive.toLowerCase())) {

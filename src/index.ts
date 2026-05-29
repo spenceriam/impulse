@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Impulse — CLI coding agent entry point
+ * Impulse — CLI co-partner agent entry point
  *
  * Usage:
  *   impulse                  # start interactive session
@@ -21,6 +21,8 @@ import { testOllamaConnection } from "./api/providers/ollama.js";
 import { discoverModels } from "./cli/model-setup.js";
 import "./tools/init.js";
 import { ImpulseRenderer, type ResumeStartup } from "./cli/renderer.js";
+import { printStartupSplash, waitForTuiStart } from "./cli/startup-splash.js";
+import { initPty } from "./pty/index.js";
 import { migrateHomeIfNeeded } from "./session/migrate-home.js";
 import { enrichSessionTitles } from "./session/enrich-titles.js";
 import { summarizeSessions } from "./session/session-content.js";
@@ -58,7 +60,7 @@ if (args.includes("--update")) {
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
   impulse v${packageJson.version}
-  Provider-flexible CLI coding agent.
+  Provider-flexible CLI co-partner agent.
 
   Usage:
     impulse                   Start interactive session
@@ -231,6 +233,10 @@ const messageArgs = stripResumeArgs(args).filter(
 );
 
 // ─── Init tools & start ──────────────────────────────────────────────────────
+await printStartupSplash({ resume: resumeStartup });
+await waitForTuiStart({ timeoutMs: 3000 });
+await initPty();
+
 const renderer = new ImpulseRenderer(
   resumeStartup ? { resume: resumeStartup } : undefined
 );

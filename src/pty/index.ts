@@ -1,8 +1,8 @@
 /**
- * PTY stub — interactive PTY support disabled in CLI mode.
- * isPtyAvailable() always returns false so bash.ts falls back to spawn.
- * The types here satisfy bash.ts's imports; the functions are never called.
+ * PTY support for interactive shell commands.
  */
+
+import { loadPtyModule, spawnWithNodePty } from "./node-pty-impl.js";
 
 export interface ShellOutputEvent {
   type: "data" | "exit" | "prompt_detected";
@@ -21,23 +21,74 @@ export interface PtyHandle {
 }
 
 export const PtyEvents = {
-  Output:         "pty.output",
+  Output: "pty.output",
   PromptDetected: "pty.prompt_detected",
-  Exited:         "pty.exited",
-  Started:        "pty.started",
+  Exited: "pty.exited",
+  Started: "pty.started",
 } as const;
 
-/** Always false — CLI mode uses spawn fallback exclusively. */
-export function isPtyAvailable(): boolean {
-  return false;
+let ptyModulePromise: ReturnType<typeof loadPtyModule> | null = null;
+let ptyAvailable: boolean | null = null;
+
+async function getPtyModule() {
+  if (!ptyModulePromise) ptyModulePromise = loadPtyModule();
+  return ptyModulePromise;
 }
 
-/** Dead code — never reached because isPtyAvailable() === false. */
+export async function probePtyAvailable(): Promise<boolean> {
+  if (ptyAvailable !== null) return ptyAvailable;
+  const mod = await getPtyModule();
+  if (!mod) {
+    ptyAvailable = false;
+    return false;
+  }
+  try {
+    const shell = process.env['SHELL'] || "bash";
+    const t = mod.spawn(shell, ["-c", "true"], {
+      name: "xterm-256color",
+      cols: 80,
+      rows: 8,
+      cwd: process.cwd(),
+      env: process.env as Record<string, string>,
+    });
+    await new Promise<void>((resolve) => {
+      t.onExit(() => resolve());
+      setTimeout(() => {
+        try {
+          t.kill();
+        } catch {
+          /* ignore */
+        }
+        resolve();
+      }, 2000);
+    });
+    ptyAvailable = true;
+  } catch {
+    ptyAvailable = false;
+  }
+  return ptyAvailable;
+}
+
+export function isPtyAvailable(): boolean {
+  return ptyAvailable === true;
+}
+
 export async function executePty(
-  _command: string,
-  _cwd: string,
-  _onEvent: (event: ShellOutputEvent) => void,
-  _signal?: AbortSignal
+  command: string,
+  cwd: string,
+  onEvent: (event: ShellOutputEvent) => void,
+  signal?: AbortSignal,
+  cols = 80,
+  rows = 24
 ): Promise<PtyHandle> {
-  throw new Error("PTY not available in CLI mode");
+  const mod = await getPtyModule();
+  if (!mod) {
+    throw new Error("PTY not available");
+  }
+  return spawnWithNodePty(mod, command, cwd, cols, rows, onEvent, signal);
+}
+
+/** Call once at startup to detect PTY (sets isPtyAvailable sync flag). */
+export async function initPty(): Promise<void> {
+  await probePtyAvailable();
 }

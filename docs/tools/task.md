@@ -19,6 +19,27 @@ general (full access)
 - Tools: file_read, file_write, file_edit, glob, grep, bash
 - Use for: multi-step refactors, implementations, test runs
 
+## Parallel execution
+
+- Multiple `task` tool calls in the **same model turn** run **in parallel**.
+- The main agent waits until **all** tasks in that batch finish before receiving tool results.
+- Up to **8** sub-agents run concurrently; additional tasks are **queued** and start as slots free up.
+- Each task gets its own in-chat tool row; progress lines are routed by tool call id.
+- Completed task rows **collapse** to a one-line summary (description + duration).
+- Progress under each task shows interleaved **thinking...** and **tool** actions; **wrapping up...** appears once when the sub-agent finishes after tool work (not between every tool round).
+
+## Batch permission (general only)
+
+When a turn includes **more than 8** `general` tasks, Impulse shows **one** approval dialog with the exact count:
+
+- **Approve** — run all general tasks (8 concurrent max, queue the rest)
+- **Deny** — fail all `general` tasks in that batch (explore tasks still run)
+- **Other** — alternate choices: queue with 8 cap, run only the first 8, or cancel the batch
+
+Batches of **8 or fewer** `general` tasks run immediately with no dialog. `explore` tasks are never gated by this dialog.
+
+Sub-agents in a batch start with a **1.5s offset per task index** (first task immediate, second after 1.5s, etc.) to reduce simultaneous load on the inference endpoint. Elapsed time on each task row starts when that sub-agent actually begins work (not when the row first appears).
+
 ## Notes
 
 - `thoroughness` only affects `explore` subagents. If you pass it with `general`, it is ignored and the result may include a `Note:`.

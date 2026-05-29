@@ -17,3 +17,19 @@ export function dimRuleIndented(terminalWidth: number, indent = 2): string {
   const inner = Math.max(8, terminalWidth - indent - 4);
   return `${DIM}${" ".repeat(indent)}${"─".repeat(inner)}${RESET}`;
 }
+
+/** Format elapsed duration for tool rows, speedometer, etc. */
+export function formatDurationMs(durationMs: number): string {
+  if (durationMs < 100) {
+    return `${Math.max(0, Math.round(durationMs))}ms`;
+  }
+
+  const totalSec = Math.floor(durationMs / 1000);
+  if (totalSec < 60) {
+    return `${(durationMs / 1000).toFixed(1)}s`;
+  }
+
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  return `${minutes}m ${seconds}s`;
+}

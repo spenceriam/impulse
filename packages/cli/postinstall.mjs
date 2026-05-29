@@ -60,7 +60,7 @@ function findBinary() {
   if (!supportedCombos.includes(combo)) {
     throw new Error(
       `Unsupported platform: ${platform}-${arch}\n` +
-      `IMPULSE currently supports: ${supportedCombos.join(", ")}\n` +
+      `impulse currently supports: ${supportedCombos.join(", ")}\n` +
       `Windows ARM64 support is pending Bun's cross-compile target.`
     );
   }
@@ -126,13 +126,13 @@ async function main() {
 
   symlinkBinary(binaryPath, targetPath);
 
-  console.log(`IMPULSE binary symlinked: ${targetPath} -> ${binaryPath}`);
-  console.log(`IMPULSE installed successfully!`);
+  console.log(`impulse binary symlinked: ${targetPath} -> ${binaryPath}`);
+  console.log(`impulse installed successfully!`);
 }
 
 main().catch((error) => {
-  console.error("Failed to setup IMPULSE binary:", error.message);
-  console.error("You may need to install Bun and run IMPULSE directly:");
+  console.error("Failed to setup impulse binary:", error.message);
+  console.error("You may need to install Bun and run impulse directly:");
   console.error("  curl -fsSL https://bun.sh/install | bash");
   console.error("  bun x @spenceriam/impulse");
   process.exit(1);

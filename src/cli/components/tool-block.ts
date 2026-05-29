@@ -7,7 +7,8 @@
  */
 
 import { truncateToWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
-import { GUTTER } from "../gutter.js";
+import { GUTTER, maxLineWidth, truncateGutterLine } from "../gutter.js";
+import { formatDurationMs } from "../format-helpers.js";
 
 /** Sub-indent for continuation lines under a tool block (GUTTER + 3 more spaces) */
 const SUB_INDENT = GUTTER + "   ";
@@ -50,6 +51,9 @@ const TOOL_FRAME_MS = 180;
 const QUESTION_FRAME_MS = 160;
 const MAX_OUTPUT_ROWS = 30;
 const MAX_TODO_ROWS = 12;
+const DIFF_REVEAL_LINES_PER_TICK = 2;
+
+export const DIFF_REVEAL_TICK_MS = 25;
 
 type RenderedResult = {
   success: boolean;
@@ -61,6 +65,10 @@ export type ToolBlockOptions = {
   subagentCodename?: string;
 };
 
+export type ToolBlockDoneOptions = {
+  collapsed?: boolean;
+};
+
 type TodoPreviewItem = TodoMetadata["todos"][number];
 
 export type ToolBlockState =
@@ -70,7 +78,19 @@ export type ToolBlockState =
       argsSummary: string;
       subagentCodename?: string;
       previewTodos?: TodoPreviewItem[];
+      taskPhase?: "queued" | "active";
       taskStartedAt?: number;
+      taskRowCreatedAt?: number;
+    }
+  | {
+      status: "revealing";
+      name: string;
+      argsSummary: string;
+      subagentCodename?: string;
+      result: RenderedResult;
+      durationMs: number;
+      diffLines: string[];
+      revealedCount: number;
     }
   | {
       status: "done";
@@ -79,6 +99,7 @@ export type ToolBlockState =
       subagentCodename?: string;
       result: RenderedResult;
       durationMs: number;
+      collapsed?: boolean;
     };
 
 export function displayToolName(name: string, codename?: string): string {
@@ -93,7 +114,7 @@ export function formatSubagentAbortLabel(codename?: string): string {
 }
 
 export type SubagentProgressLine = {
-  type: "text" | "tool" | "thinking";
+  type: "text" | "tool" | "thinking" | "status";
   content: string;
   durationMs?: number;
 };
@@ -215,9 +236,9 @@ function asToolMetadata(value: Record<string, unknown> | undefined): ToolMetadat
 }
 
 function wrapPrefixed(prefix: string, text: string, width: number): string[] {
-  const available = Math.max(8, width - prefix.length);
+  const available = Math.max(8, maxLineWidth(width) - prefix.length);
   const wrapped = wrapTextWithAnsi(text.length > 0 ? text : " ", available);
-  return wrapped.map((line) => truncateToWidth(`${prefix}${line}`, width));
+  return wrapped.map((line) => truncateGutterLine(`${prefix}${line}`, width));
 }
 
 function renderTrimmedOutput(output: string, width: number, maxRows: number): string[] {
@@ -236,7 +257,7 @@ function renderTrimmedOutput(output: string, width: number, maxRows: number): st
   const hidden = rendered.length - maxRows;
   return [
     ...rendered.slice(0, maxRows),
-    truncateToWidth(`       ${clr.dim(`… ${hidden} more lines`)}`, width),
+    truncateGutterLine(`       ${clr.dim(`… ${hidden} more lines`)}`, width),
   ];
 }
 
@@ -258,7 +279,7 @@ function renderTodoListFromTodos(todos: TodoPreviewItem[], width: number): strin
   const lines = visibleTodos.flatMap((todo) => wrapPrefixed(SUB_INDENT, todoLine(todo), width));
 
   if (todos.length > MAX_TODO_ROWS) {
-    lines.push(truncateToWidth(`       ${clr.dim(`… ${todos.length - MAX_TODO_ROWS} more items`)}`, width));
+    lines.push(truncateGutterLine(`       ${clr.dim(`… ${todos.length - MAX_TODO_ROWS} more items`)}`, width));
   }
 
   return lines;
@@ -287,11 +308,11 @@ function renderCompactDiffLines(diffLines: string[], width: number, maxRows = MA
   if (diffLines.length === 0) return [];
 
   const visible = diffLines.slice(0, maxRows).map((line) => {
-    return truncateToWidth(`       ${colorCompactDiffLine(line)}`, width);
+    return truncateGutterLine(`       ${colorCompactDiffLine(line)}`, width);
   });
 
   if (diffLines.length > maxRows) {
-    visible.push(truncateToWidth(`       ${clr.dim(`… ${diffLines.length - maxRows} more diff lines`)}`, width));
+    visible.push(truncateGutterLine(`       ${clr.dim(`… ${diffLines.length - maxRows} more diff lines`)}`, width));
   }
 
   return visible;
@@ -312,42 +333,64 @@ function renderLegacyDiff(diff: string, width: number): string[] {
 }
 
 function renderDiffSkipped(reason: string | undefined, width: number): string[] {
-  return [truncateToWidth(`       ${clr.dim(`diff skipped: ${reason ?? "not available"}`)}`, width)];
+  return [truncateGutterLine(`       ${clr.dim(`diff skipped: ${reason ?? "not available"}`)}`, width)];
 }
 
-function renderFileEditMetadata(metadata: FileEditMetadata, width: number): string[] {
+function renderFileEditMetadata(
+  metadata: FileEditMetadata,
+  width: number,
+  maxDiffLines?: number
+): string[] {
   if (metadata.diffSkipped) {
     return renderDiffSkipped(metadata.diffReason, width);
   }
 
   const replacements = metadata.replacements ?? 1;
   const lines = [
-    truncateToWidth(
+    truncateGutterLine(
       `       ${clr.dim("~")} ${clr.dim(`${replacements} ${pluralize(replacements, "replacement")},`)} ${clr.success(`+${metadata.linesAdded}`)} ${clr.error(`-${metadata.linesRemoved}`)}`,
       width,
     ),
   ];
 
   if (metadata.compactDiff && metadata.compactDiff.length > 0) {
-    lines.push(SUB_INDENT);
-    lines.push(...renderCompactDiffLines(metadata.compactDiff, width));
+    if (maxDiffLines === undefined || maxDiffLines > 0) {
+      lines.push(SUB_INDENT);
+      const diffSource =
+        maxDiffLines !== undefined
+          ? metadata.compactDiff.slice(0, maxDiffLines)
+          : metadata.compactDiff;
+      lines.push(...renderCompactDiffLines(diffSource, width));
+      if (maxDiffLines !== undefined && maxDiffLines < metadata.compactDiff.length) {
+        lines.push(
+          truncateGutterLine(
+            `       ${clr.dim(`… ${metadata.compactDiff.length - maxDiffLines} more diff lines`)}`,
+            width
+          )
+        );
+      }
+    }
   } else if (metadata.diff) {
     lines.push(SUB_INDENT);
     lines.push(...renderLegacyDiff(metadata.diff, width));
   } else {
-    lines.push(truncateToWidth(`       ${clr.dim("no visible diff")}`, width));
+    lines.push(truncateGutterLine(`       ${clr.dim("no visible diff")}`, width));
   }
 
   return lines;
 }
 
-function renderFileWriteMetadata(metadata: FileWriteMetadata, width: number): string[] {
+function renderFileWriteMetadata(
+  metadata: FileWriteMetadata,
+  width: number,
+  maxDiffLines?: number
+): string[] {
   const linesAdded = metadata.linesAdded ?? 0;
   const linesRemoved = metadata.linesRemoved ?? 0;
   const summary = metadata.created
     ? `${clr.success("+")} ${clr.success(`${metadata.linesWritten} ${pluralize(metadata.linesWritten, "line")} created`)}`
     : `${clr.dim("~")} ${clr.dim("overwritten,")} ${clr.success(`+${linesAdded}`)} ${clr.error(`-${linesRemoved}`)}`;
-  const lines = [truncateToWidth(`       ${summary}`, width)];
+  const lines = [truncateGutterLine(`       ${summary}`, width)];
 
   if (metadata.diffSkipped) {
     lines.push(...renderDiffSkipped(metadata.diffReason, width));
@@ -355,13 +398,27 @@ function renderFileWriteMetadata(metadata: FileWriteMetadata, width: number): st
   }
 
   if (metadata.compactDiff && metadata.compactDiff.length > 0) {
-    lines.push(SUB_INDENT);
-    lines.push(...renderCompactDiffLines(metadata.compactDiff, width));
+    if (maxDiffLines === undefined || maxDiffLines > 0) {
+      lines.push(SUB_INDENT);
+      const diffSource =
+        maxDiffLines !== undefined
+          ? metadata.compactDiff.slice(0, maxDiffLines)
+          : metadata.compactDiff;
+      lines.push(...renderCompactDiffLines(diffSource, width));
+      if (maxDiffLines !== undefined && maxDiffLines < metadata.compactDiff.length) {
+        lines.push(
+          truncateGutterLine(
+            `       ${clr.dim(`… ${metadata.compactDiff.length - maxDiffLines} more diff lines`)}`,
+            width
+          )
+        );
+      }
+    }
   } else if (metadata.diff) {
     lines.push(SUB_INDENT);
     lines.push(...renderLegacyDiff(metadata.diff, width));
   } else if (!metadata.created && linesAdded === 0 && linesRemoved === 0) {
-    lines.push(truncateToWidth(`       ${clr.dim("no content changes")}`, width));
+    lines.push(truncateGutterLine(`       ${clr.dim("no content changes")}`, width));
   }
 
   return lines;
@@ -373,7 +430,7 @@ function renderGlobMetadata(metadata: GlobMetadata, width: number): string[] {
     ? `${metadata.matchCount}/${total} matches shown`
     : `${metadata.matchCount} ${pluralize(metadata.matchCount, "match", "matches")}`;
   const path = metadata.path ? `  path ${metadata.path}` : "";
-  return [truncateToWidth(`       ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}`, width)];
+  return [truncateGutterLine(`       ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}`, width)];
 }
 
 function renderGrepMetadata(metadata: GrepMetadata, width: number): string[] {
@@ -381,7 +438,7 @@ function renderGrepMetadata(metadata: GrepMetadata, width: number): string[] {
   const path = metadata.path ? `  path ${metadata.path}` : "";
   const include = metadata.include ? `  include ${metadata.include}` : "";
   const suffix = metadata.truncated ? "  truncated" : "";
-  return [truncateToWidth(`       ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}${include}${suffix}`, width)];
+  return [truncateGutterLine(`       ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}${include}${suffix}`, width)];
 }
 
 function classifyOutcome(result: RenderedResult): Outcome {
@@ -420,12 +477,15 @@ function outcomeLabel(
 
 function formatTaskActionLabel(entry: TaskActionEntry | string): string {
   if (typeof entry === "string") return entry;
-  return `${entry.label}  ${formatDuration(entry.durationMs)}`;
+  return `${entry.label}  ${formatDurationMs(entry.durationMs)}`;
 }
 
 function formatSubagentProgressText(line: SubagentProgressLine): string {
+  if (line.type === "thinking" || line.type === "status") {
+    return line.content;
+  }
   const duration =
-    line.durationMs !== undefined ? `  ${formatDuration(line.durationMs)}` : "";
+    line.durationMs !== undefined ? `  ${formatDurationMs(line.durationMs)}` : "";
   return `${line.content}${duration}`;
 }
 
@@ -442,28 +502,72 @@ function renderTaskActionLines(actions: TaskActionEntry[], width: number, maxRow
   );
   if (actions.length > maxRows) {
     rendered.push(
-      truncateToWidth(`       ${clr.dim(`… ${actions.length - maxRows} more actions`)}`, width)
+      truncateGutterLine(`       ${clr.dim(`… ${actions.length - maxRows} more actions`)}`, width)
     );
   }
   return rendered;
 }
 
-function formatDuration(durationMs: number): string {
-  if (durationMs < 100) {
-    return `${Math.max(0, Math.round(durationMs))}ms`;
-  }
+const QUEUED_TASK_SPINNER = TOOL_SPINNER[0] ?? "··●";
 
-  return `${(durationMs / 1000).toFixed(1)}s`;
-}
-
-function currentSpinner(name: string): string {
+/** Spinner frame for a tool row; optional epoch anchors animation start (task rows). */
+export function currentSpinnerFrame(name: string, epochMs?: number): string {
   const frames = name === "question" ? QUESTION_SPINNER : TOOL_SPINNER;
   const frameMs = name === "question" ? QUESTION_FRAME_MS : TOOL_FRAME_MS;
-  const index = Math.floor(Date.now() / frameMs) % frames.length;
+  const index =
+    epochMs !== undefined
+      ? Math.floor((Date.now() - epochMs) / frameMs) % frames.length
+      : Math.floor(Date.now() / frameMs) % frames.length;
   return frames[index] ?? frames[0] ?? "...";
 }
 
-function renderMetadata(metadata: ToolMetadata | null, output: string, success: boolean, width: number): string[] {
+export function extractDiffLinesFromMetadata(
+  metadata: Record<string, unknown> | undefined
+): string[] {
+  const parsed = asToolMetadata(metadata);
+  if (!parsed) return [];
+
+  if (TypeGuards.isFileEdit(parsed)) {
+    if (parsed.diffSkipped) return [];
+    if (parsed.compactDiff && parsed.compactDiff.length > 0) return parsed.compactDiff;
+    if (parsed.diff) {
+      return parsed.diff
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split("\n")
+        .filter((line) => {
+          if (line.startsWith("Index:")) return false;
+          if (line.startsWith("===") || line.startsWith("---") || line.startsWith("+++")) {
+            return false;
+          }
+          return line.length > 0;
+        });
+    }
+    return [];
+  }
+
+  if (TypeGuards.isFileWrite(parsed)) {
+    if (parsed.diffSkipped) return [];
+    if (parsed.compactDiff && parsed.compactDiff.length > 0) return parsed.compactDiff;
+    if (parsed.diff) {
+      return parsed.diff
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split("\n")
+        .filter((line) => line.length > 0);
+    }
+  }
+
+  return [];
+}
+
+function renderMetadata(
+  metadata: ToolMetadata | null,
+  output: string,
+  success: boolean,
+  width: number,
+  maxDiffLines?: number
+): string[] {
   if (metadata && TypeGuards.isTodo(metadata)) {
     return renderTodoList(metadata, width);
   }
@@ -476,11 +580,11 @@ function renderMetadata(metadata: ToolMetadata | null, output: string, success: 
   }
 
   if (success && metadata && TypeGuards.isFileEdit(metadata)) {
-    return renderFileEditMetadata(metadata, width);
+    return renderFileEditMetadata(metadata, width, maxDiffLines);
   }
 
   if (success && metadata && TypeGuards.isFileWrite(metadata)) {
-    return renderFileWriteMetadata(metadata, width);
+    return renderFileWriteMetadata(metadata, width, maxDiffLines);
   }
 
   if (success && metadata && TypeGuards.isGlob(metadata)) {
@@ -513,7 +617,43 @@ export class ToolBlock implements Component {
       argsSummary: summarizeArgs(name, args),
       ...(opts?.subagentCodename ? { subagentCodename: opts.subagentCodename } : {}),
       ...(previewTodos ? { previewTodos } : {}),
-      ...(name === "task" ? { taskStartedAt: Date.now() } : {}),
+      ...(name === "task"
+        ? { taskPhase: "queued" as const, taskRowCreatedAt: Date.now() }
+        : {}),
+    };
+  }
+
+  /** Elapsed ms for a running task row (active work or time since row appeared). */
+  getElapsedMs(): number {
+    if (this.state.status !== "running" || this.state.name !== "task") return 0;
+    if (this.state.taskPhase === "active" && this.state.taskStartedAt !== undefined) {
+      return Date.now() - this.state.taskStartedAt;
+    }
+    if (this.state.taskRowCreatedAt !== undefined) {
+      return Date.now() - this.state.taskRowCreatedAt;
+    }
+    return 0;
+  }
+
+  setSubagentTaskStatus(status: "queued" | "running" | "done"): void {
+    if (this.state.status !== "running" || this.state.name !== "task") return;
+
+    if (status === "queued") {
+      this.state = { ...this.state, taskPhase: "queued", taskStartedAt: undefined };
+      return;
+    }
+    if (status === "running") {
+      this.markTaskActive();
+      return;
+    }
+  }
+
+  markTaskActive(): void {
+    if (this.state.status !== "running" || this.state.name !== "task") return;
+    this.state = {
+      ...this.state,
+      taskPhase: "active",
+      taskStartedAt: Date.now(),
     };
   }
 
@@ -526,11 +666,26 @@ export class ToolBlock implements Component {
 
 
 
-  setDone(result: RenderedResult, durationMs: number): void {
-    const codename =
-      this.state.status === "running" ? this.state.subagentCodename : undefined;
-    const name = this.state.name;
-    let argsSummary = this.state.argsSummary;
+  getToolName(): string {
+    return this.state.name;
+  }
+
+  isRunning(): boolean {
+    return this.state.status === "running" || this.state.status === "revealing";
+  }
+
+  isRevealing(): boolean {
+    return this.state.status === "revealing";
+  }
+
+  setDone(result: RenderedResult, durationMs: number, opts?: ToolBlockDoneOptions): void {
+    const prior =
+      this.state.status === "running" || this.state.status === "revealing"
+        ? this.state
+        : null;
+    const codename = prior?.subagentCodename;
+    const name = prior?.name ?? this.state.name;
+    let argsSummary = prior?.argsSummary ?? this.state.argsSummary;
     const metadata = asToolMetadata(result.metadata);
     if (metadata && TypeGuards.isTodo(metadata)) {
       argsSummary = summarizeTodoDoneSummary(name, metadata);
@@ -542,7 +697,49 @@ export class ToolBlock implements Component {
       ...(codename ? { subagentCodename: codename } : {}),
       result,
       durationMs,
+      ...(opts?.collapsed ? { collapsed: true } : {}),
     };
+  }
+
+  beginDiffReveal(result: RenderedResult, durationMs: number, opts?: ToolBlockDoneOptions): boolean {
+    const diffLines = extractDiffLinesFromMetadata(result.metadata);
+    if (diffLines.length === 0) {
+      this.setDone(result, durationMs, opts);
+      return false;
+    }
+
+    const prior = this.state.status === "running" ? this.state : null;
+
+    this.state = {
+      status: "revealing",
+      name: prior?.name ?? this.state.name,
+      argsSummary: prior?.argsSummary ?? this.state.argsSummary,
+      ...(prior?.subagentCodename ? { subagentCodename: prior.subagentCodename } : {}),
+      result,
+      durationMs,
+      diffLines,
+      revealedCount: 0,
+    };
+    void opts;
+    return true;
+  }
+
+  /** Advance diff reveal; returns true when fully transitioned to done. */
+  tickDiffReveal(opts?: ToolBlockDoneOptions): boolean {
+    if (this.state.status !== "revealing") return true;
+
+    const nextCount = Math.min(
+      this.state.diffLines.length,
+      this.state.revealedCount + DIFF_REVEAL_LINES_PER_TICK
+    );
+
+    if (nextCount < this.state.diffLines.length) {
+      this.state = { ...this.state, revealedCount: nextCount };
+      return false;
+    }
+
+    this.setDone(this.state.result, this.state.durationMs, opts);
+    return true;
   }
 
   /** Completed tool row for session replay (no running spinner). */
@@ -564,25 +761,84 @@ export class ToolBlock implements Component {
 
     const toolLabel = displayToolName(state.name, state.subagentCodename);
 
-    if (state.status === "running") {
-      const spinner = clr.running(currentSpinner(state.name));
-      const liveElapsed =
-        state.name === "task" && state.taskStartedAt !== undefined
-          ? `  ${clr.duration(formatDuration(Date.now() - state.taskStartedAt))}`
-          : "";
+    if (state.status === "running" || state.status === "revealing") {
+      const isRevealing = state.status === "revealing";
+      const runningState = isRevealing
+        ? { ...state, status: "running" as const, taskStartedAt: undefined }
+        : state;
+      if (isRevealing) {
+        const outcome = classifyOutcome(state.result);
+        const taskAborted = state.name === "task" && outcome === "aborted";
+        const icon = taskAborted
+          ? clr.dim("✓")
+          : outcome === "success"
+            ? clr.success("✓")
+            : clr.error("✗");
+        const duration = clr.duration(formatDurationMs(state.durationMs));
+        const toolLabel = displayToolName(state.name, state.subagentCodename);
+        const lines = [
+          truncateGutterLine(
+            `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}  ${duration}`,
+            width
+          ),
+        ];
+        const metadata = asToolMetadata(state.result.metadata);
+        lines.push(
+          ...renderMetadata(
+            metadata,
+            state.result.output,
+            state.result.success,
+            width,
+            state.revealedCount
+          )
+        );
+        return lines;
+      }
+
+      const spinner =
+        runningState.name === "task" && runningState.taskPhase === "queued"
+          ? clr.dim(QUEUED_TASK_SPINNER)
+          : runningState.name === "task" && runningState.taskStartedAt !== undefined
+            ? clr.running(currentSpinnerFrame("task", runningState.taskStartedAt))
+            : clr.running(currentSpinnerFrame(runningState.name));
+      const taskSuffix =
+        runningState.name === "task" && runningState.taskPhase === "queued"
+          ? `  ${clr.dim("queued")}`
+          : runningState.name === "task" && runningState.taskStartedAt !== undefined
+            ? `  ${clr.duration(formatDurationMs(Date.now() - runningState.taskStartedAt))}`
+            : "";
       const lines = [
-        truncateToWidth(
-          `${GUTTER}${spinner} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}${liveElapsed}`,
+        truncateGutterLine(
+          `${GUTTER}${spinner} ${clr.toolName(toolLabel)}  ${clr.args(runningState.argsSummary)}${taskSuffix}`,
           width
         ),
       ];
-      if (state.previewTodos && state.previewTodos.length > 0) {
-        lines.push(...renderTodoListFromTodos(state.previewTodos, width));
+      if (runningState.previewTodos && runningState.previewTodos.length > 0) {
+        lines.push(...renderTodoListFromTodos(runningState.previewTodos, width));
       }
-      if (state.name === "task" && this.subagentLines.length > 0) {
+      if (runningState.name === "task" && this.subagentLines.length > 0) {
         lines.push(...renderSubagentProgressLines(this.subagentLines, width));
       }
       return lines;
+    }
+
+    if (state.status === "done" && state.collapsed) {
+      const outcome = classifyOutcome(state.result);
+      const taskAborted = state.name === "task" && outcome === "aborted";
+      const icon = taskAborted
+        ? clr.dim("✓")
+        : outcome === "success"
+          ? clr.success("✓")
+          : clr.error("✗");
+      const label = outcomeLabel(outcome, state.name, state.subagentCodename);
+      const duration = clr.duration(formatDurationMs(state.durationMs));
+      const suffix = label.length > 0 ? `  ${label}` : "";
+      return [
+        truncateGutterLine(
+          `${GUTTER}${icon} ${clr.toolName(displayToolName(state.name, state.subagentCodename))}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`,
+          width
+        ),
+      ];
     }
 
     const outcome = classifyOutcome(state.result);
@@ -593,10 +849,10 @@ export class ToolBlock implements Component {
         ? clr.success("✓")
         : clr.error("✗");
     const label = outcomeLabel(outcome, state.name, state.subagentCodename);
-    const duration = clr.duration(formatDuration(state.durationMs));
+    const duration = clr.duration(formatDurationMs(state.durationMs));
     const suffix = label.length > 0 ? `  ${label}` : "";
     const lines = [
-      truncateToWidth(
+      truncateGutterLine(
         `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`,
         width
       ),

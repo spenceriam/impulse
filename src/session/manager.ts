@@ -1,5 +1,11 @@
 import { Bus, SessionEvents } from "../bus";
-import { SessionStoreInstance, Session, Message, getCurrentProjectID } from "./store";
+import {
+  SessionStoreInstance,
+  Session,
+  Message,
+  SideExchange,
+  getCurrentProjectID,
+} from "./store";
 import { CheckpointManager } from "./checkpoint";
 import { CompactManager } from "./compact";
 
@@ -114,6 +120,26 @@ class SessionManagerImpl {
   async setHeaderTitle(title: string): Promise<void> {
     if (!this.currentSession) return;
     await this.update({ headerTitle: title });
+  }
+
+  async appendSideExchange(exchange: SideExchange): Promise<void> {
+    if (!this.currentSession) {
+      throw new Error("No active session to append side exchange to");
+    }
+
+    const sideExchanges = [...(this.currentSession.sideExchanges ?? []), exchange];
+    this.currentSession.sideExchanges = sideExchanges;
+    SessionStoreInstance.autoSave(this.currentSession.id, { sideExchanges });
+  }
+
+  async markSideExchangeCopied(exchangeId: string): Promise<void> {
+    if (!this.currentSession) return;
+
+    const sideExchanges = (this.currentSession.sideExchanges ?? []).map((ex) =>
+      ex.id === exchangeId ? { ...ex, copiedToMain: true } : ex
+    );
+    this.currentSession.sideExchanges = sideExchanges;
+    SessionStoreInstance.autoSave(this.currentSession.id, { sideExchanges });
   }
 
   async addMessage(message: Message): Promise<void> {

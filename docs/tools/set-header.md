@@ -1,6 +1,6 @@
 # set_header
 
-Sets the session header title shown as "[IMPULSE] | <title>".
+Sets the session header title shown as "[impulse] | <title>".
 
 ## Parameters
 

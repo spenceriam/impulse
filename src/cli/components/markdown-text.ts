@@ -1,10 +1,12 @@
+import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import { GUTTER_WIDTH, innerWidth, maxLineWidth, truncateGutterLine } from "../gutter.js";
 import {
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-  type Component,
-} from "@mariozechner/pi-tui";
-import { parseTable, renderTable } from "../markdown-table.js";
+  isCompleteMarkdownTable,
+  parseTable,
+  renderTable,
+  resolveTableLayoutMode,
+  type TableLayoutMode,
+} from "../markdown-table.js";
 
 const A = {
   reset: "\x1b[0m",
@@ -29,26 +31,37 @@ function formatMarkdownLine(line: string): string {
 export class MarkdownTextBlock implements Component {
   private raw = "";
   private readonly indent: string;
+  private tableLayout: TableLayoutMode | null = null;
   constructor(indent = "    ") {
     this.indent = indent;
   }
 
   setText(text: string): void {
     this.raw = text;
+    this.tableLayout = null;
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.tableLayout = null;
+  }
 
   render(width: number): string[] {
-    const innerWidth = Math.max(8, width - visibleWidth(this.indent));
+    const indentW = visibleWidth(this.indent);
+    const wrapWidth =
+      indentW <= GUTTER_WIDTH ? innerWidth(width) : Math.max(8, maxLineWidth(width) - indentW);
     const rawLines = this.raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     const rendered: string[] = [];
 
     for (let index = 0; index < rawLines.length;) {
-      const table = parseTable(rawLines, index);
-      if (table) {
-        for (const line of renderTable(table.table, innerWidth)) {
-          rendered.push(truncateToWidth(`${this.indent}${line}`, width));
+      if (!isCompleteMarkdownTable(rawLines, index)) {
+        // fall through to line handler
+      } else {
+        const table = parseTable(rawLines, index)!;
+        if (this.tableLayout === null) {
+          this.tableLayout = resolveTableLayoutMode(table.table, wrapWidth);
+        }
+        for (const line of renderTable(table.table, wrapWidth, this.tableLayout)) {
+          rendered.push(truncateGutterLine(`${this.indent}${line}`, width));
         }
         index = table.nextIndex;
         continue;
@@ -56,14 +69,14 @@ export class MarkdownTextBlock implements Component {
 
       const rawLine = rawLines[index] ?? "";
       if (rawLine.length === 0) {
-        rendered.push(this.indent.trimEnd());
+        rendered.push(truncateGutterLine(this.indent.trimEnd(), width));
         index += 1;
         continue;
       }
 
       const formatted = formatMarkdownLine(rawLine);
-      for (const line of wrapTextWithAnsi(formatted, innerWidth)) {
-        rendered.push(truncateToWidth(`${this.indent}${line}`, width));
+      for (const line of wrapTextWithAnsi(formatted, wrapWidth)) {
+        rendered.push(truncateGutterLine(`${this.indent}${line}`, width));
       }
       index += 1;
     }

@@ -57,6 +57,18 @@ import type { Mode } from "../constants";
 import { modelSupportsVision } from "../api/providers/capabilities.js";
 import type { PromptSegment } from "../cli/prompt-input.js";
 import { buildUserMessageContent } from "../cli/prompt-input.js";
+import {
+  MAX_CONCURRENT_SUBAGENTS,
+  runTaskBatch,
+  type TaskCallSpec,
+} from "./task-pool.js";
+import {
+  needsGeneralBatchPermission,
+  type TaskBatchDecision,
+  type TaskBatchPermissionInput,
+} from "../permission/task-batch.js";
+import type { ToolResult } from "../tools/registry";
+import { resolveSubagentThinkingEnabled } from "./subagent-thinking.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Event types emitted by the loop to the renderer
@@ -88,6 +100,12 @@ export interface LoopEvents {
     result: { success: boolean; output: string; metadata?: Record<string, unknown> },
     durationMs: number
   ): void;
+  /** Per-task queue / active / done for parallel sub-agents (stagger-aware). */
+  onSubagentTaskStatus?: (toolCallId: string, status: "queued" | "running" | "done") => void;
+  /** Batch permission for parallel general sub-agents (one prompt per turn). */
+  onTaskBatchPermission?: (
+    input: TaskBatchPermissionInput
+  ) => Promise<TaskBatchDecision>;
   /** Context compaction */
   onCompacting(): void;
   onCompacted(removedCount: number, summary: string): void;
@@ -165,10 +183,29 @@ export class AgentLoop {
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
   private pendingImages: Array<{ uri: string; display: string }> = [];
   private pendingUserRequest = "";
+  /** Injected before the next model call in the same turn (latest wins). */
+  private pendingSteer: string | null = null;
 
   /** Images to translate before next turn (uri + display label for tool UI). */
   setImages(images: Array<{ uri: string; display: string }>): void {
     this.pendingImages = images;
+  }
+
+  /** Redirect current turn at the next tool-loop boundary. */
+  setSteer(text: string): void {
+    this.pendingSteer = text.trim();
+  }
+
+  private async flushTurnInjections(): Promise<void> {
+    if (this.pendingSteer) {
+      const note = this.pendingSteer;
+      this.pendingSteer = null;
+      await SessionManager.addMessage({
+        role: "user",
+        content: `Steering note (apply before your next action): ${note}`,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   async run(
@@ -216,9 +253,13 @@ export class AgentLoop {
               .map((s) => ({ uri: s.uri, display: s.display }))
           : [...this.pendingImages];
 
+      const hasTextPaste = segments?.some((s) => s.kind === "paste") ?? false;
+      const transcriptContent =
+        hasTextPaste && typeof apiContent === "string" ? apiContent : displayMessage;
+
       const userMsg: Message = {
         role: "user",
-        content: displayMessage,
+        content: transcriptContent,
         apiContent,
         timestamp: new Date().toISOString(),
       };
@@ -300,6 +341,8 @@ export class AgentLoop {
       events.onTurnStart();
 
       while (continueLoop && !signal.aborted) {
+        await this.flushTurnInjections();
+
         // Check compaction before each iteration
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
         const estimatedTokens = estimateTokens(buildChatMessages(currentMessages, ""));
@@ -428,6 +471,7 @@ export class AgentLoop {
             });
             continue;
           }
+          await this.flushTurnInjections();
           continueLoop = false;
           break;
         }
@@ -446,6 +490,174 @@ export class AgentLoop {
             (typeof args["filePath"] === "string" && args["filePath"]) ||
             (typeof args["path"] === "string" && args["path"]);
           if (fp) debugEditedFiles.add(fp);
+        };
+
+        type PendingTaskItem = { tc: PartialToolCall; args: Record<string, unknown> };
+        const pendingTaskBatch: PendingTaskItem[] = [];
+        let subagentThinkingEnabled: boolean | undefined;
+
+        const persistToolResult = async (
+          toolCallId: string,
+          output: string
+        ): Promise<void> => {
+          await SessionManager.addMessage({
+            role: "tool",
+            content: output,
+            tool_call_id: toolCallId,
+            timestamp: new Date().toISOString(),
+          } as Message);
+        };
+
+        const flushTaskBatch = async (): Promise<void> => {
+          if (pendingTaskBatch.length === 0) return;
+
+          const batch = pendingTaskBatch.splice(0);
+          const runnable: PendingTaskItem[] = [];
+
+          for (const item of batch) {
+            if (
+              config.advisorMode &&
+              isExperimentalAdvisorEnabled(config) &&
+              !advisorCalledThisTurn &&
+              shouldBlockBeforeAdvisor("task", item.args)
+            ) {
+              const toolStart = Date.now();
+              events.onToolStart(item.tc.id, "task", item.args);
+              events.onToolEnd(
+                item.tc.id,
+                "task",
+                { success: false, output: ADVISOR_GATE_MESSAGE },
+                Date.now() - toolStart
+              );
+              await persistToolResult(item.tc.id, ADVISOR_GATE_MESSAGE);
+              allSucceeded = false;
+              continue;
+            }
+
+            const subagentType = item.args["subagent_type"];
+            if (mode === "PLAN" && subagentType !== "explore") {
+              const planMsg =
+                `PLAN mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`;
+              const toolStart = Date.now();
+              events.onToolStart(item.tc.id, "task", item.args);
+              events.onToolEnd(
+                item.tc.id,
+                "task",
+                { success: false, output: planMsg },
+                Date.now() - toolStart
+              );
+              await persistToolResult(item.tc.id, planMsg);
+              allSucceeded = false;
+              continue;
+            }
+
+            runnable.push(item);
+          }
+
+          if (runnable.length === 0) return;
+
+          const generalRunnable = runnable.filter(
+            (item) => item.args["subagent_type"] === "general"
+          );
+          const skipped = new Map<string, ToolResult>();
+          let toRun: PendingTaskItem[] = [...runnable];
+
+          if (needsGeneralBatchPermission(generalRunnable.length)) {
+            const decision: TaskBatchDecision =
+              (await events.onTaskBatchPermission?.({
+                count: generalRunnable.length,
+                items: generalRunnable.map((item) => ({
+                  subagentType: String(item.args["subagent_type"] ?? "general"),
+                  description: String(item.args["description"] ?? ""),
+                  promptPreview: String(item.args["prompt"] ?? "").slice(0, 200),
+                })),
+              })) ?? { action: "approve" };
+
+            if (decision.action === "deny") {
+              for (const item of generalRunnable) {
+                skipped.set(item.tc.id, {
+                  success: false,
+                  output: "Permission denied: general sub-agent batch was denied.",
+                });
+              }
+              toRun = runnable.filter((item) => item.args["subagent_type"] !== "general");
+            } else if (decision.action === "cancel") {
+              for (const item of runnable) {
+                skipped.set(item.tc.id, {
+                  success: false,
+                  output: "Sub-agent batch cancelled.",
+                });
+              }
+              toRun = [];
+            } else if (decision.action === "run_first") {
+              const limit = Math.max(0, decision.count);
+              toRun = [];
+              let runCount = 0;
+              for (const item of runnable) {
+                const isExplore = item.args["subagent_type"] === "explore";
+                if (isExplore || runCount < limit) {
+                  toRun.push(item);
+                  if (!isExplore) runCount += 1;
+                } else {
+                  skipped.set(item.tc.id, {
+                    success: false,
+                    output: `Sub-agent skipped: batch limited to first ${limit} task(s).`,
+                  });
+                }
+              }
+            }
+          }
+
+          for (const item of runnable) {
+            const skipResult = skipped.get(item.tc.id);
+            if (!skipResult) continue;
+            const toolStart = Date.now();
+            events.onToolStart(item.tc.id, "task", item.args);
+            events.onToolEnd(item.tc.id, "task", skipResult, Date.now() - toolStart);
+            allSucceeded = false;
+            await persistToolResult(item.tc.id, skipResult.output);
+          }
+
+          if (toRun.length === 0) return;
+
+          for (const item of toRun) {
+            events.onToolStart(item.tc.id, "task", item.args);
+          }
+
+          const specs: TaskCallSpec[] = toRun.map((item) => ({
+            toolCallId: item.tc.id,
+            subagentType: item.args["subagent_type"] as TaskCallSpec["subagentType"],
+            prompt: String(item.args["prompt"] ?? ""),
+            description: String(item.args["description"] ?? ""),
+            thoroughness: item.args["thoroughness"] as TaskCallSpec["thoroughness"],
+          }));
+
+          if (subagentThinkingEnabled === undefined) {
+            subagentThinkingEnabled = await resolveSubagentThinkingEnabled(config, model);
+          }
+
+          const results = await runTaskBatch(specs, {
+            maxConcurrent: MAX_CONCURRENT_SUBAGENTS,
+            signal,
+            subagentThinkingEnabled,
+            onTaskStatus: (id, status) => events.onSubagentTaskStatus?.(id, status),
+          });
+
+          for (const item of toRun) {
+            const entry = results.get(item.tc.id);
+            const result: ToolResult = entry?.result ?? {
+              success: false,
+              output: "Sub-agent did not return a result.",
+            };
+            const durationMs = entry?.durationMs ?? 0;
+
+            if (!result.success) {
+              allSucceeded = false;
+            }
+
+            events.onToolEnd(item.tc.id, "task", result, durationMs);
+            await persistToolResult(item.tc.id, result.output);
+          }
         };
 
         for (const tc of toolCalls) {
@@ -553,6 +765,13 @@ export class AgentLoop {
             continue;
           }
 
+          if (tc.name === "task") {
+            pendingTaskBatch.push({ tc, args });
+            continue;
+          }
+
+          await flushTaskBatch();
+
           // Execute — individual tools are responsible for invoking the
           // centralized permission module when approval is required.
           const toolStart = Date.now();
@@ -621,6 +840,8 @@ export class AgentLoop {
           }
         }
 
+        await flushTaskBatch();
+
         if (!allSucceeded && toolCalls.length > 0) {
           // Keep looping to let the model handle the errors
         }
@@ -644,6 +865,8 @@ export class AgentLoop {
             timestamp: new Date().toISOString(),
           });
         }
+
+        await this.flushTurnInjections();
 
         session = SessionManager.getCurrentSession()!;
       }
