@@ -76,7 +76,15 @@ function findBinary() {
 
     return { binaryPath, binaryName };
   } catch (error) {
-    throw new Error(`Could not find package ${packageName}: ${error.message}`);
+    const wrapperPkg = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "package.json"), "utf8")
+    );
+    throw new Error(
+      `Could not find package ${packageName}: ${error.message}\n` +
+        `The platform optional dependency may have failed to install (for example npm 404 on a broken publish).\n` +
+        `Try: npm cache clean --force && npm i -g @spenceriam/impulse@${wrapperPkg.version}\n` +
+        `Or use the macOS/Linux/Windows archives from the GitHub release for v${wrapperPkg.version}.`
+    );
   }
 }
 

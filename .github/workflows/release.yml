@@ -223,9 +223,26 @@ jobs:
           
           for platform_dir in artifacts/impulse-*/; do
             platform_name=$(basename "$platform_dir")
-            echo "Publishing $platform_name..."
+            pkg="@spenceriam/${platform_name}"
+            echo "Publishing ${pkg}@${VERSION}..."
             cd "$platform_dir"
-            npm publish --access public || echo "Failed to publish $platform_name (may already exist)"
+            npm publish --access public
+            tarball_url=$(npm view "${pkg}@${VERSION}" dist.tarball)
+            echo "Verifying tarball: ${tarball_url}"
+            ok=false
+            for attempt in 1 2 3 4 5 6; do
+              if curl -fsSL -o /dev/null "${tarball_url}"; then
+                ok=true
+                break
+              fi
+              echo "Tarball not downloadable yet (attempt ${attempt}/6), waiting 15s..."
+              sleep 15
+            done
+            if [ "${ok}" != "true" ]; then
+              echo "::error::Published ${pkg}@${VERSION} but tarball is missing (npm registry 404)."
+              exit 1
+            fi
+            echo "Tarball verified for ${pkg}@${VERSION}"
             cd -
           done
 
