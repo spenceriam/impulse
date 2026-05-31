@@ -18,7 +18,12 @@ import type { ChatMessage, ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
 import { runAdvisorConsultation } from "./advisor.js";
-import { isExperimentalAdvisorEnabled, load as loadConfig } from "../util/config";
+import {
+  isExperimentalAdvisorEnabled,
+  load as loadConfig,
+  resolveSubagentModel,
+} from "../util/config";
+import { buildChatMessages } from "./build-chat-messages.js";
 import * as fs from "fs";
 import * as path from "path";
 import { Global } from "../global.js";
@@ -132,33 +137,6 @@ interface PartialToolCall {
   id: string;
   name: string;
   argumentsJson: string;
-}
-
-function buildChatMessages(sessionMessages: Message[], systemPrompt: string): ChatMessage[] {
-  const result: ChatMessage[] = [{ role: "system", content: systemPrompt }];
-  for (const m of sessionMessages) {
-    if (m.role === "system") continue; // system prompt already added above
-    if (m.role === "user" || m.role === "assistant") {
-      const content =
-        m.role === "user" && m.apiContent !== undefined
-          ? m.apiContent
-          : (m.content ?? "");
-      const msg: ChatMessage = { role: m.role, content };
-      if (m.tool_calls && m.tool_calls.length > 0) {
-        msg.tool_calls = m.tool_calls.map((tc) => ({
-          id: tc.id ?? `call_${tc.tool}`,
-          type: "function" as const,
-          function: { name: tc.tool, arguments: JSON.stringify(tc.arguments) },
-        }));
-      }
-      result.push(msg);
-    } else if (m.role === "tool" as string) {
-      // Tool result messages — stored as role:"tool" in session
-      const toolMsg = m as unknown as { role: "tool"; content: string; tool_call_id: string };
-      result.push({ role: "tool", content: toolMsg.content, tool_call_id: toolMsg.tool_call_id });
-    }
-  }
-  return result;
 }
 
 function estimateTokens(messages: ChatMessage[]): number {
@@ -495,6 +473,7 @@ export class AgentLoop {
         type PendingTaskItem = { tc: PartialToolCall; args: Record<string, unknown> };
         const pendingTaskBatch: PendingTaskItem[] = [];
         let subagentThinkingEnabled: boolean | undefined;
+        let subagentModelResolved: string | undefined;
 
         const persistToolResult = async (
           toolCallId: string,
@@ -632,13 +611,18 @@ export class AgentLoop {
             thoroughness: item.args["thoroughness"] as TaskCallSpec["thoroughness"],
           }));
 
+          const subagentModel = resolveSubagentModel(config, model);
           if (subagentThinkingEnabled === undefined) {
-            subagentThinkingEnabled = await resolveSubagentThinkingEnabled(config, model);
+            subagentThinkingEnabled =
+              config.showSubagentThinking &&
+              (await resolveSubagentThinkingEnabled(config, subagentModel));
           }
+          subagentModelResolved = subagentModel;
 
           const results = await runTaskBatch(specs, {
             maxConcurrent: MAX_CONCURRENT_SUBAGENTS,
             signal,
+            model: subagentModelResolved,
             subagentThinkingEnabled,
             onTaskStatus: (id, status) => events.onSubagentTaskStatus?.(id, status),
           });

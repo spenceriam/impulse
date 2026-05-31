@@ -9,14 +9,20 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.2.0
+- **Version:** v1.3.0
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.2.0 (2026-05-29) — startup splash, shell mode, parallel sub-agents, gutter/anchor layout
+**Status:** v1.3.0 (2026-05-30) — `/settings`, thinking visibility, preserved reasoning in API history
+
+### v1.3.0 (2026-05-30)
+
+- [x] `/settings` overlay (`/config` alias) — main/subagent thinking visibility, optional subagent model
+- [x] Preserved thinking — `reasoning_content` forwarded in `buildChatMessages()` for tool continuations
+- [x] Compaction distills prior `reasoning_content` into summaries
 
 ### v1.2.0 (2026-05-29)
 
@@ -840,7 +846,7 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 | `/mode` | Switch mode (alt to Tab) |
 | `/engage` | Toggle high-autonomy execution profile |
 | `/instruct` | Edit project instructions |
-| `/config` | Basic settings overlay |
+| `/settings` | Thinking visibility and subagent model (`/config` alias) |
 | `/stats` | Session statistics |
 | `/help` | Categorized help overlay |
 | `/think` | Toggle thinking mode |
@@ -984,7 +990,7 @@ This ensures:
 - **API Message Format for Tool Calls** - Conversation history must include tool_calls and tool results
   - After tool execution, don't just send back-to-back assistant messages
   - Correct format: `assistant (with tool_calls array)` -> `tool (results)` -> `assistant (continuation)`
-  - Conversation history is built in `src/agent/loop.ts` via `buildChatMessages()`
+  - Conversation history is built via `buildChatMessages()` in `src/agent/build-chat-messages.ts` (called from `src/agent/loop.ts`)
   - Tool results use `role: "tool"` with `tool_call_id` matching the original call
 
 ### Streaming

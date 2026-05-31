@@ -87,6 +87,17 @@ export function buildSlashCommandDefs(
       helpDetail: "Browse and resume a saved session",
     },
     {
+      cmd: "/settings",
+      hint: "thinking visibility and subagent model",
+      helpDetail:
+        "Show thinking in main agent or subagents; optional separate subagent model (/config alias)",
+    },
+    {
+      cmd: "/config",
+      hint: "alias for /settings",
+      helpDetail: "Open settings overlay (alias for /settings)",
+    },
+    {
       cmd: "/show",
       hint: "restore chat view from session history",
       helpDetail: "Restore the on-screen chat from session history",

@@ -211,6 +211,10 @@ class CompactManagerImpl {
         }
       }
 
+      if (msg.reasoning_content?.trim()) {
+        text += `\n  Prior reasoning (summary input): ${truncateText(msg.reasoning_content, 400)}`;
+      }
+
       conversationParts.push(text);
 
       if (msg.role === "user" && msg.content) {
@@ -264,6 +268,7 @@ List ALL errors encountered and how they were fixed:
 
 ### 5. Problem Solving
 Document problems solved and any ongoing troubleshooting efforts.
+Distill key decisions and plans from any "Prior reasoning" excerpts above into this section — do not copy reasoning verbatim.
 
 ### 6. All User Messages (CRITICAL)
 These are all the user's messages (not tool results). Preserve user feedback and intent:
