@@ -95,7 +95,7 @@ async function handleHelp() {
 async function handleConfig() {
   return {
     success: true,
-    output: "Config command not yet implemented",
+    output: "Use /settings in the TUI (alias: /config) for thinking visibility and subagent model.",
   };
 }
 

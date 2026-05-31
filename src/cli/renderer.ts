@@ -104,6 +104,7 @@ import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
+import { SettingsOverlay } from "./components/settings-overlay.js";
 import { HelpOverlay } from "./components/help-overlay.js";
 import { SideOverlay } from "./components/side-overlay.js";
 import {
@@ -254,14 +255,44 @@ class SeparatorLine implements Component {
   }
 }
 
+const MAX_THINKING_DISPLAY_CHARS = 8000;
+const MAX_THINKING_DISPLAY_LINES = 40;
+
 class ThinkingBlock implements Component {
   private raw = "";
+  private placeholder = false;
+  private truncateDisplay = false;
+  private hiddenCharCount = 0;
+
+  setPlaceholder(): void {
+    this.placeholder = true;
+    this.raw = "";
+    this.truncateDisplay = false;
+    this.hiddenCharCount = 0;
+  }
+
+  setTruncateDisplay(enabled: boolean): void {
+    this.truncateDisplay = enabled;
+  }
 
   setText(text: string): void {
+    this.placeholder = false;
     this.raw = text;
+    if (this.truncateDisplay && text.length > MAX_THINKING_DISPLAY_CHARS) {
+      this.hiddenCharCount = text.length - MAX_THINKING_DISPLAY_CHARS;
+      this.raw = text.slice(0, MAX_THINKING_DISPLAY_CHARS);
+    } else {
+      this.hiddenCharCount = 0;
+    }
   }
 
   render(width: number): string[] {
+    if (this.placeholder) {
+      const prefix = GUTTER;
+      const line = `${prefix}\x1b[38;5;94mThinking...${A.reset}`;
+      return [truncateGutterLine(line, width)];
+    }
+
     const prefix = GUTTER;
     const label = "Thinking:";
     const firstPrefix = `${prefix}\x1b[38;5;94m${label}\x1b[0m `;
@@ -289,6 +320,16 @@ class ThinkingBlock implements Component {
         );
         isFirstOutputLine = false;
       }
+    }
+
+    if (this.truncateDisplay && lines.length > MAX_THINKING_DISPLAY_LINES) {
+      const omitted = lines.length - MAX_THINKING_DISPLAY_LINES;
+      lines.length = MAX_THINKING_DISPLAY_LINES;
+      const foot = `${continuationPrefix}${A.dim}… ${omitted} more lines hidden (/settings)${A.reset}`;
+      lines.push(truncateGutterLine(foot, width));
+    } else if (this.hiddenCharCount > 0) {
+      const foot = `${continuationPrefix}${A.dim}… ${this.hiddenCharCount} more characters hidden (/settings)${A.reset}`;
+      lines.push(truncateGutterLine(foot, width));
     }
 
     return lines.length > 0 ? lines : [truncateGutterLine(firstPrefix, width)];
@@ -325,7 +366,7 @@ interface ModelSetupState {
   models: string[];
   discovery?: ModelDiscoveryResult;
   isAdvisorMode?: boolean;  // @deprecated use setupPurpose
-  setupPurpose?: "worker" | "vision" | "advisor";
+  setupPurpose?: "worker" | "vision" | "advisor" | "subagent";
   selectedModel?: string;   // Model selected in "model" step, used in reasoning step
   pendingRemoveProvider?: ModelProviderOption;
   editingProvider?: boolean;
@@ -766,7 +807,7 @@ export class ImpulseRenderer {
     state.selectedModel = selectedModel;
 
     const purpose = this.setupPurpose(state);
-    if (purpose === "vision" || purpose === "advisor") {
+    if (purpose === "vision" || purpose === "advisor" || purpose === "subagent") {
       await this.finishModelSetup(selectedModel, "off");
       return;
     }
@@ -825,7 +866,9 @@ export class ImpulseRenderer {
         ? "Select vision model"
         : purpose === "advisor"
           ? "Select advisor model"
-          : "Select model";
+          : purpose === "subagent"
+            ? "Select subagent model"
+            : "Select model";
     const overlay = new SelectableListOverlay({
       title,
       rows,
@@ -1197,7 +1240,11 @@ export class ImpulseRenderer {
   private planApprovalInputCleanup: (() => void) | null = null;
   private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
+  private settingsOverlayHandle: OverlayHandle | null = null;
+  private settingsInputCleanup: (() => void) | null = null;
   private experimentalAdvisorEnabled = false;
+  private showMainThinking = true;
+  private responsePreference = "concise";
   /** Session-local turn speed display on context bar (/speedo); not persisted. */
   private speedoEnabled = false;
   private userName = "you"; // User's display name (loaded from config)
@@ -1222,6 +1269,7 @@ export class ImpulseRenderer {
     this.reasoningLevel = config.reasoningLevel ?? (config.thinking ? "medium" : "off");
     this.reasoningCapability = await this.reasoningCapabilityForProvider(config.defaultProvider);
     this.userName = config.userProfile?.name || "you";
+    this.syncDisplaySettingsFromConfig(config);
     await this.normalizeReasoningLevel();
 
     setCurrentMode(this.mode);
@@ -1949,23 +1997,8 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onThinking: (text) => {
-        this.setBusyStatus("thinking?", BUSY_PROCESSING);
         debugLog(`onThinking: ${text.length} chars`);
-        if (!this.thinkingOpen) {
-          this.thinkingRaw = "";
-          this.thinkingText = null;
-        }
-        if (!this.thinkingText) {
-          debugLog(`Thinking block started`);
-          this.addSectionGap();
-          this.thinkingText = new ThinkingBlock();
-          this.chat.addChild(this.thinkingText);
-          this.hasTrailingGap = false;
-          this.thinkingOpen = true;
-        }
-        this.thinkingRaw += filterThinkingForDisplay(text);
-        this.thinkingText.setText(this.thinkingRaw);
-        this.noteLiveGeneration(text);
+        this.appendWorkerThinking(text);
         this.tui.requestRender();
       },
       onAdvisorStart: (_model) => {
@@ -2314,6 +2347,10 @@ export class ImpulseRenderer {
     switch (cmd) {
       case "advisor": await this.cmdAdvisor(arg); break;
       case "experimental": await this.cmdExperimental(); break;
+      case "settings":
+      case "config":
+        await this.cmdSettings();
+        break;
       case "update":  await this.cmdUpdate();     break;
       case "model":   await this.cmdModel(arg);   break;
       case "vision":  await this.cmdVision(arg);  break;
@@ -2791,6 +2828,34 @@ export class ImpulseRenderer {
       return;
     }
 
+    if (purpose === "subagent") {
+      const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
+      providers[effectiveKey] = {
+        ...(state.existing ?? {}),
+        apiKey,
+        ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+        ...(provider.customType ? { type: provider.customType } : {}),
+      };
+      state.config.providers = providers as Config["providers"];
+      state.config.subagentModel = selectedModel;
+      state.config.useSubagentModel = true;
+      await saveConfig(state.config);
+      await saveHomeEnv(provider, apiKey, state.baseUrl);
+      resetProviderManager();
+      if (this.modelSetupInputListener) {
+        this.modelSetupInputListener();
+        this.modelSetupInputListener = null;
+      }
+      this.promptInput.getEditor().setAutocompleteProvider(ImpulseRenderer.VOID_AUTOCOMPLETE);
+      this.modelSetup = null;
+      this.modelSetupText.setText("");
+      this.promptInput.setSecretMode(false);
+      this.promptInput.clear();
+      this.addChatLine(modelStatusLine(`Subagent model: ${selectedModel}`));
+      this.requestBottomAnchorRefresh();
+      return;
+    }
+
     // Advisor mode: only save advisorModel, don't change default provider/model
     if (purpose === "advisor" || state.isAdvisorMode) {
       // Save API key to providers config
@@ -2900,16 +2965,51 @@ export class ImpulseRenderer {
     process.exit(0);
   }
 
-  private setupPurpose(state: ModelSetupState): "worker" | "vision" | "advisor" {
+  private setupPurpose(state: ModelSetupState): "worker" | "vision" | "advisor" | "subagent" {
     if (state.setupPurpose) return state.setupPurpose;
     if (state.isAdvisorMode) return "advisor";
     return "worker";
+  }
+
+  private syncDisplaySettingsFromConfig(config: Config): void {
+    this.showMainThinking = config.showMainThinking;
+    this.responsePreference = config.userProfile?.responsePreference?.trim() || "concise";
+  }
+
+  private thinkingTruncateDisplay(): boolean {
+    return this.responsePreference === "concise";
+  }
+
+  private appendWorkerThinking(text: string): void {
+    this.setBusyStatus("thinking?", BUSY_PROCESSING);
+    if (!this.thinkingOpen) {
+      this.thinkingRaw = "";
+      this.thinkingText = null;
+    }
+    if (!this.thinkingText) {
+      this.addSectionGap();
+      this.thinkingText = new ThinkingBlock();
+      this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
+      this.chat.addChild(this.thinkingText);
+      this.hasTrailingGap = false;
+      this.thinkingOpen = true;
+    }
+    this.thinkingRaw += filterThinkingForDisplay(text);
+    if (!this.showMainThinking) {
+      this.thinkingText.setPlaceholder();
+      this.noteLiveGeneration(text);
+      return;
+    }
+    this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
+    this.thinkingText.setText(this.thinkingRaw);
+    this.noteLiveGeneration(text);
   }
 
   private setupTitle(state: ModelSetupState): string {
     const p = this.setupPurpose(state);
     if (p === "vision") return "VISION SETUP";
     if (p === "advisor") return "ADVISOR SETUP";
+    if (p === "subagent") return "SUBAGENT MODEL SETUP";
     return "MODEL SETUP";
   }
 
@@ -2924,7 +3024,9 @@ export class ImpulseRenderer {
   }
 
   private async openModelPicker(opts: {
-    purpose: "worker" | "vision";
+    purpose: "worker" | "vision" | "subagent";
+    onSubagentPicked?: (fullModel: string) => void | Promise<void>;
+    onComplete?: () => void | Promise<void>;
   }): Promise<void> {
     try {
       const config = await loadConfig();
@@ -2949,7 +3051,10 @@ export class ImpulseRenderer {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
         const parsed = parseModelPickerSelection(compoundId);
-        if (!parsed) return;
+        if (!parsed) {
+          await opts.onComplete?.();
+          return;
+        }
 
         const fullModel = parsed.modelId.includes("/")
           ? parsed.modelId
@@ -2967,6 +3072,13 @@ export class ImpulseRenderer {
               `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
             )
           );
+        } else if (opts.purpose === "subagent") {
+          const cfg = await loadConfig();
+          cfg.subagentModel = fullModel;
+          cfg.useSubagentModel = true;
+          await saveConfig(cfg);
+          await opts.onSubagentPicked?.(fullModel);
+          this.addChatLine(modelStatusLine(`Subagent model: ${fullModel}`));
         } else {
           const cfg = await loadConfig();
           cfg.defaultProvider = parsed.providerKey;
@@ -2981,12 +3093,14 @@ export class ImpulseRenderer {
           this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
         }
         this.tui.requestRender();
+        await opts.onComplete?.();
       };
 
-      state.overlay.onCancel = () => {
+      state.overlay.onCancel = async () => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
         this.tui.setFocus(this.promptInput);
+        await opts.onComplete?.();
       };
 
       state.onRowsUpdated = () => this.tui.requestRender();
@@ -3148,7 +3262,7 @@ export class ImpulseRenderer {
 
   private async rebuildModelSetupProviders(
     config: Config,
-    purpose: "worker" | "vision" | "advisor"
+    purpose: "worker" | "vision" | "advisor" | "subagent"
   ): Promise<void> {
     const configured: ProviderEntry[] = [];
     const unconfigured: ProviderEntry[] = [];
@@ -3224,7 +3338,7 @@ export class ImpulseRenderer {
 
   private async startModelSetup(
     config: Config,
-    purpose: "worker" | "vision" | "advisor"
+    purpose: "worker" | "vision" | "advisor" | "subagent"
   ): Promise<void> {
     const configured: ProviderEntry[] = [];
     const unconfigured: ProviderEntry[] = [];
@@ -3352,6 +3466,98 @@ export class ImpulseRenderer {
   private dismissExperimentalOverlay(): void {
     this.experimentalOverlayHandle?.hide();
     this.experimentalOverlayHandle = null;
+  }
+
+  private dismissSettingsOverlay(): void {
+    this.settingsInputCleanup?.();
+    this.settingsInputCleanup = null;
+    this.settingsOverlayHandle?.hide();
+    this.settingsOverlayHandle = null;
+  }
+
+  private async cmdSettings(): Promise<void> {
+    if (this.isRunning || !this.tui) return;
+    const config = await loadConfig();
+
+    const overlay = new SettingsOverlay({
+      values: {
+        showMainThinking: config.showMainThinking,
+        showSubagentThinking: config.showSubagentThinking,
+        useSubagentModel: config.useSubagentModel,
+        subagentModel: config.subagentModel,
+      },
+    });
+
+    await new Promise<void>((resolve) => {
+      const handle = this.showContentSizedOverlay(overlay, { maxHeight: 20 });
+      this.settingsOverlayHandle = handle;
+
+      const cleanupNav = this.tui.addInputListener((data: string) => {
+        overlay.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      });
+      this.settingsInputCleanup = cleanupNav;
+
+      const finish = () => {
+        this.dismissSettingsOverlay();
+        this.tui.setFocus(this.promptInput);
+        this.tui.requestRender();
+        resolve();
+      };
+
+      const openSubagentPicker = () => {
+        void (async () => {
+          // Save current values before dismissing overlay
+          const currentValues = overlay.getValues();
+          config.showMainThinking = currentValues.showMainThinking;
+          config.showSubagentThinking = currentValues.showSubagentThinking;
+          config.useSubagentModel = currentValues.useSubagentModel;
+          if (currentValues.subagentModel !== undefined) {
+            config.subagentModel = currentValues.subagentModel;
+          }
+          await saveConfig(config);
+          this.syncDisplaySettingsFromConfig(config);
+
+          this.dismissSettingsOverlay();
+          if (countConfiguredProviders(await loadConfig()) === 0) {
+            await this.startModelSetup(await loadConfig(), "subagent");
+            finish();
+          } else {
+            await this.openModelPicker({ 
+              purpose: "subagent",
+              onSubagentPicked: async () => {
+                this.tui.setFocus(this.promptInput);
+                this.tui.requestRender();
+              },
+              onComplete: () => {
+                finish();
+              }
+            });
+          }
+        })();
+      };
+
+      overlay.onAbort = () => finish();
+
+      overlay.onEnableSubagentModel = openSubagentPicker;
+      overlay.onPickSubagentModel = openSubagentPicker;
+
+      overlay.onSubmit = (values) => {
+        void (async () => {
+          config.showMainThinking = values.showMainThinking;
+          config.showSubagentThinking = values.showSubagentThinking;
+          config.useSubagentModel = values.useSubagentModel;
+          if (values.subagentModel !== undefined) {
+            config.subagentModel = values.subagentModel;
+          }
+          await saveConfig(config);
+          this.syncDisplaySettingsFromConfig(config);
+          this.addChatLine(statusOk("Settings saved"));
+          finish();
+        })();
+      };
+    });
   }
 
   private async cmdAdvisor(arg: string): Promise<void> {
@@ -4105,7 +4311,12 @@ export class ImpulseRenderer {
         if (!filtered.trim()) break;
         this.addSectionGap();
         const block = new ThinkingBlock();
-        block.setText(filtered);
+        if (!this.showMainThinking) {
+          block.setPlaceholder();
+        } else {
+          block.setTruncateDisplay(this.thinkingTruncateDisplay());
+          block.setText(filtered);
+        }
         this.chat.addChild(block);
         this.hasTrailingGap = false;
         break;
@@ -4223,13 +4434,7 @@ export class ImpulseRenderer {
         this.requestBottomAnchorRefresh();
       },
       onThinking: (text) => {
-        this.setBusyStatus("thinking?", BUSY_PROCESSING);
-        if (!this.thinkingText) {
-          this.thinkingText = new ThinkingBlock();
-          this.chat.addChild(this.thinkingText);
-        }
-        this.thinkingRaw += filterThinkingForDisplay(text);
-        this.thinkingText.setText(this.thinkingRaw);
+        this.appendWorkerThinking(text);
         this.requestBottomAnchorRefresh();
       },
       onAdvisorStart: () => {},

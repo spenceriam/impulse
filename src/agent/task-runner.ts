@@ -84,6 +84,7 @@ export type ExecuteSubagentOptions = {
   parentToolCallId: string;
   signal?: AbortSignal;
   subagentThinkingEnabled?: boolean;
+  model?: string;
 };
 
 export type SubagentPreCompleteProgress = {
@@ -182,6 +183,9 @@ export async function executeSubagent(
     const afterTools = messages[messages.length - 1]?.role === "tool";
 
     const completionOptions: CompletionOptions = { messages, signal };
+    if (options.model?.trim()) {
+      completionOptions.model = options.model.trim();
+    }
     if (filteredTools.length > 0) {
       completionOptions.tools = filteredTools;
     }
@@ -205,11 +209,18 @@ export async function executeSubagent(
           ? ""
           : JSON.stringify(assistantMessage.content);
 
-    messages.push({
+    const assistantMsg: ChatMessage = {
       role: "assistant",
       content: assistantContent,
       tool_calls: assistantMessage.tool_calls,
-    });
+    };
+    const reasoning = (
+      assistantMessage as { reasoning_content?: string | null }
+    ).reasoning_content;
+    if (typeof reasoning === "string" && reasoning.trim()) {
+      assistantMsg.reasoning_content = reasoning;
+    }
+    messages.push(assistantMsg);
 
     const hasToolCalls =
       choice.finish_reason === "tool_calls" && !!assistantMessage.tool_calls?.length;

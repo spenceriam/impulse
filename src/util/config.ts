@@ -56,6 +56,18 @@ const ConfigSchema = z.object({
   /** Vision mode — toggle for automatic image→text translation */
   visionMode: z.boolean().default(false).describe("Whether vision translation is active"),
 
+  /** Stream full thinking blocks in the main agent UI */
+  showMainThinking: z.boolean().default(true).describe("Show reasoning stream in main chat"),
+
+  /** Show thinking... progress lines inside subagent task tool rows */
+  showSubagentThinking: z.boolean().default(true).describe("Show subagent thinking progress"),
+
+  /** When true, task subagents use subagentModel instead of the main session model */
+  useSubagentModel: z.boolean().default(false).describe("Use dedicated subagent model"),
+
+  /** Model for task subagents when useSubagentModel is true (retained when toggled off) */
+  subagentModel: z.string().optional().describe("Subagent model override"),
+
   /** Default mode: AGENT, EXPLORE, PLAN, DEBUG */
   defaultMode: z.string().default("AGENT").describe("Default agent mode"),
 
@@ -240,6 +252,14 @@ export function applySessionVision(config: Config): Config {
 /** Whether the user has saved a default model (required before chat). */
 export function isModelConfigured(config: Config): boolean {
   return Boolean(config.modelExplicitlySet && config.defaultModel?.trim());
+}
+
+/** Model string for task subagents (main session model unless override is enabled). */
+export function resolveSubagentModel(config: Config, mainModel: string): string {
+  if (config.useSubagentModel && config.subagentModel?.trim()) {
+    return config.subagentModel.trim();
+  }
+  return mainModel.trim();
 }
 
 export async function save(config: Config): Promise<void> {
