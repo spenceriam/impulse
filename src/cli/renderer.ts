@@ -3026,6 +3026,7 @@ export class ImpulseRenderer {
   private async openModelPicker(opts: {
     purpose: "worker" | "vision" | "subagent";
     onSubagentPicked?: (fullModel: string) => void | Promise<void>;
+    onComplete?: () => void | Promise<void>;
   }): Promise<void> {
     try {
       const config = await loadConfig();
@@ -3050,7 +3051,10 @@ export class ImpulseRenderer {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
         const parsed = parseModelPickerSelection(compoundId);
-        if (!parsed) return;
+        if (!parsed) {
+          await opts.onComplete?.();
+          return;
+        }
 
         const fullModel = parsed.modelId.includes("/")
           ? parsed.modelId
@@ -3089,12 +3093,14 @@ export class ImpulseRenderer {
           this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
         }
         this.tui.requestRender();
+        await opts.onComplete?.();
       };
 
-      state.overlay.onCancel = () => {
+      state.overlay.onCancel = async () => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
         this.tui.setFocus(this.promptInput);
+        await opts.onComplete?.();
       };
 
       state.onRowsUpdated = () => this.tui.requestRender();
@@ -3502,6 +3508,17 @@ export class ImpulseRenderer {
 
       const openSubagentPicker = () => {
         void (async () => {
+          // Save current values before dismissing overlay
+          const currentValues = overlay.getValues();
+          config.showMainThinking = currentValues.showMainThinking;
+          config.showSubagentThinking = currentValues.showSubagentThinking;
+          config.useSubagentModel = currentValues.useSubagentModel;
+          if (currentValues.subagentModel !== undefined) {
+            config.subagentModel = currentValues.subagentModel;
+          }
+          await saveConfig(config);
+          this.syncDisplaySettingsFromConfig(config);
+
           this.dismissSettingsOverlay();
           if (countConfiguredProviders(await loadConfig()) === 0) {
             await this.startModelSetup(await loadConfig(), "subagent");
@@ -3512,6 +3529,9 @@ export class ImpulseRenderer {
               onSubagentPicked: async () => {
                 this.tui.setFocus(this.promptInput);
                 this.tui.requestRender();
+              },
+              onComplete: () => {
+                finish();
               }
             });
           }
