@@ -3505,10 +3505,16 @@ export class ImpulseRenderer {
           this.dismissSettingsOverlay();
           if (countConfiguredProviders(await loadConfig()) === 0) {
             await this.startModelSetup(await loadConfig(), "subagent");
+            finish();
           } else {
-            await this.openModelPicker({ purpose: "subagent" });
+            await this.openModelPicker({ 
+              purpose: "subagent",
+              onSubagentPicked: async () => {
+                this.tui.setFocus(this.promptInput);
+                this.tui.requestRender();
+              }
+            });
           }
-          finish();
         })();
       };
 
