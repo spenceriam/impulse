@@ -20,5 +20,16 @@ export function unwrapDegeneratePath(value: string): string | null {
 }
 
 export function hasDegeneratePathMarkdown(value: string): boolean {
+  // Skip validation for empty strings or very short values
+  if (!value || value.length < 3) return false;
+  
+  // Quick heuristic: legitimate Windows absolute paths should never be considered markdown
+  // Pattern: C:\ or C:/ at start, or UNC paths \\server\share
+  if (/^[A-Za-z]:[\\/]/.test(value) || /^\\\\/.test(value)) {
+    // But still check if there's a markdown link embedded later in the path
+    const linkIndex = value.indexOf('[');
+    if (linkIndex === -1) return false;
+  }
+  
   return unwrapDegeneratePath(value) !== null;
 }

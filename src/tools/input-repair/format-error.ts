@@ -1,7 +1,21 @@
 import type { z } from "zod";
 
-function formatIssue(issue: z.ZodIssue): string {
+function formatIssue(issue: z.ZodIssue, input: unknown): string {
   const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+  
+  // Extract the actual value that failed validation for better error messages
+  let actualValue: unknown;
+  try {
+    let current: any = input;
+    for (const segment of issue.path) {
+      if (current != null && typeof current === "object") {
+        current = current[segment as keyof typeof current];
+      }
+    }
+    actualValue = current;
+  } catch {
+    actualValue = undefined;
+  }
 
   switch (issue.code) {
     case "invalid_type":
@@ -25,7 +39,11 @@ function formatIssue(issue: z.ZodIssue): string {
       }
       return `${path}: value is too large`;
     case "invalid_string":
-      return `${path}: invalid string (${issue.validation})`;
+      // For refined string validation (like path markdown check), include the actual value
+      if (typeof actualValue === "string" && actualValue.length < 100) {
+        return `${path}: ${issue.message} (received: "${actualValue}")`;
+      }
+      return `${path}: ${issue.message}`;
     case "unrecognized_keys":
       return `${path}: unrecognized key(s): ${issue.keys.join(", ")}`;
     default:
@@ -38,10 +56,11 @@ function formatIssue(issue: z.ZodIssue): string {
  */
 export function formatValidationError(
   error: z.ZodError,
-  toolName: string
+  toolName: string,
+  input?: unknown
 ): string {
-  const lines = error.issues.map(formatIssue);
-  const unique = [...new Set(lines)];
+  const lines = error.issues.map((issue) => formatIssue(issue, input));
+  const unique = Array.from(new Set(lines));
 
   if (unique.length === 1) {
     return `Invalid parameters for ${toolName}: ${unique[0]}`;
