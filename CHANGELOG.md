@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-02
+
+  **Type:** patch
+  **Title:** Fix Windows tool calling validation failures
+
+  ### Fixed
+  - **Windows path validation** — `hasDegeneratePathMarkdown()` now correctly handles Windows absolute paths (C:\, D:\), UNC paths (\\server\share), and only checks for markdown links when `[` is present, preventing false positives that caused tool validation failures
+  - **Validation error messages** — now include the actual value that failed validation (e.g., `filePath: ... (received: "C:\path\file")`) for easier debugging
+  - **Test coverage** — added comprehensive test suite for path markdown detection covering Windows, Unix, and UNC path formats
+
 ## [1.3.0] - 2026-05-30
 
   **Type:** minor
