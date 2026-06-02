@@ -76,7 +76,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // grep -r pattern -> Select-String -Pattern pattern -Recurse
   {
-    pattern: /^grep\s+(-[rinvE]+\s+)*['"]?([^'"]+)['"]?\s+(.+)$/,
+    pattern: /^grep\s+((?:-[rinvE]+\s+)*)['"]?([^'"]+)['"]?\s+(.+)$/,
     replacement: (m) => {
       const pattern = m[2];
       const path = m[3];
@@ -131,7 +131,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // cp -r -> Copy-Item -Recurse
   {
-    pattern: /^cp\s+(-[rfiv]+\s+)*(.+)\s+(.+)$/,
+    pattern: /^cp\s+((?:-[rfiv]+\s+)*)(.+)\s+(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
       const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
@@ -143,7 +143,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // mv -> Move-Item
   {
-    pattern: /^mv\s+(-[fiv]+\s+)*(.+)\s+(.+)$/,
+    pattern: /^mv\s+((?:-[fiv]+\s+)*)(.+)\s+(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
       const force = flags.includes("f") ? " -Force" : "";

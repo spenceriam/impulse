@@ -344,14 +344,10 @@ export function formatShellEnvironment(env: ShellEnvironment): string {
  */
 export function generateShellContext(env: ShellEnvironment): string {
   const parts: string[] = [];
-  const shellType = env.platform === "Windows" ? env.shellType : "bash";
+  const shellType = env.shellType;
 
   parts.push(`Operating system: ${env.platform}`);
-  if (env.platform === "Windows") {
-    parts.push(`Shell: ${env.shell} (${env.shellType})`);
-  } else {
-    parts.push("Shell: bash (bash)");
-  }
+  parts.push(`Shell: ${env.shell} (${env.shellType})`);
 
   // Add platform-specific command guidance
   parts.push("");
@@ -361,15 +357,15 @@ export function generateShellContext(env: ShellEnvironment): string {
     case "powershell5":
       parts.push("- Use ; (semicolon) to chain commands, NOT &&");
       parts.push("- && and || operators require PowerShell 7+");
-      parts.push("- Commands return objects - results are auto-converted to text");
-      parts.push("- Streams are auto-merged (*>&1 | Out-String)");
+      parts.push("- Commands return objects - pipe through | Out-String when text is needed");
+      parts.push("- Use *>&1 to merge all output streams when needed");
       parts.push("- POSIX commands are auto-translated to PowerShell equivalents");
       break;
 
     case "powershell7":
       parts.push("- Supports && (and) and || (or) operators");
-      parts.push("- Commands return objects - results are auto-converted to text");
-      parts.push("- Streams are auto-merged (*>&1 | Out-String)");
+      parts.push("- Commands return objects - pipe through | Out-String when text is needed");
+      parts.push("- Use *>&1 to merge all output streams when needed");
       parts.push("- POSIX commands are auto-translated to PowerShell equivalents");
       break;
 

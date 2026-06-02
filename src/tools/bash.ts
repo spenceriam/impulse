@@ -516,7 +516,7 @@ async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
   
   // Cross-platform output handling
-  // - Windows: Output already merged and converted by normalizeWindowsCommand
+  // - Windows: Merge captured stdout and stderr after PowerShell execution
   // - macOS/Linux: Merge stdout and stderr, preserve both streams
   const shell = process.platform === "win32" ? "powershell" : "bash";
   let combinedOutput: string;
