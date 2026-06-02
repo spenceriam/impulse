@@ -33,7 +33,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // ls with args -> Get-ChildItem
   {
-    pattern: /^ls\s+(-[alhrtS]+\s+)*(.*)$/,
+    pattern: /^ls\s+(-[alhrtSR]+\s+)*(.*)$/,
     replacement: (m) => {
       const path = m[2] || ".";
       const flags = m[1] || "";

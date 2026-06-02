@@ -12,6 +12,7 @@ import {
   type PtyHandle,
 } from "../pty";
 import { zCommandString, zFilePath } from "./schemas/branded";
+import { translatePosixToPowerShell } from "./posix-translation";
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
@@ -300,14 +301,10 @@ function extractPaths(command: string): string[] {
 function normalizeWindowsCommand(command: string): string {
   const trimmed = command.trim();
 
-  // Common POSIX pattern used by agents; translate to PowerShell so smoke tests
-  // and local setup commands work naturally on Windows.
-  const mkdirMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/i);
-  if (mkdirMatch?.[1]) {
-    return `New-Item -ItemType Directory -Force -Path ${mkdirMatch[1]} | Out-Null`;
-  }
-
-  return command;
+  // Use POSIX translation for Windows commands
+  const { translated } = translatePosixToPowerShell(trimmed);
+  
+  return translated;
 }
 
 function getSpawnOptions(input: BashInput): SpawnOptions {
@@ -559,7 +556,6 @@ async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   }
 
   const elapsed = Date.now() - startTime;
-  const shell = process.platform === "win32" ? "powershell" : "bash";
 
   return {
     success: exitCode === 0,
