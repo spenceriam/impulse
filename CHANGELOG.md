@@ -5,6 +5,15 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-06-02
+
+  **Type:** patch
+  **Title:** Windows model detection and prompt history fixes
+
+  ### Fixed
+  - **Model detection on Windows** — added explicit file sync after config save to ensure filesystem changes are immediately visible; prevents "No model selected" error after successful onboarding/profile setup
+  - **Prompt history retention** — first prompt now saved to history even when model isn't configured, allowing users to retrieve it with up arrow after running `/model`
+
 ## [1.3.1] - 2026-06-02
 
   **Type:** patch

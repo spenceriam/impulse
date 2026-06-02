@@ -265,6 +265,17 @@ export function resolveSubagentModel(config: Config, mainModel: string): string 
 export async function save(config: Config): Promise<void> {
   const parsed = applyDefaults(config);
   await fs.mkdir(Global.Path.config, { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+  
+  // Write config and explicitly sync to disk to ensure it's persisted
+  // This is especially important on Windows where filesystem operations
+  // may be cached and not immediately visible to subsequent reads
+  const fd = await fs.open(configPath, "w");
+  try {
+    await fd.writeFile(JSON.stringify(parsed, null, 2), "utf-8");
+    await fd.sync(); // Force flush to disk
+  } finally {
+    await fd.close();
+  }
+  
   cachedConfig = parsed;
 }

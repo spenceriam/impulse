@@ -1870,6 +1870,11 @@ export class ImpulseRenderer {
 
     const cfg = await loadConfig();
     if (!isModelConfigured(cfg)) {
+      // Save the prompt to history even when model isn't configured
+      // so the user can retrieve it with the up arrow after configuring the model
+      const transcript = userTranscriptText(payload);
+      this.promptHistory.push(transcript);
+      
       this.addChatLine(
         `${clr.warn("[!]")} No model selected. Run ${clr.tool("/model")} to choose a provider and model first.`
       );
