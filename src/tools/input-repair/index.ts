@@ -69,6 +69,6 @@ export function validateToolInput<T>(
 
   return {
     success: false,
-    error: formatValidationError(lastError, options.toolName, input),
+    error: formatValidationError(lastError, options.toolName, clone),
   };
 }

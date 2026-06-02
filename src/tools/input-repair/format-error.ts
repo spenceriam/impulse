@@ -39,14 +39,14 @@ function formatIssue(issue: z.ZodIssue, input: unknown): string {
       }
       return `${path}: value is too large`;
     case "invalid_string":
-      // For refined string validation (like path markdown check), include the actual value
-      if (typeof actualValue === "string" && actualValue.length < 100) {
-        return `${path}: ${issue.message} (received: "${actualValue}")`;
-      }
-      return `${path}: ${issue.message}`;
+      return `${path}: invalid string (${issue.validation})`;
     case "unrecognized_keys":
       return `${path}: unrecognized key(s): ${issue.keys.join(", ")}`;
     default:
+      // For custom validations (like .refine()), include the actual value when it's short
+      if (typeof actualValue === "string" && actualValue.length < 100) {
+        return `${path}: ${issue.message} (received: "${actualValue}")`;
+      }
       return `${path}: ${issue.message}`;
   }
 }
