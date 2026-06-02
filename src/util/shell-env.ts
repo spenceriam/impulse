@@ -21,6 +21,8 @@ export interface ShellEnvironment {
   tips: string[];
 }
 
+let cachedShellEnvironment: Promise<ShellEnvironment> | undefined;
+
 /**
  * Detect PowerShell version on Windows
  */
@@ -177,6 +179,11 @@ function detectUnixShellType(shellPath: string): {
  * Detect shell environment and capabilities (full cross-platform)
  */
 export async function detectShellEnvironment(): Promise<ShellEnvironment> {
+  cachedShellEnvironment ??= detectShellEnvironmentUncached();
+  return cachedShellEnvironment;
+}
+
+async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
   const platform =
     process.platform === "win32"
       ? "Windows"
@@ -337,15 +344,20 @@ export function formatShellEnvironment(env: ShellEnvironment): string {
  */
 export function generateShellContext(env: ShellEnvironment): string {
   const parts: string[] = [];
+  const shellType = env.platform === "Windows" ? env.shellType : "bash";
 
   parts.push(`Operating system: ${env.platform}`);
-  parts.push(`Shell: ${env.shell} (${env.shellType})`);
+  if (env.platform === "Windows") {
+    parts.push(`Shell: ${env.shell} (${env.shellType})`);
+  } else {
+    parts.push("Shell: bash (bash)");
+  }
 
   // Add platform-specific command guidance
   parts.push("");
   parts.push("IMPORTANT: Shell command syntax:");
 
-  switch (env.shellType) {
+  switch (shellType) {
     case "powershell5":
       parts.push("- Use ; (semicolon) to chain commands, NOT &&");
       parts.push("- && and || operators require PowerShell 7+");

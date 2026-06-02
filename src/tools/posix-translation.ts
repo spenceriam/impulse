@@ -26,17 +26,26 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // rm -rf (recursive force delete)
   {
-    pattern: /^rm\s+(-[rfivI]+\s+)+(.+)$/,
-    replacement: (m) => `Remove-Item -Recurse -Force -Path ${m[2]}`,
-    description: "rm -rf -> Remove-Item -Recurse -Force",
+    pattern: /^rm\s+((?:-[rfivI]+\s+)+)(.+)$/,
+    replacement: (m) => {
+      const flags = m[1] || "";
+      const recurse = flags.includes("r") ? " -Recurse" : "";
+      const force = flags.includes("f") ? " -Force" : "";
+      const verbose = flags.includes("v") ? " -Verbose" : "";
+      const confirm = flags.includes("i") || flags.includes("I") ? " -Confirm" : "";
+      return `Remove-Item${recurse}${force}${verbose}${confirm} -Path ${m[2]}`;
+    },
+    description: "rm -> Remove-Item",
   },
 
   // ls with args -> Get-ChildItem
   {
-    pattern: /^ls\s+(-[alhrtSR]+\s+)*(.*)$/,
+    pattern: /^ls(?:\s+(.*))?$/,
     replacement: (m) => {
-      const path = m[2] || ".";
-      const flags = m[1] || "";
+      const args = (m[1] || "").trim();
+      const parts = args ? args.split(/\s+/) : [];
+      const flags = parts.filter((part) => /^-[alhrtSR]+$/.test(part)).join("");
+      const path = parts.filter((part) => !/^-[alhrtSR]+$/.test(part)).join(" ") || ".";
       const recurse = flags.includes("R") ? " -Recurse" : "";
       const force = flags.includes("a") ? " -Force" : "";
       return `Get-ChildItem${recurse}${force} -Path ${path}`;
