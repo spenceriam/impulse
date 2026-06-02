@@ -298,16 +298,25 @@ function extractPaths(command: string): string[] {
 }
 
 function normalizeWindowsCommand(command: string): string {
-  const trimmed = command.trim();
+  let normalizedCmd = command.trim();
 
-  // Common POSIX pattern used by agents; translate to PowerShell so smoke tests
-  // and local setup commands work naturally on Windows.
-  const mkdirMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/i);
-  if (mkdirMatch?.[1]) {
-    return `New-Item -ItemType Directory -Force -Path ${mkdirMatch[1]} | Out-Null`;
+  // First, try POSIX-to-PowerShell translation for common patterns
+  const translation = translatePosixToPowerShell(normalizedCmd);
+  if (translation.wasTranslated) {
+    normalizedCmd = translation.translated;
   }
 
-  return command;
+  // Check for chaining operators that need PowerShell 7+
+  const versionCheck = detectPowerShellVersion(normalizedCmd);
+  if (versionCheck.hasChainingOperator) {
+    // Note: We'll still attempt to run it, but the system prompt should guide away from this
+    // Could add a warning to metadata in the future
+  }
+
+  // Wrap command to merge all output streams and convert to string
+  // PowerShell has 6 streams (Output, Error, Warning, Verbose, Debug, Information)
+  // *>&1 merges all to stdout, | Out-String converts objects to text
+  return `& { ${normalizedCmd} } *>&1 | Out-String`;
 }
 
 function getSpawnOptions(input: BashInput): SpawnOptions {

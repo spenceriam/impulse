@@ -188,9 +188,18 @@ export namespace Tool {
     const tool = tools.get(name);
 
     if (!tool) {
+      const suggestions = findCloseMatches(name);
+      let errorMsg = `Tool not found: ${name}`;
+      
+      if (suggestions.length > 0) {
+        errorMsg += `\n\nDid you mean: ${suggestions.join(", ")}?`;
+      }
+      
+      errorMsg += "\n\nUse tool_docs(list=true) to see all available tools.";
+      
       return {
         success: false,
-        output: `Tool not found: ${name}`,
+        output: errorMsg,
       };
     }
 
