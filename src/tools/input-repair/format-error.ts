@@ -1,21 +1,11 @@
 import type { z } from "zod";
+import { getAtPath } from "./path-utils";
 
 function formatIssue(issue: z.ZodIssue, input: unknown): string {
   const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
   
   // Extract the actual value that failed validation for better error messages
-  let actualValue: unknown;
-  try {
-    let current: any = input;
-    for (const segment of issue.path) {
-      if (current != null && typeof current === "object") {
-        current = current[segment as keyof typeof current];
-      }
-    }
-    actualValue = current;
-  } catch {
-    actualValue = undefined;
-  }
+  const actualValue = getAtPath(input, issue.path);
 
   switch (issue.code) {
     case "invalid_type":
@@ -39,7 +29,7 @@ function formatIssue(issue: z.ZodIssue, input: unknown): string {
       }
       return `${path}: value is too large`;
     case "invalid_string":
-      return `${path}: invalid string (${issue.validation})`;
+      return `${path}: ${issue.message}`;
     case "unrecognized_keys":
       return `${path}: unrecognized key(s): ${issue.keys.join(", ")}`;
     default:
