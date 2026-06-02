@@ -9,7 +9,8 @@ import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { isAllowAllBypass } from "../permission/index.js";
-import { isExperimentalAdvisorEnabled, load as loadConfig, type Config } from "../util/config";
+import { isExperimentalAdvisorEnabled, load as loadConfig, type Config } from "../util/config.js";
+import { detectShellEnvironment, generateShellContext } from "../util/shell-env.js";
 
 type Mode = typeof MODES[number];
 
@@ -498,7 +499,6 @@ export async function generateSystemPrompt(mode: Mode, cwd?: string, config?: Co
   const workingDir = cwd || process.cwd();
   const cfg = config ?? await loadConfig();
 
-  // Add working directory + host environment context at the start
   const hostPlatform = process.platform === "win32"
     ? "Windows"
     : process.platform === "darwin"
@@ -506,6 +506,7 @@ export async function generateSystemPrompt(mode: Mode, cwd?: string, config?: Co
       : "Linux";
   const preferredShell = process.platform === "win32" ? "PowerShell" : "bash";
 
+  // Add working directory + host environment context at the start
   const cwdContext = `
 ## Working Directory
 
@@ -517,6 +518,11 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
 - For new files, use relative paths like "src/foo.ts" or "docs/design.md"
 - NEVER guess or hallucinate paths like "/Users/SomeUser/Documents/..."
 - If you need to create a file, the path should be within ${workingDir}
+
+IMPORTANT: Shell commands MUST match the host operating system.
+- On Windows, prefer PowerShell-compatible commands and path syntax
+- Avoid POSIX-only flags like "mkdir -p", "rm -rf", or tools like "grep" unless you explicitly invoke a compatible shell
+- On macOS/Linux, prefer bash-compatible commands
 `;
 
   const parts: string[] = [

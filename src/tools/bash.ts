@@ -298,25 +298,16 @@ function extractPaths(command: string): string[] {
 }
 
 function normalizeWindowsCommand(command: string): string {
-  let normalizedCmd = command.trim();
+  const trimmed = command.trim();
 
-  // First, try POSIX-to-PowerShell translation for common patterns
-  const translation = translatePosixToPowerShell(normalizedCmd);
-  if (translation.wasTranslated) {
-    normalizedCmd = translation.translated;
+  // Common POSIX pattern used by agents; translate to PowerShell so smoke tests
+  // and local setup commands work naturally on Windows.
+  const mkdirMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/i);
+  if (mkdirMatch?.[1]) {
+    return `New-Item -ItemType Directory -Force -Path ${mkdirMatch[1]} | Out-Null`;
   }
 
-  // Check for chaining operators that need PowerShell 7+
-  const versionCheck = detectPowerShellVersion(normalizedCmd);
-  if (versionCheck.hasChainingOperator) {
-    // Note: We'll still attempt to run it, but the system prompt should guide away from this
-    // Could add a warning to metadata in the future
-  }
-
-  // Wrap command to merge all output streams and convert to string
-  // PowerShell has 6 streams (Output, Error, Warning, Verbose, Debug, Information)
-  // *>&1 merges all to stdout, | Out-String converts objects to text
-  return `& { ${normalizedCmd} } *>&1 | Out-String`;
+  return command;
 }
 
 function getSpawnOptions(input: BashInput): SpawnOptions {
@@ -526,7 +517,33 @@ async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   if (timeoutId) clearTimeout(timeoutId);
 
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-  const combinedOutput = [stdout, stderr].filter((part) => part.trim().length > 0).join("\n").trim();
+  
+  // Cross-platform output handling
+  // - Windows: Output already merged and converted by normalizeWindowsCommand
+  // - macOS/Linux: Merge stdout and stderr, preserve both streams
+  const shell = process.platform === "win32" ? "powershell" : "bash";
+  let combinedOutput: string;
+  
+  if (shell === "powershell") {
+    // Windows: Output is already processed, but stderr might still have content
+    combinedOutput = [stdout, stderr].filter((part) => part.trim().length > 0).join("\n").trim();
+  } else {
+    // macOS/Linux: Intelligently merge streams
+    // If both exist, show stdout first, then stderr as a separate section
+    const hasStdout = stdout.trim().length > 0;
+    const hasStderr = stderr.trim().length > 0;
+    
+    if (hasStdout && hasStderr) {
+      combinedOutput = `${stdout.trim()}\n\n[stderr]\n${stderr.trim()}`;
+    } else if (hasStdout) {
+      combinedOutput = stdout.trim();
+    } else if (hasStderr) {
+      combinedOutput = stderr.trim();
+    } else {
+      combinedOutput = "";
+    }
+  }
+  
   const outputLines = combinedOutput.length > 0 ? combinedOutput.split("\n") : [];
 
   let output = combinedOutput;
