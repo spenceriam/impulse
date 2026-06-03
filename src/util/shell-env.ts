@@ -87,10 +87,6 @@ async function detectPowerShellVersion(): Promise<{ version: string; isPwsh7: bo
     const pwsh7Result = await readStdoutAndDrainStderr(pwsh7Check);
     const pwsh7Output = pwsh7Result.stdout;
 
-    if (pwsh7Result.timedOut) {
-      return { version: "Unknown", isPwsh7: true };
-    }
-
     if (pwsh7Check.exitCode === 0 && pwsh7Output.trim()) {
       return { version: pwsh7Output.trim(), isPwsh7: true };
     }
