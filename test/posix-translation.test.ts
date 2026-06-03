@@ -23,6 +23,10 @@ describe("translatePosixToPowerShell", () => {
     expect(translatePosixToPowerShell("rm old.txt").translated).toBe(
       "Remove-Item -Path 'old.txt'"
     );
+    expect(translatePosixToPowerShell("rm -rf")).toEqual({
+      translated: "rm -rf",
+      wasTranslated: false,
+    });
   });
 
   test("captures repeated flags for grep, cp, and mv", () => {

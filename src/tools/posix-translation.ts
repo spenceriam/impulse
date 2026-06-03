@@ -127,7 +127,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // rm -rf (recursive force delete)
   {
-    pattern: /^rm\s+((?:-[rRfivI]+\s+)*)?(.+)$/,
+    pattern: /^rm\s+((?:-[rRfivI]+\s+)*)?(?!-)(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
       const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";

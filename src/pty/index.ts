@@ -49,8 +49,11 @@ export async function probePtyAvailable(): Promise<boolean> {
     return false;
   }
   try {
-    const shell = "bash";
-    const t = mod.spawn(shell, ["-c", "true"], {
+    const shell = process.platform === "win32" ? "powershell.exe" : "bash";
+    const args = process.platform === "win32"
+      ? ["-NoLogo", "-NoProfile", "-Command", "exit 0"]
+      : ["-c", "true"];
+    const t = mod.spawn(shell, args, {
       name: "xterm-256color",
       cols: 80,
       rows: 8,
