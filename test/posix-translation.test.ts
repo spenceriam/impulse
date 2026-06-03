@@ -4,7 +4,7 @@ import { translatePosixToPowerShell } from "../src/tools/posix-translation.js";
 describe("translatePosixToPowerShell", () => {
   test("translates ls flags without requiring a path", () => {
     expect(translatePosixToPowerShell("ls -la")).toEqual({
-      translated: "Get-ChildItem -Force -Path .",
+      translated: "Get-ChildItem -Force -Path '.'",
       wasTranslated: true,
       rule: "ls -> Get-ChildItem",
     });
@@ -12,25 +12,34 @@ describe("translatePosixToPowerShell", () => {
 
   test("preserves rm semantics for interactive and recursive flags", () => {
     expect(translatePosixToPowerShell("rm -i file.txt").translated).toBe(
-      "Remove-Item -Confirm -Path file.txt"
+      "Remove-Item -Confirm -Path 'file.txt'"
     );
     expect(translatePosixToPowerShell("rm -rf build").translated).toBe(
-      "Remove-Item -Recurse -Force -Path build"
+      "Remove-Item -Recurse -Force -Path 'build'"
     );
     expect(translatePosixToPowerShell("rm -R build").translated).toBe(
-      "Remove-Item -Recurse -Path build"
+      "Remove-Item -Recurse -Path 'build'"
     );
   });
 
   test("captures repeated flags for grep, cp, and mv", () => {
     expect(translatePosixToPowerShell("grep -r -i TODO src").translated).toBe(
-      'Select-String -Pattern "TODO" -Recurse -Path src'
+      "Select-String -Pattern 'TODO' -Recurse -Path 'src'"
     );
     expect(translatePosixToPowerShell("cp -R src dst").translated).toBe(
-      "Copy-Item -Recurse -Path src -Destination dst"
+      "Copy-Item -Recurse -Path 'src' -Destination 'dst'"
     );
     expect(translatePosixToPowerShell("mv -f src dst").translated).toBe(
-      "Move-Item -Force -Path src -Destination dst"
+      "Move-Item -Force -Path 'src' -Destination 'dst'"
+    );
+  });
+
+  test("quotes translated path arguments", () => {
+    expect(translatePosixToPowerShell("cat my file.txt").translated).toBe(
+      "Get-Content -Path 'my file.txt'"
+    );
+    expect(translatePosixToPowerShell("touch Bob's notes.txt").translated).toBe(
+      "New-Item -ItemType File -Force -Path 'Bob''s notes.txt'"
     );
   });
 

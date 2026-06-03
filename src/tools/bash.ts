@@ -12,7 +12,7 @@ import {
   type PtyHandle,
 } from "../pty";
 import { zCommandString, zFilePath } from "./schemas/branded";
-import { translatePosixToPowerShell } from "./posix-translation";
+import { detectPowerShellVersion, translatePosixToPowerShell } from "./posix-translation";
 import { detectShellEnvironment } from "../util/shell-env";
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
@@ -329,8 +329,17 @@ function extractPaths(command: string): string[] {
     .filter((token) => token.length > 0 && !token.startsWith("-") && isPathLikeToken(token));
 }
 
-function normalizeWindowsCommand(command: string): string {
+function quotePowerShellString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function normalizeWindowsCommand(command: string, shellType: "powershell5" | "powershell7"): string {
   const trimmed = command.trim();
+  const chaining = detectPowerShellVersion(trimmed);
+
+  if (shellType === "powershell5" && chaining.hasChainingOperator && chaining.recommendation) {
+    return `Write-Error ${quotePowerShellString(chaining.recommendation)}; exit 1`;
+  }
 
   // Use POSIX translation for Windows commands
   const { translated } = translatePosixToPowerShell(trimmed);
@@ -352,13 +361,14 @@ async function getSpawnOptions(input: BashInput): Promise<SpawnOptions> {
 
   if (process.platform === "win32") {
     const shellEnv = await detectShellEnvironment();
-    const executable = shellEnv.commandShellType === "powershell7" ? "pwsh" : "powershell.exe";
+    const commandShellType = shellEnv.commandShellType === "powershell7" ? "powershell7" : "powershell5";
+    const executable = commandShellType === "powershell7" ? "pwsh" : "powershell.exe";
 
     return {
       ...common,
       env: {
         ...process.env,
-        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command),
+        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, commandShellType),
       },
       cmd: [
         executable,

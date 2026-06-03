@@ -27,6 +27,19 @@ export interface ShellEnvironment {
 
 let cachedShellEnvironment: Promise<ShellEnvironment> | undefined;
 
+function streamToText(
+  stream: ReadableStream<Uint8Array> | number | null | undefined
+): Promise<string> {
+  return stream instanceof ReadableStream ? new Response(stream).text() : Promise.resolve("");
+}
+
+async function readStdoutAndDrainStderr(proc: ReturnType<typeof Bun.spawn>): Promise<string> {
+  const stdoutPromise = streamToText(proc.stdout);
+  const stderrPromise = streamToText(proc.stderr);
+  const [stdout] = await Promise.all([stdoutPromise, stderrPromise, proc.exited]);
+  return stdout;
+}
+
 /**
  * Detect PowerShell version on Windows
  */
@@ -43,8 +56,7 @@ async function detectPowerShellVersion(): Promise<{ version: string; isPwsh7: bo
       stderr: "pipe",
     });
 
-    const pwsh7Output = await new Response(pwsh7Check.stdout).text();
-    await pwsh7Check.exited;
+    const pwsh7Output = await readStdoutAndDrainStderr(pwsh7Check);
 
     if (pwsh7Check.exitCode === 0 && pwsh7Output.trim()) {
       return { version: pwsh7Output.trim(), isPwsh7: true };
@@ -66,8 +78,7 @@ async function detectPowerShellVersion(): Promise<{ version: string; isPwsh7: bo
       stderr: "pipe",
     });
 
-    const ps5Output = await new Response(ps5Check.stdout).text();
-    await ps5Check.exited;
+    const ps5Output = await readStdoutAndDrainStderr(ps5Check);
 
     if (ps5Check.exitCode === 0 && ps5Output.trim()) {
       return { version: ps5Output.trim(), isPwsh7: false };
@@ -90,8 +101,7 @@ async function detectBashVersion(): Promise<string | null> {
       stderr: "pipe",
     });
 
-    const output = await new Response(bashCheck.stdout).text();
-    await bashCheck.exited;
+    const output = await readStdoutAndDrainStderr(bashCheck);
 
     if (bashCheck.exitCode === 0 && output.trim()) {
       // Extract version from "GNU bash, version 5.2.15(1)-release"
@@ -116,8 +126,7 @@ async function detectZshVersion(): Promise<string | null> {
       stderr: "pipe",
     });
 
-    const output = await new Response(zshCheck.stdout).text();
-    await zshCheck.exited;
+    const output = await readStdoutAndDrainStderr(zshCheck);
 
     if (zshCheck.exitCode === 0 && output.trim()) {
       // Extract version from "zsh 5.9 (x86_64-apple-darwin23.0)"
@@ -142,8 +151,7 @@ async function detectFishVersion(): Promise<string | null> {
       stderr: "pipe",
     });
 
-    const output = await new Response(fishCheck.stdout).text();
-    await fishCheck.exited;
+    const output = await readStdoutAndDrainStderr(fishCheck);
 
     if (fishCheck.exitCode === 0 && output.trim()) {
       // Extract version from "fish, version 3.6.1"
