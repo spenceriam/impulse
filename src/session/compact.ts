@@ -73,8 +73,8 @@ class CompactManagerImpl {
    * - Tool call arguments and results
    * - Tool definitions JSON (~1500 tokens)
    * 
-   * Note: This is an estimate. The actual token count is available after each
-   * API call in the prompt_tokens field, which the StatusLine now uses.
+   * Note: This is an estimate used before a request is sent. The footer prefers
+   * provider usage after a turn completes, then falls back to request estimates.
    */
   async calculateContextUsage(sessionID: string): Promise<number> {
     const cached = this.usageCache.get(sessionID);

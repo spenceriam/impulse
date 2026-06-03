@@ -139,9 +139,16 @@ interface PartialToolCall {
   argumentsJson: string;
 }
 
-function estimateTokens(messages: ChatMessage[]): number {
+function estimateTokens(value: unknown): number {
   // Rough estimate: 1 token ≈ 4 chars
-  return Math.ceil(JSON.stringify(messages).length / 4);
+  return Math.ceil(JSON.stringify(value).length / 4);
+}
+
+function estimateRequestTokens(messages: ChatMessage[], tools: ToolDefinition[]): number {
+  return estimateTokens({
+    messages,
+    ...(tools.length > 0 ? { tools } : {}),
+  });
 }
 
 export interface RunTurnOptions {
@@ -301,6 +308,8 @@ export class AgentLoop {
       let activeStreamingMs = 0;
       let estimatedGeneratedTokens = 0;
       let lastSystemPrompt = "";
+      let latestPromptTokens: number | undefined;
+      let latestCompletionTokens = 0;
       let languageRetryUsed = false;
       let consecutiveTodoOnlyRounds = 0;
       let allowAllTodoNudgeUsed = false;
@@ -321,9 +330,15 @@ export class AgentLoop {
       while (continueLoop && !signal.aborted) {
         await this.flushTurnInjections();
 
-        // Check compaction before each iteration
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
-        const estimatedTokens = estimateTokens(buildChatMessages(currentMessages, ""));
+        const systemPrompt = await generateSystemPrompt(mode, undefined, config);
+        lastSystemPrompt = systemPrompt;
+        let chatMessages = buildChatMessages(currentMessages, systemPrompt);
+
+        // Check compaction before each iteration using the same request shape
+        // sent to the provider: system prompt, history, preserved reasoning,
+        // tool calls/results, and tool definitions.
+        const estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
         const contextPct = estimatedTokens / contextWindow;
 
         if (contextPct >= COMPACT_TRIGGER_THRESHOLD) {
@@ -334,13 +349,9 @@ export class AgentLoop {
           }
           // Refresh session after compaction
           session = SessionManager.getCurrentSession()!;
+          const compactedMessages = session.messages ?? [];
+          chatMessages = buildChatMessages(compactedMessages, systemPrompt);
         }
-
-        // Build messages for API call
-        const freshMessages = (SessionManager.getCurrentSession()?.messages ?? []);
-        const systemPrompt = await generateSystemPrompt(mode, undefined, config);
-        lastSystemPrompt = systemPrompt;
-        const chatMessages = buildChatMessages(freshMessages, systemPrompt);
 
         // ── Stream response ─────────────────────────────────────────────────
         const streamOptions: StreamCompletionOptions = {
@@ -408,6 +419,8 @@ export class AgentLoop {
           // Token usage
           if (chunk.usage) {
             chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
+            latestPromptTokens = chunk.usage.prompt_tokens;
+            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
           }
         }
 
@@ -893,16 +906,23 @@ export class AgentLoop {
         ? Math.round((estimatedGeneratedTokens / generationMs) * 1000)
         : 0;
       const finalMessages = SessionManager.getCurrentSession()?.messages ?? [];
-      const estimatedContextTokens = estimateTokens(buildChatMessages(finalMessages, lastSystemPrompt));
+      const estimatedContextTokens = estimateRequestTokens(
+        buildChatMessages(finalMessages, lastSystemPrompt),
+        toolDefs
+      );
+      const providerContextTokens = latestPromptTokens !== undefined
+        ? latestPromptTokens + latestCompletionTokens
+        : undefined;
+      const contextTokens = providerContextTokens ?? estimatedContextTokens;
       const debugInstrumentationNudge =
         mode === "DEBUG"
           ? buildDebugInstrumentationNudge([...debugEditedFiles])
           : undefined;
 
       events.onTurnEnd({
-        inputTokens: estimatedContextTokens,
+        inputTokens: contextTokens,
         outputTokens,
-        contextPct: Math.min(1, estimatedContextTokens / contextWindow),
+        contextPct: Math.min(1, contextTokens / contextWindow),
         tokensPerSecond,
         durationMs,
         ...(debugInstrumentationNudge
