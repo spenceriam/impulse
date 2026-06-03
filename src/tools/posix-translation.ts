@@ -139,21 +139,6 @@ const TRANSLATIONS: CommandTranslation[] = [
     description: "rm -> Remove-Item",
   },
 
-  // ls with args -> Get-ChildItem
-  {
-    pattern: /^ls(?:\s+(.*))?$/,
-    replacement: (m) => {
-      const args = (m[1] || "").trim();
-      const parts = parseShellWords(args);
-      const flags = parts.filter((part) => /^-[alhrtSR]+$/.test(part)).join("");
-      const paths = parts.filter((part) => !/^-[alhrtSR]+$/.test(part));
-      const recurse = flags.includes("R") ? " -Recurse" : "";
-      const force = flags.includes("a") ? " -Force" : "";
-      return `Get-ChildItem${recurse}${force} -Path ${quotePowerShellArray(paths)}`;
-    },
-    description: "ls -> Get-ChildItem",
-  },
-
   // cat -> Get-Content
   {
     pattern: /^cat\s+(.+)$/,

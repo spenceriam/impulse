@@ -2,11 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { detectPowerShellVersion, translatePosixToPowerShell } from "../src/tools/posix-translation.js";
 
 describe("translatePosixToPowerShell", () => {
-  test("translates ls flags without requiring a path", () => {
+  test("leaves ls unchanged because PowerShell already has an ls alias", () => {
     expect(translatePosixToPowerShell("ls -la")).toEqual({
-      translated: "Get-ChildItem -Force -Path '.'",
-      wasTranslated: true,
-      rule: "ls -> Get-ChildItem",
+      translated: "ls -la",
+      wasTranslated: false,
     });
   });
 

@@ -53,7 +53,7 @@ When running commands on Windows, common POSIX patterns are automatically transl
 |---------------|----------------------|
 | `mkdir -p a b` | `New-Item -ItemType Directory -Force -Path a, b` |
 | `rm -rf x` | `Remove-Item -Recurse -Force x` |
-| `ls -la` | `Get-ChildItem -Force` |
+| `ls` | Unchanged (`ls` is already a PowerShell alias) |
 | `cat file.txt` | `Get-Content -Path file.txt` |
 | `head -n 10 file` | `Get-Content -TotalCount 10 -Path file` |
 | `tail -n 10 file` | `Get-Content -Tail 10 -Path file` |
