@@ -29,16 +29,23 @@ describe("translatePosixToPowerShell", () => {
     });
   });
 
-  test("captures repeated flags for grep, cp, and mv", () => {
-    expect(translatePosixToPowerShell("grep -r -i TODO src").translated).toBe(
-      "Select-String -Pattern 'TODO' -Recurse -Path 'src'"
-    );
-    expect(translatePosixToPowerShell("cp -R src dst").translated).toBe(
-      "Copy-Item -Recurse -Path 'src' -Destination 'dst'"
-    );
-    expect(translatePosixToPowerShell("mv -f src dst").translated).toBe(
-      "Move-Item -Force -Path 'src' -Destination 'dst'"
-    );
+  test("leaves complex command families unchanged", () => {
+    expect(translatePosixToPowerShell("grep -r my pattern src")).toEqual({
+      translated: "grep -r my pattern src",
+      wasTranslated: false,
+    });
+    expect(translatePosixToPowerShell("which git node")).toEqual({
+      translated: "which git node",
+      wasTranslated: false,
+    });
+    expect(translatePosixToPowerShell("cp -R src dst")).toEqual({
+      translated: "cp -R src dst",
+      wasTranslated: false,
+    });
+    expect(translatePosixToPowerShell("mv src dst")).toEqual({
+      translated: "mv src dst",
+      wasTranslated: false,
+    });
   });
 
   test("quotes translated path arguments", () => {
@@ -56,9 +63,6 @@ describe("translatePosixToPowerShell", () => {
     );
     expect(translatePosixToPowerShell("cat file1 file2").translated).toBe(
       "Get-Content -Path 'file1', 'file2'"
-    );
-    expect(translatePosixToPowerShell('cp -R src "dest dir"').translated).toBe(
-      "Copy-Item -Recurse -Path 'src' -Destination 'dest dir'"
     );
   });
 

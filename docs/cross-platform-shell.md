@@ -57,15 +57,11 @@ When running commands on Windows, common POSIX patterns are automatically transl
 | `cat file.txt` | `Get-Content -Path file.txt` |
 | `head -n 10 file` | `Get-Content -TotalCount 10 -Path file` |
 | `tail -n 10 file` | `Get-Content -Tail 10 -Path file` |
-| `grep -r pattern` | `Select-String -Pattern pattern -Recurse` |
-| `which cmd` | `Get-Command -Name cmd` |
 | `wc -l file` | `(Get-Content -Path file \| Measure-Object -Line).Lines` |
 | `echo text` | Unchanged (`echo` is already a PowerShell alias) |
 | `pwd` | `Get-Location` |
 | `env` | `Get-ChildItem Env:` |
 | `touch file` | `New-Item -ItemType File -Force -Path file` |
-| `cp -r src dst` | `Copy-Item -Recurse -Path src -Destination dst` |
-| `mv src dst` | `Move-Item -Path src -Destination dst` |
 
 **Translation happens automatically for simple single commands** - AI models can write common POSIX commands and they'll work on Windows. Compound commands, pipelines, and redirects are left untouched because partial regex rewrites can change command behavior.
 

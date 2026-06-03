@@ -175,26 +175,6 @@ const TRANSLATIONS: CommandTranslation[] = [
     description: "tail -n -> Get-Content -Tail",
   },
 
-  // grep -r pattern -> Select-String -Pattern pattern -Recurse
-  {
-    pattern: /^grep\s+((?:-[rinvE]+\s+)*)['"]?([^'"]+)['"]?\s+(.+)$/,
-    replacement: (m) => {
-      const pattern = m[2];
-      const path = m[3];
-      const flags = m[1] || "";
-      const recurse = flags.includes("r") ? " -Recurse" : "";
-      return `Select-String -Pattern ${quotePowerShellString(pattern)}${recurse} -Path ${quotePowerShellArray(parseShellWords(path))}`;
-    },
-    description: "grep -> Select-String",
-  },
-
-  // which -> Get-Command
-  {
-    pattern: /^which\s+(.+)$/,
-    replacement: (m) => `Get-Command -Name ${quotePowerShellString(m[1])} -ErrorAction SilentlyContinue`,
-    description: "which -> Get-Command",
-  },
-
   // wc -l -> measure line count
   {
     pattern: /^wc\s+-l\s+(.+)$/,
@@ -223,36 +203,6 @@ const TRANSLATIONS: CommandTranslation[] = [
     description: "touch -> New-Item -ItemType File",
   },
 
-  // cp -r -> Copy-Item -Recurse
-  {
-    pattern: /^cp\s+((?:-[rRfiv]+\s+)*)(.+)$/,
-    replacement: (m) => {
-      const flags = m[1] || "";
-      const paths = parseShellWords(m[2]);
-      const destination = paths.at(-1);
-      const sources = paths.slice(0, -1);
-      const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
-      const force = flags.includes("f") ? " -Force" : "";
-      if (!destination || sources.length === 0) return m[0] ?? "";
-      return `Copy-Item${recurse}${force} -Path ${quotePowerShellArray(sources)} -Destination ${quotePowerShellString(destination)}`;
-    },
-    description: "cp -> Copy-Item",
-  },
-
-  // mv -> Move-Item
-  {
-    pattern: /^mv\s+((?:-[fiv]+\s+)*)(.+)$/,
-    replacement: (m) => {
-      const flags = m[1] || "";
-      const paths = parseShellWords(m[2]);
-      const destination = paths.at(-1);
-      const sources = paths.slice(0, -1);
-      const force = flags.includes("f") ? " -Force" : "";
-      if (!destination || sources.length === 0) return m[0] ?? "";
-      return `Move-Item${force} -Path ${quotePowerShellArray(sources)} -Destination ${quotePowerShellString(destination)}`;
-    },
-    description: "mv -> Move-Item",
-  },
 ];
 
 /**

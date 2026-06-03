@@ -26,18 +26,42 @@ export interface ShellEnvironment {
 }
 
 let cachedShellEnvironment: Promise<ShellEnvironment> | undefined;
+const SHELL_DETECTION_TIMEOUT_MS = 1500;
 
 function streamToText(
   stream: ReadableStream<Uint8Array> | number | null | undefined
 ): Promise<string> {
-  return stream instanceof ReadableStream ? new Response(stream).text() : Promise.resolve("");
+  return stream instanceof ReadableStream
+    ? new Response(stream).text().catch(() => "")
+    : Promise.resolve("");
 }
 
 async function readStdoutAndDrainStderr(proc: ReturnType<typeof Bun.spawn>): Promise<string> {
   const stdoutPromise = streamToText(proc.stdout);
   const stderrPromise = streamToText(proc.stderr);
-  const [stdout] = await Promise.all([stdoutPromise, stderrPromise, proc.exited]);
-  return stdout;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<"timeout">((resolve) => {
+    timeoutId = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        // Process may have already exited.
+      }
+      resolve("timeout");
+    }, SHELL_DETECTION_TIMEOUT_MS);
+  });
+
+  try {
+    const result = await Promise.race([
+      Promise.all([stdoutPromise, stderrPromise, proc.exited]).then(([stdout]) => stdout),
+      timeoutPromise,
+    ]);
+
+    return result === "timeout" ? "" : result;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 /**
