@@ -24,7 +24,7 @@ export function spawnWithNodePty(
   signal?: AbortSignal,
   options?: PtySpawnOptions
 ): PtyHandle {
-  const shell = options?.shell ?? (process.platform === "win32" ? "powershell.exe" : process.env['SHELL'] || "bash");
+  const shell = options?.shell ?? (process.platform === "win32" ? "powershell.exe" : "bash");
   const args = options?.args ?? (
     process.platform === "win32"
       ? ["-NoLogo", "-NoProfile", "-Command", command]

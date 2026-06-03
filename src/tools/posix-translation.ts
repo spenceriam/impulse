@@ -127,7 +127,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // rm -rf (recursive force delete)
   {
-    pattern: /^rm\s+((?:-[rRfivI]+\s+)+)(.+)$/,
+    pattern: /^rm\s+((?:-[rRfivI]+\s+)*)?(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
       const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
@@ -205,7 +205,7 @@ const TRANSLATIONS: CommandTranslation[] = [
   // echo -> Write-Output
   {
     pattern: /^echo\s+(.+)$/,
-    replacement: (m) => `Write-Output ${m[1]}`,
+    replacement: (m) => `Write-Output ${quotePowerShellString(parseShellWords(m[1]).join(" "))}`,
     description: "echo -> Write-Output",
   },
 

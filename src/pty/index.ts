@@ -49,7 +49,7 @@ export async function probePtyAvailable(): Promise<boolean> {
     return false;
   }
   try {
-    const shell = process.env['SHELL'] || "bash";
+    const shell = "bash";
     const t = mod.spawn(shell, ["-c", "true"], {
       name: "xterm-256color",
       cols: 80,

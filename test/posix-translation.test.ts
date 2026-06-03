@@ -20,6 +20,9 @@ describe("translatePosixToPowerShell", () => {
     expect(translatePosixToPowerShell("rm -R build").translated).toBe(
       "Remove-Item -Recurse -Path 'build'"
     );
+    expect(translatePosixToPowerShell("rm old.txt").translated).toBe(
+      "Remove-Item -Path 'old.txt'"
+    );
   });
 
   test("captures repeated flags for grep, cp, and mv", () => {
@@ -71,7 +74,9 @@ describe("translatePosixToPowerShell", () => {
   });
 
   test("keeps echo pipeline-compatible when translated", () => {
-    expect(translatePosixToPowerShell("echo value").translated).toBe("Write-Output value");
+    expect(translatePosixToPowerShell("echo value").translated).toBe("Write-Output 'value'");
+    expect(translatePosixToPowerShell("echo hello world").translated).toBe("Write-Output 'hello world'");
+    expect(translatePosixToPowerShell('echo "hello world"').translated).toBe("Write-Output 'hello world'");
   });
 
   test("detects only unquoted PowerShell chaining operators", () => {
