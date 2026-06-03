@@ -16,6 +16,49 @@ function quotePowerShellString(value: string | undefined): string {
   return `'${text.replaceAll("'", "''")}'`;
 }
 
+function parseShellWords(input: string | undefined): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+
+  for (const ch of input ?? "") {
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (current.length > 0) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (current.length > 0) {
+    words.push(current);
+  }
+
+  return words;
+}
+
+function quotePowerShellArray(values: string[]): string {
+  const items = values.length > 0 ? values : ["."];
+  return items.map((value) => quotePowerShellString(value)).join(", ");
+}
+
 function hasUnquotedChainingOperator(command: string): boolean {
   let quote: "'" | '"' | null = null;
 
@@ -61,11 +104,7 @@ function hasUnquotedShellOperator(command: string): boolean {
       continue;
     }
 
-    if (ch === "|" || ch === ">" || ch === "<" || ch === ";") {
-      return true;
-    }
-
-    if (ch === "&" && command[i + 1] === "&") {
+    if (ch === "|" || ch === ">" || ch === "<" || ch === ";" || ch === "&") {
       return true;
     }
   }
@@ -82,7 +121,7 @@ const TRANSLATIONS: CommandTranslation[] = [
   // mkdir -p (create directory with parents)
   {
     pattern: /^mkdir\s+-p\s+(.+)$/i,
-    replacement: (m) => `New-Item -ItemType Directory -Force -Path ${quotePowerShellString(m[1])}`,
+    replacement: (m) => `New-Item -ItemType Directory -Force -Path ${quotePowerShellArray(parseShellWords(m[1]))}`,
     description: "mkdir -p -> New-Item -Force",
   },
 
@@ -95,7 +134,7 @@ const TRANSLATIONS: CommandTranslation[] = [
       const force = flags.includes("f") ? " -Force" : "";
       const verbose = flags.includes("v") ? " -Verbose" : "";
       const confirm = flags.includes("i") || flags.includes("I") ? " -Confirm" : "";
-      return `Remove-Item${recurse}${force}${verbose}${confirm} -Path ${quotePowerShellString(m[2])}`;
+      return `Remove-Item${recurse}${force}${verbose}${confirm} -Path ${quotePowerShellArray(parseShellWords(m[2]))}`;
     },
     description: "rm -> Remove-Item",
   },
@@ -105,12 +144,12 @@ const TRANSLATIONS: CommandTranslation[] = [
     pattern: /^ls(?:\s+(.*))?$/,
     replacement: (m) => {
       const args = (m[1] || "").trim();
-      const parts = args ? args.split(/\s+/) : [];
+      const parts = parseShellWords(args);
       const flags = parts.filter((part) => /^-[alhrtSR]+$/.test(part)).join("");
-      const path = parts.filter((part) => !/^-[alhrtSR]+$/.test(part)).join(" ") || ".";
+      const paths = parts.filter((part) => !/^-[alhrtSR]+$/.test(part));
       const recurse = flags.includes("R") ? " -Recurse" : "";
       const force = flags.includes("a") ? " -Force" : "";
-      return `Get-ChildItem${recurse}${force} -Path ${quotePowerShellString(path)}`;
+      return `Get-ChildItem${recurse}${force} -Path ${quotePowerShellArray(paths)}`;
     },
     description: "ls -> Get-ChildItem",
   },
@@ -118,21 +157,21 @@ const TRANSLATIONS: CommandTranslation[] = [
   // cat -> Get-Content
   {
     pattern: /^cat\s+(.+)$/,
-    replacement: (m) => `Get-Content -Path ${quotePowerShellString(m[1])}`,
+    replacement: (m) => `Get-Content -Path ${quotePowerShellArray(parseShellWords(m[1]))}`,
     description: "cat -> Get-Content",
   },
 
   // head -n X -> Get-Content -TotalCount X
   {
     pattern: /^head\s+-n\s+(\d+)\s+(.+)$/,
-    replacement: (m) => `Get-Content -TotalCount ${m[1]} -Path ${quotePowerShellString(m[2])}`,
+    replacement: (m) => `Get-Content -TotalCount ${m[1]} -Path ${quotePowerShellArray(parseShellWords(m[2]))}`,
     description: "head -n -> Get-Content -TotalCount",
   },
 
   // tail -n X -> Get-Content -Tail X
   {
     pattern: /^tail\s+-n\s+(\d+)\s+(.+)$/,
-    replacement: (m) => `Get-Content -Tail ${m[1]} -Path ${quotePowerShellString(m[2])}`,
+    replacement: (m) => `Get-Content -Tail ${m[1]} -Path ${quotePowerShellArray(parseShellWords(m[2]))}`,
     description: "tail -n -> Get-Content -Tail",
   },
 
@@ -144,7 +183,7 @@ const TRANSLATIONS: CommandTranslation[] = [
       const path = m[3];
       const flags = m[1] || "";
       const recurse = flags.includes("r") ? " -Recurse" : "";
-      return `Select-String -Pattern ${quotePowerShellString(pattern)}${recurse} -Path ${quotePowerShellString(path)}`;
+      return `Select-String -Pattern ${quotePowerShellString(pattern)}${recurse} -Path ${quotePowerShellArray(parseShellWords(path))}`;
     },
     description: "grep -> Select-String",
   },
@@ -159,7 +198,7 @@ const TRANSLATIONS: CommandTranslation[] = [
   // wc -l -> measure line count
   {
     pattern: /^wc\s+-l\s+(.+)$/,
-    replacement: (m) => `(Get-Content -Path ${quotePowerShellString(m[1])}).Count`,
+    replacement: (m) => `(Get-Content -Path ${quotePowerShellArray(parseShellWords(m[1]))}).Count`,
     description: "wc -l -> (Get-Content).Count",
   },
 
@@ -187,29 +226,37 @@ const TRANSLATIONS: CommandTranslation[] = [
   // touch -> New-Item -ItemType File
   {
     pattern: /^touch\s+(.+)$/,
-    replacement: (m) => `New-Item -ItemType File -Force -Path ${quotePowerShellString(m[1])}`,
+    replacement: (m) => `New-Item -ItemType File -Force -Path ${quotePowerShellArray(parseShellWords(m[1]))}`,
     description: "touch -> New-Item -ItemType File",
   },
 
   // cp -r -> Copy-Item -Recurse
   {
-    pattern: /^cp\s+((?:-[rRfiv]+\s+)*)(.+)\s+(.+)$/,
+    pattern: /^cp\s+((?:-[rRfiv]+\s+)*)(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
+      const paths = parseShellWords(m[2]);
+      const destination = paths.at(-1);
+      const sources = paths.slice(0, -1);
       const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
       const force = flags.includes("f") ? " -Force" : "";
-      return `Copy-Item${recurse}${force} -Path ${quotePowerShellString(m[2])} -Destination ${quotePowerShellString(m[3])}`;
+      if (!destination || sources.length === 0) return m[0] ?? "";
+      return `Copy-Item${recurse}${force} -Path ${quotePowerShellArray(sources)} -Destination ${quotePowerShellString(destination)}`;
     },
     description: "cp -> Copy-Item",
   },
 
   // mv -> Move-Item
   {
-    pattern: /^mv\s+((?:-[fiv]+\s+)*)(.+)\s+(.+)$/,
+    pattern: /^mv\s+((?:-[fiv]+\s+)*)(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
+      const paths = parseShellWords(m[2]);
+      const destination = paths.at(-1);
+      const sources = paths.slice(0, -1);
       const force = flags.includes("f") ? " -Force" : "";
-      return `Move-Item${force} -Path ${quotePowerShellString(m[2])} -Destination ${quotePowerShellString(m[3])}`;
+      if (!destination || sources.length === 0) return m[0] ?? "";
+      return `Move-Item${force} -Path ${quotePowerShellArray(sources)} -Destination ${quotePowerShellString(destination)}`;
     },
     description: "mv -> Move-Item",
   },

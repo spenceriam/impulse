@@ -351,7 +351,10 @@ function encodePowerShellCommand(command: string): string {
   return Buffer.from(command, "utf16le").toString("base64");
 }
 
-async function getSpawnOptions(input: BashInput): Promise<SpawnOptions> {
+async function getSpawnOptions(
+  input: BashInput,
+  options: { interactive?: boolean } = {}
+): Promise<SpawnOptions> {
   const cwd = input.workdir ? sanitizePath(input.workdir) : undefined;
   const common: SpawnOptions = {
     ...(cwd ? { cwd } : {}),
@@ -363,6 +366,7 @@ async function getSpawnOptions(input: BashInput): Promise<SpawnOptions> {
     const shellEnv = await detectShellEnvironment();
     const commandShellType = shellEnv.commandShellType === "powershell7" ? "powershell7" : "powershell5";
     const executable = commandShellType === "powershell7" ? "pwsh" : "powershell.exe";
+    const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
 
     return {
       ...common,
@@ -374,7 +378,7 @@ async function getSpawnOptions(input: BashInput): Promise<SpawnOptions> {
         executable,
         "-NoLogo",
         "-NoProfile",
-        "-NonInteractive",
+        ...interactiveArgs,
         "-ExecutionPolicy",
         "Bypass",
         "-EncodedCommand",
@@ -469,7 +473,7 @@ async function executeWithPty(
   };
   
   try {
-    const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input) : undefined;
+    const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input, { interactive: true }) : undefined;
     const ptyOptions = spawnOptions
       ? (() => {
           const [shell, ...args] = spawnOptions.cmd;

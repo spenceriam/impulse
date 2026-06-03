@@ -35,17 +35,33 @@ describe("translatePosixToPowerShell", () => {
   });
 
   test("quotes translated path arguments", () => {
-    expect(translatePosixToPowerShell("cat my file.txt").translated).toBe(
+    expect(translatePosixToPowerShell('cat "my file.txt"').translated).toBe(
       "Get-Content -Path 'my file.txt'"
     );
-    expect(translatePosixToPowerShell("touch Bob's notes.txt").translated).toBe(
+    expect(translatePosixToPowerShell('touch "Bob\'s notes.txt"').translated).toBe(
       "New-Item -ItemType File -Force -Path 'Bob''s notes.txt'"
+    );
+  });
+
+  test("preserves multiple path arguments", () => {
+    expect(translatePosixToPowerShell("mkdir -p dir1 dir2").translated).toBe(
+      "New-Item -ItemType Directory -Force -Path 'dir1', 'dir2'"
+    );
+    expect(translatePosixToPowerShell("cat file1 file2").translated).toBe(
+      "Get-Content -Path 'file1', 'file2'"
+    );
+    expect(translatePosixToPowerShell('cp -R src "dest dir"').translated).toBe(
+      "Copy-Item -Recurse -Path 'src' -Destination 'dest dir'"
     );
   });
 
   test("does not partially translate pipelines or redirects", () => {
     expect(translatePosixToPowerShell("ls -la | grep package")).toEqual({
       translated: "ls -la | grep package",
+      wasTranslated: false,
+    });
+    expect(translatePosixToPowerShell("echo a & echo b")).toEqual({
+      translated: "echo a & echo b",
       wasTranslated: false,
     });
     expect(translatePosixToPowerShell('echo "data" > file.txt')).toEqual({
