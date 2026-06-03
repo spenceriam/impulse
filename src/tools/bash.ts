@@ -303,8 +303,10 @@ function normalizeWindowsCommand(command: string): string {
 
   // Use POSIX translation for Windows commands
   const { translated } = translatePosixToPowerShell(trimmed);
-  
-  return translated;
+
+  // PowerShell command output may be emitted as objects across multiple streams.
+  // Wrap the command so tool output consistently contains merged, textual data.
+  return `& { ${translated} } *>&1 | Out-String`;
 }
 
 function getSpawnOptions(input: BashInput): SpawnOptions {

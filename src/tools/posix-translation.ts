@@ -11,6 +11,36 @@ interface CommandTranslation {
   description: string;
 }
 
+function hasUnquotedShellOperator(command: string): boolean {
+  let quote: "'" | '"' | null = null;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === "|" || ch === ">" || ch === "<" || ch === ";") {
+      return true;
+    }
+
+    if (ch === "&" && command[i + 1] === "&") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Translation rules for common POSIX commands
  * 
@@ -26,10 +56,10 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // rm -rf (recursive force delete)
   {
-    pattern: /^rm\s+((?:-[rfivI]+\s+)+)(.+)$/,
+    pattern: /^rm\s+((?:-[rRfivI]+\s+)+)(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
-      const recurse = flags.includes("r") ? " -Recurse" : "";
+      const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
       const force = flags.includes("f") ? " -Force" : "";
       const verbose = flags.includes("v") ? " -Verbose" : "";
       const confirm = flags.includes("i") || flags.includes("I") ? " -Confirm" : "";
@@ -101,11 +131,11 @@ const TRANSLATIONS: CommandTranslation[] = [
     description: "wc -l -> (Get-Content).Count",
   },
 
-  // echo -> Write-Host
+  // echo -> Write-Output
   {
     pattern: /^echo\s+(.+)$/,
-    replacement: (m) => `Write-Host ${m[1]}`,
-    description: "echo -> Write-Host",
+    replacement: (m) => `Write-Output ${m[1]}`,
+    description: "echo -> Write-Output",
   },
 
   // pwd -> Get-Location
@@ -131,7 +161,7 @@ const TRANSLATIONS: CommandTranslation[] = [
 
   // cp -r -> Copy-Item -Recurse
   {
-    pattern: /^cp\s+((?:-[rfiv]+\s+)*)(.+)\s+(.+)$/,
+    pattern: /^cp\s+((?:-[rRfiv]+\s+)*)(.+)\s+(.+)$/,
     replacement: (m) => {
       const flags = m[1] || "";
       const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
@@ -165,6 +195,15 @@ export function translatePosixToPowerShell(command: string): {
   rule?: string;
 } {
   const trimmed = command.trim();
+
+  // Translate only simple single commands. Compound commands, pipelines, and
+  // redirects need full-shell parsing; partial regex rewrites are unsafe.
+  if (hasUnquotedShellOperator(trimmed)) {
+    return {
+      translated: trimmed,
+      wasTranslated: false,
+    };
+  }
 
   for (const rule of TRANSLATIONS) {
     const match = trimmed.match(rule.pattern);

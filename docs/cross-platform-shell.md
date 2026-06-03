@@ -6,7 +6,7 @@ This document describes impulse's approach to cross-platform shell command execu
 
 impulse is designed to **"just work"** across all major operating systems without requiring developers to write platform-specific commands. The system automatically:
 
-1. **Detects** the host shell and version at runtime
+1. **Detects** the host login shell and command execution shell at runtime
 2. **Translates** POSIX commands to native equivalents when needed
 3. **Merges** output streams appropriately for each platform
 4. **Guides** the AI model with platform-specific command syntax
@@ -37,11 +37,12 @@ On startup or when generating system prompts, impulse:
 1. Detects the operating system (`process.platform`)
 2. Queries the shell version:
    - **Windows**: Attempts `pwsh --version`, falls back to `powershell.exe`
-   - **macOS/Linux**: Reads `$SHELL` environment variable and queries version
+   - **macOS/Linux**: Reads `$SHELL` for login-shell context and uses `bash -lc` for command execution
 3. Returns a `ShellEnvironment` object with:
    - Platform name
-   - Shell type and version
-   - Command chaining support
+   - Login shell type and version
+   - Command execution shell type
+   - Command chaining support for the execution shell
    - Platform-specific tips and recommendations
 
 ### 2. POSIX-to-PowerShell Translation (`src/tools/posix-translation.ts`)
@@ -59,14 +60,14 @@ When running commands on Windows, common POSIX patterns are automatically transl
 | `grep -r pattern` | `Select-String -Pattern pattern -Recurse` |
 | `which cmd` | `Get-Command -Name cmd` |
 | `wc -l file` | `(Get-Content -Path file).Count` |
-| `echo text` | `Write-Host text` |
+| `echo text` | `Write-Output text` |
 | `pwd` | `Get-Location` |
 | `env` | `Get-ChildItem Env:` |
 | `touch file` | `New-Item -ItemType File -Force -Path file` |
 | `cp -r src dst` | `Copy-Item -Recurse -Path src -Destination dst` |
 | `mv src dst` | `Move-Item -Path src -Destination dst` |
 
-**Translation happens automatically** - AI models can write POSIX commands and they'll work on Windows.
+**Translation happens automatically for simple single commands** - AI models can write common POSIX commands and they'll work on Windows. Compound commands, pipelines, and redirects are left untouched because partial regex rewrites can change command behavior.
 
 ### 3. Output Stream Handling (`src/tools/bash.ts`)
 
@@ -79,7 +80,7 @@ Different platforms handle command output differently:
   - `*>&1` merges all streams to stdout
   - `| Out-String` converts objects to readable text
 
-#### macOS/Linux bash/zsh
+#### macOS/Linux bash
 - Commands return **text** by default
 - 2 main streams: stdout (1) and stderr (2)
 - **Solution**: Intelligently merge streams
@@ -87,10 +88,10 @@ Different platforms handle command output differently:
   - If stderr exists, append as `[stderr]` section
   - Preserve distinction for debugging
 
-#### fish shell
-- Similar to bash/zsh but with different syntax
-- Uses `and` / `or` instead of `&&` / `||`
-- **Solution**: Detect fish and adjust command separator
+#### zsh/fish login shells
+- zsh and fish are detected as login shells for context
+- The `bash` tool still executes commands with `bash -lc` on macOS/Linux
+- **Solution**: Prompt guidance uses bash/POSIX command syntax while still showing the detected login shell
 
 ### 4. System Prompt Integration (`src/agent/prompts.ts`)
 
@@ -98,14 +99,15 @@ The AI model receives platform-specific guidance in every system prompt:
 
 ```markdown
 Operating system: macOS
-Shell: zsh 5.9 (zsh)
+Login shell: zsh 5.9 (zsh)
+Command shell: bash 5.2.15 (bash, via bash -lc)
 
 IMPORTANT: Shell command syntax:
 - Use && to chain commands (runs next only if previous succeeds)
 - Use || for OR logic (runs next only if previous fails)
 - Use ; to run commands unconditionally
-- zsh is POSIX-compatible with bash-like syntax
-- Enhanced globbing available with setopt
+- The bash tool executes commands with bash -lc on macOS/Linux
+- Standard POSIX commands available (ls, grep, cat, etc.)
 ```
 
 This helps the model:
@@ -115,16 +117,13 @@ This helps the model:
 
 ## Command Chaining
 
-Different shells support different chaining operators:
+Different execution shells support different chaining operators:
 
 | Shell | Conditional AND | Conditional OR | Unconditional |
 |-------|-----------------|----------------|---------------|
 | PowerShell 5.x | ❌ (use `;`) | ❌ (use `;`) | `;` |
 | PowerShell 7.x | `&&` | `\|\|` | `;` |
-| bash | `&&` | `\|\|` | `;` |
-| zsh | `&&` | `\|\|` | `;` |
-| fish | `and` | `or` | `;` |
-| sh | `&&` | `\|\|` | `;` |
+| macOS/Linux bash (`bash -lc`) | `&&` | `\|\|` | `;` |
 
 impulse provides `supportsChainedCommands` and `commandSeparator` in `ShellEnvironment` to guide command construction.
 
@@ -138,9 +137,9 @@ impulse provides `supportsChainedCommands` and `commandSeparator` in `ShellEnvir
 **Problem**: Commands like `Get-ChildItem` return nothing  
 **Solution**: Automatic `| Out-String` wrapper converts objects to text
 
-### fish shell syntax differences
-**Problem**: fish uses `and`/`or` instead of `&&`/`||`  
-**Solution**: Detection warns model about fish syntax differences
+### fish login shell syntax differences
+**Problem**: fish uses `and`/`or` instead of `&&`/`||`, but impulse does not execute commands through fish  
+**Solution**: Detection records fish as the login shell, while prompt guidance tells the model to use bash/POSIX syntax for tool commands
 
 ### Mixed stdout/stderr on Linux
 **Problem**: Error messages mixed with normal output  
@@ -161,7 +160,7 @@ To add support for a new shell:
 
 3. **Add shell-specific tips** in `detectShellEnvironment()`
 
-4. **Update system prompt generation** in `generateShellContext()` with syntax guidance
+4. **Update system prompt generation** in `generateShellContext()` with syntax guidance if the new shell is used for command execution
 
 5. **Test on target platform** to verify detection and command execution
 
@@ -185,9 +184,9 @@ impulse
 impulse
 > Run: cat /etc/os-release
 
-# fish shell
+# fish login shell
 impulse
-> Run: echo "test" and echo "worked"
+> Run: echo "test" && echo "worked"
 ```
 
 ### Automated Testing

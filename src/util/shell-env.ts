@@ -12,9 +12,13 @@
 
 export interface ShellEnvironment {
   platform: "Windows" | "macOS" | "Linux";
+  /** User's configured login shell, detected from the host environment. */
   shell: string;
   shellVersion?: string;
   shellType: "powershell5" | "powershell7" | "bash" | "zsh" | "fish" | "sh" | "unknown";
+  /** Shell actually used by the bash tool for command execution. */
+  commandShell: string;
+  commandShellType: "powershell5" | "powershell7" | "bash";
   supportsChainedCommands: boolean;
   commandSeparator: string; // ; or && depending on shell
   recommendations: string[];
@@ -92,7 +96,7 @@ async function detectBashVersion(): Promise<string | null> {
     if (bashCheck.exitCode === 0 && output.trim()) {
       // Extract version from "GNU bash, version 5.2.15(1)-release"
       const versionMatch = output.match(/version\s+([\d.]+)/i);
-      return versionMatch ? versionMatch[1] : output.split("\n")[0]?.trim() || null;
+      return versionMatch?.[1] ?? output.split("\n")[0]?.trim() ?? null;
     }
   } catch {
     // bash not available or failed
@@ -118,7 +122,7 @@ async function detectZshVersion(): Promise<string | null> {
     if (zshCheck.exitCode === 0 && output.trim()) {
       // Extract version from "zsh 5.9 (x86_64-apple-darwin23.0)"
       const versionMatch = output.match(/zsh\s+([\d.]+)/i);
-      return versionMatch ? versionMatch[1] : output.trim();
+      return versionMatch?.[1] ?? output.trim();
     }
   } catch {
     // zsh not available
@@ -144,7 +148,7 @@ async function detectFishVersion(): Promise<string | null> {
     if (fishCheck.exitCode === 0 && output.trim()) {
       // Extract version from "fish, version 3.6.1"
       const versionMatch = output.match(/version\s+([\d.]+)/i);
-      return versionMatch ? versionMatch[1] : output.trim();
+      return versionMatch?.[1] ?? output.trim();
     }
   } catch {
     // fish not available
@@ -219,6 +223,8 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
       shell,
       shellVersion: version,
       shellType,
+      commandShell: shell,
+      commandShellType: shellType,
       supportsChainedCommands: isPwsh7,
       commandSeparator: isPwsh7 ? "&&" : ";",
       recommendations,
@@ -254,6 +260,7 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
       }
       tips.push("zsh supports && and || for conditional chaining");
       tips.push("zsh has enhanced globbing - use setopt for advanced patterns");
+      tips.push("impulse command execution still uses bash -lc; use POSIX/bash syntax in bash tools");
       if (platform === "macOS") {
         tips.push("zsh is the default shell on macOS 10.15+ (Catalina and later)");
       }
@@ -266,11 +273,8 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
         version = fishVer;
         detectedShell = `fish ${fishVer}`;
       }
-      tips.push("fish uses 'and' / 'or' instead of && / ||");
-      tips.push("fish syntax differs from POSIX - may need translation");
-      recommendations.push(
-        "Fish shell detected - POSIX commands may need translation to fish syntax"
-      );
+      tips.push("fish login shell detected");
+      tips.push("impulse command execution still uses bash -lc; use POSIX/bash syntax in bash tools");
       break;
     }
 
@@ -293,13 +297,19 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
     tips.push("Common package managers: apt (Debian/Ubuntu), dnf (Fedora), pacman (Arch)");
   }
 
+  const bashVersion = shellType === "bash" ? version : await detectBashVersion();
+  const commandShell = bashVersion ? `bash ${bashVersion}` : "bash";
+  const resolvedShellType = shellType === "unknown" ? "bash" : shellType;
+
   return {
     platform,
     shell: detectedShell,
-    shellVersion: version,
-    shellType: shellType === "unknown" ? "bash" : shellType, // Default to bash for unknown
-    supportsChainedCommands: shellType !== "fish", // fish uses 'and' / 'or' instead
-    commandSeparator: shellType === "fish" ? "; and" : "&&",
+    ...(version ? { shellVersion: version } : {}),
+    shellType: resolvedShellType, // Default to bash for unknown
+    commandShell,
+    commandShellType: "bash",
+    supportsChainedCommands: true,
+    commandSeparator: "&&",
     recommendations,
     tips,
   };
@@ -312,10 +322,11 @@ export function formatShellEnvironment(env: ShellEnvironment): string {
   const lines: string[] = [];
 
   lines.push(`Platform: ${env.platform}`);
-  lines.push(`Shell: ${env.shell}`);
+  lines.push(`Login shell: ${env.shell}`);
+  lines.push(`Command shell: ${env.commandShell}`);
 
   if (env.shellVersion) {
-    lines.push(`Version: ${env.shellVersion}`);
+    lines.push(`Login shell version: ${env.shellVersion}`);
   }
 
   lines.push(`Chaining: ${env.supportsChainedCommands ? env.commandSeparator : "not supported"}`);
@@ -344,10 +355,15 @@ export function formatShellEnvironment(env: ShellEnvironment): string {
  */
 export function generateShellContext(env: ShellEnvironment): string {
   const parts: string[] = [];
-  const shellType = env.shellType;
+  const shellType = env.commandShellType;
 
   parts.push(`Operating system: ${env.platform}`);
-  parts.push(`Shell: ${env.shell} (${env.shellType})`);
+  if (env.platform === "Windows") {
+    parts.push(`Shell: ${env.commandShell} (${env.commandShellType})`);
+  } else {
+    parts.push(`Login shell: ${env.shell} (${env.shellType})`);
+    parts.push(`Command shell: ${env.commandShell} (${env.commandShellType}, via bash -lc)`);
+  }
 
   // Add platform-specific command guidance
   parts.push("");
@@ -373,28 +389,8 @@ export function generateShellContext(env: ShellEnvironment): string {
       parts.push("- Use && to chain commands (runs next only if previous succeeds)");
       parts.push("- Use || for OR logic (runs next only if previous fails)");
       parts.push("- Use ; to run commands unconditionally");
+      parts.push("- The bash tool executes commands with bash -lc on macOS/Linux");
       parts.push("- Standard POSIX commands available (ls, grep, cat, etc.)");
-      break;
-
-    case "zsh":
-      parts.push("- Use && to chain commands (runs next only if previous succeeds)");
-      parts.push("- Use || for OR logic (runs next only if previous fails)");
-      parts.push("- Use ; to run commands unconditionally");
-      parts.push("- zsh is POSIX-compatible with bash-like syntax");
-      parts.push("- Enhanced globbing available with setopt");
-      break;
-
-    case "fish":
-      parts.push("- Use 'and' to chain commands (NOT &&)");
-      parts.push("- Use 'or' for OR logic (NOT ||)");
-      parts.push("- Use ; to run commands unconditionally");
-      parts.push("- Fish syntax differs from POSIX bash - be cautious with advanced features");
-      break;
-
-    case "sh":
-      parts.push("- POSIX shell - use basic features only");
-      parts.push("- Use && and || for conditional chaining");
-      parts.push("- Avoid bash-specific features (arrays, [[, process substitution)");
       break;
 
     default:
