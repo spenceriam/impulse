@@ -59,8 +59,8 @@ When running commands on Windows, common POSIX patterns are automatically transl
 | `tail -n 10 file` | `Get-Content -Tail 10 -Path file` |
 | `grep -r pattern` | `Select-String -Pattern pattern -Recurse` |
 | `which cmd` | `Get-Command -Name cmd` |
-| `wc -l file` | `(Get-Content -Path file).Count` |
-| `echo text` | `Write-Output text` |
+| `wc -l file` | `(Get-Content -Path file \| Measure-Object -Line).Lines` |
+| `echo text` | Unchanged (`echo` is already a PowerShell alias) |
 | `pwd` | `Get-Location` |
 | `env` | `Get-ChildItem Env:` |
 | `touch file` | `New-Item -ItemType File -Force -Path file` |

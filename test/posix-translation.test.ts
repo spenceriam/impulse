@@ -77,10 +77,17 @@ describe("translatePosixToPowerShell", () => {
     });
   });
 
-  test("keeps echo pipeline-compatible when translated", () => {
-    expect(translatePosixToPowerShell("echo value").translated).toBe("Write-Output 'value'");
-    expect(translatePosixToPowerShell("echo hello world").translated).toBe("Write-Output 'hello world'");
-    expect(translatePosixToPowerShell('echo "hello world"').translated).toBe("Write-Output 'hello world'");
+  test("leaves echo unchanged because PowerShell already supports it", () => {
+    expect(translatePosixToPowerShell("echo value")).toEqual({
+      translated: "echo value",
+      wasTranslated: false,
+    });
+  });
+
+  test("counts lines using Measure-Object", () => {
+    expect(translatePosixToPowerShell("wc -l file.txt").translated).toBe(
+      "(Get-Content -Path 'file.txt' | Measure-Object -Line).Lines"
+    );
   });
 
   test("detects only unquoted PowerShell chaining operators", () => {

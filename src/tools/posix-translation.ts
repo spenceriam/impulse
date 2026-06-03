@@ -198,15 +198,8 @@ const TRANSLATIONS: CommandTranslation[] = [
   // wc -l -> measure line count
   {
     pattern: /^wc\s+-l\s+(.+)$/,
-    replacement: (m) => `(Get-Content -Path ${quotePowerShellArray(parseShellWords(m[1]))}).Count`,
+    replacement: (m) => `(Get-Content -Path ${quotePowerShellArray(parseShellWords(m[1]))} | Measure-Object -Line).Lines`,
     description: "wc -l -> (Get-Content).Count",
-  },
-
-  // echo -> Write-Output
-  {
-    pattern: /^echo\s+(.+)$/,
-    replacement: (m) => `Write-Output ${quotePowerShellString(parseShellWords(m[1]).join(" "))}`,
-    description: "echo -> Write-Output",
   },
 
   // pwd -> Get-Location

@@ -307,13 +307,12 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
 
   const bashVersion = shellType === "bash" ? version : await detectBashVersion();
   const commandShell = bashVersion ? `bash ${bashVersion}` : "bash";
-  const resolvedShellType = shellType === "unknown" ? "bash" : shellType;
 
   return {
     platform,
     shell: detectedShell,
     ...(version ? { shellVersion: version } : {}),
-    shellType: resolvedShellType, // Default to bash for unknown
+    shellType,
     commandShell,
     commandShellType: "bash",
     supportsChainedCommands: true,
