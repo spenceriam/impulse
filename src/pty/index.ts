@@ -20,6 +20,12 @@ export interface PtyHandle {
   result: Promise<{ output: string; exitCode: number; pid?: number }>;
 }
 
+export interface PtySpawnOptions {
+  shell?: string;
+  args?: string[];
+  env?: Record<string, string | undefined>;
+}
+
 export const PtyEvents = {
   Output: "pty.output",
   PromptDetected: "pty.prompt_detected",
@@ -43,8 +49,11 @@ export async function probePtyAvailable(): Promise<boolean> {
     return false;
   }
   try {
-    const shell = process.env['SHELL'] || "bash";
-    const t = mod.spawn(shell, ["-c", "true"], {
+    const shell = process.platform === "win32" ? "powershell.exe" : "bash";
+    const args = process.platform === "win32"
+      ? ["-NoLogo", "-NoProfile", "-Command", "exit 0"]
+      : ["-c", "true"];
+    const t = mod.spawn(shell, args, {
       name: "xterm-256color",
       cols: 80,
       rows: 8,
@@ -79,13 +88,14 @@ export async function executePty(
   onEvent: (event: ShellOutputEvent) => void,
   signal?: AbortSignal,
   cols = 80,
-  rows = 24
+  rows = 24,
+  options?: PtySpawnOptions
 ): Promise<PtyHandle> {
   const mod = await getPtyModule();
   if (!mod) {
     throw new Error("PTY not available");
   }
-  return spawnWithNodePty(mod, command, cwd, cols, rows, onEvent, signal);
+  return spawnWithNodePty(mod, command, cwd, cols, rows, onEvent, signal, options);
 }
 
 /** Call once at startup to detect PTY (sets isPtyAvailable sync flag). */

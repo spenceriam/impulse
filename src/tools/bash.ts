@@ -12,6 +12,8 @@ import {
   type PtyHandle,
 } from "../pty";
 import { zCommandString, zFilePath } from "./schemas/branded";
+import { detectPowerShellVersion, translatePosixToPowerShell } from "./posix-translation";
+import { detectShellEnvironment } from "../util/shell-env";
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
@@ -34,6 +36,36 @@ interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
 }
+
+const WINDOWS_COMMAND_ENV_VAR = "IMPULSE_COMMAND";
+const WINDOWS_POWERSHELL_WRAPPER = `
+$ErrorActionPreference = 'Continue'
+$impulseCommand = [Environment]::GetEnvironmentVariable('${WINDOWS_COMMAND_ENV_VAR}', 'Process')
+$impulseExitCode = 0
+
+try {
+  $global:LASTEXITCODE = 0
+  $impulseErrorCount = $Error.Count
+  $impulseOutput = & ([scriptblock]::Create($impulseCommand)) *>&1
+  $impulseSuccess = $?
+  $impulseNativeExit = $global:LASTEXITCODE
+
+  if ($null -ne $impulseOutput) {
+    $impulseOutput | Out-String -Width 4096 | Write-Output
+  }
+
+  if ($impulseNativeExit -is [int] -and $impulseNativeExit -ne 0) {
+    $impulseExitCode = [int]$impulseNativeExit
+  } elseif (-not $impulseSuccess -or $Error.Count -gt $impulseErrorCount) {
+    $impulseExitCode = 1
+  }
+} catch {
+  $_ | Out-String -Width 4096 | Write-Output
+  $impulseExitCode = 1
+}
+
+exit $impulseExitCode
+`.trim();
 
 /**
  * High-risk command patterns (require permission)
@@ -297,20 +329,32 @@ function extractPaths(command: string): string[] {
     .filter((token) => token.length > 0 && !token.startsWith("-") && isPathLikeToken(token));
 }
 
-function normalizeWindowsCommand(command: string): string {
-  const trimmed = command.trim();
-
-  // Common POSIX pattern used by agents; translate to PowerShell so smoke tests
-  // and local setup commands work naturally on Windows.
-  const mkdirMatch = trimmed.match(/^mkdir\s+-p\s+(.+)$/i);
-  if (mkdirMatch?.[1]) {
-    return `New-Item -ItemType Directory -Force -Path ${mkdirMatch[1]} | Out-Null`;
-  }
-
-  return command;
+function quotePowerShellString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
-function getSpawnOptions(input: BashInput): SpawnOptions {
+function normalizeWindowsCommand(command: string, shellType: "powershell5" | "powershell7"): string {
+  const trimmed = command.trim();
+  const chaining = detectPowerShellVersion(trimmed);
+
+  if (shellType === "powershell5" && chaining.hasChainingOperator && chaining.recommendation) {
+    return `Write-Error ${quotePowerShellString(chaining.recommendation)}; exit 1`;
+  }
+
+  // Use POSIX translation for Windows commands
+  const { translated } = translatePosixToPowerShell(trimmed);
+
+  return translated;
+}
+
+function encodePowerShellCommand(command: string): string {
+  return Buffer.from(command, "utf16le").toString("base64");
+}
+
+async function getSpawnOptions(
+  input: BashInput,
+  options: { interactive?: boolean } = {}
+): Promise<SpawnOptions> {
   const cwd = input.workdir ? sanitizePath(input.workdir) : undefined;
   const common: SpawnOptions = {
     ...(cwd ? { cwd } : {}),
@@ -319,17 +363,26 @@ function getSpawnOptions(input: BashInput): SpawnOptions {
   };
 
   if (process.platform === "win32") {
+    const shellEnv = await detectShellEnvironment();
+    const commandShellType = shellEnv.commandShellType === "powershell7" ? "powershell7" : "powershell5";
+    const executable = commandShellType === "powershell7" ? "pwsh" : "powershell.exe";
+    const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
+
     return {
       ...common,
+      env: {
+        ...process.env,
+        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, commandShellType),
+      },
       cmd: [
-        "powershell.exe",
+        executable,
         "-NoLogo",
         "-NoProfile",
-        "-NonInteractive",
+        ...interactiveArgs,
         "-ExecutionPolicy",
         "Bypass",
-        "-Command",
-        normalizeWindowsCommand(input.command),
+        "-EncodedCommand",
+        encodePowerShellCommand(WINDOWS_POWERSHELL_WRAPPER),
       ],
     };
   }
@@ -420,7 +473,29 @@ async function executeWithPty(
   };
   
   try {
-    const handle = await executePty(input.command, cwd, onEvent, abortSignal);
+    const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input, { interactive: true }) : undefined;
+    const ptyOptions = spawnOptions
+      ? (() => {
+          const [shell, ...args] = spawnOptions.cmd;
+          if (!shell) {
+            throw new Error("Windows PTY shell command was not configured");
+          }
+          return {
+            shell,
+            args,
+            ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
+          };
+        })()
+      : undefined;
+    const handle = await executePty(
+      input.command,
+      cwd,
+      onEvent,
+      abortSignal,
+      80,
+      24,
+      ptyOptions
+    );
     
     // Store handle for external access
     activePtyHandles.set(toolCallId, handle);
@@ -484,7 +559,7 @@ async function executeWithPty(
 async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   const startTime = Date.now();
   const maxLines = 2000;
-  const spawnOptions = getSpawnOptions(input);
+  const spawnOptions = await getSpawnOptions(input);
 
   const proc = Bun.spawn({
     cmd: spawnOptions.cmd,
@@ -517,7 +592,33 @@ async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   if (timeoutId) clearTimeout(timeoutId);
 
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-  const combinedOutput = [stdout, stderr].filter((part) => part.trim().length > 0).join("\n").trim();
+  
+  // Cross-platform output handling
+  // - Windows: Merge captured stdout and stderr after PowerShell execution
+  // - macOS/Linux: Merge stdout and stderr, preserve both streams
+  const shell = process.platform === "win32" ? "powershell" : "bash";
+  let combinedOutput: string;
+  
+  if (shell === "powershell") {
+    // Windows: Output is already processed, but stderr might still have content
+    combinedOutput = [stdout, stderr].filter((part) => part.trim().length > 0).join("\n").trim();
+  } else {
+    // macOS/Linux: Intelligently merge streams
+    // If both exist, show stdout first, then stderr as a separate section
+    const hasStdout = stdout.trim().length > 0;
+    const hasStderr = stderr.trim().length > 0;
+    
+    if (hasStdout && hasStderr) {
+      combinedOutput = `${stdout.trim()}\n\n[stderr]\n${stderr.trim()}`;
+    } else if (hasStdout) {
+      combinedOutput = stdout.trim();
+    } else if (hasStderr) {
+      combinedOutput = stderr.trim();
+    } else {
+      combinedOutput = "";
+    }
+  }
+  
   const outputLines = combinedOutput.length > 0 ? combinedOutput.split("\n") : [];
 
   let output = combinedOutput;
@@ -533,7 +634,6 @@ async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   }
 
   const elapsed = Date.now() - startTime;
-  const shell = process.platform === "win32" ? "powershell" : "bash";
 
   return {
     success: exitCode === 0,
