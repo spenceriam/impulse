@@ -16,6 +16,33 @@ function quotePowerShellString(value: string | undefined): string {
   return `'${text.replaceAll("'", "''")}'`;
 }
 
+function hasUnquotedChainingOperator(command: string): boolean {
+  let quote: "'" | '"' | null = null;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+
+    const next = command[i + 1];
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function hasUnquotedShellOperator(command: string): boolean {
   let quote: "'" | '"' | null = null;
 
@@ -237,10 +264,7 @@ export function detectPowerShellVersion(command: string): {
   hasChainingOperator: boolean;
   recommendation?: string;
 } {
-  const hasAnd = command.includes("&&");
-  const hasOr = command.includes("||");
-
-  if (hasAnd || hasOr) {
+  if (hasUnquotedChainingOperator(command)) {
     return {
       hasChainingOperator: true,
       recommendation:

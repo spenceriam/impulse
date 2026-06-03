@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { translatePosixToPowerShell } from "../src/tools/posix-translation.js";
+import { detectPowerShellVersion, translatePosixToPowerShell } from "../src/tools/posix-translation.js";
 
 describe("translatePosixToPowerShell", () => {
   test("translates ls flags without requiring a path", () => {
@@ -56,5 +56,11 @@ describe("translatePosixToPowerShell", () => {
 
   test("keeps echo pipeline-compatible when translated", () => {
     expect(translatePosixToPowerShell("echo value").translated).toBe("Write-Output value");
+  });
+
+  test("detects only unquoted PowerShell chaining operators", () => {
+    expect(detectPowerShellVersion("echo a && echo b").hasChainingOperator).toBe(true);
+    expect(detectPowerShellVersion('git commit -m "fix: a && b"').hasChainingOperator).toBe(false);
+    expect(detectPowerShellVersion("Select-String 'a || b' file.txt").hasChainingOperator).toBe(false);
   });
 });

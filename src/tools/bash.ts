@@ -469,7 +469,29 @@ async function executeWithPty(
   };
   
   try {
-    const handle = await executePty(input.command, cwd, onEvent, abortSignal);
+    const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input) : undefined;
+    const ptyOptions = spawnOptions
+      ? (() => {
+          const [shell, ...args] = spawnOptions.cmd;
+          if (!shell) {
+            throw new Error("Windows PTY shell command was not configured");
+          }
+          return {
+            shell,
+            args,
+            ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
+          };
+        })()
+      : undefined;
+    const handle = await executePty(
+      input.command,
+      cwd,
+      onEvent,
+      abortSignal,
+      80,
+      24,
+      ptyOptions
+    );
     
     // Store handle for external access
     activePtyHandles.set(toolCallId, handle);

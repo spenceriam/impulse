@@ -2,7 +2,7 @@
  * node-pty backend (loaded when native module is available).
  */
 
-import type { ShellOutputEvent, PtyHandle } from "./index.js";
+import type { ShellOutputEvent, PtyHandle, PtySpawnOptions } from "./index.js";
 
 type PtyModule = typeof import("node-pty");
 
@@ -21,20 +21,22 @@ export function spawnWithNodePty(
   cols: number,
   rows: number,
   onEvent: (event: ShellOutputEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: PtySpawnOptions
 ): PtyHandle {
-  const shell = process.platform === "win32" ? "powershell.exe" : process.env['SHELL'] || "bash";
-  const args =
+  const shell = options?.shell ?? (process.platform === "win32" ? "powershell.exe" : process.env['SHELL'] || "bash");
+  const args = options?.args ?? (
     process.platform === "win32"
       ? ["-NoLogo", "-NoProfile", "-Command", command]
-      : ["-lc", command];
+      : ["-lc", command]
+  );
 
   const term = pty.spawn(shell, args, {
     name: "xterm-256color",
     cols,
     rows,
     cwd,
-    env: process.env as Record<string, string>,
+    env: (options?.env ?? process.env) as Record<string, string>,
   });
 
   let output = "";

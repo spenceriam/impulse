@@ -20,6 +20,12 @@ export interface PtyHandle {
   result: Promise<{ output: string; exitCode: number; pid?: number }>;
 }
 
+export interface PtySpawnOptions {
+  shell?: string;
+  args?: string[];
+  env?: Record<string, string | undefined>;
+}
+
 export const PtyEvents = {
   Output: "pty.output",
   PromptDetected: "pty.prompt_detected",
@@ -79,13 +85,14 @@ export async function executePty(
   onEvent: (event: ShellOutputEvent) => void,
   signal?: AbortSignal,
   cols = 80,
-  rows = 24
+  rows = 24,
+  options?: PtySpawnOptions
 ): Promise<PtyHandle> {
   const mod = await getPtyModule();
   if (!mod) {
     throw new Error("PTY not available");
   }
-  return spawnWithNodePty(mod, command, cwd, cols, rows, onEvent, signal);
+  return spawnWithNodePty(mod, command, cwd, cols, rows, onEvent, signal, options);
 }
 
 /** Call once at startup to detect PTY (sets isPtyAvailable sync flag). */
