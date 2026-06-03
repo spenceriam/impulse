@@ -377,12 +377,12 @@ export function enrichModelId(
     displayName = titleCaseSlug(bare);
   }
 
-  const info = {
+  const info: Omit<ModelInfo, "pickerLine"> = {
     id: modelId.includes("/") ? modelId : bare,
     vendor,
     displayName,
-    contextTokens,
-    addedAt,
+    ...(contextTokens !== undefined ? { contextTokens } : {}),
+    ...(addedAt !== undefined ? { addedAt } : {}),
   };
   return { ...info, pickerLine: formatModelPickerLine(info) };
 }
@@ -403,12 +403,10 @@ export function sortModelInfos(models: ModelInfo[]): ModelInfo[] {
 /** Raw model IDs when models.dev enrichment is unavailable. */
 export function fallbackModelInfosFromIds(modelIds: string[]): ModelInfo[] {
   return modelIds.map((id) => {
-    const info = {
+    const info: Omit<ModelInfo, "pickerLine"> = {
       id,
       vendor: "—",
       displayName: id,
-      contextTokens: undefined as number | undefined,
-      addedAt: undefined as Date | undefined,
     };
     return { ...info, pickerLine: formatModelPickerLine(info) };
   });
