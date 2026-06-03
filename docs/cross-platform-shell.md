@@ -76,9 +76,10 @@ Different platforms handle command output differently:
 #### Windows PowerShell
 - Commands return **objects**, not text
 - 6 output streams: Output, Error, Warning, Verbose, Debug, Information
-- **Solution**: Wrap all commands with `*>&1 | Out-String`
-  - `*>&1` merges all streams to stdout
-  - `| Out-String` converts objects to readable text
+- **Solution**: Execute through a small wrapper that reads the command from the process environment
+  - `*>&1` merges all streams without interpolating user commands into the wrapper block
+  - `Out-String` converts objects to readable text
+  - The wrapper exits with the inner command's status so failures are not hidden by formatting
 
 #### macOS/Linux bash
 - Commands return **text** by default
@@ -135,7 +136,7 @@ impulse provides `supportsChainedCommands` and `commandSeparator` in `ShellEnvir
 
 ### Silent/Empty Output on Windows
 **Problem**: Commands like `Get-ChildItem` return nothing  
-**Solution**: Automatic `| Out-String` wrapper converts objects to text
+**Solution**: Automatic wrapper converts objects to text while preserving the inner command exit code
 
 ### fish login shell syntax differences
 **Problem**: fish uses `and`/`or` instead of `&&`/`||`, but impulse does not execute commands through fish  

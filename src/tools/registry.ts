@@ -58,6 +58,41 @@ function getToolCategory(toolName: string): ToolCategory {
   return TOOL_CATEGORIES[toolName] ?? "read_only";
 }
 
+function levenshteinDistance(a: string, b: string): number {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+
+  for (let i = 0; i < a.length; i++) {
+    const current = [i + 1];
+
+    for (let j = 0; j < b.length; j++) {
+      const insertion = (current[j] ?? 0) + 1;
+      const deletion = (previous[j + 1] ?? 0) + 1;
+      const substitution = (previous[j] ?? 0) + (a[i] === b[j] ? 0 : 1);
+      current[j + 1] = Math.min(insertion, deletion, substitution);
+    }
+
+    for (let j = 0; j < current.length; j++) {
+      previous[j] = current[j] ?? 0;
+    }
+  }
+
+  return previous[b.length] ?? a.length;
+}
+
+function findCloseMatches(name: string): string[] {
+  const normalized = name.toLowerCase();
+
+  return Array.from(tools.keys())
+    .map((toolName) => ({
+      name: toolName,
+      distance: levenshteinDistance(normalized, toolName.toLowerCase()),
+    }))
+    .filter((match) => match.distance <= 3)
+    .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name))
+    .slice(0, 3)
+    .map((match) => match.name);
+}
+
 function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: string): boolean {
   if (category === "read_only" || category === "utility") {
     return true;

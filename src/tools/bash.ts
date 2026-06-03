@@ -13,6 +13,7 @@ import {
 } from "../pty";
 import { zCommandString, zFilePath } from "./schemas/branded";
 import { translatePosixToPowerShell } from "./posix-translation";
+import { detectShellEnvironment } from "../util/shell-env";
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
@@ -35,6 +36,36 @@ interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
 }
+
+const WINDOWS_COMMAND_ENV_VAR = "IMPULSE_COMMAND";
+const WINDOWS_POWERSHELL_WRAPPER = `
+$ErrorActionPreference = 'Continue'
+$impulseCommand = [Environment]::GetEnvironmentVariable('${WINDOWS_COMMAND_ENV_VAR}', 'Process')
+$impulseExitCode = 0
+
+try {
+  $global:LASTEXITCODE = 0
+  $impulseErrorCount = $Error.Count
+  $impulseOutput = & ([scriptblock]::Create($impulseCommand)) *>&1
+  $impulseSuccess = $?
+  $impulseNativeExit = $global:LASTEXITCODE
+
+  if ($null -ne $impulseOutput) {
+    $impulseOutput | Out-String -Width 4096 | Write-Output
+  }
+
+  if ($impulseNativeExit -is [int] -and $impulseNativeExit -ne 0) {
+    $impulseExitCode = [int]$impulseNativeExit
+  } elseif (-not $impulseSuccess -or $Error.Count -gt $impulseErrorCount) {
+    $impulseExitCode = 1
+  }
+} catch {
+  $_ | Out-String -Width 4096 | Write-Output
+  $impulseExitCode = 1
+}
+
+exit $impulseExitCode
+`.trim();
 
 /**
  * High-risk command patterns (require permission)
@@ -304,12 +335,14 @@ function normalizeWindowsCommand(command: string): string {
   // Use POSIX translation for Windows commands
   const { translated } = translatePosixToPowerShell(trimmed);
 
-  // PowerShell command output may be emitted as objects across multiple streams.
-  // Wrap the command so tool output consistently contains merged, textual data.
-  return `& { ${translated} } *>&1 | Out-String`;
+  return translated;
 }
 
-function getSpawnOptions(input: BashInput): SpawnOptions {
+function encodePowerShellCommand(command: string): string {
+  return Buffer.from(command, "utf16le").toString("base64");
+}
+
+async function getSpawnOptions(input: BashInput): Promise<SpawnOptions> {
   const cwd = input.workdir ? sanitizePath(input.workdir) : undefined;
   const common: SpawnOptions = {
     ...(cwd ? { cwd } : {}),
@@ -318,17 +351,24 @@ function getSpawnOptions(input: BashInput): SpawnOptions {
   };
 
   if (process.platform === "win32") {
+    const shellEnv = await detectShellEnvironment();
+    const executable = shellEnv.commandShellType === "powershell7" ? "pwsh" : "powershell.exe";
+
     return {
       ...common,
+      env: {
+        ...process.env,
+        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command),
+      },
       cmd: [
-        "powershell.exe",
+        executable,
         "-NoLogo",
         "-NoProfile",
         "-NonInteractive",
         "-ExecutionPolicy",
         "Bypass",
-        "-Command",
-        normalizeWindowsCommand(input.command),
+        "-EncodedCommand",
+        encodePowerShellCommand(WINDOWS_POWERSHELL_WRAPPER),
       ],
     };
   }
@@ -483,7 +523,7 @@ async function executeWithPty(
 async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
   const startTime = Date.now();
   const maxLines = 2000;
-  const spawnOptions = getSpawnOptions(input);
+  const spawnOptions = await getSpawnOptions(input);
 
   const proc = Bun.spawn({
     cmd: spawnOptions.cmd,
