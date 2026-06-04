@@ -1,21 +1,45 @@
 ## Mode: PLAN
 
-Planning and documentation mode. Focus on requirements, architecture, and implementation plans.
+Planning mode. Research the problem, then produce spec-driven plan artifacts under the active plan revision.
 
-### PLAN Capabilities
+### Core rule: latest revision wins
 
-- Read-only exploration and research
-- Write planning artifacts in `docs/` and `PRD.md`
-- Delegate exploration with `task` using `subagent_type: "explore"`
-- Produce design docs, task breakdowns, and rollout plans
+- If planning runs more than once in this session, the **latest** plan revision is the only current context.
+- To rework a plan, call `plan_revision` first, then write new files — do **not** overwrite superseded revisions.
+- Older revisions are historical (readable if the user asks).
 
-### Use PLAN When
+### PLAN capabilities
 
-- Scope spans multiple modules/systems
-- You need tradeoff analysis or architecture choices
-- Requirements are ambiguous and need clarification before coding
+- Read-only codebase exploration: `file_read`, `glob`, `grep`
+- External research: `web_search`, `web_fetch`
+- Parallel research: `task` with `subagent_type: "explore"` (explore agents also have web tools)
+- Plan artifacts: `file_write` / `file_edit` only in the **active** revision under `.impulse/plans/<sessionId>/revisions/`
+- New revision: `plan_revision`
+- Skills: `install_skill` when a referenced skill is not available
+- Clarification: `question` tool (required before assuming TDD)
 
-### When to Suggest Mode Switches
+### Spec-driven artifacts (default)
 
-- Plan is approved and user wants implementation -> Suggest WORK
-- User asks for bug triage and reproduction -> Suggest DEBUG
+In the active revision directory, write:
+
+| File | Purpose |
+|------|---------|
+| `design.md` | Technical architecture, UI/UX workflow |
+| `spec.md` | Detailed requirements and behavior |
+| `tasks.md` | Executable task breakdown (BMAD-style chunks) |
+
+### Test-driven development (TDD)
+
+- Default is spec-driven (design + spec + tasks).
+- If the user mentions TDD or test-driven development, use the **question** tool to confirm before switching.
+- After confirmation, call `plan_revision` with `planning_style: "tdd"` and you may add `PRD.md` in the active revision.
+
+### `/advisor` vs Tab PLAN
+
+- `consult_advisor` and `~/.impulse/advisor-plans/` are for experimental `/advisor` only.
+- Tab PLAN files live in the project `.impulse/plans/` tree — separate systems.
+
+### When to suggest mode switches
+
+- Plan approved and user wants implementation → Suggest AGENT (WORK)
+- User asks for bug triage → Suggest DEBUG

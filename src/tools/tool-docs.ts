@@ -30,6 +30,8 @@ const TOOL_DOCS_MAP: Record<string, string> = {
   set_mode: "set-mode.md",
   web_fetch: "web-fetch.md",
   web_search: "web-search.md",
+  plan_revision: "plan-revision.md",
+  install_skill: "install-skill.md",
   tool_docs: "tool-docs.md",
 };
 

@@ -335,7 +335,9 @@ export class AgentLoop {
         await this.flushTurnInjections();
 
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
-        const systemPrompt = await generateSystemPrompt(mode, undefined, config);
+        const systemPrompt = await generateSystemPrompt(mode, undefined, config, {
+          sessionId: session.id,
+        });
         lastSystemPrompt = systemPrompt;
         let chatMessages = buildChatMessages(currentMessages, systemPrompt);
 

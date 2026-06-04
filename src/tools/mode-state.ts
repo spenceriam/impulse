@@ -9,6 +9,8 @@
  */
 
 import type { MODES } from "../constants";
+import { SessionManager } from "../session/manager.js";
+import { validatePlanWritePath } from "../plan/revisions.js";
 
 type Mode = typeof MODES[number];
 
@@ -81,26 +83,12 @@ export function validateWritePath(filePath: string): string | null {
     return "EXPLORE mode is read-only. Switch to WORK mode to write files.";
   }
   
-  // PLAN mode can only write planning artifacts (docs/ or PRD.md)
   if (mode === "PLAN") {
-    // Normalize path for comparison
-    const normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();
-    const cwd = process.cwd().replace(/\\/g, "/").toLowerCase();
-    
-    // Check if path is in docs/ directory
-    const relativePath = normalizedPath.startsWith(cwd) 
-      ? normalizedPath.slice(cwd.length).replace(/^\//, "")
-      : normalizedPath;
-    
-    if (
-      relativePath.startsWith("docs/") ||
-      relativePath === "prd.md" ||
-      relativePath.endsWith("/prd.md")
-    ) {
-      return null;
+    const sessionId = SessionManager.getCurrentSessionID();
+    if (!sessionId) {
+      return "PLAN mode requires an active session to write plan files.";
     }
-    
-    return `PLAN mode can only write to docs/ or PRD.md. Requested path: ${filePath}. Switch to WORK mode to write elsewhere.`;
+    return validatePlanWritePath(filePath, sessionId);
   }
   
   return null; // Unknown mode, allow by default
