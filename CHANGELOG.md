@@ -5,6 +5,26 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-06-04
+
+  **Type:** patch
+  **Title:** Thinking UI polish, install_skill hardening, subagent limits
+
+  ### Added
+  - **`/show-think` / `/hide-think`** — session-local expand or collapse thinking blocks after auto-collapse to **Thought for (duration)**
+  - **`thinking_duration_ms`** on assistant messages; collapsed thinking on session replay
+
+  ### Changed
+  - **Main thinking display** — `/settings` off still accumulates reasoning for API history; `/show-think` reveals stored content
+  - **Subagent iterations** — max **150** per subagent run (was 50)
+  - **Subagent progress** — respects provider reasoning capability and settings detail vs placeholder
+  - **`install_skill`** — non-interactive `-y`, rejects repo-only sources, skips when skill already under `.agents/skills/`
+  - **PLAN prompts** — full skill paths, `question` tool required for grill/interview flows
+  - **Slash autocomplete** — Tab cycles `/show` vs `/show-think`; prefix matches surface longer command names
+
+  ### Fixed
+  - **`/settings`** — Enter with no changes shows **Settings unchanged** instead of a false save
+
 ## [1.4.0] - 2026-06-04
 
   **Type:** minor

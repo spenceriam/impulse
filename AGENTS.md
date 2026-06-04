@@ -9,14 +9,32 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.3.0
+- **Version:** v1.4.1
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.3.0 (2026-05-30) — `/settings`, thinking visibility, preserved reasoning in API history
+**Status:** v1.4.1 (2026-06-04) — PLAN research (#55), plan revisions, thinking UI polish, hardened `install_skill`
+
+### v1.4.1 (2026-06-04)
+
+- [x] Thinking blocks auto-collapse to **Thought for (duration)** when a reasoning phase ends
+- [x] `/show-think` and `/hide-think` — session-local expand/collapse; works with `/settings` main thinking off (content still stored for API history)
+- [x] `thinking_duration_ms` persisted on assistant messages; session replay shows collapsed thinking
+- [x] `/settings` Enter with no changes → **Settings unchanged**
+- [x] Slash Tab cycles ambiguous prefixes (e.g. `/show` ↔ `/show-think`); longer commands appear when prefix matches
+- [x] Subagent max iterations **150** (was 50); subagent progress respects reasoning capability + detail settings
+- [x] `install_skill` — non-interactive `-y`, reject repo-only sources, skip when `.agents/skills/<name>/SKILL.md` exists
+
+### v1.4.0 (2026-06-04)
+
+- [x] PLAN mode research (#55) — web tools on main + explore subagents; `file_edit` for active plan revision
+- [x] Plan revisions under `.impulse/plans/<sessionId>/revisions/`; `plan_revision` tool; latest revision injected each turn
+- [x] `install_skill` (utility tool, all modes; PLAN prompts emphasize it) via `npx skills@latest add`
+- [x] Repository context in system prompt; `github_issue` tool (gh-only)
+- [x] Skills on disk: `.agents/skills/<slug>/SKILL.md` (not auto-listed — agent reads on demand after install or reference)
 
 ### v1.3.0 (2026-05-30)
 
@@ -190,6 +208,8 @@
 - [x] Question overlay uses radio/checkbox selection without numeric hotkeys
 - [x] Assistant markdown tables render terminal-natively with narrow fallback
 - [x] Footer context/token-speed telemetry updates during active turns
+- [x] PLAN revisions, `plan_revision`, `install_skill`, `github_issue`, repo context (#55 / v1.4.0)
+- [x] Thinking blocks collapse to Thought for…; `/show-think` / `/hide-think`; settings unchanged feedback (v1.4.1)
 - [x] Tool Input Repair Layer — validate-then-repair in [`src/tools/input-repair/`](src/tools/input-repair/) via [`Tool.execute`](src/tools/registry.ts); see [`docs/tool-input-repair.md`](docs/tool-input-repair.md)
 - [x] Branded tool schemas — `zFilePath`, `zGlobPattern`, `zCodeEdit`, `zCommandString` on file_read, bash, file_edit, file_write, glob, grep
 - [x] Relational `Note:` defaults — [`src/tools/tool-notes.ts`](src/tools/tool-notes.ts) for file_read, glob, grep, web_fetch, web_search, task
@@ -850,6 +870,8 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 | `/stats` | Session statistics |
 | `/help` | Categorized help overlay |
 | `/think` | Toggle thinking mode |
+| `/show-think` | Expand thinking blocks in chat (session-local) |
+| `/hide-think` | Collapse thinking blocks to Thought for… |
 | `/changelog` | View release changelog |
 | `/quit` | Exit with summary |
 | `/exit` | Exit with summary |
