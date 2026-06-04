@@ -9,14 +9,18 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.4.1
+- **Version:** v1.4.2
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.4.1 (2026-06-04) — PLAN research (#55), plan revisions, thinking UI polish, hardened `install_skill`
+**Status:** v1.4.2 (2026-06-04) — Shell bang ghost text hint (#59), PLAN research (#55), plan revisions, thinking UI polish, hardened `install_skill`
+
+### v1.4.2 (2026-06-04)
+
+- [x] Ghost text hint for lone `!` — typing `!` alone shows "type any terminal command" in dim gray (color 238), vanishes on any further input
 
 ### v1.4.1 (2026-06-04)
 
