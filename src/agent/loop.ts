@@ -400,6 +400,15 @@ export class AgentLoop {
         for await (const chunk of manager.stream(streamOptions)) {
           if (signal.aborted) break;
 
+          // Usage may arrive on a usage-only final chunk that carries an empty
+          // choices array (OpenAI-compatible stream_options.include_usage).
+          // Read it before the choice guard so we don't skip it.
+          if (chunk.usage) {
+            chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
+            latestPromptTokens = chunk.usage.prompt_tokens;
+            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
+          }
+
           const choice = chunk.choices[0];
           if (!choice) continue;
 
@@ -441,13 +450,6 @@ export class AgentLoop {
                 if (tc.function?.arguments) partial.argumentsJson += tc.function.arguments;
               }
             }
-          }
-
-          // Token usage
-          if (chunk.usage) {
-            chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
-            latestPromptTokens = chunk.usage.prompt_tokens;
-            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
           }
         }
 

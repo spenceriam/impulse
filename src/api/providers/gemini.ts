@@ -183,6 +183,7 @@ export class GeminiProvider implements AIProvider {
           model: geminiModel,
           messages: this.toGeminiMessages(options.messages),
           stream: true,
+          stream_options: { include_usage: true },
         };
 
         if (options.temperature !== undefined) request.temperature = options.temperature;

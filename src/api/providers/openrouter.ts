@@ -144,6 +144,7 @@ export class OpenRouterProvider implements AIProvider {
         model,
         messages: options.messages as OpenAI.ChatCompletionMessageParam[],
         stream: true,
+        stream_options: { include_usage: true },
       };
       if (options.temperature !== undefined) req.temperature = options.temperature;
       if (options.top_p !== undefined) req.top_p = options.top_p;

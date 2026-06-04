@@ -279,6 +279,7 @@ export class OllamaProvider implements AIProvider {
         model,
         messages: options.messages as OpenAI.ChatCompletionMessageParam[],
         stream: true,
+        stream_options: { include_usage: true },
       };
 
       applyCommonOptions(req, options);
