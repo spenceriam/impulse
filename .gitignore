@@ -18,6 +18,11 @@ packages/windows-*/
 .env.local
 .env.*.local
 
+# AI coding tool configs (tool-local, not project source)
+.codex/
+.commandcode/
+.opencode/
+
 # IDE
 .vscode/
 .idea/
