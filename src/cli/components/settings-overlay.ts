@@ -20,6 +20,16 @@ export interface SettingsValues {
   subagentModel?: string;
 }
 
+/** True when overlay values match what was loaded at open (no toggle edits). */
+export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boolean {
+  return (
+    a.showMainThinking === b.showMainThinking &&
+    a.showSubagentThinking === b.showSubagentThinking &&
+    a.useSubagentModel === b.useSubagentModel &&
+    (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "")
+  );
+}
+
 export interface SettingsOverlayOptions {
   values: SettingsValues;
 }
@@ -63,12 +73,12 @@ export class SettingsOverlay implements Component {
     {
       key: "showMainThinking",
       label: "Show thinking in main agent",
-      hint: "True: stream reasoning; False: Thinking... only (still in context)",
+      hint: "True: stream reasoning, then Thought for…; False: Thinking… then Thought for…",
     },
     {
       key: "showSubagentThinking",
       label: "Show thinking in subagent",
-      hint: "True: thinking... lines inside task tool rows",
+      hint: "True: thinking… under tasks; False: Thinking… then Thought for…",
     },
     {
       key: "useSubagentModel",

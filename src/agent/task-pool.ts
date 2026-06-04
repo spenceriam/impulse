@@ -43,8 +43,10 @@ export type TaskBatchRunOptions = {
   signal?: AbortSignal;
   /** Override stagger for tests; defaults to SUBAGENT_START_STAGGER_MS. */
   startStaggerMs?: number;
-  /** When false, sub-agents do not publish thinking... progress lines. */
-  subagentThinkingEnabled?: boolean;
+  /** When true, sub-agents may publish thinking progress (API reasoning enabled). */
+  subagentReasoningCapable?: boolean;
+  /** When true, use thinking...; when false, Thinking... placeholder (if capable). */
+  showSubagentThinkingDetail?: boolean;
   /** Provider/model for all subagents in this batch. */
   model?: string;
   onTaskStatus?: (toolCallId: string, status: "queued" | "running" | "done") => void;
@@ -131,7 +133,8 @@ export async function runTaskBatch(
         {
           parentToolCallId: spec.toolCallId,
           signal: options.signal,
-          subagentThinkingEnabled: options.subagentThinkingEnabled,
+          subagentReasoningCapable: options.subagentReasoningCapable,
+          showSubagentThinkingDetail: options.showSubagentThinkingDetail,
           model: options.model,
         }
       );

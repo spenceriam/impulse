@@ -36,5 +36,12 @@ import "./tool-docs";
 import "./web-fetch";
 import "./web-search";
 
+// Plan mode
+import "./plan-revision";
+import "./install-skill";
+
+// GitHub
+import "./github-issue";
+
 // Re-export registry for convenience
 export { Tool } from "./registry";

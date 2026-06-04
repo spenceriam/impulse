@@ -83,15 +83,21 @@ You have provider-neutral web tools when current information or exact URL conten
 
 2. Use \`web_fetch\` to read exact URLs from search results or user-provided links.
 
-3. Do not guess web content. Search first unless the user supplied a URL.
+3. Do not guess web content. Search first unless the user supplied a URL or a resolvable same-repo GitHub issue (see below).
+
+### GitHub issues
+
+When the user mentions **issue #N** or **#N** without naming another repository:
+
+- Use the **Repository (git)** block in this prompt for owner/repo and the issue URL pattern.
+- **Do not** \`web_search\` for generic queries like "github issue N" — that returns the wrong repo.
+- If GitHub CLI is installed and authenticated, prefer \`github_issue\` with \`number: N\`.
+- If \`github_issue\` is unavailable, \`web_fetch\` the canonical issue URL from the Repository block.
+- If no repository is detected, use the \`question\` tool; the user can pick a suggested repo or **Type your own answer** with \`owner/repo\` or a full issue URL.
+
+When the user provides a full \`https://github.com/.../issues/N\` URL, use \`github_issue\` (with \`url\`) or \`web_fetch\` on that URL.
 
 Legacy Z.ai web, vision, and repository-reader integrations are unavailable. Use only the built-in web tools for external research.
-`;
-
-const WEB_RESEARCH_LITE = `
-## External Research Tools
-
-Use \`web_search\` for current source discovery and \`web_fetch\` for exact URLs.
 `;
 
 /**
@@ -417,25 +423,21 @@ This helps you understand where the conversation is heading.
   PLAN: `
 ## Mode: PLAN
 
-Planning and documentation mode. Focus on requirements, architecture, and implementation plans.
+Planning mode — research first, then write spec-driven plan artifacts. Latest plan revision is always current context.
 
-### PLAN Capabilities
+See injected "Active plan" block below for revision paths. Use \`plan_revision\` when the user reworks the plan.
 
-- Read-only exploration and research
-- Write planning artifacts in \`docs/\` and \`PRD.md\`
-- Delegate exploration with \`task\` using \`subagent_type: "explore"\`
-- Produce design docs, task breakdowns, and rollout plans
+### Capabilities
 
-### Use PLAN When
-
-- Scope spans multiple modules/systems
-- You need tradeoff analysis or architecture choices
-- Requirements are ambiguous and need clarification before coding
+- Research: \`web_search\`, \`web_fetch\`, \`file_read\`, \`glob\`, \`grep\`
+- Delegate: parallel \`task\` with \`subagent_type: "explore"\` (includes web tools)
+- Write: \`file_write\` / \`file_edit\` only in active revision (\`design.md\`, \`spec.md\`, \`tasks.md\`; \`PRD.md\` after TDD confirmed via \`question\`)
+- \`plan_revision\`, \`install_skill\`, \`question\`
 
 ### When to Suggest Mode Switches
 
-- Plan is approved and user wants implementation -> Suggest WORK
-- User asks for bug triage and reproduction -> Suggest DEBUG
+- Plan approved and user wants implementation -> Suggest AGENT
+- Bug triage -> Suggest DEBUG
 `,
   DEBUG: `
 ## Mode: DEBUG
@@ -495,7 +497,12 @@ When the user gave a clear multi-step task, call real tools in parallel on the f
  * @param cwd - The current working directory (optional, defaults to process.cwd())
  * @param config - Optional config object (if not provided, will be loaded)
  */
-export async function generateSystemPrompt(mode: Mode, cwd?: string, config?: Config): Promise<string> {
+export async function generateSystemPrompt(
+  mode: Mode,
+  cwd?: string,
+  config?: Config,
+  options?: { sessionId?: string }
+): Promise<string> {
   const workingDir = cwd || process.cwd();
   const cfg = config ?? await loadConfig();
 
@@ -517,9 +524,19 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
 - If you need to create a file, the path should be within ${workingDir}
 `;
 
+  const { resolveRepoContext, formatRepoContextPromptBlock } = await import(
+    "../git/repo-context.js"
+  );
+  const { probeGhCli, formatGhCliPromptBlock } = await import("../git/gh-cli.js");
+
+  const repoContext = resolveRepoContext(workingDir);
+  const ghStatus = probeGhCli();
+
   const parts: string[] = [
     getPrompt("core", "base", BASE_PROMPT),
     cwdContext,
+    formatRepoContextPromptBlock(repoContext),
+    formatGhCliPromptBlock(ghStatus),
   ];
 
   // Add user profile context if available
@@ -566,11 +583,13 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
   }
 
-  // Add web research instructions based on mode
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE") {
+  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE" || mode === "PLAN") {
     parts.push(getPrompt("core", "web-full", WEB_RESEARCH_FULL));
-  } else if (mode === "PLAN") {
-    parts.push(getPrompt("core", "web-lite", WEB_RESEARCH_LITE));
+  }
+
+  if (mode === "PLAN" && options?.sessionId) {
+    const { buildPlanModeContextBlock } = await import("../plan/revisions.js");
+    parts.push(buildPlanModeContextBlock(options.sessionId, workingDir));
   }
 
   const allowAllBlock = buildAllowAllBypassPromptBlock();
@@ -585,10 +604,8 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
  * Get just the web research instructions (for appending to existing prompts)
  */
 export function getResearchInstructions(mode: Mode): string {
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE") {
+  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE" || mode === "PLAN") {
     return getPrompt("core", "web-full", WEB_RESEARCH_FULL).trim();
-  } else if (mode === "PLAN") {
-    return getPrompt("core", "web-lite", WEB_RESEARCH_LITE).trim();
   }
   return "";
 }
@@ -603,17 +620,17 @@ export function getResearchInstructions(mode: Mode): string {
 /**
  * Explore subagent - read-only codebase exploration
  */
-const EXPLORE_AGENT_PROMPT = `You are an explore subagent for Impulse. Your job is to quickly search and analyze codebases.
+const EXPLORE_AGENT_PROMPT = `You are an explore subagent for Impulse. Your job is to quickly search and analyze codebases and external sources.
 
 IMPORTANT: Always respond in English regardless of the input language.
 
 You have access to READ-ONLY tools:
-- file_read: Read files
-- glob: Find files by pattern
-- grep: Search file contents
+- file_read, glob, grep
+- web_search, web_fetch
 
 Guidelines:
 - Be fast and focused - answer the specific question asked
+- Use web_search + web_fetch when current external information is needed
 - Return structured, actionable information
 - Include file paths and line numbers when relevant
 - Summarize findings concisely - the main agent will process your output
@@ -674,7 +691,7 @@ export function getSubagentPrompt(type: "explore" | "general"): string {
 export function getSubagentTools(type: "explore" | "general"): string[] {
   switch (type) {
     case "explore":
-      return ["file_read", "glob", "grep"];
+      return ["file_read", "glob", "grep", "web_search", "web_fetch"];
     case "general":
       return ["file_read", "file_write", "file_edit", "glob", "grep", "bash"];
     default:

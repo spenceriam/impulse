@@ -42,6 +42,9 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   web_fetch: "read_only",
   web_search: "read_only",
   tool_docs: "read_only",
+  plan_revision: "utility",
+  install_skill: "utility",
+  github_issue: "read_only",
   
   // Write tools (restricted in PLAN)
   file_write: "write",
@@ -103,8 +106,12 @@ function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: 
   }
 
   if (mode === "PLAN") {
-    // file_write and task are available with mode-specific restrictions in handlers.
-    if (toolName === "file_write" || toolName === "task" || toolName === "todo_write") {
+    if (
+      toolName === "file_write" ||
+      toolName === "file_edit" ||
+      toolName === "task" ||
+      toolName === "todo_write"
+    ) {
       return true;
     }
   }
@@ -195,8 +202,12 @@ export namespace Tool {
         
         // For PLAN, modify tool descriptions to note restrictions
         let description = tool.description;
-        if (tool.name === "file_write" && mode === "PLAN") {
-          const restriction = "RESTRICTED: PLAN mode can only write docs/ or PRD.md.";
+        if (
+          (tool.name === "file_write" || tool.name === "file_edit") &&
+          mode === "PLAN"
+        ) {
+          const restriction =
+            "RESTRICTED: PLAN mode can only write/edit files in the active plan revision under .impulse/plans/<sessionId>/revisions/.";
           description = `${restriction}\n\n${description}`;
         }
 

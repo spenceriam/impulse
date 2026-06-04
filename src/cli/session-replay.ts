@@ -15,7 +15,7 @@ export type ReplayToolResult = {
 
 export type ReplayStep =
   | { type: "user"; text: string }
-  | { type: "thinking"; text: string }
+  | { type: "thinking"; text: string; durationMs?: number }
   | { type: "assistantText"; text: string }
   | {
       type: "tool";
@@ -143,7 +143,11 @@ function appendBlockStep(
     return;
   }
   if (block.type === "thinking" && block.thinking.trim()) {
-    steps.push({ type: "thinking", text: block.thinking });
+    steps.push({
+      type: "thinking",
+      text: block.thinking,
+      ...(block.durationMs !== undefined ? { durationMs: block.durationMs } : {}),
+    });
     return;
   }
   if (block.type === "tool_call") {
@@ -160,7 +164,13 @@ function replayAssistantLinear(
   steps: ReplayStep[]
 ): void {
   if (msg.reasoning_content?.trim()) {
-    steps.push({ type: "thinking", text: msg.reasoning_content });
+    steps.push({
+      type: "thinking",
+      text: msg.reasoning_content,
+      ...(msg.thinking_duration_ms !== undefined
+        ? { durationMs: msg.thinking_duration_ms }
+        : {}),
+    });
   }
   if (msg.content?.trim()) {
     steps.push({ type: "assistantText", text: msg.content });

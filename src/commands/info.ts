@@ -54,7 +54,7 @@ async function handleHelp() {
     `${"WORK".padEnd(12)}${"Cyan".padEnd(10)}Full execution mode with file editing and code generation`,
     `${"".padEnd(12)}${"".padEnd(10)}Tools: All tools available`,
     "",
-    `${"PLAN".padEnd(12)}${"Purple".padEnd(10)}Planning and documentation with restricted writes`,
+    `${"PLAN".padEnd(12)}${"Purple".padEnd(10)}Research + .impulse/plans revisions (latest wins)`,
     `${"".padEnd(12)}${"".padEnd(10)}Tools: Read-only + docs/ and PRD.md`,
     "",
     `${"DEBUG".padEnd(12)}${"Orange".padEnd(10)}Systematic 7-step debugging methodology`,

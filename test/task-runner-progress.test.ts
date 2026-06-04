@@ -4,38 +4,52 @@ import {
   resolvePreCompleteProgress,
   shouldPublishFinalWrappingUp,
 } from "../src/agent/task-runner.js";
-import { SUBAGENT_PROGRESS_THINKING } from "../src/cli/subagent-progress-labels.js";
+import {
+  SUBAGENT_PROGRESS_THINKING,
+  SUBAGENT_PROGRESS_THINKING_PLACEHOLDER,
+} from "../src/cli/subagent-progress-labels.js";
 
 describe("resolvePreCompleteProgress", () => {
-  test("publishes thinking when no prior tool results and thinking enabled", () => {
+  test("publishes thinking when reasoning capable and detail on", () => {
     const messages: ChatMessage[] = [
       { role: "system", content: "sys" },
       { role: "user", content: "go" },
     ];
-    expect(resolvePreCompleteProgress(messages, true)).toEqual({
+    expect(resolvePreCompleteProgress(messages, true, true)).toEqual({
       type: "thinking",
       content: SUBAGENT_PROGRESS_THINKING,
     });
   });
 
-  test("skips thinking when thinking disabled", () => {
+  test("publishes placeholder when reasoning capable but detail off", () => {
     const messages: ChatMessage[] = [
       { role: "system", content: "sys" },
       { role: "user", content: "go" },
     ];
-    expect(resolvePreCompleteProgress(messages, false)).toBeNull();
+    expect(resolvePreCompleteProgress(messages, true, false)).toEqual({
+      type: "thinking",
+      content: SUBAGENT_PROGRESS_THINKING_PLACEHOLDER,
+    });
   });
 
-  test("after tool results publishes thinking or nothing, not wrapping up", () => {
+  test("skips when reasoning not capable", () => {
+    const messages: ChatMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "go" },
+    ];
+    expect(resolvePreCompleteProgress(messages, false, true)).toBeNull();
+    expect(resolvePreCompleteProgress(messages, false, false)).toBeNull();
+  });
+
+  test("after tool results publishes thinking when capable", () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "go" },
       { role: "assistant", content: "", tool_calls: [] },
       { role: "tool", content: "ok", tool_call_id: "t1" },
     ];
-    expect(resolvePreCompleteProgress(messages, false)).toBeNull();
-    expect(resolvePreCompleteProgress(messages, true)).toEqual({
+    expect(resolvePreCompleteProgress(messages, true, false)).toEqual({
       type: "thinking",
-      content: SUBAGENT_PROGRESS_THINKING,
+      content: SUBAGENT_PROGRESS_THINKING_PLACEHOLDER,
     });
   });
 });

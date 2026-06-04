@@ -12,8 +12,8 @@ Launches a subagent for autonomous task execution.
 ## Subagent Types
 
 explore (read-only, fast)
-- Tools: file_read, glob, grep
-- Use for: locating code, understanding patterns, answering "where/what/how" questions
+- Tools: file_read, glob, grep, web_search, web_fetch
+- Use for: locating code, understanding patterns, external research, answering "where/what/how" questions
 
 general (full access)
 - Tools: file_read, file_write, file_edit, glob, grep, bash
