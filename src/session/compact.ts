@@ -22,6 +22,10 @@ export interface CompactResult {
   continuationPrompt?: string  // Prompt to continue conversation after compact
 }
 
+interface CompactOptions {
+  force?: boolean
+}
+
 interface CacheEntry {
   value: number
   timestamp: number
@@ -365,7 +369,11 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
    * @param sessionID Session to compact
    * @param isManual If true, generates "what next?" prompt instead of continuation
    */
-  async compact(sessionID: string, isManual: boolean = false): Promise<CompactResult> {
+  async compact(
+    sessionID: string,
+    isManual: boolean = false,
+    options: CompactOptions = {}
+  ): Promise<CompactResult> {
     if (this.inProgress.has(sessionID)) {
       throw new Error(`Compaction already in progress for session ${sessionID}`);
     }
@@ -380,8 +388,12 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       const session = await SessionStoreInstance.read(sessionID);
       const messages = session.messages;
       const todos = session.todos || [];
+      const keepRecentCount =
+        options.force && messages.length <= this.config.keepRecentCount
+          ? Math.max(1, Math.floor(messages.length / 2))
+          : this.config.keepRecentCount;
 
-      if (messages.length <= this.config.keepRecentCount) {
+      if (messages.length <= keepRecentCount) {
         // Nothing to compact - still generate a "what next?" prompt for manual compacts
         const result: CompactResult = {
           compacted: false,
@@ -406,8 +418,8 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         return result;
       }
 
-      const messagesToCompact = messages.slice(0, -this.config.keepRecentCount);
-      const recentMessages = messages.slice(-this.config.keepRecentCount);
+      const messagesToCompact = messages.slice(0, -keepRecentCount);
+      const recentMessages = messages.slice(-keepRecentCount);
 
       const summary = await this.summarizeMessages(messagesToCompact, todos);
 

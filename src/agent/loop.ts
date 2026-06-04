@@ -301,7 +301,8 @@ export class AgentLoop {
       // ── Agentic loop ───────────────────────────────────────────────────────
       let continueLoop = true;
       let outputTokens = 0;
-      const contextWindow = session.context_window || 200000;
+      const getContextWindow = (): number =>
+        SessionManager.getCurrentSession()?.context_window || session?.context_window || 200000;
       const turnStart = Date.now();
       let firstGenerationTime: number | null = null;
       let lastGeneratedAt: number | null = null;
@@ -339,11 +340,12 @@ export class AgentLoop {
         // sent to the provider: system prompt, history, preserved reasoning,
         // tool calls/results, and tool definitions.
         const estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
+        const contextWindow = getContextWindow();
         const contextPct = estimatedTokens / contextWindow;
 
         if (contextPct >= COMPACT_TRIGGER_THRESHOLD) {
           events.onCompacting();
-          const result = await CompactManager.compact(session.id);
+          const result = await CompactManager.compact(session.id, false, { force: true });
           if (result.compacted) {
             events.onCompacted(result.removedCount, result.summary);
           }
@@ -924,7 +926,7 @@ export class AgentLoop {
       events.onTurnEnd({
         inputTokens: contextTokens,
         outputTokens,
-        contextPct: Math.min(1, contextTokens / contextWindow),
+        contextPct: Math.min(1, contextTokens / getContextWindow()),
         tokensPerSecond,
         durationMs,
         ...(debugInstrumentationNudge

@@ -2242,6 +2242,8 @@ export class ImpulseRenderer {
       },
     };
 
+    await this.refreshActiveContextWindow(config, { discover: true });
+
     await this.loop.run(userMessage, this.mode, events, {
       displayMessage,
       segments: payload.segments,
