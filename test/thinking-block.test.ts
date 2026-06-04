@@ -44,7 +44,8 @@ describe("ThinkingBlock", () => {
     block.setExpanded(true);
     const lines = block.render(80);
     expect(lines.some((l) => l.includes("line one"))).toBe(true);
-    expect(lines[0]).toContain("▼");
+    expect(lines[0]).toContain("Thinking:");
+    expect(lines[0]).not.toContain("▼");
   });
 
   test("isThinkingBlock type guard", () => {

@@ -94,7 +94,7 @@ export class ThinkingBlock implements Component {
     }
 
     const prefix = GUTTER;
-    const label = this.phase === "finalized" ? "▼ Thinking:" : "Thinking:";
+    const label = "Thinking:";
     const firstPrefix = `${prefix}${THINKING_COLOR}${label}${RESET} `;
     const continuationPrefix = " ".repeat(prefix.length + label.length + 1);
     const textWidth = Math.max(8, innerWidth(width) - label.length - 1);
