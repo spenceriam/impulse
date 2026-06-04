@@ -25,7 +25,7 @@ export interface PlanRevision {
 }
 
 export function formatRevisionId(date = new Date()): string {
-  return date.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return date.toISOString().replace(/[:.]/g, "-").slice(0, 23);
 }
 
 function metaPath(revisionDir: string): string {
@@ -175,9 +175,11 @@ export function validatePlanWritePath(
   sessionId: string,
   cwd = process.cwd()
 ): string | null {
-  const active = ensureActivePlanRevision(sessionId, cwd);
+  const active = getActivePlanRevision(sessionId, cwd);
+  const revisionDir = active?.dir ?? getRevisionDir(sessionId, "initial", cwd);
+  const planningStyle = active?.meta.planningStyle ?? "spec";
   const resolved = path.resolve(cwd, filePath);
-  const activeDir = path.resolve(active.dir);
+  const activeDir = path.resolve(revisionDir);
 
   const rel = path.relative(activeDir, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
@@ -188,12 +190,16 @@ export function validatePlanWritePath(
   }
 
   const base = path.basename(resolved).toLowerCase();
-  const allowed = allowedPlanFilenames(active.meta.planningStyle).map((f) => f.toLowerCase());
+  const allowed = allowedPlanFilenames(planningStyle).map((f) => f.toLowerCase());
   if (!allowed.includes(base)) {
     return (
       `PLAN mode allows only: ${allowed.join(", ")} in the active revision. ` +
       `For TDD artifacts (e.g. PRD.md), confirm TDD with the user via the question tool first.`
     );
+  }
+
+  if (!active) {
+    createPlanRevision(sessionId, undefined, cwd);
   }
 
   return null;
