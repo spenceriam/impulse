@@ -1126,6 +1126,8 @@ export class ImpulseRenderer {
   private thinkingRaw = "";
   private thinkingOpen = false;
   private thinkingStartedAt = 0;
+  /** Cumulative reasoning time this assistant stream (mirrors loop thinkingDurationMs). */
+  private thinkingElapsedMs = 0;
   /** Session-local: keep new thinking blocks expanded until /hide-think. */
   private thinkingDetailExpanded = false;
   private hasTrailingGap = false;
@@ -1989,6 +1991,7 @@ export class ImpulseRenderer {
     this.thinkingText = null;
     this.thinkingOpen = false;
     this.thinkingStartedAt = 0;
+    this.thinkingElapsedMs = 0;
     this.resetLiveMetrics();
     this.loop.setImages(
       payload.orderedImages.map((i) => ({ uri: i.uri, display: i.display }))
@@ -2089,6 +2092,7 @@ export class ImpulseRenderer {
         // Skip rendering for silent tools (e.g., set_header)
         if (ImpulseRenderer.SILENT_TOOLS.has(_name)) return;
 
+        this.thinkingElapsedMs = 0;
         this.toolsRanThisTurn = true;
 
         this.taskCodenames.delete(id);
@@ -2141,6 +2145,7 @@ export class ImpulseRenderer {
         if (this.streamingRaw) { this.addSectionGap(); }
         this.streamingRaw = ""; this.streamingText = null;
         this.thinkingRaw = "";  this.thinkingText = null;
+        this.thinkingElapsedMs = 0;
 
         this.contextTokens = usage.inputTokens;
         this.contextBar.update({
@@ -2375,8 +2380,11 @@ export class ImpulseRenderer {
 
   private closeThinking(): void {
     if (this.thinkingOpen && this.thinkingText) {
-      const durationMs =
-        this.thinkingStartedAt > 0 ? Date.now() - this.thinkingStartedAt : 0;
+      if (this.thinkingStartedAt > 0) {
+        this.thinkingElapsedMs += Date.now() - this.thinkingStartedAt;
+        this.thinkingStartedAt = 0;
+      }
+      const durationMs = this.thinkingElapsedMs;
       if (this.thinkingRaw.trim()) {
         this.thinkingText.setText(this.thinkingRaw);
       }
@@ -2387,7 +2395,6 @@ export class ImpulseRenderer {
       debugLog(`Thinking block closed (${durationMs}ms)`);
       this.addSectionGap();
       this.thinkingOpen = false;
-      this.thinkingStartedAt = 0;
     }
   }
 
@@ -4063,6 +4070,7 @@ export class ImpulseRenderer {
     this.thinkingText = null;
     this.thinkingOpen = false;
     this.thinkingStartedAt = 0;
+    this.thinkingElapsedMs = 0;
   }
 
   private syncAdvisorFromConfig(config: Config): void {
