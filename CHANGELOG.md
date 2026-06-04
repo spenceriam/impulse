@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Model context windows** — context limits now resolve from provider model metadata when available and fall back to models.dev, including close model-id aliases, instead of staying at the old 200k default
   - **Context usage counter** — completed turns now prefer provider usage tokens and live updates no longer drop to a lower local estimate unless compaction actually runs
   - **Compaction estimates** — pre-request compaction checks now include the active system prompt and tool definitions so thresholds better match the real chat payload
+  - **Auto-compaction retries** — automatic compaction now skips repeated same-state attempts when fixed request overhead keeps usage above the threshold
 
 ## [1.3.2] - 2026-06-02
 

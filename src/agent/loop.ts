@@ -314,6 +314,9 @@ export class AgentLoop {
       let languageRetryUsed = false;
       let consecutiveTodoOnlyRounds = 0;
       let allowAllTodoNudgeUsed = false;
+      let lastUnproductiveCompact:
+        | { tokens: number; messageCount: number }
+        | undefined;
       const debugEditedFiles = new Set<string>();
 
       const noteGeneratedChunk = (text: string): void => {
@@ -343,7 +346,15 @@ export class AgentLoop {
         const contextWindow = getContextWindow();
         const contextPct = estimatedTokens / contextWindow;
 
-        if (contextPct >= COMPACT_TRIGGER_THRESHOLD) {
+        const shouldTryCompact =
+          contextPct >= COMPACT_TRIGGER_THRESHOLD &&
+          (
+            lastUnproductiveCompact === undefined ||
+            currentMessages.length > lastUnproductiveCompact.messageCount ||
+            estimatedTokens < lastUnproductiveCompact.tokens
+          );
+
+        if (shouldTryCompact) {
           events.onCompacting();
           const result = await CompactManager.compact(session.id, false, { force: true });
           if (result.compacted) {
@@ -353,6 +364,14 @@ export class AgentLoop {
           session = SessionManager.getCurrentSession()!;
           const compactedMessages = session.messages ?? [];
           chatMessages = buildChatMessages(compactedMessages, systemPrompt);
+          const compactedEstimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
+          lastUnproductiveCompact =
+            !result.compacted || compactedEstimatedTokens >= estimatedTokens
+              ? {
+                  tokens: estimatedTokens,
+                  messageCount: compactedMessages.length,
+                }
+              : undefined;
         }
 
         // ── Stream response ─────────────────────────────────────────────────
