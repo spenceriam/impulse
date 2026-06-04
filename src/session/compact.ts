@@ -385,6 +385,7 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
     });
 
     try {
+      await SessionStoreInstance.flushSave(sessionID);
       const session = await SessionStoreInstance.read(sessionID);
       const messages = session.messages;
       const todos = session.todos || [];
