@@ -369,6 +369,8 @@ export class AgentLoop {
         let accumulatedThinking = "";
         let finishReason: string | null = null;
         let chunkOutputTokens = 0;
+        latestPromptTokens = undefined;
+        latestCompletionTokens = 0;
 
         for await (const chunk of manager.stream(streamOptions)) {
           if (signal.aborted) break;
