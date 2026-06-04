@@ -15,10 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`plan_revision` tool** — create a new revision when reworking a plan (superseded revisions stay read-only)
   - **`install_skill` tool** — install skills via `npx skills@latest add` in PLAN without full bash access
   - **Explore subagent web tools** — `web_search` and `web_fetch` on explore subagents for parallel external research
+  - **Repository context** — system prompt injects GitHub `owner/repo` and issue URL pattern from `package.json` / `git origin`
+  - **`github_issue` tool** — read issues via GitHub CLI (`gh`); gh-only (no in-tool web fallback)
+  - **GitHub CLI status** — prompt shows whether `gh` is installed and authenticated
 
   ### Changed
   - **PLAN mode writes** — `file_write` / `file_edit` target active revision only (`design.md`, `spec.md`, `tasks.md`; `PRD.md` after TDD confirmed via question tool)
   - **PLAN prompts** — full web research instructions; active plan paths injected each turn
+  - **GitHub issue references** — same-repo "issue #N" must use Repository context / `github_issue` / canonical `web_fetch`, not blind `web_search`
+  - **Question tool docs** — document built-in "Type your own answer" for repo names and URLs
 
   ### Fixed
   - **PLAN mode research (#55)** — main and delegated explore agents can research the codebase and the web; `file_edit` available in PLAN for plan files

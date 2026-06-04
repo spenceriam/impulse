@@ -40,5 +40,8 @@ import "./web-search";
 import "./plan-revision";
 import "./install-skill";
 
+// GitHub
+import "./github-issue";
+
 // Re-export registry for convenience
 export { Tool } from "./registry";

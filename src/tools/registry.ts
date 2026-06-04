@@ -44,6 +44,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   tool_docs: "read_only",
   plan_revision: "utility",
   install_skill: "utility",
+  github_issue: "read_only",
   
   // Write tools (restricted in PLAN)
   file_write: "write",

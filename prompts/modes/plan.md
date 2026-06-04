@@ -11,7 +11,8 @@ Planning mode. Research the problem, then produce spec-driven plan artifacts und
 ### PLAN capabilities
 
 - Read-only codebase exploration: `file_read`, `glob`, `grep`
-- External research: `web_search`, `web_fetch`
+- External research: `web_search`, `web_fetch`, `github_issue` (when GitHub CLI is available)
+- GitHub issues: for "issue #N" in this repo, use Repository context — never blind `web_search` for issue numbers
 - Parallel research: `task` with `subagent_type: "explore"` (explore agents also have web tools)
 - Plan artifacts: `file_write` / `file_edit` only in the **active** revision under `.impulse/plans/<sessionId>/revisions/`
 - New revision: `plan_revision`

@@ -32,6 +32,7 @@ const TOOL_DOCS_MAP: Record<string, string> = {
   web_search: "web-search.md",
   plan_revision: "plan-revision.md",
   install_skill: "install-skill.md",
+  github_issue: "github-issue.md",
   tool_docs: "tool-docs.md",
 };
 
