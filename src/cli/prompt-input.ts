@@ -769,8 +769,14 @@ export class PromptInput implements Component, Focusable {
       return [truncateGutterLine(ARROW + masked, width)];
     }
 
+    // Ghost text hint for lone ! (shell bang mode indicator)
+    let displayContent = content;
+    if (content === "!") {
+      displayContent += "\x1b[38;5;238m type any terminal command\x1b[0m";
+    }
+
     return [
-      truncateGutterLine(ARROW + content, width),
+      truncateGutterLine(ARROW + displayContent, width),
       ...innerLines.slice(1).map((line) => gutterContent(line, width)),
     ];
   }
