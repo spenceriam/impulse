@@ -5,6 +5,16 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-06-04
+
+  **Type:** patch
+  **Title:** Fix streaming provider token usage for context bar
+
+  ### Fixed
+  - **Streaming usage** — all OpenAI-compatible providers now send `stream_options.include_usage` so real `prompt_tokens` / `completion_tokens` are available on the final stream chunk
+  - **Usage chunk handling** — agent loop reads `chunk.usage` before skipping empty `choices` (usage-only final chunk)
+  - **Live context bar** — footer counter no longer double-counts tool output during a turn or drops at turn end; uses provider usage when available
+
 ## [1.3.3] - 2026-06-03
 
   **Type:** patch

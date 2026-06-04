@@ -163,6 +163,7 @@ export class ZAIProvider implements AIProvider {
           model: options.model ?? this.config.defaultModel,
           messages: options.messages as OpenAI.ChatCompletionMessageParam[],
           stream: true,
+          stream_options: { include_usage: true },
         };
         
         if (options.temperature !== undefined) request.temperature = options.temperature;

@@ -400,6 +400,15 @@ export class AgentLoop {
         for await (const chunk of manager.stream(streamOptions)) {
           if (signal.aborted) break;
 
+          // Usage may arrive on a usage-only final chunk that carries an empty
+          // choices array (OpenAI-compatible stream_options.include_usage).
+          // Read it before the choice guard so we don't skip it.
+          if (chunk.usage) {
+            chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
+            latestPromptTokens = chunk.usage.prompt_tokens;
+            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
+          }
+
           const choice = chunk.choices[0];
           if (!choice) continue;
 
@@ -441,13 +450,6 @@ export class AgentLoop {
                 if (tc.function?.arguments) partial.argumentsJson += tc.function.arguments;
               }
             }
-          }
-
-          // Token usage
-          if (chunk.usage) {
-            chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
-            latestPromptTokens = chunk.usage.prompt_tokens;
-            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
           }
         }
 
@@ -542,13 +544,14 @@ export class AgentLoop {
             ) {
               const toolStart = Date.now();
               events.onToolStart(item.tc.id, "task", item.args);
+              const durationMs = Date.now() - toolStart;
+              await persistToolResult(item.tc.id, ADVISOR_GATE_MESSAGE);
               events.onToolEnd(
                 item.tc.id,
                 "task",
                 { success: false, output: ADVISOR_GATE_MESSAGE },
-                Date.now() - toolStart
+                durationMs
               );
-              await persistToolResult(item.tc.id, ADVISOR_GATE_MESSAGE);
               allSucceeded = false;
               continue;
             }
@@ -559,13 +562,14 @@ export class AgentLoop {
                 `PLAN mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`;
               const toolStart = Date.now();
               events.onToolStart(item.tc.id, "task", item.args);
+              const durationMs = Date.now() - toolStart;
+              await persistToolResult(item.tc.id, planMsg);
               events.onToolEnd(
                 item.tc.id,
                 "task",
                 { success: false, output: planMsg },
-                Date.now() - toolStart
+                durationMs
               );
-              await persistToolResult(item.tc.id, planMsg);
               allSucceeded = false;
               continue;
             }
@@ -632,9 +636,10 @@ export class AgentLoop {
             if (!skipResult) continue;
             const toolStart = Date.now();
             events.onToolStart(item.tc.id, "task", item.args);
-            events.onToolEnd(item.tc.id, "task", skipResult, Date.now() - toolStart);
+            const durationMs = Date.now() - toolStart;
             allSucceeded = false;
             await persistToolResult(item.tc.id, skipResult.output);
+            events.onToolEnd(item.tc.id, "task", skipResult, durationMs);
           }
 
           if (toRun.length === 0) return;
@@ -679,8 +684,8 @@ export class AgentLoop {
               allSucceeded = false;
             }
 
-            events.onToolEnd(item.tc.id, "task", result, durationMs);
             await persistToolResult(item.tc.id, result.output);
+            events.onToolEnd(item.tc.id, "task", result, durationMs);
           }
         };
 
@@ -702,10 +707,6 @@ export class AgentLoop {
           ) {
             if (shouldBlockBeforeAdvisor(tc.name, args)) {
               events.onToolStart(tc.id, tc.name, args);
-              events.onToolEnd(tc.id, tc.name, {
-                success: false,
-                output: ADVISOR_GATE_MESSAGE,
-              }, 0);
               allSucceeded = false;
 
               const blockedMsg = {
@@ -715,6 +716,10 @@ export class AgentLoop {
                 timestamp: new Date().toISOString(),
               } as unknown as Message;
               await SessionManager.addMessage(blockedMsg as unknown as Message);
+              events.onToolEnd(tc.id, tc.name, {
+                success: false,
+                output: ADVISOR_GATE_MESSAGE,
+              }, 0);
               continue;
             }
           }
@@ -770,12 +775,7 @@ export class AgentLoop {
                 })
               : `Advisor error: ${advisorResult.error ?? "unknown error"}`;
 
-            events.onToolEnd(
-              tc.id,
-              "consult_advisor",
-              { success: advisorResult.success, output: resultText },
-              Date.now() - toolStart
-            );
+            const durationMs = Date.now() - toolStart;
 
             const advisorToolMsg = {
               role: "tool" as const,
@@ -784,6 +784,12 @@ export class AgentLoop {
               timestamp: new Date().toISOString(),
             } as unknown as Message;
             await SessionManager.addMessage(advisorToolMsg as unknown as Message);
+            events.onToolEnd(
+              tc.id,
+              "consult_advisor",
+              { success: advisorResult.success, output: resultText },
+              durationMs
+            );
 
             advisorCalledThisTurn = true;
             continue;
@@ -812,8 +818,6 @@ export class AgentLoop {
             trackDebugEdit(tc.name, args);
           }
 
-          events.onToolEnd(tc.id, tc.name, result, durationMs);
-
           // Add tool result to session
           const toolResultMsg = {
             role: "tool" as const,
@@ -822,6 +826,7 @@ export class AgentLoop {
             timestamp: new Date().toISOString(),
           };
           await SessionManager.addMessage(toolResultMsg as unknown as Message);
+          events.onToolEnd(tc.id, tc.name, result, durationMs);
 
           // Auto-stuck: trigger advisor if too many consecutive failures
           if (

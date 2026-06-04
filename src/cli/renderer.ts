@@ -1857,22 +1857,25 @@ export class ImpulseRenderer {
     this.lastLiveMetricsAt = 0;
   }
 
-  private updateLiveMetrics(extraContextChars = 0, force = false): void {
+  private updateLiveMetrics(_extraContextChars = 0, force = false): void {
     const now = Date.now();
     if (!force && now - this.lastLiveMetricsAt < 250) return;
 
     this.lastLiveMetricsAt = now;
-    const liveChars = this.streamingRaw.length + this.thinkingRaw.length + extraContextChars;
-    const localContextTokens =
-      Math.max(this.contextTokens, this.estimateCurrentSessionTokens()) +
-      Math.ceil(liveChars / 4);
+    // Live context = committed baseline (never drops below the last
+    // authoritative count) plus the in-flight streaming/thinking buffer.
+    // Persisted tool results are already reflected by the session estimate,
+    // so we must NOT fold tool output (extraContextChars) in again or the
+    // counter balloons and then snaps back down at turn end.
+    const transientChars = this.streamingRaw.length + this.thinkingRaw.length;
+    const baseTokens = Math.max(this.contextTokens, this.estimateCurrentSessionTokens());
+    const displayTokens = baseTokens + Math.ceil(transientChars / 4);
     const generatedTokens = Math.ceil(this.liveGeneratedChars / 4);
     const elapsedMs = Math.max(1, now - this.liveTurnStartedAt);
     const tokensPerSecond = generatedTokens > 0 ? Math.round((generatedTokens / elapsedMs) * 1000) : undefined;
 
-    this.contextTokens = localContextTokens;
     this.contextBar.update({
-      contextTokens: localContextTokens,
+      contextTokens: displayTokens,
       contextWindow: this.contextWindow,
       isRunning: this.isRunning,
       ...(this.speedoEnabled && tokensPerSecond !== undefined
