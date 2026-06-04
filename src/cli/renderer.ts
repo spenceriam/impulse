@@ -2184,8 +2184,8 @@ export class ImpulseRenderer {
         this.setBusyStatus("compacting context?", BUSY_PROCESSING);
         this.tui.requestRender();
       },
-      onCompacted: (removedCount) => {
-        this.contextTokens = this.estimateCurrentSessionTokens();
+      onCompacted: (removedCount, _summary, contextTokens) => {
+        this.contextTokens = contextTokens ?? this.estimateCurrentSessionTokens();
         this.addChatLine(
           `${clr.success("[OK]")} ${clr.dim(`compacted ? removed ${removedCount} messages`)}`
         );

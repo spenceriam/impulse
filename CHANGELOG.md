@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Context usage counter** — completed turns now prefer provider usage tokens and live updates no longer drop to a lower local estimate unless compaction actually runs
   - **Compaction estimates** — pre-request compaction checks now include the active system prompt and tool definitions so thresholds better match the real chat payload
   - **Auto-compaction retries** — automatic compaction now skips repeated same-state attempts when fixed request overhead keeps usage above the threshold
+  - **Compacted context bar** — after auto-compaction, the footer keeps using the full request estimate instead of dropping to a messages-only count
 
 ## [1.3.2] - 2026-06-02
 

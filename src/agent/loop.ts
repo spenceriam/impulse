@@ -113,7 +113,7 @@ export interface LoopEvents {
   ) => Promise<TaskBatchDecision>;
   /** Context compaction */
   onCompacting(): void;
-  onCompacted(removedCount: number, summary: string): void;
+  onCompacted(removedCount: number, summary: string, contextTokens?: number): void;
   /** Turn complete */
   onTurnEnd(usage: {
     inputTokens: number;
@@ -357,14 +357,18 @@ export class AgentLoop {
         if (shouldTryCompact) {
           events.onCompacting();
           const result = await CompactManager.compact(session.id, false, { force: true });
-          if (result.compacted) {
-            events.onCompacted(result.removedCount, result.summary);
-          }
           // Refresh session after compaction
           session = SessionManager.getCurrentSession()!;
           const compactedMessages = session.messages ?? [];
           chatMessages = buildChatMessages(compactedMessages, systemPrompt);
           const compactedEstimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
+          if (result.compacted) {
+            events.onCompacted(
+              result.removedCount,
+              result.summary,
+              compactedEstimatedTokens
+            );
+          }
           lastUnproductiveCompact =
             !result.compacted || compactedEstimatedTokens >= estimatedTokens
               ? {
