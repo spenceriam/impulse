@@ -5,6 +5,24 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-04
+
+  **Type:** minor
+  **Title:** PLAN mode research and revision-based plan artifacts
+
+  ### Added
+  - **Plan revisions** — spec-driven plans under `.impulse/plans/<sessionId>/revisions/`; latest revision is always active context for the main agent
+  - **`plan_revision` tool** — create a new revision when reworking a plan (superseded revisions stay read-only)
+  - **`install_skill` tool** — install skills via `npx skills@latest add` in PLAN without full bash access
+  - **Explore subagent web tools** — `web_search` and `web_fetch` on explore subagents for parallel external research
+
+  ### Changed
+  - **PLAN mode writes** — `file_write` / `file_edit` target active revision only (`design.md`, `spec.md`, `tasks.md`; `PRD.md` after TDD confirmed via question tool)
+  - **PLAN prompts** — full web research instructions; active plan paths injected each turn
+
+  ### Fixed
+  - **PLAN mode research (#55)** — main and delegated explore agents can research the codebase and the web; `file_edit` available in PLAN for plan files
+
 ## [1.3.4] - 2026-06-04
 
   **Type:** patch
