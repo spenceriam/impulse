@@ -25,7 +25,16 @@ class SessionManagerImpl {
     initialContextWindow: 200000,
   };
 
-  private constructor() {}
+  private constructor() {
+    Bus.subscribe((event) => {
+      if (event.type !== SessionEvents.Updated.name) return;
+
+      const payload = event.properties as { sessionID?: unknown; session?: unknown };
+      if (payload.sessionID !== this.currentSession?.id) return;
+
+      this.currentSession = payload.session as Session;
+    });
+  }
 
   static getInstance(): SessionManagerImpl {
     if (!SessionManagerImpl.instance) {

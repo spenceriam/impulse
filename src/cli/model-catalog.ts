@@ -235,6 +235,78 @@ function lookupInBucket(
   return undefined;
 }
 
+function normalizedComparableKey(id: string): string {
+  return id
+    .toLowerCase()
+    .replace(/^(ollama|openrouter|openai|anthropic|groq|gemini|nous|z\.ai)\//, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i++) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1]! + 1,
+        previous[j]! + 1,
+        previous[j - 1]! + cost
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[b.length] ?? Number.MAX_SAFE_INTEGER;
+}
+
+function isVeryCloseModelMatch(query: string, candidate: string): boolean {
+  const q = normalizedComparableKey(query);
+  const c = normalizedComparableKey(candidate);
+  if (!q || !c) return false;
+  if (q === c) return true;
+
+  const shorter = Math.min(q.length, c.length);
+  const longer = Math.max(q.length, c.length);
+  if (shorter < 8) return false;
+
+  // Accept only near aliases, not broad family matches (for example gpt4 vs gpt41).
+  const distance = levenshteinDistance(q, c);
+  return distance <= Math.max(2, Math.floor(longer * 0.08));
+}
+
+function lookupFuzzyInCatalog(
+  data: CatalogData,
+  preferredBucket: string,
+  id: string
+): ModelsDevRecord | undefined {
+  const buckets: Array<Record<string, ModelsDevRecord> | undefined> = [
+    data[preferredBucket]?.models,
+    ...Object.entries(data)
+      .filter(([bucket]) => bucket !== preferredBucket)
+      .map(([, provider]) => provider.models),
+  ];
+
+  for (const bucket of buckets) {
+    if (!bucket) continue;
+    for (const [key, record] of Object.entries(bucket)) {
+      const recordId = String(record.id ?? key);
+      const candidates = new Set([...normKeys(recordId), ...normKeys(key)]);
+      for (const candidate of candidates) {
+        if (isVeryCloseModelMatch(id, candidate)) return record;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function stripImpulseProviderPrefix(
   impulseProviderKey: string,
   modelId: string
@@ -243,12 +315,11 @@ function stripImpulseProviderPrefix(
   return modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId;
 }
 
-export function enrichModelId(
+export function resolveModelsDevRecord(
   impulseProviderKey: string,
   modelId: string,
-  catalog: CatalogData,
-  apiMeta?: ProviderModelEntry
-): ModelInfo {
+  catalog: CatalogData
+): ModelsDevRecord | undefined {
   const bare = stripImpulseProviderPrefix(impulseProviderKey, modelId);
   const catalogKey = CATALOG_ALIASES[impulseProviderKey] ?? impulseProviderKey;
   const bucket = catalog[catalogKey]?.models;
@@ -267,11 +338,23 @@ export function enrichModelId(
     }
   }
 
+  return record ?? lookupFuzzyInCatalog(catalog, catalogKey, bare);
+}
+
+export function enrichModelId(
+  impulseProviderKey: string,
+  modelId: string,
+  catalog: CatalogData,
+  apiMeta?: ProviderModelEntry
+): ModelInfo {
+  const bare = stripImpulseProviderPrefix(impulseProviderKey, modelId);
+  const record = resolveModelsDevRecord(impulseProviderKey, modelId, catalog);
+
   let vendor: string;
   let displayName: string;
   const contextTokens =
-    record?.limit?.context ??
-    apiMeta?.context_length;
+    apiMeta?.context_length ??
+    record?.limit?.context;
   const addedAt = parseAddedAt(record, apiMeta);
 
   if (record) {
@@ -294,12 +377,12 @@ export function enrichModelId(
     displayName = titleCaseSlug(bare);
   }
 
-  const info = {
+  const info: Omit<ModelInfo, "pickerLine"> = {
     id: modelId.includes("/") ? modelId : bare,
     vendor,
     displayName,
-    contextTokens,
-    addedAt,
+    ...(contextTokens !== undefined ? { contextTokens } : {}),
+    ...(addedAt !== undefined ? { addedAt } : {}),
   };
   return { ...info, pickerLine: formatModelPickerLine(info) };
 }
@@ -320,12 +403,10 @@ export function sortModelInfos(models: ModelInfo[]): ModelInfo[] {
 /** Raw model IDs when models.dev enrichment is unavailable. */
 export function fallbackModelInfosFromIds(modelIds: string[]): ModelInfo[] {
   return modelIds.map((id) => {
-    const info = {
+    const info: Omit<ModelInfo, "pickerLine"> = {
       id,
       vendor: "—",
       displayName: id,
-      contextTokens: undefined as number | undefined,
-      addedAt: undefined as Date | undefined,
     };
     return { ...info, pickerLine: formatModelPickerLine(info) };
   });

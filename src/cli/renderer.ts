@@ -161,10 +161,17 @@ import {
   removeProviderFromHomeEnv,
   countConfiguredProviders,
   modelUsesProvider,
+  getCachedModelInfos,
+  resolveCustomProviderOption,
   type ModelDiscoveryResult,
   type ModelProviderOption,
   type StoredProviderConfig,
 } from "./model-setup.js";
+import {
+  enrichModelId,
+  formatContextK,
+  loadModelsDevCatalog,
+} from "./model-catalog.js";
 import { Bus } from "../bus/index.js";
 import { HeaderEvents, ModeEvents, QuestionEvents, SubagentEvents } from "../bus/events.js";
 import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
@@ -1572,6 +1579,7 @@ export class ImpulseRenderer {
     this.tui.start();
     // Discover reasoning capabilities in background (non-blocking)
     void this.refreshReasoningCapability();
+    void this.refreshActiveContextWindow(config, { discover: true });
 
     if (this.startupResume === "picker") {
       await this.cmdResume("");
@@ -1650,6 +1658,91 @@ export class ImpulseRenderer {
   private providerKeyForModel(modelId: string, config: Config): string {
     if (modelId.includes("/")) return modelId.split("/")[0] ?? config.defaultProvider;
     return config.defaultProvider;
+  }
+
+  private findCachedContextWindow(providerKey: string, modelId: string): number | undefined {
+    const cached = getCachedModelInfos(providerKey);
+    if (!cached) return undefined;
+
+    const bare = modelId.startsWith(`${providerKey}/`)
+      ? modelId.slice(providerKey.length + 1)
+      : modelId;
+    const info = cached.find((entry) =>
+      entry.id === modelId ||
+      entry.id === bare ||
+      `${providerKey}/${entry.id}` === modelId
+    );
+    return info?.contextTokens;
+  }
+
+  private providerOptionForKey(providerKey: string, config: Config): ModelProviderOption {
+    return (
+      MODEL_PROVIDERS.find((provider) => provider.key === providerKey) ??
+      resolveCustomProviderOption(providerKey, config)
+    );
+  }
+
+  private async resolveContextWindowForModel(
+    modelId: string,
+    config: Config,
+    opts?: { discover?: boolean }
+  ): Promise<number | undefined> {
+    const providerKey = this.providerKeyForModel(modelId, config);
+    const cached = this.findCachedContextWindow(providerKey, modelId);
+    if (cached && cached > 0) return cached;
+
+    if (opts?.discover) {
+      const stored = providerConfig(config, providerKey);
+      if (stored.apiKey) {
+        const provider = this.providerOptionForKey(providerKey, config);
+        try {
+          await discoverModels(provider, stored.apiKey, stored.baseUrl);
+          const discovered = this.findCachedContextWindow(providerKey, modelId);
+          if (discovered && discovered > 0) return discovered;
+        } catch {
+          // Fall through to models.dev; discovery is best-effort for runtime metadata.
+        }
+      }
+    }
+
+    try {
+      const catalog = await loadModelsDevCatalog();
+      const info = enrichModelId(providerKey, modelId, catalog);
+      return info.contextTokens && info.contextTokens > 0 ? info.contextTokens : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async refreshActiveContextWindow(
+    config?: Config,
+    opts?: { discover?: boolean; announce?: boolean }
+  ): Promise<void> {
+    const cfg = config ?? await loadConfig();
+    const activeModel = this.activeModelId(cfg);
+    if (!activeModel) return;
+
+    const resolved = await this.resolveContextWindowForModel(activeModel, cfg, opts);
+    if (!resolved || resolved <= 0) return;
+
+    const session = SessionManager.getCurrentSession();
+    const sessionNeedsUpdate = session?.context_window !== resolved;
+    if (this.contextWindow === resolved && !sessionNeedsUpdate) return;
+
+    this.contextWindow = resolved;
+    SessionManager.setOptions({ initialContextWindow: resolved });
+    if (sessionNeedsUpdate) {
+      await SessionManager.update({ context_window: resolved });
+    }
+
+    this.contextBar?.update({
+      contextTokens: this.contextTokens,
+      contextWindow: resolved,
+    });
+    if (opts?.announce) {
+      this.addChatLine(modelStatusLine(`Context window: ${formatContextK(resolved)}`));
+    }
+    this.tui?.requestRender();
   }
 
   private async refreshReasoningCapability(): Promise<void> {
@@ -1770,7 +1863,9 @@ export class ImpulseRenderer {
 
     this.lastLiveMetricsAt = now;
     const liveChars = this.streamingRaw.length + this.thinkingRaw.length + extraContextChars;
-    const localContextTokens = this.estimateCurrentSessionTokens() + Math.ceil(liveChars / 4);
+    const localContextTokens =
+      Math.max(this.contextTokens, this.estimateCurrentSessionTokens()) +
+      Math.ceil(liveChars / 4);
     const generatedTokens = Math.ceil(this.liveGeneratedChars / 4);
     const elapsedMs = Math.max(1, now - this.liveTurnStartedAt);
     const tokensPerSecond = generatedTokens > 0 ? Math.round((generatedTokens / elapsedMs) * 1000) : undefined;
@@ -1975,7 +2070,10 @@ export class ImpulseRenderer {
     const events: LoopEvents = {
       onTurnStart: () => {
         this.clearCtrlCPending();
-        this.contextTokens = this.estimateCurrentSessionTokens();
+        this.contextTokens = Math.max(
+          this.contextTokens,
+          this.estimateCurrentSessionTokens()
+        );
         this.contextBar.update({
           contextTokens: this.contextTokens,
           contextWindow: this.contextWindow,
@@ -2086,11 +2184,16 @@ export class ImpulseRenderer {
         this.setBusyStatus("compacting context?", BUSY_PROCESSING);
         this.tui.requestRender();
       },
-      onCompacted: (removedCount) => {
+      onCompacted: (removedCount, _summary, contextTokens) => {
+        this.contextTokens = contextTokens ?? this.estimateCurrentSessionTokens();
         this.addChatLine(
           `${clr.success("[OK]")} ${clr.dim(`compacted ? removed ${removedCount} messages`)}`
         );
         this.setBusyStatus("thinking?", BUSY_PROCESSING);
+        this.contextBar.update({
+          contextTokens: this.contextTokens,
+          contextWindow: this.contextWindow,
+        });
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
@@ -2138,6 +2241,8 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
     };
+
+    await this.refreshActiveContextWindow(config, { discover: true });
 
     await this.loop.run(userMessage, this.mode, events, {
       displayMessage,
@@ -2915,6 +3020,7 @@ export class ImpulseRenderer {
     if (SessionManager.getCurrentSession()) {
       await SessionManager.update({ model: selectedModel });
     }
+    await this.refreshActiveContextWindow(state.config);
 
     this.reasoningCapability = await this.reasoningCapabilityForProvider(effectiveKey);
     await this.normalizeReasoningLevel();
@@ -3093,6 +3199,7 @@ export class ImpulseRenderer {
           resetProviderManager();
           SessionManager.setOptions({ defaultModel: fullModel });
           await SessionManager.update({ model: fullModel });
+          await this.refreshActiveContextWindow(cfg);
           void this.refreshReasoningCapability();
           this.contextBar.update({ workerModel: fullModel });
           this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
@@ -4276,6 +4383,7 @@ export class ImpulseRenderer {
     void loadConfig().then((cfg) => {
       this.syncAdvisorFromConfig(cfg);
       this.syncVisionFromConfig(cfg);
+      void this.refreshActiveContextWindow(cfg, { discover: true });
       this.contextBar.update({
         mode: this.mode,
         contextTokens: this.contextTokens,

@@ -113,7 +113,7 @@ export interface LoopEvents {
   ) => Promise<TaskBatchDecision>;
   /** Context compaction */
   onCompacting(): void;
-  onCompacted(removedCount: number, summary: string): void;
+  onCompacted(removedCount: number, summary: string, contextTokens?: number): void;
   /** Turn complete */
   onTurnEnd(usage: {
     inputTokens: number;
@@ -139,9 +139,16 @@ interface PartialToolCall {
   argumentsJson: string;
 }
 
-function estimateTokens(messages: ChatMessage[]): number {
+function estimateTokens(value: unknown): number {
   // Rough estimate: 1 token ≈ 4 chars
-  return Math.ceil(JSON.stringify(messages).length / 4);
+  return Math.ceil(JSON.stringify(value).length / 4);
+}
+
+function estimateRequestTokens(messages: ChatMessage[], tools: ToolDefinition[]): number {
+  return estimateTokens({
+    messages,
+    ...(tools.length > 0 ? { tools } : {}),
+  });
 }
 
 export interface RunTurnOptions {
@@ -294,16 +301,22 @@ export class AgentLoop {
       // ── Agentic loop ───────────────────────────────────────────────────────
       let continueLoop = true;
       let outputTokens = 0;
-      const contextWindow = session.context_window || 200000;
+      const getContextWindow = (): number =>
+        SessionManager.getCurrentSession()?.context_window || session?.context_window || 200000;
       const turnStart = Date.now();
       let firstGenerationTime: number | null = null;
       let lastGeneratedAt: number | null = null;
       let activeStreamingMs = 0;
       let estimatedGeneratedTokens = 0;
       let lastSystemPrompt = "";
+      let latestPromptTokens: number | undefined;
+      let latestCompletionTokens = 0;
       let languageRetryUsed = false;
       let consecutiveTodoOnlyRounds = 0;
       let allowAllTodoNudgeUsed = false;
+      let lastUnproductiveCompact:
+        | { tokens: number; messageCount: number }
+        | undefined;
       const debugEditedFiles = new Set<string>();
 
       const noteGeneratedChunk = (text: string): void => {
@@ -321,26 +334,49 @@ export class AgentLoop {
       while (continueLoop && !signal.aborted) {
         await this.flushTurnInjections();
 
-        // Check compaction before each iteration
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
-        const estimatedTokens = estimateTokens(buildChatMessages(currentMessages, ""));
-        const contextPct = estimatedTokens / contextWindow;
-
-        if (contextPct >= COMPACT_TRIGGER_THRESHOLD) {
-          events.onCompacting();
-          const result = await CompactManager.compact(session.id);
-          if (result.compacted) {
-            events.onCompacted(result.removedCount, result.summary);
-          }
-          // Refresh session after compaction
-          session = SessionManager.getCurrentSession()!;
-        }
-
-        // Build messages for API call
-        const freshMessages = (SessionManager.getCurrentSession()?.messages ?? []);
         const systemPrompt = await generateSystemPrompt(mode, undefined, config);
         lastSystemPrompt = systemPrompt;
-        const chatMessages = buildChatMessages(freshMessages, systemPrompt);
+        let chatMessages = buildChatMessages(currentMessages, systemPrompt);
+
+        // Check compaction before each iteration using the same request shape
+        // sent to the provider: system prompt, history, preserved reasoning,
+        // tool calls/results, and tool definitions.
+        const estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
+        const contextWindow = getContextWindow();
+        const contextPct = estimatedTokens / contextWindow;
+
+        const shouldTryCompact =
+          contextPct >= COMPACT_TRIGGER_THRESHOLD &&
+          (
+            lastUnproductiveCompact === undefined ||
+            currentMessages.length > lastUnproductiveCompact.messageCount ||
+            estimatedTokens < lastUnproductiveCompact.tokens
+          );
+
+        if (shouldTryCompact) {
+          events.onCompacting();
+          const result = await CompactManager.compact(session.id, false, { force: true });
+          // Refresh session after compaction
+          session = SessionManager.getCurrentSession()!;
+          const compactedMessages = session.messages ?? [];
+          chatMessages = buildChatMessages(compactedMessages, systemPrompt);
+          const compactedEstimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
+          if (result.compacted) {
+            events.onCompacted(
+              result.removedCount,
+              result.summary,
+              compactedEstimatedTokens
+            );
+          }
+          lastUnproductiveCompact =
+            !result.compacted || compactedEstimatedTokens >= estimatedTokens
+              ? {
+                  tokens: estimatedTokens,
+                  messageCount: compactedMessages.length,
+                }
+              : undefined;
+        }
 
         // ── Stream response ─────────────────────────────────────────────────
         const streamOptions: StreamCompletionOptions = {
@@ -358,6 +394,8 @@ export class AgentLoop {
         let accumulatedThinking = "";
         let finishReason: string | null = null;
         let chunkOutputTokens = 0;
+        latestPromptTokens = undefined;
+        latestCompletionTokens = 0;
 
         for await (const chunk of manager.stream(streamOptions)) {
           if (signal.aborted) break;
@@ -408,6 +446,8 @@ export class AgentLoop {
           // Token usage
           if (chunk.usage) {
             chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
+            latestPromptTokens = chunk.usage.prompt_tokens;
+            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
           }
         }
 
@@ -893,16 +933,23 @@ export class AgentLoop {
         ? Math.round((estimatedGeneratedTokens / generationMs) * 1000)
         : 0;
       const finalMessages = SessionManager.getCurrentSession()?.messages ?? [];
-      const estimatedContextTokens = estimateTokens(buildChatMessages(finalMessages, lastSystemPrompt));
+      const estimatedContextTokens = estimateRequestTokens(
+        buildChatMessages(finalMessages, lastSystemPrompt),
+        toolDefs
+      );
+      const providerContextTokens = latestPromptTokens !== undefined
+        ? latestPromptTokens + latestCompletionTokens
+        : undefined;
+      const contextTokens = providerContextTokens ?? estimatedContextTokens;
       const debugInstrumentationNudge =
         mode === "DEBUG"
           ? buildDebugInstrumentationNudge([...debugEditedFiles])
           : undefined;
 
       events.onTurnEnd({
-        inputTokens: estimatedContextTokens,
+        inputTokens: contextTokens,
         outputTokens,
-        contextPct: Math.min(1, estimatedContextTokens / contextWindow),
+        contextPct: Math.min(1, contextTokens / getContextWindow()),
         tokensPerSecond,
         durationMs,
         ...(debugInstrumentationNudge
