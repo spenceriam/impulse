@@ -33,9 +33,10 @@ import {
 } from "./prompt-input.js";
 import { shouldTreatAsSlashCommand } from "./image-paths.js";
 import {
-  completeSlashCommand,
+  completeSlashCommandTab,
   isSlashCommandInput,
   shouldShowSlashAutocomplete,
+  type SlashCompleteCycle,
 } from "./slash-autocomplete.js";
 import { buildSlashCommandList } from "./slash-commands.js";
 import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
@@ -104,7 +105,11 @@ import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
-import { SettingsOverlay } from "./components/settings-overlay.js";
+import {
+  SettingsOverlay,
+  settingsValuesEqual,
+  type SettingsValues,
+} from "./components/settings-overlay.js";
 import { HelpOverlay } from "./components/help-overlay.js";
 import { SideOverlay } from "./components/side-overlay.js";
 import {
@@ -117,7 +122,7 @@ import type { SideExchange } from "../session/store.js";
 import crypto from "crypto";
 import { SHIMMER_FRAME_MS, shimmerText } from "./shimmer-text.js";
 import { pickUniqueShipName } from "./starfleet-ship-names.js";
-import { formatThinkingBodyPart } from "./thinking-style.js";
+import { ThinkingBlock, isThinkingBlock } from "./components/thinking-block.js";
 import { filterThinkingForDisplay } from "../util/thinking-filter.js";
 import { buildReplaySteps, type ReplayStep } from "./session-replay.js";
 import type { Session } from "../session/store.js";
@@ -260,89 +265,6 @@ class SeparatorLine implements Component {
   render(width: number): string[] {
     return [A.dim + gutterSeparator(width) + A.reset];
   }
-}
-
-const MAX_THINKING_DISPLAY_CHARS = 8000;
-const MAX_THINKING_DISPLAY_LINES = 40;
-
-class ThinkingBlock implements Component {
-  private raw = "";
-  private placeholder = false;
-  private truncateDisplay = false;
-  private hiddenCharCount = 0;
-
-  setPlaceholder(): void {
-    this.placeholder = true;
-    this.raw = "";
-    this.truncateDisplay = false;
-    this.hiddenCharCount = 0;
-  }
-
-  setTruncateDisplay(enabled: boolean): void {
-    this.truncateDisplay = enabled;
-  }
-
-  setText(text: string): void {
-    this.placeholder = false;
-    this.raw = text;
-    if (this.truncateDisplay && text.length > MAX_THINKING_DISPLAY_CHARS) {
-      this.hiddenCharCount = text.length - MAX_THINKING_DISPLAY_CHARS;
-      this.raw = text.slice(0, MAX_THINKING_DISPLAY_CHARS);
-    } else {
-      this.hiddenCharCount = 0;
-    }
-  }
-
-  render(width: number): string[] {
-    if (this.placeholder) {
-      const prefix = GUTTER;
-      const line = `${prefix}\x1b[38;5;94mThinking...${A.reset}`;
-      return [truncateGutterLine(line, width)];
-    }
-
-    const prefix = GUTTER;
-    const label = "Thinking:";
-    const firstPrefix = `${prefix}\x1b[38;5;94m${label}\x1b[0m `;
-    const continuationPrefix = " ".repeat(prefix.length + label.length + 1);
-    const textWidth = Math.max(8, innerWidth(width) - label.length - 1);
-    const firstWidth = textWidth;
-    const continuationWidth = textWidth;
-    const lines: string[] = [];
-    let isFirstOutputLine = true;
-
-    for (const paragraph of this.raw.replace(/\r\n/g, "\n").split("\n")) {
-      if (paragraph.length === 0) {
-        lines.push(continuationPrefix);
-        isFirstOutputLine = false;
-        continue;
-      }
-
-      const available = isFirstOutputLine ? firstWidth : continuationWidth;
-      const wrapped = wrapTextWithAnsi(paragraph, available);
-
-      for (const part of wrapped) {
-        const linePrefix = isFirstOutputLine ? firstPrefix : continuationPrefix;
-        lines.push(
-          truncateGutterLine(`${linePrefix}${formatThinkingBodyPart(part)}`, width)
-        );
-        isFirstOutputLine = false;
-      }
-    }
-
-    if (this.truncateDisplay && lines.length > MAX_THINKING_DISPLAY_LINES) {
-      const omitted = lines.length - MAX_THINKING_DISPLAY_LINES;
-      lines.length = MAX_THINKING_DISPLAY_LINES;
-      const foot = `${continuationPrefix}${A.dim}… ${omitted} more lines hidden (/settings)${A.reset}`;
-      lines.push(truncateGutterLine(foot, width));
-    } else if (this.hiddenCharCount > 0) {
-      const foot = `${continuationPrefix}${A.dim}… ${this.hiddenCharCount} more characters hidden (/settings)${A.reset}`;
-      lines.push(truncateGutterLine(foot, width));
-    }
-
-    return lines.length > 0 ? lines : [truncateGutterLine(firstPrefix, width)];
-  }
-
-  invalidate() {}
 }
 
 type ModelSetupStep =
@@ -1203,6 +1125,9 @@ export class ImpulseRenderer {
   private thinkingText: ThinkingBlock | null = null;
   private thinkingRaw = "";
   private thinkingOpen = false;
+  private thinkingStartedAt = 0;
+  /** Session-local: keep new thinking blocks expanded until /hide-think. */
+  private thinkingDetailExpanded = false;
   private hasTrailingGap = false;
   private toolBlocks = new Map<string, ToolBlock>();
   private taskCodenames = new Map<string, string>();
@@ -1254,6 +1179,7 @@ export class ImpulseRenderer {
   private responsePreference = "concise";
   /** Session-local turn speed display on context bar (/speedo); not persisted. */
   private speedoEnabled = false;
+  private slashTabCycle: SlashCompleteCycle | null = null;
   private userName = "you"; // User's display name (loaded from config)
   private modeChangeText: Text | null = null; // Track mode change line for in-place updates
 
@@ -1434,10 +1360,15 @@ export class ImpulseRenderer {
       if (this.modelSetup) return;
       const val = this.promptInput.getText();
       if (isSlashCommandInput(val)) {
-        const completed = completeSlashCommand(val, this.slashCommands());
-        if (completed !== null) {
-          this.promptInput.setText(completed);
-          this.updateAutocomplete(completed);
+        const { text, nextCycle } = completeSlashCommandTab(
+          val,
+          this.slashCommands(),
+          this.slashTabCycle
+        );
+        this.slashTabCycle = nextCycle;
+        if (text !== null) {
+          this.promptInput.setText(text);
+          this.updateAutocomplete(text);
           this.tui.requestRender();
         }
         return;
@@ -1521,7 +1452,10 @@ export class ImpulseRenderer {
         this.abortCurrentTurn();
       }
     };
-    this.promptInput.onChange = (val) => this.updateAutocomplete(val);
+    this.promptInput.onChange = (val) => {
+      this.resetSlashTabCycleIfNeeded(val);
+      this.updateAutocomplete(val);
+    };
     this.tui.addChild(this.promptInput);
 
     // 5. Separator BELOW input
@@ -2054,6 +1988,7 @@ export class ImpulseRenderer {
     this.thinkingRaw = "";
     this.thinkingText = null;
     this.thinkingOpen = false;
+    this.thinkingStartedAt = 0;
     this.resetLiveMetrics();
     this.loop.setImages(
       payload.orderedImages.map((i) => ({ uri: i.uri, display: i.display }))
@@ -2387,6 +2322,14 @@ export class ImpulseRenderer {
     });
   }
 
+  private resetSlashTabCycleIfNeeded(input: string): void {
+    if (!this.slashTabCycle) return;
+    const token = input.trimStart().split(/\s+/)[0]?.toLowerCase() ?? "";
+    if (!token.startsWith(this.slashTabCycle.prefix)) {
+      this.slashTabCycle = null;
+    }
+  }
+
   private updateAutocomplete(val: string): void {
     if (this.modelSetup) {
       this.autocompleteText.setText("");
@@ -2432,10 +2375,60 @@ export class ImpulseRenderer {
 
   private closeThinking(): void {
     if (this.thinkingOpen && this.thinkingText) {
-      debugLog(`Thinking block closed`);
+      const durationMs =
+        this.thinkingStartedAt > 0 ? Date.now() - this.thinkingStartedAt : 0;
+      if (this.thinkingRaw.trim()) {
+        this.thinkingText.setText(this.thinkingRaw);
+      }
+      this.thinkingText.finalize(durationMs);
+      if (this.thinkingDetailExpanded) {
+        this.thinkingText.setExpanded(true);
+      }
+      debugLog(`Thinking block closed (${durationMs}ms)`);
       this.addSectionGap();
       this.thinkingOpen = false;
+      this.thinkingStartedAt = 0;
     }
+  }
+
+  private forEachThinkingBlock(fn: (block: ThinkingBlock) => void): void {
+    const children = (this.chat as Container & { children: Component[] }).children;
+    for (const child of children) {
+      if (isThinkingBlock(child)) {
+        fn(child);
+      }
+    }
+  }
+
+  private cmdShowThink(): void {
+    this.thinkingDetailExpanded = true;
+    let expanded = 0;
+    this.forEachThinkingBlock((block) => {
+      if (block.isFinalized()) {
+        block.setExpanded(true);
+        expanded += 1;
+      }
+    });
+    if (expanded === 0) {
+      this.addChatLine(
+        clr.dim("No collapsed thinking blocks in this chat (turns may not have streamed reasoning).")
+      );
+      this.tui.requestRender();
+      return;
+    }
+    this.addChatLine(statusOk("Thinking blocks expanded — /hide-think to collapse"));
+    this.tui.requestRender();
+  }
+
+  private cmdHideThink(): void {
+    this.thinkingDetailExpanded = false;
+    this.forEachThinkingBlock((block) => {
+      if (block.isFinalized()) {
+        block.setExpanded(false);
+      }
+    });
+    this.addChatLine(statusOk("Thinking blocks collapsed"));
+    this.tui.requestRender();
   }
 
 
@@ -2557,6 +2550,12 @@ export class ImpulseRenderer {
         break;
       case "side":
         await this.cmdSide(arg);
+        break;
+      case "show-think":
+        this.cmdShowThink();
+        break;
+      case "hide-think":
+        this.cmdHideThink();
         break;
       case "quit":
       case "exit":
@@ -3088,6 +3087,21 @@ export class ImpulseRenderer {
   private syncDisplaySettingsFromConfig(config: Config): void {
     this.showMainThinking = config.showMainThinking;
     this.responsePreference = config.userProfile?.responsePreference?.trim() || "concise";
+    this.applyThinkingDisplayMode();
+  }
+
+  /** Sync in-flight thinking block UI with showMainThinking (e.g. after /settings). */
+  private applyThinkingDisplayMode(): void {
+    if (!this.thinkingOpen || !this.thinkingText) return;
+
+    if (this.showMainThinking) {
+      if (this.thinkingRaw.trim()) {
+        this.thinkingText.setText(this.thinkingRaw);
+      }
+      this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
+    } else {
+      this.thinkingText.setPlaceholder();
+    }
   }
 
   private thinkingTruncateDisplay(): boolean {
@@ -3107,15 +3121,17 @@ export class ImpulseRenderer {
       this.chat.addChild(this.thinkingText);
       this.hasTrailingGap = false;
       this.thinkingOpen = true;
+      this.thinkingStartedAt = Date.now();
     }
-    this.thinkingRaw += filterThinkingForDisplay(text);
+    const filtered = filterThinkingForDisplay(text);
+    this.thinkingRaw += filtered;
+    this.thinkingText.appendContent(filtered);
     if (!this.showMainThinking) {
       this.thinkingText.setPlaceholder();
-      this.noteLiveGeneration(text);
-      return;
+    } else {
+      this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
+      this.thinkingText.setText(this.thinkingRaw);
     }
-    this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
-    this.thinkingText.setText(this.thinkingRaw);
     this.noteLiveGeneration(text);
   }
 
@@ -3594,14 +3610,31 @@ export class ImpulseRenderer {
     if (this.isRunning || !this.tui) return;
     const config = await loadConfig();
 
-    const overlay = new SettingsOverlay({
-      values: {
-        showMainThinking: config.showMainThinking,
-        showSubagentThinking: config.showSubagentThinking,
-        useSubagentModel: config.useSubagentModel,
-        subagentModel: config.subagentModel,
-      },
-    });
+    const initialValues: SettingsValues = {
+      showMainThinking: config.showMainThinking,
+      showSubagentThinking: config.showSubagentThinking,
+      useSubagentModel: config.useSubagentModel,
+      subagentModel: config.subagentModel,
+    };
+
+    const overlay = new SettingsOverlay({ values: initialValues });
+
+    const applySettingsValues = async (
+      values: SettingsValues
+    ): Promise<"saved" | "unchanged"> => {
+      if (settingsValuesEqual(values, initialValues)) {
+        return "unchanged";
+      }
+      config.showMainThinking = values.showMainThinking;
+      config.showSubagentThinking = values.showSubagentThinking;
+      config.useSubagentModel = values.useSubagentModel;
+      if (values.subagentModel !== undefined) {
+        config.subagentModel = values.subagentModel;
+      }
+      await saveConfig(config);
+      this.syncDisplaySettingsFromConfig(config);
+      return "saved";
+    };
 
     await new Promise<void>((resolve) => {
       const handle = this.showContentSizedOverlay(overlay, { maxHeight: 20 });
@@ -3623,16 +3656,7 @@ export class ImpulseRenderer {
 
       const openSubagentPicker = () => {
         void (async () => {
-          // Save current values before dismissing overlay
-          const currentValues = overlay.getValues();
-          config.showMainThinking = currentValues.showMainThinking;
-          config.showSubagentThinking = currentValues.showSubagentThinking;
-          config.useSubagentModel = currentValues.useSubagentModel;
-          if (currentValues.subagentModel !== undefined) {
-            config.subagentModel = currentValues.subagentModel;
-          }
-          await saveConfig(config);
-          this.syncDisplaySettingsFromConfig(config);
+          await applySettingsValues(overlay.getValues());
 
           this.dismissSettingsOverlay();
           if (countConfiguredProviders(await loadConfig()) === 0) {
@@ -3660,15 +3684,12 @@ export class ImpulseRenderer {
 
       overlay.onSubmit = (values) => {
         void (async () => {
-          config.showMainThinking = values.showMainThinking;
-          config.showSubagentThinking = values.showSubagentThinking;
-          config.useSubagentModel = values.useSubagentModel;
-          if (values.subagentModel !== undefined) {
-            config.subagentModel = values.subagentModel;
-          }
-          await saveConfig(config);
-          this.syncDisplaySettingsFromConfig(config);
-          this.addChatLine(statusOk("Settings saved"));
+          const result = await applySettingsValues(values);
+          this.addChatLine(
+            result === "saved"
+              ? statusOk("Settings saved")
+              : clr.dim("Settings unchanged")
+          );
           finish();
         })();
       };
@@ -4041,6 +4062,7 @@ export class ImpulseRenderer {
     this.thinkingRaw = "";
     this.thinkingText = null;
     this.thinkingOpen = false;
+    this.thinkingStartedAt = 0;
   }
 
   private syncAdvisorFromConfig(config: Config): void {
@@ -4427,11 +4449,11 @@ export class ImpulseRenderer {
         if (!filtered.trim()) break;
         this.addSectionGap();
         const block = new ThinkingBlock();
-        if (!this.showMainThinking) {
-          block.setPlaceholder();
-        } else {
-          block.setTruncateDisplay(this.thinkingTruncateDisplay());
-          block.setText(filtered);
+        block.setTruncateDisplay(this.thinkingTruncateDisplay());
+        block.setText(filtered);
+        block.finalize(step.durationMs ?? 0);
+        if (this.thinkingDetailExpanded) {
+          block.setExpanded(true);
         }
         this.chat.addChild(block);
         this.hasTrailingGap = false;

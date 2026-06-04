@@ -103,6 +103,17 @@ export function buildSlashCommandDefs(
       helpDetail: "Restore the on-screen chat from session history",
     },
     {
+      cmd: "/show-think",
+      hint: "expand collapsed Thought for… blocks in chat",
+      helpDetail:
+        "Expand collapsed main-agent thinking blocks in the current chat (live and restored sessions)",
+    },
+    {
+      cmd: "/hide-think",
+      hint: "collapse thinking blocks to Thought for…",
+      helpDetail: "Collapse expanded thinking blocks back to one-line Thought for… summaries",
+    },
+    {
       cmd: "/side",
       hint: "side prompt during active turn; --history to review",
       helpDetail:

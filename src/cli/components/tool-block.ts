@@ -658,6 +658,16 @@ export class ToolBlock implements Component {
   }
 
   appendSubagentLine(line: SubagentProgressLine): void {
+    const last = this.subagentLines[this.subagentLines.length - 1];
+    if (
+      line.type === "status" &&
+      line.content.startsWith("Thought for") &&
+      last?.type === "thinking"
+    ) {
+      this.subagentLines[this.subagentLines.length - 1] = line;
+      return;
+    }
+
     this.subagentLines.push(line);
     if (this.subagentLines.length > 10) {
       this.subagentLines = this.subagentLines.slice(-10);

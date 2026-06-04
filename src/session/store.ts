@@ -72,6 +72,8 @@ export interface Message {
   /** Expanded provider content when display differs (paste tokens, images). */
   apiContent?: UserMessageApiContent
   reasoning_content?: string
+  /** Wall-clock ms for the reasoning phase on this assistant message (UI replay). */
+  thinking_duration_ms?: number
   content_blocks?: MessageContentBlock[]
   validation?: MessageValidation
   timestamp: string
@@ -82,7 +84,7 @@ export interface Message {
 
 export type MessageContentBlock =
   | { id: string; type: "text"; text: string }
-  | { id: string; type: "thinking"; thinking: string }
+  | { id: string; type: "thinking"; thinking: string; durationMs?: number }
   | { id: string; type: "tool_call"; tool_call_id: string };
 
 export interface MessageValidation {

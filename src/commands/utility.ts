@@ -276,7 +276,8 @@ async function handleThink() {
 async function handleThinkingBlocks() {
   return {
     success: true,
-    output: "Thinking block visibility is always shown in the CLI during active turns.",
+    output:
+      "In the CLI, thinking blocks auto-collapse to Thought for… when done. Use /show-think and /hide-think to expand or collapse.",
   };
 }
 

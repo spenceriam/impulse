@@ -394,10 +394,18 @@ export class AgentLoop {
         const partialToolCalls = new Map<number, PartialToolCall>();
         let accumulatedText = "";
         let accumulatedThinking = "";
+        let thinkingPhaseStartedAt: number | null = null;
+        let thinkingDurationMs = 0;
         let finishReason: string | null = null;
         let chunkOutputTokens = 0;
         latestPromptTokens = undefined;
         latestCompletionTokens = 0;
+
+        const closeThinkingPhase = () => {
+          if (thinkingPhaseStartedAt === null) return;
+          thinkingDurationMs += Date.now() - thinkingPhaseStartedAt;
+          thinkingPhaseStartedAt = null;
+        };
 
         for await (const chunk of manager.stream(streamOptions)) {
           if (signal.aborted) break;
@@ -419,6 +427,7 @@ export class AgentLoop {
 
           // Text token
           if (delta.content) {
+            closeThinkingPhase();
             noteGeneratedChunk(delta.content);
             accumulatedText += delta.content;
             events.onToken(delta.content);
@@ -426,6 +435,9 @@ export class AgentLoop {
 
           // Thinking token
           if (delta.reasoning_content) {
+            if (thinkingPhaseStartedAt === null) {
+              thinkingPhaseStartedAt = Date.now();
+            }
             noteGeneratedChunk(delta.reasoning_content);
             accumulatedThinking += delta.reasoning_content;
             events.onThinking(delta.reasoning_content);
@@ -434,6 +446,7 @@ export class AgentLoop {
 
           // Tool call fragments
           if (delta.tool_calls) {
+            closeThinkingPhase();
             for (const tc of delta.tool_calls) {
               const idx = tc.index ?? 0;
               if (!partialToolCalls.has(idx)) {
@@ -457,6 +470,11 @@ export class AgentLoop {
 
         if (signal.aborted) break;
 
+        if (thinkingPhaseStartedAt !== null) {
+          thinkingDurationMs += Date.now() - thinkingPhaseStartedAt;
+          thinkingPhaseStartedAt = null;
+        }
+
         outputTokens += chunkOutputTokens;
 
         // ── Persist assistant message ───────────────────────────────────────
@@ -464,7 +482,14 @@ export class AgentLoop {
         const assistantMsg: Message = {
           role: "assistant",
           content: accumulatedText,
-          ...(accumulatedThinking ? { reasoning_content: accumulatedThinking } : {}),
+          ...(accumulatedThinking
+            ? {
+                reasoning_content: accumulatedThinking,
+                ...(thinkingDurationMs > 0
+                  ? { thinking_duration_ms: thinkingDurationMs }
+                  : {}),
+              }
+            : {}),
           timestamp: new Date().toISOString(),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls.map((tc) => ({
                 id: tc.id,
@@ -660,9 +685,10 @@ export class AgentLoop {
 
           const subagentModel = resolveSubagentModel(config, model);
           if (subagentThinkingEnabled === undefined) {
-            subagentThinkingEnabled =
-              config.showSubagentThinking &&
-              (await resolveSubagentThinkingEnabled(config, subagentModel));
+            subagentThinkingEnabled = await resolveSubagentThinkingEnabled(
+              config,
+              subagentModel
+            );
           }
           subagentModelResolved = subagentModel;
 
@@ -670,7 +696,8 @@ export class AgentLoop {
             maxConcurrent: MAX_CONCURRENT_SUBAGENTS,
             signal,
             model: subagentModelResolved,
-            subagentThinkingEnabled,
+            subagentReasoningCapable: subagentThinkingEnabled,
+            showSubagentThinkingDetail: config.showSubagentThinking,
             onTaskStatus: (id, status) => events.onSubagentTaskStatus?.(id, status),
           });
 

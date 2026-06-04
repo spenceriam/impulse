@@ -7,13 +7,16 @@ import type { CompletionOptions } from "../api/provider";
 import { getSubagentPrompt, getSubagentTools } from "./prompts";
 import type { ToolDefinition } from "../api/types";
 import { Tool } from "../tools/registry";
+import { formatDurationMs } from "../cli/format-helpers.js";
 import {
   SUBAGENT_PROGRESS_THINKING,
+  SUBAGENT_PROGRESS_THINKING_PLACEHOLDER,
   SUBAGENT_PROGRESS_WRAPPING_UP,
 } from "../cli/subagent-progress-labels.js";
 import type { ChatMessage } from "../api/types";
 
-const MAX_ITERATIONS = 50;
+/** Subagent tool loop cap (each iteration = one model completion + tool batch). */
+export const SUBAGENT_MAX_ITERATIONS = 150;
 
 export type SubagentType = "explore" | "general";
 export type Thoroughness = "quick" | "medium" | "thorough";
@@ -83,7 +86,10 @@ export type SubagentRunResult = {
 export type ExecuteSubagentOptions = {
   parentToolCallId: string;
   signal?: AbortSignal;
-  subagentThinkingEnabled?: boolean;
+  /** API reasoning enabled for this subagent run. */
+  subagentReasoningCapable?: boolean;
+  /** When true, show thinking...; when false, Thinking... placeholder. */
+  showSubagentThinkingDetail?: boolean;
   model?: string;
 };
 
@@ -95,19 +101,20 @@ export type SubagentPreCompleteProgress = {
 /** Resolve progress line to show before the next sub-agent completion call. */
 export function resolvePreCompleteProgress(
   messages: ChatMessage[],
-  subagentThinkingEnabled: boolean
+  reasoningCapable: boolean,
+  showDetail: boolean
 ): SubagentPreCompleteProgress | null {
+  if (!reasoningCapable) return null;
+
+  const content = showDetail
+    ? SUBAGENT_PROGRESS_THINKING
+    : SUBAGENT_PROGRESS_THINKING_PLACEHOLDER;
+
   const last = messages[messages.length - 1];
   if (last?.role === "tool") {
-    if (subagentThinkingEnabled) {
-      return { type: "thinking", content: SUBAGENT_PROGRESS_THINKING };
-    }
-    return null;
+    return { type: "thinking", content };
   }
-  if (subagentThinkingEnabled) {
-    return { type: "thinking", content: SUBAGENT_PROGRESS_THINKING };
-  }
-  return null;
+  return { type: "thinking", content };
 }
 
 /** True when the sub-agent should publish a final wrapping-up line after complete(). */
@@ -163,9 +170,10 @@ export async function executeSubagent(
     });
   };
 
-  const thinkingEnabled = options.subagentThinkingEnabled ?? false;
+  const reasoningCapable = options.subagentReasoningCapable ?? false;
+  const showDetail = options.showSubagentThinkingDetail ?? true;
 
-  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+  for (let iteration = 0; iteration < SUBAGENT_MAX_ITERATIONS; iteration++) {
     if (signal?.aborted) {
       return {
         success: false,
@@ -175,7 +183,9 @@ export async function executeSubagent(
       };
     }
 
-    const preComplete = resolvePreCompleteProgress(messages, thinkingEnabled);
+    const inferenceStart = Date.now();
+    const preComplete = resolvePreCompleteProgress(messages, reasoningCapable, showDetail);
+    const publishedThinking = preComplete?.type === "thinking";
     if (preComplete) {
       publish({ type: preComplete.type, content: preComplete.content });
     }
@@ -191,6 +201,14 @@ export async function executeSubagent(
     }
 
     const response = await manager.complete(completionOptions);
+
+    if (publishedThinking) {
+      publish({
+        type: "status",
+        content: `Thought for ${formatDurationMs(Date.now() - inferenceStart)}`,
+      });
+    }
+
     const choice = response.choices[0];
     if (!choice) {
       return {
@@ -293,7 +311,7 @@ export async function executeSubagent(
 
   return {
     success: false,
-    output: "Subagent reached maximum iterations without completing",
+    output: `Subagent reached maximum iterations (${SUBAGENT_MAX_ITERATIONS}) without completing`,
     summary: actionSummary,
     actions: actionEntries,
   };
