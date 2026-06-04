@@ -83,9 +83,8 @@ export class ThinkingBlock implements Component {
 
   render(width: number): string[] {
     if (this.phase === "finalized" && !this.expanded) {
-      const marker = "▶";
       const summary = formatThoughtSummary(this.durationMs);
-      const line = `${GUTTER}${THINKING_COLOR}${marker} ${summary}${RESET}`;
+      const line = `${GUTTER}${THINKING_COLOR}${summary}${RESET}`;
       return [truncateGutterLine(line, width)];
     }
 

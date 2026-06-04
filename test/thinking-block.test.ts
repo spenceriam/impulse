@@ -22,7 +22,7 @@ describe("ThinkingBlock", () => {
     expect(block.render(80)[0]).toContain("Thinking...");
     block.finalize(500);
     expect(block.render(80)[0]).toContain("Thought for");
-    expect(block.render(80)[0]).toContain("▶");
+    expect(block.render(80)[0]).not.toContain("▶");
   });
 
   test("placeholder accumulates content for expand after finalize", () => {
@@ -40,7 +40,7 @@ describe("ThinkingBlock", () => {
     const block = new ThinkingBlock();
     block.setText("line one");
     block.finalize(2000);
-    expect(block.render(80)[0]).toContain("▶");
+    expect(block.render(80)[0]).not.toContain("▶");
     block.setExpanded(true);
     const lines = block.render(80);
     expect(lines.some((l) => l.includes("line one"))).toBe(true);
