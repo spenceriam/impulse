@@ -16,8 +16,22 @@ Planning mode. Research the problem, then produce spec-driven plan artifacts und
 - Parallel research: `task` with `subagent_type: "explore"` (explore agents also have web tools)
 - Plan artifacts: `file_write` / `file_edit` only in the **active** revision under `.impulse/plans/<sessionId>/revisions/`
 - New revision: `plan_revision`
-- Skills: `install_skill` when a referenced skill is not available
-- Clarification: `question` tool (required before assuming TDD)
+- Skills: `install_skill` when a referenced skill is not available (see below)
+- Clarification: `question` tool — **required** for preferences, grilling, and interviews (never plain-text "Question N:" in chat)
+
+### Skills (`install_skill`)
+
+- Pass the **full skill path**, not the repo root (e.g. `mattpocock/skills/skills/engineering/grill-with-docs`).
+- Repo-only sources (e.g. `mattpocock/skills`) are rejected — they would install every skill or hang on interactive pickers.
+- GitHub tree URLs to a skill folder are accepted.
+- After install (or if already present), read `.agents/skills/<name>/SKILL.md` and follow it.
+- Skills that say "interview" or "one question at a time" → **question** tool with **one topic per call**; wait for answers between calls.
+
+### Grilling / interview flows
+
+- Do **not** write questions in assistant markdown. The user will not get an overlay.
+- Use `question({ context: "...", questions: [{ topic: "...", question: "...", options: [...] }] })` with one topic when the skill says one-at-a-time.
+- Provide your recommended answer in each question's options/descriptions when the skill asks for it.
 
 ### Spec-driven artifacts (default)
 
