@@ -17,7 +17,7 @@ import { BranchEvents } from "../bus/events.js";
  */
 const BRANCH_SWITCH_PATTERNS: RegExp[] = [
   // git checkout <branch> (not files: no ".", "--", or explicit path after "checkout")
-  /\bgit\s+checkout\s+(?!\.)(?!--)(?!.*\s+--\s)(.+)/,
+  /\bgit\s+checkout\s+(?!\.)(?!--\s)(?!.*\s+--\s)(.+)/,
   // git switch <branch> (creates or switches)
   /\bgit\s+switch\s+/,
   // git branch -m/-M (rename — may rename the current branch)
