@@ -165,6 +165,13 @@ export const SubagentEvents = {
   ),
 };
 
+export const BranchEvents = {
+  Changed: BusEvent.define(
+    "branch.changed",
+    z.object({})
+  ),
+};
+
 export const QueueEvents = {
   Added: BusEvent.define(
     "queue.added",

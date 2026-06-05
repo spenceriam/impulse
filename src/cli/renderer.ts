@@ -178,7 +178,7 @@ import {
   loadModelsDevCatalog,
 } from "./model-catalog.js";
 import { Bus } from "../bus/index.js";
-import { HeaderEvents, ModeEvents, QuestionEvents, SubagentEvents } from "../bus/events.js";
+import { HeaderEvents, ModeEvents, QuestionEvents, SubagentEvents, BranchEvents } from "../bus/events.js";
 import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
 import { abortCurrentBashExecution } from "../tools/bash.js";
@@ -186,6 +186,7 @@ import { rejectQuestion, resolveQuestion, type Question } from "../tools/questio
 import { setCurrentMode } from "../tools/mode-state.js";
 import { normalizeMode } from "../constants.js";
 import type { Mode } from "../constants.js";
+import { GitBranchWatcher } from "../git/branch-watcher.js";
 import packageJson from "../../package.json";
 import * as fs from "fs";
 import * as os from "os";
@@ -1147,6 +1148,7 @@ export class ImpulseRenderer {
   private modelSetupOverlayHandle: OverlayHandle | null = null;
   private profileOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
+  private branchWatcher: GitBranchWatcher | null = null;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
   private lastLiveMetricsAt = 0;
@@ -1279,6 +1281,12 @@ export class ImpulseRenderer {
           });
           this.tui.requestRender();
         }
+      }
+
+      if (event.type === BranchEvents.Changed.name) {
+        this.contextBar.invalidate();
+        this.tui.requestRender();
+        return;
       }
     });
 
@@ -1478,6 +1486,10 @@ export class ImpulseRenderer {
     this.syncVisionFromConfig(config);
     this.syncSpeedoUi();
     this.tui.addChild(this.contextBar);
+
+    // Start git branch filesystem watcher to catch external branch switches
+    this.branchWatcher = new GitBranchWatcher(process.cwd());
+    this.branchWatcher.start();
 
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
@@ -2361,6 +2373,7 @@ export class ImpulseRenderer {
   private async gracefulExit(): Promise<void> {
     await SessionManager.flushCurrent();
     const session = SessionManager.getCurrentSession();
+    this.branchWatcher?.dispose();
     this.tui.stop();
     if (session?.id) {
       const title =

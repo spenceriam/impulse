@@ -14,6 +14,7 @@ import {
 import { zCommandString, zFilePath } from "./schemas/branded";
 import { detectPowerShellVersion, translatePosixToPowerShell } from "./posix-translation";
 import { detectShellEnvironment } from "../util/shell-env";
+import { detectAndPublishBranchChange } from "../git/branch-detect";
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
@@ -699,20 +700,28 @@ export const bashTool: Tool<BashInput> = Tool.define(
       // Determine if we should use interactive mode
       const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
       
+      const cwd = input.workdir ? sanitizePath(input.workdir) : process.cwd();
+      let result: ToolResult;
+
       // Use PTY if interactive mode is requested AND PTY is available
       if (shouldUseInteractive && isPtyAvailable()) {
         const toolCallId = generateToolCallId();
         currentAbortController = new AbortController();
         
         try {
-          return await executeWithPty(input, toolCallId, currentAbortController.signal);
+          result = await executeWithPty(input, toolCallId, currentAbortController.signal);
         } finally {
           currentAbortController = null;
         }
+      } else {
+        // Fallback to standard execution
+        result = await executeWithSpawn(input);
       }
-      
-      // Fallback to standard execution
-      return await executeWithSpawn(input);
+
+      if (result.success) {
+        detectAndPublishBranchChange(input.command, cwd);
+      }
+      return result;
       
     } catch (error) {
       if (error instanceof Error) {

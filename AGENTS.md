@@ -9,14 +9,19 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.4.2
+- **Version:** v1.4.3
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.4.2 (2026-06-04) — Shell bang ghost text hint (#59), PLAN research (#55), plan revisions, thinking UI polish, hardened `install_skill`
+**Status:** v1.4.3 (2026-06-05) — ContextBar auto-refreshes on git branch changes (#64)
+
+### v1.4.3 (2026-06-05)
+
+- [x] ContextBar auto-refreshes on git branch changes — command-driven detection for git operations through Impulse + filesystem watcher (`fs.watch` on `.git/HEAD`) to catch external branch switches from separate terminals
+- [x] `BranchEvents.Changed` event on the bus; `GitBranchWatcher` class with worktree support, 500ms debounce, graceful disposal
 
 ### v1.4.2 (2026-06-04)
 
