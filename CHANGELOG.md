@@ -5,6 +5,27 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-06-05
+
+  **Type:** patch
+  **Title:** Context safety hard cutoff, compaction UI polish, and cross-platform symbol fixes
+
+  ### Added
+  - **15% safety margin** on token estimates before every API request (`Math.ceil(estimate * 1.15)`)
+  - **Emergency compact** fires automatically when the safety-adjusted estimate exceeds the context window
+  - **Hard cutoff gate** — if compaction cannot bring usage under the window, the loop halts and injects a system message with `/compact` and `/new` suggestions instead of sending a doomed API request
+  - **`onHardCutoff()`** event on `LoopEvents` so the renderer can surface the halt to the user
+  - **Empty line between compaction start and completion** via `addSectionGap()`
+
+  ### Changed
+  - **Removed `[OK]`, `[✓]`, and `[!]` prefix icons** from all status messages (compaction, cancellation, mode changes, settings, etc.) — replaced with plain dim/warn/error colored text to reduce visual noise
+  - **Status messages are now gutter-aligned** via `addChatLine()` so they line up with `Thought`, tool output, and streaming blocks
+  - **Replaced Unicode `?` placeholder symbols** with safe ASCII (`!` or `...`) in busy-status phrases to prevent broken rendering across terminals
+
+  ### Fixed
+  - **Broken `?` characters** in compaction status messages (were literal ASCII `?` instead of intended symbols)
+  - **Misaligned `Turn cancelled` / `Shell command cancelled` messages** — they were hard-coded with manual spaces instead of using the gutter system
+
 ## [1.4.4] - 2026-06-05
 
   **Type:** patch

@@ -11,6 +11,7 @@ const EXT_PATTERN = IMAGE_EXTENSIONS.join("|");
 
 /** Slash commands from {@link buildSlashCommandList} (first token after `/`). */
 export const SLASH_COMMAND_NAMES = new Set([
+  "compact",
   "experimental",
   "advisor",
   "update",

@@ -181,6 +181,7 @@ import { Bus } from "../bus/index.js";
 import { HeaderEvents, ModeEvents, QuestionEvents, SubagentEvents, BranchEvents } from "../bus/events.js";
 import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
+import { CompactManager } from "../session/compact.js";
 import { abortCurrentBashExecution } from "../tools/bash.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
@@ -232,8 +233,8 @@ const clr = {
   sep:     (s: string) => A.fg(90, s),
 };
 
-/** User-visible success status (AGENTS.md: [OK], not ?). */
-const statusOk = (message: string) => `${clr.success("[OK]")} ${message}`;
+/** Plain dim status line — no prefix icons. */
+const statusOk = (message: string) => clr.success(message);
 
 /** Model change feedback without [OK] prefix */
 const modelStatusLine = (message: string) => clr.dim(message);
@@ -459,7 +460,7 @@ export class ImpulseRenderer {
       await this.persistSessionAdvisor(false);
       this.syncAdvisorFromConfig(await loadConfig());
       this.contextBar.update({ advisorModel: undefined });
-      this.addChatLine(statusOk("Advisor mode disabled ? all tasks complete"));
+      this.addChatLine(clr.dim("Advisor mode disabled  --  all tasks complete"));
       this.tui.requestRender();
     }
   }
@@ -506,7 +507,7 @@ export class ImpulseRenderer {
 
     const request = this.permissionQueue.shift()!;
     this.activePermission = request;
-    this.setBusyStatus("waiting for your approval?", "Waiting for your approval...");
+    this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
 
     const overlay = new PermissionOverlay(request);
     overlay.onDecision = (response) => {
@@ -541,13 +542,13 @@ export class ImpulseRenderer {
       }
 
       this.dismissTaskBatchPermissionOverlay();
-      this.setBusyStatus("waiting for your approval?", "Waiting for your approval...");
+      this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
 
       const overlay = new TaskBatchPermissionOverlay(count);
       overlay.onDecision = (decision) => {
         this.dismissTaskBatchPermissionOverlay();
         if (this.isRunning) {
-          this.setBusyStatus("running parallel sub-agents?", BUSY_WORKING);
+          this.setBusyStatus("Running parallel sub-agents ...", BUSY_WORKING);
         }
         resolve(decision);
       };
@@ -611,14 +612,14 @@ export class ImpulseRenderer {
     if (!this.tui) return;
 
     this.dismissQuestionOverlay(false);
-    this.setBusyStatus("waiting for your answer?", "Waiting for your answer...");
+    this.setBusyStatus("Waiting for answer ...", "Waiting for your answer...");
 
     const overlay = new QuestionOverlay({ context, questions });
     overlay.onSubmit = (answers) => {
       this.dismissQuestionOverlay(false);
       resolveQuestion(answers);
       if (this.isRunning) {
-        this.setBusyStatus("responding?");
+        this.setBusyStatus("Responding ...");
       }
     };
     overlay.onAbort = () => {
@@ -985,7 +986,7 @@ export class ImpulseRenderer {
     if (hadTask && codename) msg = `${codename} sub-agent aborted`;
     else if (hadTask) msg = "sub-agent aborted";
     else msg = "turn cancelled";
-    this.addChatLine(`  ${clr.dim("[✓]")}  ${clr.dim(msg)}`);
+    this.addChatLine(clr.dim(msg));
     this.tui.setFocus(this.promptInput);
     this.tui.requestRender();
     this.drainTurnQueue();
@@ -1013,7 +1014,7 @@ export class ImpulseRenderer {
 
   private enqueueTurn(payload: PromptSubmitPayload): void {
     if (this.turnQueue.length >= ImpulseRenderer.MAX_TURN_QUEUE) {
-      this.addChatLine(`${clr.warn("[!]")} Queue full (${ImpulseRenderer.MAX_TURN_QUEUE} messages)`);
+      this.addChatLine(clr.warn(`Queue full (${ImpulseRenderer.MAX_TURN_QUEUE} messages)`));
       this.tui.requestRender();
       return;
     }
@@ -1060,7 +1061,7 @@ export class ImpulseRenderer {
       this.activeShellBlock = null;
       this.shellEscArmed = false;
       if (this.shellEscTimer) clearTimeout(this.shellEscTimer);
-      this.addChatLine(`  ${clr.dim("[✓]")}  ${clr.dim("Shell command cancelled")}`);
+      this.addChatLine(clr.dim("Shell command cancelled"));
       this.tui.requestRender();
       return true;
     }
@@ -1840,7 +1841,7 @@ export class ImpulseRenderer {
   private toolBusyStatus(name: string): string {
     switch (name) {
       case "question":
-        return "waiting for your answer?";
+        return "Waiting for answer ...";
       case "todo_write":
         return "updating todos?";
       case "todo_read":
@@ -1859,7 +1860,7 @@ export class ImpulseRenderer {
     const pathErrors = await this.promptInput.attachImagePathsFromEditor();
     if (pathErrors.length > 0) {
       for (const err of pathErrors) {
-        this.addChatLine(`${clr.warn("[!]")} ${err}`);
+        this.addChatLine(clr.warn(err));
       }
       this.tui.requestRender();
       return;
@@ -1895,7 +1896,7 @@ export class ImpulseRenderer {
     const atQuestion = parseAtReview(input);
     if (atQuestion) {
       if (!this.lastShellOutput) {
-        this.addChatLine(`${clr.warn("[!]")} No shell output to review yet`);
+        this.addChatLine(clr.warn("No shell output to review yet"));
         this.tui.requestRender();
         return;
       }
@@ -1922,7 +1923,7 @@ export class ImpulseRenderer {
       this.promptHistory.push(transcript);
       
       this.addChatLine(
-        `${clr.warn("[!]")} No model selected. Run ${clr.tool("/model")} to choose a provider and model first.`
+        clr.warn("No model selected. Run ") + clr.tool("/model") + clr.warn(" to choose a provider and model first.")
       );
       this.tui.requestRender();
       return;
@@ -2017,7 +2018,7 @@ export class ImpulseRenderer {
 
     const cfgForVision = await loadConfig();
     if (payload.orderedImages.length > 0 && cfgForVision.visionMode && cfgForVision.visionModel) {
-      this.setBusyStatus("translating images?", BUSY_PROCESSING);
+      this.setBusyStatus("Translating images ...", BUSY_PROCESSING);
     }
 
     const events: LoopEvents = {
@@ -2034,11 +2035,11 @@ export class ImpulseRenderer {
           isRunning: true,
         });
         this.updateLiveMetrics(0, true);
-        this.setBusyStatus("thinking?", BUSY_PROCESSING);
+        this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
         this.freezeTurnAnchor();
       },
       onToken: (text) => {
-        this.setBusyStatus("responding?");
+        this.setBusyStatus("Responding ...");
         this.closeThinking();
         if (!this.streamingText) {
           this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
@@ -2129,21 +2130,22 @@ export class ImpulseRenderer {
           return;
         }
 
-        this.setBusyStatus("waiting for model?", BUSY_PROCESSING);
+          this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
         this.updateLiveMetrics(result.output.length, true);
         this.tui.requestRender();
       },
       onCompacting: () => {
-        this.addChatLine(`${clr.warn("?")}  ${clr.dim("compacting context?")}`);
-        this.setBusyStatus("compacting context?", BUSY_PROCESSING);
+        this.addChatLine(clr.dim("Compacting context ..."));
+        this.setBusyStatus("Compacting context ...", BUSY_PROCESSING);
         this.tui.requestRender();
       },
       onCompacted: (removedCount, _summary, contextTokens) => {
         this.contextTokens = contextTokens ?? this.estimateCurrentSessionTokens();
+        this.addSectionGap();
         this.addChatLine(
-          `${clr.success("[OK]")} ${clr.dim(`compacted ? removed ${removedCount} messages`)}`
+          clr.dim(`Compacted  --  removed ${removedCount} messages`)
         );
-        this.setBusyStatus("thinking?", BUSY_PROCESSING);
+        this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
         this.contextBar.update({
           contextTokens: this.contextTokens,
           contextWindow: this.contextWindow,
@@ -2175,7 +2177,7 @@ export class ImpulseRenderer {
 
         if (usage.debugInstrumentationNudge) {
           this.addChatLine(
-            `${clr.warn("[!]")}  ${clr.dim(usage.debugInstrumentationNudge)}`
+            clr.warn(usage.debugInstrumentationNudge ?? "")
           );
         }
 
@@ -2195,8 +2197,18 @@ export class ImpulseRenderer {
         this.tui.requestRender();
         this.drainTurnQueue();
       },
+      onHardCutoff: (tokens) => {
+        this.spinStop();
+        this.dismissQuestionOverlay(false);
+        this.contextBar.update({ isRunning: false });
+        const pct = Math.round((tokens / this.contextWindow) * 100);
+        this.addChatLine(`${clr.error("Context limit reached:")} ${tokens} / ${this.contextWindow} tokens (${pct}%).  The loop has been halted. Use /compact or /new to continue.`);
+        this.isRunning = false;
+        this.tui.setFocus(this.promptInput);
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
     };
-
     await this.refreshActiveContextWindow(config, { discover: true });
 
     await this.loop.run(userMessage, this.mode, events, {
@@ -2255,7 +2267,7 @@ export class ImpulseRenderer {
         margin: this.listOverlayMargin(),
       });
       this.planApprovalOverlayHandle = handle;
-      this.setBusyStatus("waiting for plan approval?", "Reviewing plan...");
+      this.setBusyStatus("Waiting for plan approval ...", "Reviewing plan...");
       handle.focus();
 
       overlay.onDecision = (decision) => {
@@ -2436,7 +2448,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    this.addChatLine(statusOk("Thinking blocks expanded — /hide-think to collapse"));
+    this.addChatLine(clr.dim("Thinking blocks expanded  --  /hide-think to collapse"));
     this.tui.requestRender();
   }
 
@@ -2447,7 +2459,7 @@ export class ImpulseRenderer {
         block.setExpanded(false);
       }
     });
-    this.addChatLine(statusOk("Thinking blocks collapsed"));
+    this.addChatLine(clr.dim("Thinking blocks collapsed"));
     this.tui.requestRender();
   }
 
@@ -2511,7 +2523,7 @@ export class ImpulseRenderer {
       case "debug":
         setDebugEnabled(!isDebugEnabled());
         this.addChatLine(
-          statusOk(`Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`)
+          clr.dim(`Debug logging ${isDebugEnabled() ? "enabled" : "disabled"}`)
         );
         if (isDebugEnabled()) {
           debugLog(`Debug logging enabled`);
@@ -2521,7 +2533,7 @@ export class ImpulseRenderer {
         this.speedoEnabled = !this.speedoEnabled;
         this.syncSpeedoUi();
         this.addChatLine(
-          statusOk(`Turn speed display ${this.speedoEnabled ? "enabled" : "disabled"}`)
+          clr.dim(`Turn speed display ${this.speedoEnabled ? "enabled" : "disabled"}`)
         );
         this.tui.requestRender();
         break;
@@ -2574,6 +2586,21 @@ export class ImpulseRenderer {
       case "show-think":
         this.cmdShowThink();
         break;
+      case "compact": {
+        const sessionID = SessionManager.getCurrentSessionID();
+        if (!sessionID) {
+          this.addChatLine(clr.warn("No active session"));
+          break;
+        }
+        const result = await CompactManager.compact(sessionID, true, { force: true });
+        if (result.compacted) {
+          this.addChatLine(clr.dim(`Compacted session: removed ${result.removedCount} messages, kept ${result.newMessageCount}`));
+        } else {
+          this.addChatLine(clr.dim("Session already within size limits"));
+        }
+        break;
+      }
+
       case "hide-think":
         this.cmdHideThink();
         break;
@@ -2582,7 +2609,7 @@ export class ImpulseRenderer {
         await this.gracefulExit();
         break;
       default:
-        this.addChatLine(`${clr.warn("[!]")} Unknown: /${cmd} ? try /help`);
+        this.addChatLine(clr.warn(`Unknown: /${cmd}  --  try /help`));
     }
   }
 
@@ -2954,7 +2981,7 @@ export class ImpulseRenderer {
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
       this.addChatLine(
-        statusOk(`Vision ON — ${selectedModel.split("/").pop() ?? selectedModel}`)
+        clr.dim(`Vision ON  --  ${selectedModel.split("/").pop() ?? selectedModel}`)
       );
       this.requestBottomAnchorRefresh();
       return;
@@ -3070,13 +3097,13 @@ export class ImpulseRenderer {
     this.promptInput.setSecretMode(false);
     this.promptInput.clear();
     const reasonLabel = reasoningLevel ? ` (${this.reasoningDisplayLabel(reasoningLevel)})` : "";
-    this.addChatLine(modelStatusLine(`Model changed to: ${selectedModel}${reasonLabel}`));
+    this.addChatLine(clr.dim(`Model changed to: ${selectedModel}${reasonLabel}`));
     this.tui.requestRender();
   }
 
   private async cmdUpdate(): Promise<void> {
     if (this.isRunning) {
-      this.addChatLine(`${clr.warn("[!]")} Wait for the current turn to finish.`);
+      this.addChatLine(clr.warn("Wait for the current turn to finish."));
       return;
     }
     this.addChatLine(clr.dim("Checking for updates..."));
@@ -3129,7 +3156,7 @@ export class ImpulseRenderer {
   }
 
   private appendWorkerThinking(text: string): void {
-    this.setBusyStatus("thinking?", BUSY_PROCESSING);
+    this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
     if (!this.thinkingOpen) {
       this.thinkingRaw = "";
       this.thinkingText = null;
@@ -3218,7 +3245,7 @@ export class ImpulseRenderer {
           await this.persistSessionVision(true, fullModel);
           this.syncVisionFromConfig(await loadConfig());
           this.addChatLine(
-            statusOk(
+            clr.dim(
               `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
             )
           );
@@ -3268,7 +3295,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
     } catch (e) {
       this.addChatLine(
-        `${clr.error("[!]")} Model selector failed: ${(e as Error).message}`
+        clr.error(`Model selector failed: ${(e as Error).message}`)
       );
     }
   }
@@ -3407,7 +3434,7 @@ export class ImpulseRenderer {
     config.providers = providers as Config["providers"];
     await removeProviderFromHomeEnv(provider);
     await this.clearModelsUsingProvider(config, key);
-    this.addChatLine(statusOk(`Removed provider ${provider.label}`));
+    this.addChatLine(clr.dim(`Removed provider ${provider.label}`));
     this.tui.requestRender();
   }
 
@@ -3707,7 +3734,7 @@ export class ImpulseRenderer {
           const result = await applySettingsValues(values);
           this.addChatLine(
             result === "saved"
-              ? statusOk("Settings saved")
+              ? clr.dim("Settings saved")
               : clr.dim("Settings unchanged")
           );
           finish();
@@ -3836,7 +3863,7 @@ export class ImpulseRenderer {
 
   private async cmdVision(arg: string): Promise<void> {
     if (this.isRunning) {
-      this.addChatLine(`${clr.warn("[!]")} Wait for the current turn to finish.`);
+      this.addChatLine(clr.warn("Wait for the current turn to finish."));
       this.tui.requestRender();
       return;
     }
@@ -3847,7 +3874,7 @@ export class ImpulseRenderer {
       await saveConfig(config);
       await this.persistSessionVision(false);
       this.syncVisionFromConfig(await loadConfig());
-      this.addChatLine(statusOk("Vision mode OFF"));
+      this.addChatLine(clr.dim("Vision mode OFF"));
       this.tui.requestRender();
       return;
     }
@@ -3881,7 +3908,7 @@ export class ImpulseRenderer {
       await saveConfig(config);
       await this.persistSessionVision(false);
       this.syncVisionFromConfig(await loadConfig());
-      this.addChatLine(statusOk("Vision mode OFF"));
+      this.addChatLine(clr.dim("Vision mode OFF"));
       this.tui.requestRender();
       return;
     }
@@ -3918,7 +3945,7 @@ export class ImpulseRenderer {
       this.applyModeChange(m, { prev, transition: "chat" });
       this.tui.requestRender();
     } else {
-      this.addChatLine(`  ${clr.error("?")} Unknown mode. Options: ${modes.join(" | ")}`);
+      this.addChatLine(`  ${clr.error("!")} Unknown mode. Options: ${modes.join(" | ")}`);
     }
   }
 
@@ -3970,7 +3997,7 @@ export class ImpulseRenderer {
 
   private async cmdAllowAll(arg: string): Promise<void> {
     if (this.isRunning) {
-      this.addChatLine(`${clr.warn("[!]")} Wait for the current turn to finish.`);
+      this.addChatLine(clr.warn("Wait for the current turn to finish."));
       this.tui.requestRender();
       return;
     }
@@ -3986,7 +4013,7 @@ export class ImpulseRenderer {
     if (isAllowAllBypass()) {
       setAllowAllBypass(false);
       this.syncAllowAllBypassUi();
-      this.addChatLine(statusOk("Permission bypass off"));
+      this.addChatLine(clr.dim("Permission bypass off"));
       this.tui.requestRender();
       return;
     }
@@ -4000,7 +4027,7 @@ export class ImpulseRenderer {
 
     setAllowAllBypass(true);
     this.syncAllowAllBypassUi();
-    this.addChatLine(statusOk("All permissions bypassed"));
+    this.addChatLine(clr.dim("All permissions bypassed"));
     this.tui.requestRender();
   }
 
@@ -4013,7 +4040,7 @@ export class ImpulseRenderer {
 
     const level = this.parseReasoningLevel(arg);
     if (level === null || !valid.includes(level)) {
-      this.addChatLine(`  ${clr.error("[!]")} Valid levels: ${this.reasoningLevelsLabel()}`);
+      this.addChatLine(clr.error(`Valid levels: ${this.reasoningLevelsLabel()}`));
       return;
     }
     await this.setReasoningLevel(level);
@@ -4035,7 +4062,7 @@ export class ImpulseRenderer {
       this.userName = newConfig.userProfile?.name || "you";
       this.tui.start();
       this.tui.setFocus(this.promptInput);
-      this.addChatLine(statusOk("Profile updated"));
+      this.addChatLine(clr.dim("Profile updated"));
       this.tui.requestRender();
     };
 
@@ -4514,7 +4541,7 @@ export class ImpulseRenderer {
       this.hydrateChatFromSession(session);
       this.tui.requestRender();
     } catch (e) {
-      this.addChatLine(`${clr.error("[!]")} Failed to load session: ${(e as Error).message}`);
+      this.addChatLine(clr.error(`Failed to load session: ${(e as Error).message}`));
     }
   }
 
@@ -4616,6 +4643,7 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
       onError: (err) => {
+        onHardCutoff: () => {},
         this.spinStop();
         this.addChatLine(`${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;

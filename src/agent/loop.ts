@@ -124,6 +124,7 @@ export interface LoopEvents {
     /** Set in DEBUG mode when [IMPULSE_DEBUG] markers remain in edited files */
     debugInstrumentationNudge?: string;
   }): void;
+  onHardCutoff(contextTokens: number): void;
   /** Fatal error */
   onError(err: Error): void;
 }
@@ -140,8 +141,8 @@ interface PartialToolCall {
 }
 
 function estimateTokens(value: unknown): number {
-  // Rough estimate: 1 token ≈ 4 chars
-  return Math.ceil(JSON.stringify(value).length / 4);
+  // Rough estimate: 1 token ≈ 3.5 chars for code/structured text
+  return Math.ceil(JSON.stringify(value).length / 3.5);
 }
 
 function estimateRequestTokens(messages: ChatMessage[], tools: ToolDefinition[]): number {
@@ -347,6 +348,7 @@ export class AgentLoop {
         const estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
         const contextWindow = getContextWindow();
         const contextPct = estimatedTokens / contextWindow;
+        const safetyAdjustedTokens = Math.ceil(estimatedTokens * 1.15);
 
         const shouldTryCompact =
           contextPct >= COMPACT_TRIGGER_THRESHOLD &&
@@ -378,6 +380,28 @@ export class AgentLoop {
                   messageCount: compactedMessages.length,
                 }
               : undefined;
+        }
+
+        // Emergency compact if safety-adjusted estimate still exceeds window
+        if (safetyAdjustedTokens >= contextWindow && contextWindow > 0) {
+          const emergency = await CompactManager.compact(session.id, false, { force: true });
+          if (emergency.compacted) {
+            session = SessionManager.getCurrentSession()!;
+            chatMessages = buildChatMessages(session.messages ?? [], systemPrompt);
+          }
+        }
+
+        // Hard cutoff: skip API request if still over context window
+        const finalEstimate = estimateRequestTokens(chatMessages, toolDefs);
+        if (finalEstimate >= contextWindow && contextWindow > 0) {
+          await SessionManager.addMessage({
+            role: "system",
+            content: "[Context limit reached]\nCurrent estimate: " + finalEstimate + " tokens / " + contextWindow + " context window (" + Math.round(finalEstimate / contextWindow * 100) + "%)\nMessages: " + (session.messages?.length ?? 0) + "\n\nSuggestions:\n- /compact  summarize older messages and try again\n- /new      start a fresh session to continue",
+            timestamp: new Date().toISOString(),
+          });
+            events.onHardCutoff(finalEstimate);
+          continueLoop = false;
+          break;
         }
 
         // ── Stream response ─────────────────────────────────────────────────

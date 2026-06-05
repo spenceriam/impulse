@@ -98,11 +98,11 @@ class CompactManagerImpl {
       
       const messageTokens = session.messages.reduce((sum: number, msg) => {
         // Content tokens (estimate ~4 chars per token)
-        const contentTokens = Math.ceil((msg.content?.length || 0) / 4);
+        const contentTokens = Math.ceil((msg.content?.length || 0) / 3.5);
         
         // Reasoning/thinking tokens (preserved thinking is sent back to API)
         const reasoningTokens = msg.reasoning_content
-          ? Math.ceil(msg.reasoning_content.length / 4)
+          ? Math.ceil(msg.reasoning_content.length / 3.5)
           : 0;
         
         // Tool call tokens - include tool name and arguments
@@ -110,11 +110,11 @@ class CompactManagerImpl {
         if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
           for (const tc of msg.tool_calls) {
             // Tool name + arguments (stringified)
-            const nameTokens = Math.ceil((tc.tool?.length || 0) / 4);
+            const nameTokens = Math.ceil((tc.tool?.length || 0) / 3.5);
             const argsStr = tc.arguments ? JSON.stringify(tc.arguments) : "";
-            const argsTokens = Math.ceil(argsStr.length / 4);
+            const argsTokens = Math.ceil(argsStr.length / 3.5);
             // Result tokens (tool results are sent back in continuation)
-            const resultTokens = tc.result?.output ? Math.ceil(tc.result.output.length / 4) : 0;
+            const resultTokens = tc.result?.output ? Math.ceil(tc.result.output.length / 3.5) : 0;
             toolCallTokens += nameTokens + argsTokens + resultTokens + 10; // +10 for JSON overhead
           }
         }
