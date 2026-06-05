@@ -5,6 +5,15 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-06-05
+
+  **Type:** patch
+  **Title:** Fix grep tool bugs — EACCES on bundled binary and empty results on single-file search
+
+  ### Fixed
+  - **#63** — EACCES permission denied on bundled ripgrep binary; added lazy permission check and repair (`statSync`/`chmodSync`) before spawn
+  - **#66** — grep returned empty results when searching a single file (vs directory); added `--with-filename` to ripgrep args for consistent `file:line:content` output
+
 ## [1.4.3] - 2026-06-05
 
   **Type:** patch

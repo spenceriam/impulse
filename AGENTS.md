@@ -9,14 +9,19 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.4.3
+- **Version:** v1.4.4
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.4.3 (2026-06-05) — ContextBar auto-refreshes on git branch changes (#64)
+**Status:** v1.4.4 (2026-06-05) — grep bug fixes (#63 EACCES, #66 single-file results)
+
+### v1.4.4 (2026-06-05)
+
+- [x] Grep tool #63 — lazy `statSync`/`chmodSync` permission repair on bundled ripgrep binary to fix EACCES
+- [x] Grep tool #66 — added `--with-filename` to ripgrep args so single-file searches return results
 
 ### v1.4.3 (2026-06-05)
 
