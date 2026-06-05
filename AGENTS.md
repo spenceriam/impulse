@@ -16,12 +16,13 @@
 
 ## Current State
 
-**Status:** v1.4.4 (2026-06-05) — grep bug fixes (#63 EACCES, #66 single-file results)
+**Status:** v1.4.4 (2026-06-05) — grep bug fixes (#63 EACCES, #66 single-file results, #71 nonexistent path errors)
 
 ### v1.4.4 (2026-06-05)
 
 - [x] Grep tool #63 — lazy `statSync`/`chmodSync` permission repair on bundled ripgrep binary to fix EACCES
 - [x] Grep tool #66 — added `--with-filename` to ripgrep args so single-file searches return results
+- [x] Grep tool #71 — surface ripgrep stderr when exit code is 2 (nonexistent path, bad regex, IO error); discovered during #66 testing
 
 ### v1.4.3 (2026-06-05)
 

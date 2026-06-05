@@ -106,6 +106,16 @@ export const grepTool: Tool<GrepInput> = Tool.define(
         env: process.env,
       });
 
+      // Surface exit-code-2 errors (nonexistent path, bad regex, IO error) that
+      // ripgrep writes to stderr. Exit code 1 (no matches) is not an error.
+      if (result.exitCode === 2) {
+        const stderr = (result.stderr?.toString("utf-8") ?? "").trim();
+        return {
+          success: false,
+          output: stderr || "ripgrep exited with code 2 (unknown error)",
+        };
+      }
+
       const stdout = (result.stdout?.toString("utf-8") ?? "") as string;
       const outputLines = stdout.split("\n").filter((line) => line.trim() !== "");
 
