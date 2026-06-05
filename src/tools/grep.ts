@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { existsSync } from "fs";
+import { chmodSync, existsSync, statSync } from "fs";
 import { dirname } from "path";
 import { Tool, ToolResult } from "./registry";
 import { sanitizePath } from "../util/path";
@@ -71,11 +71,22 @@ export const grepTool: Tool<GrepInput> = Tool.define(
 
       const searchPath = sanitizePath(input.path ?? ".");
 
+      // Ensure binary has execute permissions (fixes EACCES on bundled binaries)
+      try {
+        const stats = statSync(rgPath);
+        if ((stats.mode & 0o111) === 0) {
+          chmodSync(rgPath, stats.mode | 0o111);
+        }
+      } catch {
+        // Can't check or repair — let spawn try and fail with a clear error
+      }
+
       // Build command args properly as array elements
       const cmd = [
         rgPath,
         "--line-number", // Ensure line numbers in output
         "--no-heading", // One result per line (file:line:content)
+        "--with-filename", // Always include filename, even for single-file searches
         "--max-count",
         "10", // Max 10 matches per file to avoid spam
         "-m",
@@ -94,6 +105,16 @@ export const grepTool: Tool<GrepInput> = Tool.define(
         cmd,
         env: process.env,
       });
+
+      // Surface exit-code-2 errors (nonexistent path, bad regex, IO error) that
+      // ripgrep writes to stderr. Exit code 1 (no matches) is not an error.
+      if (result.exitCode === 2) {
+        const stderr = (result.stderr?.toString("utf-8") ?? "").trim();
+        return {
+          success: false,
+          output: stderr || "ripgrep exited with code 2 (unknown error)",
+        };
+      }
 
       const stdout = (result.stdout?.toString("utf-8") ?? "") as string;
       const outputLines = stdout.split("\n").filter((line) => line.trim() !== "");
