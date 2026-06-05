@@ -5,6 +5,7 @@
 import { sanitizePath } from "../util/path.js";
 import { executePty, isPtyAvailable, initPty, type PtyHandle } from "../pty/index.js";
 import { needsInteractiveMode } from "../tools/bash.js";
+import { detectAndPublishBranchChange } from "../git/branch-detect.js";
 
 export interface ShellRunResult {
   command: string;
@@ -111,26 +112,27 @@ export async function runUserShellCommand(options: {
       rows
     );
     activePty = handle;
+    let result: ShellRunResult;
     try {
-      const result = await handle.result;
+      const ptyResult = await handle.result;
       activePty = null;
       activeAbort = null;
       const durationMs = Date.now() - start;
-      return {
+      result = {
         command,
         cwd,
-        stdout: result.output,
+        stdout: ptyResult.output,
         stderr: "",
-        output: result.output || "(no output)",
-        exitCode: result.exitCode,
-        success: result.exitCode === 0,
+        output: ptyResult.output || "(no output)",
+        exitCode: ptyResult.exitCode,
+        success: ptyResult.exitCode === 0,
         durationMs,
       };
     } catch (e) {
       activePty = null;
       activeAbort = null;
       const msg = e instanceof Error ? e.message : String(e);
-      return {
+      result = {
         command,
         cwd,
         stdout: "",
@@ -141,6 +143,11 @@ export async function runUserShellCommand(options: {
         durationMs: Date.now() - start,
       };
     }
+
+    if (result.success) {
+      detectAndPublishBranchChange(command, cwd);
+    }
+    return result;
   }
 
   const usePipedInteractive = interactive && !isPtyAvailable();
@@ -182,7 +189,7 @@ export async function runUserShellCommand(options: {
 
   const output = combined || [stdout, stderr].filter(Boolean).join("\n").trim() || "(no output)";
   const durationMs = Date.now() - start;
-  return {
+  const result = {
     command,
     cwd,
     stdout,
@@ -192,4 +199,9 @@ export async function runUserShellCommand(options: {
     success: exitCode === 0,
     durationMs,
   };
+
+  if (result.success) {
+    detectAndPublishBranchChange(command, cwd);
+  }
+  return result;
 }

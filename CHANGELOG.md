@@ -5,6 +5,19 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-06-05
+
+  **Type:** patch
+  **Title:** ContextBar auto-refreshes on git branch changes
+
+  ### Added
+  - **`BranchEvents.Changed`** event on the bus — signal published when git branch changes
+  - **`detectAndPublishBranchChange`** utility (`src/git/branch-detect.ts`) — parses git commands running through the bash tool or `!command` shell and publishes `branch.changed`
+  - **`GitBranchWatcher`** class (`src/git/branch-watcher.ts`) — filesystem watcher on `.git/HEAD` that catches external branch switches from outside Impulse; debounced at 500ms, worktree-aware
+
+  ### Fixed
+  - **ContextBar** — now auto-refreshes the displayed git branch after `git checkout`/`git switch`/`git branch -m` regardless of whether the command ran through Impulse or a separate terminal (#64)
+
 ## [1.4.2] - 2026-06-04
 
   **Type:** patch
