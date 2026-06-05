@@ -114,7 +114,8 @@ export class GitBranchWatcher {
 
     try {
       this.watcher = watch(headDir, { persistent: true, recursive: false }, (_eventType, filename) => {
-        if (!filename || filename !== "HEAD") return;
+        // On Linux, filename is often null for directory watches even when HEAD changes.
+        if (filename != null && filename !== "HEAD") return;
         this.scheduleRefresh();
       });
       this.watcher.on("error", () => {
