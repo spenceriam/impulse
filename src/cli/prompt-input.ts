@@ -770,7 +770,7 @@ export class PromptInput implements Component, Focusable {
     }
 
     // Ghost text hint for lone ! (shell bang mode indicator)
-    if (this.editor.getText().trim() === "!") {
+    if (this.editor.getText() === "!") {
       const ghostLine = ARROW + this.editor.getText() + "\x1b[38;5;238m type any terminal command\x1b[0m";
       return [
         truncateGutterLine(ghostLine, width),
