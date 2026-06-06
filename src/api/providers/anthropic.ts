@@ -17,6 +17,7 @@
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk, ToolDefinition } from "../types";
+import type { ModelCapabilities } from "../capabilities";
 import { levelToBudgetTokens } from "./capabilities.js";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
@@ -45,7 +46,8 @@ type AnthropicContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string }
-  | { type: "thinking"; thinking: string; signature: string };
+  | { type: "thinking"; thinking: string; signature: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
 
 interface AnthropicRequest {
   model: string;
@@ -89,6 +91,16 @@ function convertTools(tools: ToolDefinition[] | undefined): AnthropicTool[] | un
   }));
 }
 
+function extractMediaType(dataUri: string): string {
+  const m = dataUri.match(/^data:([^;]+);base64,/);
+  return m ? m[1]! : "image/png";
+}
+
+function extractBase64(dataUri: string): string {
+  const idx = dataUri.indexOf(",");
+  return idx === -1 ? dataUri : dataUri.slice(idx + 1);
+}
+
 function convertMessages(messages: ChatMessage[]): {
   system: string | undefined;
   anthropicMessages: AnthropicMessage[];
@@ -105,11 +117,28 @@ function convertMessages(messages: ChatMessage[]): {
     }
 
     if (msg.role === "user") {
-      const content = typeof msg.content === "string" ? msg.content : "";
-      anthropicMessages.push({
-        role: "user",
-        content: [{ type: "text", text: content }],
-      });
+      const blocks: AnthropicContentBlock[] = [];
+      if (typeof msg.content === "string") {
+        if (msg.content) blocks.push({ type: "text", text: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === "text" && part.text) {
+            blocks.push({ type: "text", text: part.text });
+          } else if (part.type === "image_url" && part.image_url?.url) {
+            blocks.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: extractMediaType(part.image_url.url),
+                data: extractBase64(part.image_url.url),
+              },
+            });
+          }
+        }
+      }
+      if (blocks.length > 0) {
+        anthropicMessages.push({ role: "user", content: blocks });
+      }
       continue;
     }
 
@@ -575,5 +604,32 @@ export class AnthropicProvider implements AIProvider {
 
   reset(): void {
     // No-op for stateless fetch-based provider
+  }
+
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+    const base = this.config.baseUrl || DEFAULT_BASE_URL;
+
+    const resp = await fetch(`${base.replace(/\/$/, "")}/models`, {
+      headers: this.buildHeaders(),
+    });
+    if (!resp.ok) return undefined;
+
+    const data = (await resp.json()) as {
+      data?: Array<{ id: string; [key: string]: unknown }>;
+    };
+    const m = data.data?.find((d) => d.id === model);
+    if (!m) return undefined;
+
+    const lower = model.toLowerCase();
+    const vision =
+      lower.startsWith("claude-3") ||
+      lower.startsWith("claude-3.5") ||
+      lower.startsWith("claude-3.7") ||
+      lower.startsWith("claude-4") ||
+      false;
+    const reasoning = lower.includes("thinking") || lower.includes("reasoning");
+
+    return { vision, reasoning, source: "heuristic", discoveredAt: Date.now() };
   }
 }

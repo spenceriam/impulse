@@ -13,6 +13,7 @@
  */
 
 import type { ReasoningLevel } from "../../util/config";
+import { modelSupportsVisionFallback } from "../capabilities";
 
 export type ReasoningStyle = "binary" | "effort" | "budget" | "none";
 
@@ -203,7 +204,7 @@ export async function discoverOllamaVision(
     // fall through
   }
 
-  return modelSupportsVision(modelName);
+  return modelSupportsVisionFallback(modelName);
 }
 
 /**
@@ -343,19 +344,4 @@ export async function probeReasoningSupport(
   }
 }
 
-/** Heuristic to check if a model likely supports vision/image input.
- *  Based on well-known vision model naming patterns across providers. */
-export function modelSupportsVision(model: string): boolean {
-  const lower = model.toLowerCase();
-  const visionPatterns = [
-    "vision", "vl", "omni", "gpt-4o", "gpt-4-turbo",
-    "claude-3", "claude-3.5", "claude-3.7", "claude-4",
-    "gemini-2", "gemini-flash", "gemini-pro-vision",
-    "llama-3.2-vision", "llava", "pixtral",
-    "qwen2-vl", "qwen-vl", "cogvlm", "fuyu",
-    "minicpm-v", "internvl", "phi-3-vision",
-    "yi-vision", "step-1v", "glm-4v", "glm-4.6v",
-    "kimi-k2",
-  ];
-  return visionPatterns.some((p) => lower.includes(p));
-}
+

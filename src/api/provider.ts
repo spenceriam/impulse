@@ -7,6 +7,7 @@
 
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk, ToolDefinition, ThinkingConfig } from "./types";
 import type { ReasoningLevel } from "../util/config";
+import type { ModelCapabilities } from "./capabilities";
 
 // Provider configuration
 export interface ProviderConfig {
@@ -58,6 +59,12 @@ export interface AIProvider {
   
   /** Reset the provider (useful when API key changes) */
   reset(): void;
+
+  /**
+   * Discover capabilities for a specific model by querying the provider API.
+   * Returns `undefined` when the provider does not support discovery.
+   */
+  discoverModelCapabilities?(model: string): Promise<ModelCapabilities | undefined>;
 }
 
 // Error classes

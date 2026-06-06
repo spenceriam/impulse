@@ -58,6 +58,7 @@ import {
   welcomeSublinePrefix,
 } from "./welcome-banner.js";
 import {
+  BUSY_COMPACTING,
   BUSY_PROCESSING,
   BUSY_WORKING,
   busyPhraseUsesDimBase,
@@ -150,9 +151,9 @@ import {
   discoverOllamaReasoning,
   discoverOllamaMaxOutputTokens,
   probeReasoningSupport,
-  modelSupportsVision,
   type ReasoningCapability,
 } from "../api/providers/capabilities.js";
+import { modelSupportsVision } from "../api/capabilities.js";
 import { resetProviderManager } from "../api/manager.js";
 import {
   MODEL_PROVIDERS,
@@ -355,6 +356,7 @@ export class ImpulseRenderer {
   // Manual turn-status spinner + render ticker
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
   private currentStatusPhrase = "";
+  private compactStartMs = 0;
 
   private shimmerBusyText(message: string, dimBase = false): string {
     return shimmerText(message, dimBase);
@@ -1929,12 +1931,6 @@ export class ImpulseRenderer {
       return;
     }
 
-    if (payload.orderedImages.length > 0 && !cfg.visionMode) {
-      this.addChatLine(
-        `${clr.dim("Images attached; run /vision to translate before the worker model sees them.")}`
-      );
-    }
-
     if (this.isRunning) {
       this.promptInput.clear();
       this.enqueueTurn(payload);
@@ -2135,16 +2131,25 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onCompacting: () => {
-        this.addChatLine(clr.dim("Compacting context ..."));
-        this.setBusyStatus("Compacting context ...", BUSY_PROCESSING);
+        this.compactStartMs = Date.now();
+        this.addChatLine(clr.dim("Auto-compaction in progress"));
+        this.setBusyStatus("Compacting...", BUSY_COMPACTING);
         this.tui.requestRender();
       },
       onCompacted: (removedCount, _summary, contextTokens) => {
         this.contextTokens = contextTokens ?? this.estimateCurrentSessionTokens();
+        const elapsed = this.compactStartMs > 0
+          ? ((Date.now() - this.compactStartMs) / 1000).toFixed(1)
+          : null;
         this.addSectionGap();
         this.addChatLine(
-          clr.dim(`Compacted  --  removed ${removedCount} messages`)
+          clr.dim(
+            elapsed
+              ? `Compacted — removed ${removedCount} messages, ${elapsed}s`
+              : `Compacted — removed ${removedCount} messages`
+          )
         );
+        this.compactStartMs = 0;
         this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
         this.contextBar.update({
           contextTokens: this.contextTokens,
@@ -2592,15 +2597,26 @@ export class ImpulseRenderer {
           this.addChatLine(clr.warn("No active session"));
           break;
         }
+        this.compactStartMs = Date.now();
+        this.setBusyStatus("Compacting...", BUSY_COMPACTING);
         const result = await CompactManager.compact(sessionID, true, { force: true });
+        this.spinStop();
+        this.setBusyStatus("Done", BUSY_PROCESSING);
         if (result.compacted) {
-          this.addChatLine(clr.dim(`Compacted session: removed ${result.removedCount} messages, kept ${result.newMessageCount}`));
+          const elapsed = this.compactStartMs > 0
+            ? ((Date.now() - this.compactStartMs) / 1000).toFixed(1)
+            : null;
+          this.addChatLine(clr.dim(
+            elapsed
+              ? `Compacted session: removed ${result.removedCount} messages, kept ${result.newMessageCount}, ${elapsed}s`
+              : `Compacted session: removed ${result.removedCount} messages, kept ${result.newMessageCount}`
+          ));
         } else {
           this.addChatLine(clr.dim("Session already within size limits"));
         }
+        this.compactStartMs = 0;
         break;
       }
-
       case "hide-think":
         this.cmdHideThink();
         break;

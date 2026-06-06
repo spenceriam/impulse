@@ -14,7 +14,7 @@ import {
   formatModelDate,
   type ModelInfo,
 } from "../model-catalog.js";
-import { modelSupportsVision } from "../../api/providers/capabilities.js";
+import { modelSupportsVision } from "../../api/capabilities.js";
 import {
   SelectableListOverlay,
   type SelectableListRow,

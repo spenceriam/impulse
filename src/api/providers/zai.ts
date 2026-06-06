@@ -8,6 +8,8 @@ import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { discoverOpenAIModelCapabilities } from "./openai-compatible";
 
 // Z.AI Coding Plan API endpoint
 const BASE_URL = "https://api.z.ai/api/coding/paas/v4/";
@@ -203,7 +205,16 @@ export class ZAIProvider implements AIProvider {
     this.client = null;
     this.apiKey = null;
   }
-  
+
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+    return discoverOpenAIModelCapabilities(
+      this.config.baseUrl || BASE_URL,
+      this.config.apiKey,
+      model
+    );
+  }
+
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
     return {
       id: response.id,

@@ -93,6 +93,11 @@ export function buildSlashCommandDefs(
         "Show thinking in main agent or subagents; optional separate subagent model (/config alias)",
     },
     {
+      cmd: "/compact",
+      hint: "summarize older messages to free context",
+      helpDetail: "Manually trigger context compaction to reduce token usage",
+    },
+    {
       cmd: "/config",
       hint: "alias for /settings",
       helpDetail: "Open settings overlay (alias for /settings)",

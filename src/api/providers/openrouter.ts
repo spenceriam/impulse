@@ -16,6 +16,8 @@ import type {
 } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { discoverOpenAIModelCapabilities } from "./openai-compatible";
 
 const BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -177,6 +179,16 @@ export class OpenRouterProvider implements AIProvider {
   reset(): void {
     this.client = null;
     this._apiKey = null;
+  }
+
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+    const clean = this.stripPrefix(model);
+    return discoverOpenAIModelCapabilities(
+      this.config.baseUrl || BASE_URL,
+      this.config.apiKey,
+      clean
+    );
   }
 
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {

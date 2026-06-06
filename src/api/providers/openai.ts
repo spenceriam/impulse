@@ -8,6 +8,7 @@ import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
 
 // OpenAI API endpoint
 const BASE_URL = "https://api.openai.com/v1";
@@ -198,7 +199,55 @@ export class OpenAIProvider implements AIProvider {
     this.client = null;
     this.apiKey = null;
   }
-  
+
+  /**
+   * Discover model capabilities by querying the OpenAI /v1/models endpoint.
+   * Works for any OpenAI-compatible endpoint (Groq, Nous, local proxies, etc.).
+   */
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+
+    const base = this.config.baseUrl || BASE_URL;
+    const resp = await fetch(`${base}/models`, {
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resp.ok) return undefined;
+
+    const data = (await resp.json()) as {
+      data?: Array<{
+        id: string;
+        [key: string]: unknown;
+      }>;
+    };
+
+    const m = data.data?.find((d) => d.id === model);
+    if (!m) return undefined;
+
+    // OpenAI model IDs are well-known; we can map them with confidence.
+    const lowerId = model.toLowerCase();
+    const vision =
+      lowerId.includes("vision") ||
+      lowerId.startsWith("gpt-4o") ||
+      lowerId.startsWith("gpt-4-turbo") ||
+      lowerId.startsWith("o1") ||
+      lowerId.startsWith("o3") ||
+      lowerId.startsWith("o4") ||
+      false;
+
+    // Reasoning: o-series is the only confirmed line as of mid-2025.
+    const reasoning =
+      lowerId.startsWith("o1") ||
+      lowerId.startsWith("o3") ||
+      lowerId.startsWith("o4") ||
+      false;
+
+    return { vision, reasoning, source: "heuristic", discoveredAt: Date.now() };
+  }
+
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
     return {
       id: response.id,

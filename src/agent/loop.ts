@@ -29,7 +29,7 @@ import * as path from "path";
 import { Global } from "../global.js";
 import { Tool } from "../tools/registry";
 import { type Message } from "../session/store";
-import { buildVisionTranslatePrompt } from "./vision-prompt.js";
+import { buildVisionTranslatePrompt, buildVisionSelfKnowledge } from "./vision-prompt.js";
 
 // ── Debug logging ────────────────────────────────────────────────────────────
 const debugLogPath = path.join(Global.Path.logs, "debug.log");
@@ -59,7 +59,7 @@ import { buildDebugInstrumentationNudge } from "./self-check.js";
 import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
-import { modelSupportsVision } from "../api/providers/capabilities.js";
+import { modelSupportsVision } from "../api/capabilities.js";
 import type { PromptSegment } from "../cli/prompt-input.js";
 import { buildUserMessageContent } from "../cli/prompt-input.js";
 import {
@@ -224,7 +224,33 @@ export class AgentLoop {
       const displayMessage = turnOptions?.displayMessage ?? userMessage;
       this.pendingUserRequest = displayMessage;
       const segments = turnOptions?.segments;
-      const nativeVision = modelSupportsVision(model);
+      const nativeVision = await modelSupportsVision(
+          model,
+          // discover: try provider API first
+          async () => {
+            try {
+              const provider = manager.getProvider(model);
+              return provider.discoverModelCapabilities
+                ? await provider.discoverModelCapabilities(model)
+                : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          // probe: send a tiny image to verify vision support
+          async () => {
+            try {
+              const provider = manager.getProvider(model);
+              const { probeVisionCapability } = await import('../api/vision-probe.js');
+              return probeVisionCapability(
+                (opts) => provider.complete({ ...opts, stream: false }),
+                model
+              );
+            } catch {
+              return undefined;
+            }
+          }
+        );
 
       const apiContent: Message["apiContent"] =
         segments && segments.length > 0
@@ -336,9 +362,15 @@ export class AgentLoop {
         await this.flushTurnInjections();
 
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
-        const systemPrompt = await generateSystemPrompt(mode, undefined, config, {
+        const baseSystemPrompt = await generateSystemPrompt(mode, undefined, config, {
           sessionId: session.id,
         });
+        const visionSelfKnowledge = buildVisionSelfKnowledge({
+          nativeVision,
+          visionModeEnabled: config.visionMode ?? false,
+          visionModel: config.visionModel,
+        });
+        const systemPrompt = baseSystemPrompt + "\n\n" + visionSelfKnowledge;
         lastSystemPrompt = systemPrompt;
         let chatMessages = buildChatMessages(currentMessages, systemPrompt);
 
