@@ -16,7 +16,7 @@ export interface ToolResult {
 export interface Tool<TInput = unknown> {
   name: string;
   description: string;
-  schema: z.ZodType<TInput>;
+  schema: z.ZodType<TInput, z.ZodTypeDef, unknown>;
   handler: (input: TInput) => Promise<ToolResult>;
   timeout: number | undefined;
 }
@@ -129,7 +129,7 @@ export namespace Tool {
   export function define<TInput>(
     name: string,
     description: string,
-    schema: z.ZodType<TInput>,
+    schema: z.ZodType<TInput, z.ZodTypeDef, unknown>,
     handler: (input: TInput) => Promise<ToolResult>,
     options?: { timeout?: number }
   ): Tool<TInput> {

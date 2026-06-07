@@ -1,9 +1,10 @@
 import { type Component } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
-import { overlayBoxWidth } from "../layout.js";
 import {
+  capOverlayText,
   overlayBottomBorder,
   overlayPushWrapped,
+  overlayRenderBoxWidth,
   overlaySideLine,
   overlayTitleLine,
 } from "./overlay-theme.js";
@@ -230,7 +231,7 @@ export class QuestionOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const boxWidth = overlayBoxWidth(width);
+    const boxWidth = overlayRenderBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
 
     const lines: string[] = [];
@@ -253,7 +254,7 @@ export class QuestionOverlay implements Component {
         const answer = (this.answers[i] ?? []).join(", ") || A.dim + "(no answer)" + A.reset;
         overlayPushWrapped(
           lines,
-          `${A.fg(39, "[" + (i + 1) + "]")} ${q.question}`,
+          `${A.fg(39, "[" + (i + 1) + "]")} ${capOverlayText(q.question, 120)}`,
           innerWidth,
           boxWidth
         );
@@ -278,7 +279,7 @@ export class QuestionOverlay implements Component {
     if (this.context) {
       overlayPushWrapped(
         lines,
-        `${A.dim}Context:${A.reset} ${this.context}`,
+        `${A.dim}Context:${A.reset} ${capOverlayText(this.context, 120)}`,
         innerWidth,
         boxWidth
       );
@@ -300,7 +301,7 @@ export class QuestionOverlay implements Component {
 
     overlayPushWrapped(
       lines,
-      `${A.bold}${this.currentQuestion.question}${A.reset}`,
+      `${A.bold}${capOverlayText(this.currentQuestion.question, 120)}${A.reset}`,
       innerWidth,
       boxWidth
     );

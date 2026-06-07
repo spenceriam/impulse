@@ -6,6 +6,10 @@ import type { ChatMessage } from "../api/types";
 // Compact thresholds (exported for context bar + agent loop)
 export const COMPACT_WARNING_THRESHOLD = 0.50;  // Orange % in context bar (50–59%)
 export const COMPACT_TRIGGER_THRESHOLD = 0.60;  // Auto-compact triggers at 60%
+/** Steer-style wrap-up inject when context pressure is high (before hard stop). */
+export const CONTEXT_WRAPUP_THRESHOLD = 0.80;
+/** Safety margin applied to token estimates before emergency compact / hard cutoff. */
+export const SAFETY_MARGIN = 1.15;
 const TOOL_OUTPUT_RETENTION = 3;               // Keep outputs for last N tool calls
 
 interface CompactConfig {

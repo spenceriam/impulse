@@ -51,5 +51,5 @@ export async function discoverOpenAIModelCapabilities(
     lower.startsWith("o3") ||
     lower.startsWith("o4");
 
-  return { vision, reasoning, source: "heuristic", discoveredAt: Date.now() };
+  return { vision, reasoning, source: "provider-api", discoveredAt: Date.now() };
 }

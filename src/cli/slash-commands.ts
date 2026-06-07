@@ -8,18 +8,21 @@ export interface SlashCommandDef {
   cmd: string;
   hint: string;
   helpDetail?: string;
+  /** Omit from core /help overlay when true */
+  hidden?: boolean;
 }
 
 export interface BuildSlashCommandsOptions {
   experimentalAdvisor: boolean;
-  reasoningLevelsLabel: string;
+  experimentalUndo: boolean;
+  experimentalGoal: boolean;
 }
 
 function sortByCmd(a: SlashCommandDef, b: SlashCommandDef): number {
   return a.cmd.localeCompare(b.cmd);
 }
 
-/** Full command definitions (sorted by cmd). */
+/** Core command definitions (~15) plus experimental/hidden power-user entries. */
 export function buildSlashCommandDefs(
   opts: BuildSlashCommandsOptions
 ): SlashCommandDef[] {
@@ -35,9 +38,9 @@ export function buildSlashCommandDefs(
       helpDetail: "Clear the chat view; session history is preserved",
     },
     {
-      cmd: "/debug",
-      hint: "toggle session debug log file",
-      helpDetail: "Toggle writing a session debug log file",
+      cmd: "/compact",
+      hint: "summarize older messages to free context",
+      helpDetail: "Manually trigger context compaction to reduce token usage",
     },
     {
       cmd: "/exit",
@@ -46,25 +49,23 @@ export function buildSlashCommandDefs(
     },
     {
       cmd: "/experimental",
-      hint: "toggle experimental features such as advisor",
-      helpDetail: "Toggle experimental features such as advisor",
+      hint: "toggle experimental features",
+      helpDetail: "Toggle experimental features (advisor, undo, goal loop)",
     },
     {
       cmd: "/help",
       hint: "show help overlay",
-      helpDetail: "Show this help overlay",
+      helpDetail: "Show core commands and shortcuts",
     },
     {
       cmd: "/model",
-      hint: "choose or change model; set up provider via API key and endpoint",
-      helpDetail:
-        "Choose or change the worker model; change provider or add one with an API key and endpoint",
+      hint: "choose or change model",
+      helpDetail: "Choose or change the worker model; configure provider API key and endpoint",
     },
     {
       cmd: "/mode",
-      hint: "change agent mode (AGENT, EXPLORE, PLAN, DEBUG)",
-      helpDetail:
-        "Change mode: AGENT (default, full tools), EXPLORE (read-only), PLAN (plan only), DEBUG (debug workflow)",
+      hint: "change agent mode",
+      helpDetail: "Change mode: AGENT (default), EXPLORE, PLAN, DEBUG",
     },
     {
       cmd: "/new",
@@ -77,91 +78,109 @@ export function buildSlashCommandDefs(
       helpDetail: "End this impulse instance (alias /exit)",
     },
     {
-      cmd: "/reasoning",
-      hint: "set reasoning level for the worker model",
-      helpDetail: `Set reasoning level (${opts.reasoningLevelsLabel}); same as in /model setup`,
-    },
-    {
       cmd: "/resume",
       hint: "browse and resume saved sessions",
-      helpDetail: "Browse and resume a saved session",
+      helpDetail: "Browse and resume a saved session in this project",
+    },
+    {
+      cmd: "/sessions",
+      hint: "alias for /resume",
+      helpDetail: "Alias for /resume — sessions saved in this project (cwd)",
+    },
+    {
+      cmd: "/restore",
+      hint: "restore chat view from session history",
+      helpDetail: "Restore the on-screen chat from session history (alias /show)",
     },
     {
       cmd: "/settings",
-      hint: "thinking visibility and subagent model",
-      helpDetail:
-        "Show thinking in main agent or subagents; optional separate subagent model (/config alias)",
-    },
-    {
-      cmd: "/compact",
-      hint: "summarize older messages to free context",
-      helpDetail: "Manually trigger context compaction to reduce token usage",
-    },
-    {
-      cmd: "/config",
-      hint: "alias for /settings",
-      helpDetail: "Open settings overlay (alias for /settings)",
-    },
-    {
-      cmd: "/show",
-      hint: "restore chat view from session history",
-      helpDetail: "Restore the on-screen chat from session history",
-    },
-    {
-      cmd: "/show-think",
-      hint: "expand collapsed Thought for… blocks in chat",
-      helpDetail:
-        "Expand collapsed main-agent thinking blocks in the current chat (live and restored sessions)",
-    },
-    {
-      cmd: "/hide-think",
-      hint: "collapse thinking blocks to Thought for…",
-      helpDetail: "Collapse expanded thinking blocks back to one-line Thought for… summaries",
-    },
-    {
-      cmd: "/side",
-      hint: "side prompt during active turn; --history to review",
-      helpDetail:
-        "Ask a isolated clarification while the main agent is working (no tools). Use -c for main-chat context. /side --history to review past side prompts. Copy into main chat with C in the overlay.",
+      hint: "thinking, subagent model, communication style",
+      helpDetail: "Thinking display, subagent model, communication style, stats on exit",
     },
     {
       cmd: "/steer",
       hint: "steer the current turn",
-      helpDetail:
-        "Inject steering instructions before the model's next action in the current turn",
-    },
-    {
-      cmd: "/speedo",
-      hint: "toggle turn tk/s and elapsed time",
-      helpDetail: "Toggle to show turn tokens/second speed and total elasped turn time",
+      helpDetail: "Inject steering instructions before the model's next action in the current turn",
     },
     {
       cmd: "/update",
       hint: "check and install latest release",
-      helpDetail: "Check for and install the latest release",
+      helpDetail: "Check for and install the latest release; resumes this session after install",
+    },
+    {
+      cmd: "/usage",
+      hint: "session tokens and provider quota",
+      helpDetail: "Session usage stats and provider quota when available",
     },
     {
       cmd: "/user",
-      hint: "view or update profile and preferences",
-      helpDetail: "View or update your profile and preferences",
+      hint: "view or update profile",
+      helpDetail: "Display name and free-text preferences",
+    },
+    // Hidden power-user commands (work when typed, omitted from core /help)
+    {
+      cmd: "/debug",
+      hint: "toggle session debug log file",
+      helpDetail: "Toggle writing a session debug log file",
+      hidden: true,
     },
     {
-      cmd: "/vision",
-      hint: "toggle vision mode; pick a vision model (same or different provider)",
-      helpDetail:
-        "Toggle vision mode and pick a vision model from the same or a different API provider",
+      cmd: "/side",
+      hint: "side prompt during active turn",
+      helpDetail: "Isolated clarification while the main agent is working. /side --history for past side prompts.",
+      hidden: true,
+    },
+    {
+      cmd: "/show",
+      hint: "alias for /restore",
+      helpDetail: "Alias for /restore",
+      hidden: true,
     },
   ];
 
   if (opts.experimentalAdvisor) {
     defs.push({
       cmd: "/advisor",
-      hint: "on | off | <model>  set advisor model",
+      hint: "on | off | <model>",
       helpDetail: "Enable, disable, or set the advisor model (experimental)",
+      hidden: true,
+    });
+  }
+
+  if (opts.experimentalUndo) {
+    defs.push(
+      {
+        cmd: "/undo",
+        hint: "revert git + chat to checkpoint",
+        helpDetail: "Revert working tree and trim chat to prior checkpoint (experimental)",
+        hidden: true,
+      },
+      {
+        cmd: "/redo",
+        hint: "reapply checkpoint",
+        helpDetail: "Reapply a later checkpoint (experimental)",
+        hidden: true,
+      }
+    );
+  }
+
+  if (opts.experimentalGoal) {
+    defs.push({
+      cmd: "/goal",
+      hint: "Hermes-style goal loop",
+      helpDetail: "Start or manage an autonomous goal loop (experimental)",
+      hidden: true,
     });
   }
 
   return defs.sort(sortByCmd);
+}
+
+/** Commands shown in the core /help overlay. */
+export function buildCoreSlashCommandDefs(
+  opts: BuildSlashCommandsOptions
+): SlashCommandDef[] {
+  return buildSlashCommandDefs(opts).filter((d) => !d.hidden);
 }
 
 /** Autocomplete entries (sorted). */

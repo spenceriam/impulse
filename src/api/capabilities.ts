@@ -78,6 +78,16 @@ export function getModelCapabilities(model: string): ModelCapabilities | undefin
   return loadCache().get(model.toLowerCase());
 }
 
+/**
+ * Sync vision check for UI paths (model picker, setup wizard).
+ * Uses cache when available, otherwise name-pattern heuristic only — no async probe.
+ */
+export function modelSupportsVisionCached(model: string): boolean {
+  const cached = getModelCapabilities(model);
+  if (cached) return cached.vision;
+  return modelSupportsVisionFallback(model);
+}
+
 /** Check whether a model supports vision, using cache -> probe -> heuristic. */
 export async function modelSupportsVision(
   model: string,

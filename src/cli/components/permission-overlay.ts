@@ -1,10 +1,13 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import {
-  getPermissionLabel,
   type PermissionRequest,
   type PermissionResponse,
 } from "../../permission/index.js";
-import { formatPermissionWhyPolicy } from "../permission-display.js";
+import {
+  formatPermissionAction,
+  formatPermissionReason,
+  formatPermissionWhyPolicy,
+} from "../permission-display.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   intrinsicFramedBoxWidth,
@@ -60,19 +63,12 @@ export class PermissionOverlay implements Component {
     const innerWidth = Math.max(8, cap - 4);
     const plainWidths: number[] = [measureOverlayTopChromeWidth("Permission required", 33)];
 
-    plainWidths.push(visibleWidth(getPermissionLabel(this.request.permission)));
+    plainWidths.push(visibleWidth(formatPermissionAction(this.request)));
+    plainWidths.push(visibleWidth(formatPermissionReason(this.request)));
 
-    const subject = permissionSubject(this.request);
-    for (const line of wrapTextWithAnsi(subject, innerWidth)) {
-      plainWidths.push(visibleWidth(line));
-    }
-
-    const { why, policy } = formatPermissionWhyPolicy(this.request);
+    const { why } = formatPermissionWhyPolicy(this.request);
     if (why) {
       plainWidths.push(visibleWidth(`Why: ${why}`));
-    }
-    if (policy) {
-      plainWidths.push(visibleWidth(`Policy: ${policy}`));
     }
 
     const optionLine = OPTIONS.map((o) => `[ ${o.label} ]`).join("   ");
@@ -118,8 +114,9 @@ export class PermissionOverlay implements Component {
     const boxWidth = overlayRenderBoxWidth(width);
     const innerWidth = Math.max(8, boxWidth - 4);
 
-    const subject = permissionSubject(this.request);
-    const { why, policy } = formatPermissionWhyPolicy(this.request);
+    const action = formatPermissionAction(this.request);
+    const reason = formatPermissionReason(this.request);
+    const { why } = formatPermissionWhyPolicy(this.request);
 
     const lines: string[] = [];
     lines.push(overlayTitleLine("Permission required", boxWidth, 33));
@@ -128,22 +125,15 @@ export class PermissionOverlay implements Component {
       lines.push(overlaySideLine(content, innerWidth, boxWidth));
     };
 
-    pushBoxLine(`${A.bold}${getPermissionLabel(this.request.permission)}${A.reset}`);
+    pushBoxLine(`${A.bold}${action}${A.reset}`);
 
-    for (const line of wrapTextWithAnsi(subject, innerWidth)) {
-      pushBoxLine(A.fg(39, line));
+    for (const line of wrapTextWithAnsi(reason, innerWidth)) {
+      pushBoxLine(A.fg(250, line));
     }
 
     if (why) {
       pushBoxLine("");
       for (const line of wrapTextWithAnsi(`${A.dim}Why:${A.reset} ${why}`, innerWidth)) {
-        pushBoxLine(line);
-      }
-    }
-
-    if (policy) {
-      if (!why) pushBoxLine("");
-      for (const line of wrapTextWithAnsi(`${A.dim}Policy:${A.reset} ${policy}`, innerWidth)) {
         pushBoxLine(line);
       }
     }
@@ -170,13 +160,7 @@ export class PermissionOverlay implements Component {
   }
 }
 
-function permissionSubject(request: PermissionRequest): string {
-  return String(
-    request.metadata?.["command"] ?? request.patterns[0] ?? request.message
-  );
-}
-
-/** Plain widths for tests. */
+/** Plain widths for tests — every row should match boxWidth. */
 export function measurePermissionOverlayPlainWidths(
   request: PermissionRequest,
   terminalWidth: number

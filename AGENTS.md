@@ -9,14 +9,32 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.4.4
+- **Version:** v1.5.0
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.4.4 (2026-06-05) — grep bug fixes (#63 EACCES, #66 single-file results, #71 nonexistent path errors)
+**Status:** v1.5.0 (2026-06-06) — UX simplification, tiered feedback, harness plumbing, provider-neutral capabilities
+
+### v1.5.0 (2026-06-06)
+
+- [x] Tiered feedback — `impulse_ui` status events, compact read-only tools, keyboard expand on empty prompt
+- [x] `/settings` v1.5 — `thinkingDisplay` (off/summary/full), reasoning depth, communication style, `statsOnExit`, vision override, compact tool rows
+- [x] Permission overlay — short action + `metadata.reason` (~120 chars)
+- [x] Command prune (~15 core); `src/commands/` removed
+- [x] `/update` auto-relaunch + session resume hint
+- [x] Harness — repair telemetry by canonical model, eval script under `scripts/eval/`, prompt cache + cached token stats
+- [x] Subagent caps — 40 explore / 80 general iterations
+- [x] `@` autocomplete — workspace fuzzy index with `@~/` expansion
+- [x] Provider-agnostic capabilities cache, vision probe, and adapter helpers
+
+### v1.4.5 (2026-06-05)
+
+- [x] Context safety hard cutoff — 15% token margin, emergency compact, hard cutoff gate with `/compact` and `/new` hints
+- [x] Status messages gutter-aligned; removed `[OK]`/`[✓]` prefix icons
+- [x] ASCII-safe busy-status phrases for cross-terminal rendering
 
 ### v1.4.4 (2026-06-05)
 
@@ -864,49 +882,35 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 
 ## Commands
 
+Core (~15): `/allow-all`, `/clear`, `/compact`, `/exit`, `/experimental`, `/help`, `/model`, `/mode`, `/new`, `/quit`, `/resume` (alias `/sessions`), `/restore` (alias `/show`), `/settings`, `/steer`, `/update`, `/usage`, `/user`.
+
+Hidden power-user: `/debug`, `/side` (and `/side --history`), `/advisor` (experimental), `/undo` `/redo` (experimental), `/goal` (experimental).
+
 | Command | Description |
 |---------|-------------|
-| `/new` | New session (prompt to save) |
-| `/compact` | Manual AI summarization |
-| `/save` | Save with AI-suggested name |
-| `/continue` | Session picker with search (alias: `/load`, `/resume`) |
-| `/user` | Profile overlay — view/edit name, preferences, instructions |
-| `/vision` | Toggle vision model translation (`on` / `off`) |
-| `/advisor` | Configure or toggle advisor mode (`on` / `off` / model id) |
-| `/debug` | Toggle session debug log file (not Tab DEBUG mode) |
-| `/speedo` | Toggle turn tokens/second and elapsed turn time on the status bar |
-| `/undo` | Git-based revert to checkpoint |
-| `/redo` | Restore undone changes |
-| `/model` | Switch configured model |
-| `/mode` | Switch mode (alt to Tab) |
-| `/engage` | Toggle high-autonomy execution profile |
-| `/instruct` | Edit project instructions |
-| `/settings` | Thinking visibility and subagent model (`/config` alias) |
-| `/stats` | Session statistics |
-| `/help` | Categorized help overlay |
-| `/think` | Toggle thinking mode |
-| `/show-think` | Expand thinking blocks in chat (session-local) |
-| `/hide-think` | Collapse thinking blocks to Thought for… |
-| `/changelog` | View release changelog |
-| `/quit` | Exit with summary |
-| `/exit` | Exit with summary |
+| `/compact` | Manual context compaction |
+| `/resume` | Session picker (`/sessions` alias) |
+| `/restore` | Restore chat view from session history (`/show` alias) |
+| `/settings` | Thinking display, reasoning depth, communication style, stats on exit, vision override |
+| `/usage` | Session tokens; full stats block when `statsOnExit` is on |
+| `/experimental` | Toggle advisor, undo/redo, goal loop flags |
+| `/user` | Display name + free-text preferences |
+| `/help` | Core commands overlay |
+| `/quit` / `/exit` | Exit with optional summary (`statsOnExit` in settings) |
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Cycle modes |
-| `Shift+Tab` | Cycle modes reverse (or Allow All Edits in permission prompt) |
+| `Tab` | Cycle modes (or slash autocomplete when line starts with `/`) |
+| `Shift+Tab` | Cycle mode reverse (reasoning depth in `/settings`; Allow All Edits in permission prompt) |
 | `Enter` | Submit / Select |
 | `Shift+Enter` | Line break in input |
-| `↑/↓` | Navigate / Scroll |
+| `↑` | Prompt history; edit queued message head when prompt empty |
+| `Esc` | Cancel turn / close overlay; clears queue head when prompt empty |
+| `Ctrl+C` (2x) | Exit with summary when idle |
 | `@` | File/directory autocomplete |
-| `Esc` (2x) | Cancel / Stop operation |
-| `Ctrl+C` (2x) | Exit with summary |
-| `Ctrl+Q` | Message queue overlay |
-| `Ctrl+M` | Reserved |
-| `Ctrl+P` | Command palette |
-| `Shift+Ctrl+C` | Copy prompt text to clipboard |
+| `!` | Shell command |
 
 ## Project Conventions
 

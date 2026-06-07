@@ -60,15 +60,19 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       const content = await readFile(safePath, "utf-8");
       
       const outsideCwd = !isWithinCwd(safePath);
+      const fileName = safePath.split(/[/\\]/).pop() ?? safePath;
       await askPermission({
         sessionID: "current",
         permission: "edit",
         patterns: [safePath],
         message: outsideCwd ? `Edit file outside cwd: ${safePath}` : `Edit file: ${safePath}`,
         metadata: {
+          path: safePath,
           oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
           newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
-          ...(outsideCwd ? { reason: "Path outside working directory" } : {}),
+          reason: outsideCwd
+            ? "Edit a file outside the project working directory"
+            : `Apply a code edit to ${fileName}`,
         },
       });
       

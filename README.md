@@ -18,7 +18,7 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 - **Turn steering** — `/steer <instruction>` redirects the current turn at the next tool step; `/side <question>` opens an isolated side prompt overlay while the main agent works
 - **Graceful exit** — `/exit` shows the impulse logo, thanks you, then labeled resume hints: `impulse --resume <id>` from the terminal vs `/resume` when impulse is already running (do not paste both)
 - **Startup splash** — GEN-tiny logo and provider/model lines before the TUI; 3s delay skippable with any key
-- **Vision** — Paste screenshots or attach image paths (`~/…`, relative, `@file.png`). With `/vision` on, a vision model translates images to text for the worker; vision-capable worker models can also receive images natively
+- **Vision** — Automatic when the model supports it; optional vision override in `/settings`. Paste screenshots or attach image paths (`~/…`, relative, `@file.png`)
 - **Images** — Attachments appear as `[Pasted image #N]` in chat and tool output
 - **Chat view** — `/clear` hides the on-screen transcript while session history stays on disk and in context; `/show` restores the view from the saved session
 - **Markdown tables** — Inline `**bold**` in cells, row separators, wrapped wide rows; stable layout while streaming

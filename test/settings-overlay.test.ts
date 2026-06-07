@@ -3,19 +3,24 @@ import { settingsValuesEqual } from "../src/cli/components/settings-overlay.js";
 
 describe("settingsValuesEqual", () => {
   const base = {
-    showMainThinking: true,
+    thinkingDisplay: "summary" as const,
+    reasoningLevel: "medium" as const,
+    responsePreference: "concise",
+    statsOnExit: false,
     showSubagentThinking: false,
     useSubagentModel: false,
     subagentModel: "ollama/foo",
+    visionModelOverride: undefined,
+    compactToolOutput: true,
   };
 
   test("detects identical values", () => {
     expect(settingsValuesEqual(base, { ...base })).toBe(true);
   });
 
-  test("detects toggle change", () => {
+  test("detects thinking display change", () => {
     expect(
-      settingsValuesEqual(base, { ...base, showMainThinking: false })
+      settingsValuesEqual(base, { ...base, thinkingDisplay: "full" })
     ).toBe(false);
   });
 

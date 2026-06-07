@@ -1,6 +1,7 @@
 import { Storage } from "../storage";
 import { Bus, SessionEvents } from "../bus";
 import crypto from "crypto";
+import type { OptionalPatch } from "../util/omit-undefined.js";
 
 /**
  * Generate a project ID from a directory path.
@@ -67,8 +68,10 @@ export type UserMessageApiContent =
     >;
 
 export interface Message {
-  role: "user" | "assistant" | "system"
+  role: "user" | "assistant" | "system" | "tool"
   content: string
+  /** Tool result messages (role tool). */
+  tool_call_id?: string
   /** Expanded provider content when display differs (paste tokens, images). */
   apiContent?: UserMessageApiContent
   reasoning_content?: string
@@ -167,10 +170,17 @@ class SessionStoreImpl {
     return session;
   }
 
-  async update(sessionID: string, updates: Partial<Session>): Promise<Session> {
+  async update(sessionID: string, updates: OptionalPatch<Session>): Promise<Session> {
     const projectID = this.sessionProjectMap.get(sessionID);
     const updated = await Storage.update<Session>(this.getKey(sessionID, projectID), (draft) => {
-      Object.assign(draft, updates);
+      for (const key of Object.keys(updates) as (keyof Session)[]) {
+        const val = updates[key];
+        if (val === undefined) {
+          delete (draft as unknown as Record<string, unknown>)[key as string];
+        } else {
+          (draft as unknown as Record<string, unknown>)[key as string] = val;
+        }
+      }
       draft.updated_at = new Date().toISOString();
     });
 

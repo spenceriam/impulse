@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { executeSubagent } from "../agent/task-runner.js";
-import { formatTaskToolResultFromRun } from "../agent/task-pool.js";
+import { formatTaskToolResultFromRun, type TaskCallSpec } from "../agent/task-pool.js";
 import { getCurrentMode } from "./mode-state";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
@@ -51,15 +51,15 @@ export const taskTool: Tool<TaskInput> = Tool.define(
         { parentToolCallId: "standalone-task" }
       );
 
-      return formatTaskToolResultFromRun(
-        {
-          subagentType: input.subagent_type,
-          prompt: input.prompt,
-          description: input.description,
-          thoroughness: input.thoroughness,
-        },
-        run
-      );
+      const spec: Pick<TaskCallSpec, "subagentType" | "prompt" | "description" | "thoroughness"> = {
+        subagentType: input.subagent_type,
+        prompt: input.prompt,
+        description: input.description,
+      };
+      if (input.thoroughness !== undefined) {
+        spec.thoroughness = input.thoroughness;
+      }
+      return formatTaskToolResultFromRun(spec, run);
     } catch (error) {
       if (error instanceof Error) {
         return {

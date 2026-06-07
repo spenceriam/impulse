@@ -24,7 +24,7 @@ export const STDOUT_PREFIX = " ";
 export const STDOUT_SUBLINE_PREFIX = "   ";
 
 export const WELCOME_HINT =
-  "Tab: Mode (Plan, debug, etc) | Shift-Tab: Change reasoning | /help to see cmds | Esc: Cancel turn | Ctrl+C twice: cancel/exit | /exit to quit";
+  "Tab: cycle mode | Shift+Tab: reasoning level | /settings preferences | /help commands | /resume sessions | Esc: cancel | /quit to exit";
 
 const A = {
   reset: "\x1b[0m",

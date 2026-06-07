@@ -3,6 +3,11 @@
  */
 
 import { writeSync } from "fs";
+import {
+  collectSessionStats,
+  formatSessionStatsBlock,
+} from "../session/session-stats.js";
+import type { Session } from "../session/store.js";
 import { prefixStdoutSublineLines, printStdoutLogo } from "./welcome-banner.js";
 
 export function clearScreenAndHome(): void {
@@ -15,7 +20,10 @@ export type SessionExitInfo = {
   model?: string;
 };
 
-export function formatSessionExitMessage(session: SessionExitInfo): string {
+export function formatSessionExitMessage(
+  session: SessionExitInfo,
+  opts?: { includeStats?: boolean; session?: Session }
+): string {
   const title = session.title.trim() || "Untitled session";
   const lines = [
     "Thanks for using impulse.",
@@ -27,6 +35,12 @@ export function formatSessionExitMessage(session: SessionExitInfo): string {
   if (session.model?.trim()) {
     lines.push(`Model: ${session.model.trim()}`);
   }
+
+  if (opts?.includeStats && opts.session) {
+    lines.push("");
+    lines.push(...formatSessionStatsBlock(collectSessionStats(opts.session)));
+  }
+
   lines.push(
     "",
     "From your terminal:",
@@ -40,8 +54,24 @@ export function formatSessionExitMessage(session: SessionExitInfo): string {
   return lines.join("\n");
 }
 
-export function printSessionExitMessage(session: SessionExitInfo): void {
+export function printSessionExitMessage(
+  session: SessionExitInfo,
+  opts?: { includeStats?: boolean; fullSession?: Session }
+): void {
   clearScreenAndHome();
   printStdoutLogo();
-  writeSync(1, prefixStdoutSublineLines(formatSessionExitMessage(session)) + "\n");
+  writeSync(
+    1,
+    prefixStdoutSublineLines(
+      formatSessionExitMessage(
+        session,
+        opts?.includeStats !== undefined || opts?.fullSession !== undefined
+          ? {
+              ...(opts?.includeStats !== undefined ? { includeStats: opts.includeStats } : {}),
+              ...(opts?.fullSession !== undefined ? { session: opts.fullSession } : {}),
+            }
+          : undefined
+      )
+    ) + "\n"
+  );
 }

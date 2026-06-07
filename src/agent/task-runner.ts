@@ -18,6 +18,11 @@ import type { ChatMessage } from "../api/types";
 /** Subagent tool loop cap (each iteration = one model completion + tool batch). */
 export const SUBAGENT_MAX_ITERATIONS = 150;
 
+/** Type-specific iteration caps (explore vs general). */
+export function subagentMaxIterations(type: SubagentType): number {
+  return type === "explore" ? 40 : 80;
+}
+
 export type SubagentType = "explore" | "general";
 export type Thoroughness = "quick" | "medium" | "thorough";
 
@@ -173,7 +178,8 @@ export async function executeSubagent(
   const reasoningCapable = options.subagentReasoningCapable ?? false;
   const showDetail = options.showSubagentThinkingDetail ?? true;
 
-  for (let iteration = 0; iteration < SUBAGENT_MAX_ITERATIONS; iteration++) {
+  const maxIterations = subagentMaxIterations(type);
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
     if (signal?.aborted) {
       return {
         success: false,
@@ -192,7 +198,10 @@ export async function executeSubagent(
 
     const afterTools = messages[messages.length - 1]?.role === "tool";
 
-    const completionOptions: CompletionOptions = { messages, signal };
+    const completionOptions: CompletionOptions = {
+      messages,
+      ...(signal !== undefined ? { signal } : {}),
+    };
     if (options.model?.trim()) {
       completionOptions.model = options.model.trim();
     }
@@ -265,7 +274,7 @@ export async function executeSubagent(
 
     const toolResults: Array<{ tool_call_id: string; content: string }> = [];
 
-    for (const toolCall of assistantMessage.tool_calls) {
+    for (const toolCall of assistantMessage.tool_calls ?? []) {
       if (signal?.aborted) break;
 
       const toolName = toolCall.function.name;
@@ -311,7 +320,7 @@ export async function executeSubagent(
 
   return {
     success: false,
-    output: `Subagent reached maximum iterations (${SUBAGENT_MAX_ITERATIONS}) without completing`,
+    output: `Subagent reached maximum iterations (${maxIterations}) without completing`,
     summary: actionSummary,
     actions: actionEntries,
   };

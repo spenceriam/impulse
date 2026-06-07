@@ -3,9 +3,10 @@
  */
 
 import type { Message, MessageContentBlock, ToolCall, ToolResult } from "../session/store.js";
+import { isImpulseUiMessage, parseImpulseUiContent } from "../session/status-events.js";
 
 /** Tools that must not appear in the chat transcript on replay (matches renderer). */
-export const SILENT_REPLAY_TOOLS = new Set(["set_header"]);
+export const SILENT_REPLAY_TOOLS = new Set(["set_header", "todo_read"]);
 
 export type ReplayToolResult = {
   success: boolean;
@@ -15,6 +16,7 @@ export type ReplayToolResult = {
 
 export type ReplayStep =
   | { type: "user"; text: string }
+  | { type: "status"; text: string }
   | { type: "thinking"; text: string; durationMs?: number }
   | { type: "assistantText"; text: string }
   | {
@@ -33,7 +35,7 @@ type StoredToolMessage = {
 };
 
 function isToolRoleMessage(msg: Message): msg is Message & StoredToolMessage {
-  return (msg as { role?: string }).role === "tool" && typeof (msg as StoredToolMessage).tool_call_id === "string";
+  return msg.role === "tool" && typeof msg.tool_call_id === "string";
 }
 
 /** Index tool result rows by tool_call_id for post-rework sessions. */
@@ -203,7 +205,14 @@ export function buildReplaySteps(messages: Message[]): ReplayStep[] {
   const steps: ReplayStep[] = [];
 
   for (const msg of messages) {
-    if (msg.role === "system") continue;
+    if (msg.role === "system") {
+      if (isImpulseUiMessage(msg)) {
+        const text = parseImpulseUiContent(msg.content);
+        if (/^Mode: /.test(text)) continue;
+        steps.push({ type: "status", text });
+      }
+      continue;
+    }
     if (isToolRoleMessage(msg)) continue;
 
     if (msg.role === "user") {

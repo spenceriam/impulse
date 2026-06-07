@@ -1,4 +1,5 @@
 import type { ChatCompletionChunk, ChatMessage, ToolCall } from "./types";
+import { extractCachedTokens } from "./usage-helpers.js";
 
 /**
  * Streaming Handler
@@ -159,7 +160,7 @@ export function processChunk(
       completionTokens: chunk.usage.completion_tokens,
       totalTokens: chunk.usage.total_tokens,
       // Z.AI specific: cached tokens from preserved thinking
-      cachedTokens: chunk.usage.prompt_tokens_details?.cached_tokens ?? 0,
+      cachedTokens: extractCachedTokens(chunk.usage),
     };
   }
 

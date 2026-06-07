@@ -100,15 +100,3 @@ When to use the question tool:
 - Any time you would otherwise ask "Would you like..." or "Do you prefer..."
 
 The question tool provides a better UX with keyboard navigation and structured responses.
-
-## Image Handling
-
-When images are pasted by the user, you receive them in one of two ways depending on the active model:
-
-- **Native vision-capable model** (e.g. GPT-4o, Claude 3.5 Sonnet, Gemini 2.0 Flash): the image is passed directly to the model as a base64 `image_url` content block in the message. The model can see the actual image.
-
-- **Vision mode enabled with a separate model** (e.g. via `/vision` toggle): the image is sent to a dedicated vision model and replaced with a text description inline as `[Pasted image #N]: <description>`. You see the description text but not the raw image.
-
-- **Text-only model without vision mode**: images are replaced with the literal placeholder `[Pasted image #N]`. You see the placeholder text only and cannot analyze the image content.
-
-Web tools (`web_fetch`, `agent-browser`) return text/HTML only; they do not provide screenshots for vision analysis.

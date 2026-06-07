@@ -23,6 +23,7 @@ import { ProviderAuthError, ProviderError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
 import { modelSupportsVisionFallback } from "../capabilities";
 import type { ReasoningLevel } from "../../util/config";
+import { toApiUsageFields } from "../usage-helpers.js";
 
 // Default Ollama Cloud endpoint
 export const OLLAMA_DEFAULT_BASE_URL = "https://ollama.com";
@@ -421,13 +422,7 @@ function transformResponse(response: OpenAI.ChatCompletion): ChatCompletionRespo
           ? ("tool_calls" as const)
           : choice.finish_reason,
     })),
-    usage: response.usage
-      ? {
-          prompt_tokens: response.usage.prompt_tokens,
-          completion_tokens: response.usage.completion_tokens,
-          total_tokens: response.usage.total_tokens,
-        }
-      : undefined,
+    usage: toApiUsageFields(response.usage),
   };
 }
 
@@ -457,12 +452,6 @@ function transformChunk(chunk: OpenAI.ChatCompletionChunk): ChatCompletionChunk 
           ? ("tool_calls" as const)
           : choice.finish_reason,
     })),
-    usage: chunk.usage
-      ? {
-          prompt_tokens: chunk.usage.prompt_tokens,
-          completion_tokens: chunk.usage.completion_tokens,
-          total_tokens: chunk.usage.total_tokens,
-        }
-      : null,
+    usage: toApiUsageFields(chunk.usage) ?? null,
   };
 }

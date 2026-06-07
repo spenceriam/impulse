@@ -8,13 +8,13 @@ import {
   resolveCustomProviderOption,
   type ModelProviderOption,
 } from "../model-setup.js";
-import { load as loadConfig, type Config } from "../../util/config.js";
+import type { Config } from "../../util/config.js";
 import {
   formatContextK,
   formatModelDate,
   type ModelInfo,
 } from "../model-catalog.js";
-import { modelSupportsVision } from "../../api/capabilities.js";
+import { modelSupportsVisionCached } from "../../api/capabilities.js";
 import {
   SelectableListOverlay,
   type SelectableListRow,
@@ -143,7 +143,7 @@ export async function buildModelPickerState(
 
   const filterVision = (infos: ModelInfo[]) =>
     opts?.visionOnly
-      ? infos.filter((i) => modelSupportsVision(i.id))
+      ? infos.filter((i) => modelSupportsVisionCached(i.id))
       : infos;
 
   const overlay = new SelectableListOverlay({

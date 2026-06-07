@@ -30,6 +30,14 @@ export function overlayDim(s: string): string {
   return overlayAnsi.fg(OVERLAY_DIM_FG, s);
 }
 
+/** Truncate plain text for overlay headlines with ellipsis. */
+export function capOverlayText(text: string, max: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  if (max <= 1) return "…";
+  return `${trimmed.slice(0, max - 1)}…`;
+}
+
 export function overlayMuted(s: string): string {
   return overlayAnsi.fg(OVERLAY_MUTED_FG, s);
 }

@@ -5,6 +5,33 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-06-06
+
+  **Type:** minor
+  **Title:** UX simplification, tiered feedback, harness plumbing, and provider-neutral capabilities
+
+  ### Added
+  - **`[impulse_ui]` status events** — gutter-aligned system messages for compaction, mode changes, and reliability fallbacks; persisted for session replay, excluded from API history
+  - **`/settings` v1.5** — `thinkingDisplay` (off/summary/full), reasoning depth, communication style, `statsOnExit`, vision model override, compact tool rows
+  - **`@` file/directory autocomplete** — workspace fuzzy index with `@~/` expansion, ASCII `dir/` / `file` prefixes, 30s TTL
+  - **Harness eval** — `scripts/eval/run.ts` with repair telemetry by canonical model; smoke tests under `test/eval/`
+  - **Prompt cache plumbing** — `prompt_cache_key` (OpenAI) and `cache_control` (Anthropic) when system prompt is pinned; cached token tracking surfaced in session stats and exit summary
+  - **Provider-agnostic capabilities** — shared model capability cache, vision probe, and OpenAI-compatible adapter helpers across all providers
+  - **`/update` auto-relaunch** — writes resume hint so the new process can reload the session after npm update
+
+  ### Changed
+  - **Tiered tool feedback** — read-only tools (`file_read`, `glob`, `grep`) render as compact one-liners; Enter on empty prompt expands tool/thinking blocks (keyboard)
+  - **Permission overlay** — short action line plus `metadata.reason` (~120 chars)
+  - **Command surface pruned** — ~15 core slash commands; legacy `src/commands/` registry removed
+  - **Subagent iteration caps** — 40 for `explore`, 80 for `general` (was 150 for all)
+  - **Prompt trim** — inline fallbacks reduced; base system prompt and vision self-knowledge extended
+  - **Compaction UX** — `/compact` slash entry; context-limit halt messaging aligned to gutter
+
+  ### Fixed
+  - **TypeScript strict mode** — `exactOptionalPropertyTypes`, branded Zod paths, `Tool.define` generics, and `node-pty` ambient types (full `bun run typecheck` clean)
+  - **Reliability fallback** — retries with alternate model after consecutive tool-continuation failures
+  - **Busy-status symbols** — ASCII-safe phrases for cross-terminal rendering
+
 ## [1.4.5] - 2026-06-05
 
   **Type:** patch

@@ -19,6 +19,7 @@ import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../pro
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk, ToolDefinition } from "../types";
 import type { ModelCapabilities } from "../capabilities";
 import { levelToBudgetTokens } from "./capabilities.js";
+import { shouldApplySessionCache } from "../../harness/prompt-cache-key.js";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -52,7 +53,9 @@ type AnthropicContentBlock =
 interface AnthropicRequest {
   model: string;
   max_tokens: number;
-  system?: string | Array<{ type: "text"; text: string }>;
+  system?:
+    | string
+    | Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }>;
   messages: AnthropicMessage[];
   tools?: AnthropicTool[];
   tool_choice?: { type: "auto" } | { type: "any" } | { type: "tool"; name: string };
@@ -295,7 +298,11 @@ export class AnthropicProvider implements AIProvider {
       stream: options.stream ?? false,
     };
 
-    if (system) request.system = system;
+    if (system) {
+      request.system = shouldApplySessionCache(system)
+        ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+        : system;
+    }
     if (options.temperature !== undefined) request.temperature = options.temperature;
     if (options.top_p !== undefined) request.top_p = options.top_p;
     if (options.stop) {

@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import { isAllowAllBypass } from "../permission/index.js";
 import { isExperimentalAdvisorEnabled, load as loadConfig, type Config } from "../util/config.js";
 import { detectShellEnvironment, generateShellContext } from "../util/shell-env.js";
+import { loadInstructions } from "../util/instructions.js";
 
 type Mode = typeof MODES[number];
 
@@ -19,6 +20,17 @@ type Mode = typeof MODES[number];
 // ============================================
 
 const PROMPT_CACHE = new Map<string, string>();
+
+let lastTurnPromptKey: string | undefined;
+let lastTurnPrompt: string | undefined;
+
+/** Clear file cache and per-turn system prompt memo. */
+export function invalidatePromptCache(): void {
+  PROMPT_CACHE.clear();
+  lastTurnPromptKey = undefined;
+  lastTurnPrompt = undefined;
+  void import("../harness/session-cache.js").then((m) => m.clearPinnedSystemPrompt());
+}
 
 function getPromptsDir(): string {
   const override = process.env["IMPULSE_PROMPTS_DIR"];
@@ -162,7 +174,19 @@ task(subagent_type: "explore", description: "Find middleware", prompt: "...")
 - Be specific in your prompts - include relevant context
 `;
 
-const BASE_PROMPT = `You are impulse, a terminal-native AI co-partner for software and systems work. Be concise, accurate, and practical. Prefer showing code over lengthy explanations.`;
+const BASE_PROMPT = `You are impulse, a terminal-native AI co-partner for software and systems work.
+
+## Communication
+- Be concise, accurate, and practical. Prefer showing code over lengthy explanations.
+- Use markdown for structure when helpful.
+
+## User preferences
+- When you need the user's preference among options, use the question tool — do not ask plain-text multiple-choice questions in chat.
+- Gather structured input via question tool tabs; users can type custom answers.
+
+## Tool discipline
+- Use tools for file access, search, and execution — do not guess file contents.
+- Read before editing; verify paths against the working directory in context.`;
 
 /**
  * Mode Switch Suggestion Instructions
@@ -368,6 +392,10 @@ export async function generateSystemPrompt(
 ): Promise<string> {
   const workingDir = cwd || process.cwd();
   const cfg = config ?? await loadConfig();
+  const turnKeyEarly = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}`;
+  if (lastTurnPromptKey === turnKeyEarly && lastTurnPrompt) {
+    return lastTurnPrompt;
+  }
 
   // Detect shell environment and generate context
   const shellEnv = await detectShellEnvironment();
@@ -402,16 +430,24 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     formatGhCliPromptBlock(ghStatus),
   ];
 
+  const projectInstructions = await loadInstructions(workingDir);
+  if (projectInstructions) {
+    const body = projectInstructions.content.trim();
+    const summary =
+      body.length > 1500 ? `${body.slice(0, 1500)}…` : body;
+    parts.push(
+      `## Project instructions (${projectInstructions.name})\n\n${summary}\n\nUse \`file_read\` on \`${projectInstructions.path}\` for the full file.`
+    );
+  }
+
   // Add user profile context if available
   if (cfg.userProfile?.name) {
-    const userProfileContext = `
-## User Profile
-
-The user's name is ${cfg.userProfile.name}.
-${cfg.userProfile.responsePreference ? `They prefer ${cfg.userProfile.responsePreference} responses.` : ''}
-${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile.customInstructions}` : ''}
-`;
-    parts.push(userProfileContext);
+    parts.push(`## User Profile\n\nThe user's name is ${cfg.userProfile.name}.`);
+  }
+  if (cfg.userProfile?.customInstructions?.trim()) {
+    parts.push(
+      `## User preferences\n\n${cfg.userProfile.customInstructions.trim()}`
+    );
   }
 
   // Add advisor mode directive if experimental advisor is enabled
@@ -460,7 +496,11 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     parts.push(allowAllBlock);
   }
 
-  return parts.join("\n").trim();
+  const result = parts.join("\n").trim();
+  const turnKey = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}`;
+  lastTurnPromptKey = turnKey;
+  lastTurnPrompt = result;
+  return result;
 }
 
 /**

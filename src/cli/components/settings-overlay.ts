@@ -1,4 +1,5 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
+import type { ReasoningLevel, ThinkingDisplay } from "../../util/config.js";
 import {
   intrinsicFramedBoxWidth,
   overlayAnsi,
@@ -13,20 +14,33 @@ import {
   OVERLAY_SELECT_FG,
 } from "./overlay-theme.js";
 
+const COMM_STYLES = ["concise", "detailed", "casual", "technical"] as const;
+const THINKING_CYCLE: ThinkingDisplay[] = ["off", "summary", "full"];
+const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
+
 export interface SettingsValues {
-  showMainThinking: boolean;
+  thinkingDisplay: ThinkingDisplay;
+  reasoningLevel: ReasoningLevel;
+  responsePreference: string;
+  statsOnExit: boolean;
   showSubagentThinking: boolean;
   useSubagentModel: boolean;
   subagentModel?: string;
+  visionModelOverride?: string;
+  compactToolOutput: boolean;
 }
 
-/** True when overlay values match what was loaded at open (no toggle edits). */
 export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boolean {
   return (
-    a.showMainThinking === b.showMainThinking &&
+    a.thinkingDisplay === b.thinkingDisplay &&
+    a.reasoningLevel === b.reasoningLevel &&
+    a.responsePreference === b.responsePreference &&
+    a.statsOnExit === b.statsOnExit &&
     a.showSubagentThinking === b.showSubagentThinking &&
     a.useSubagentModel === b.useSubagentModel &&
-    (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "")
+    (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "") &&
+    (a.visionModelOverride?.trim() ?? "") === (b.visionModelOverride?.trim() ?? "") &&
+    a.compactToolOutput === b.compactToolOutput
   );
 }
 
@@ -34,33 +48,48 @@ export interface SettingsOverlayOptions {
   values: SettingsValues;
 }
 
-type SettingsRowKey =
-  | "showMainThinking"
-  | "showSubagentThinking"
-  | "useSubagentModel";
+type RowKind = "cycle" | "bool" | "vision" | "subagentModel";
+
+type SettingsRow = {
+  key: keyof SettingsValues;
+  label: string;
+  hint: string;
+  kind: RowKind;
+};
 
 const SETTINGS_FOOTER =
-  "↑/↓ move   Space: True/False   Enter: save (model row: pick)   Esc: cancel";
+  "↑/↓ move   Space: cycle/toggle   Enter: save (vision/model: pick)   Esc: cancel";
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
+function cycleValue<T>(current: T, options: readonly T[]): T {
+  const idx = options.indexOf(current);
+  return options[(idx + 1) % options.length]!;
+}
+
+function formatCycleValue(_label: string, value: string): string {
+  return overlayAnsi.fg(39, value);
+}
+
 function formatBool(value: boolean): string {
-  return value ? overlayAnsi.fg(39, "True") : overlayMuted("False");
+  return value ? overlayAnsi.fg(39, "On") : overlayMuted("Off");
 }
 
 function formatSettingRowInner(
   label: string,
-  value: boolean,
+  valueText: string,
   selected: boolean,
   innerWidth: number
 ): string {
   const pointer = selected ? overlayAnsi.fg(39, ">") : " ";
   const labelText = selected ? label : overlayMuted(label);
-  const valueText = formatBool(value);
   const left = ` ${pointer} ${labelText}`;
-  const gap = Math.max(1, innerWidth - visibleWidth(stripAnsi(left)) - visibleWidth(stripAnsi(valueText)));
+  const gap = Math.max(
+    1,
+    innerWidth - visibleWidth(stripAnsi(left)) - visibleWidth(stripAnsi(valueText))
+  );
   return `${left}${" ".repeat(gap)}${valueText}`;
 }
 
@@ -69,28 +98,61 @@ export class SettingsOverlay implements Component {
   private selectedIndex = 0;
   private measureTerminalWidth: number | null = null;
 
-  private readonly rows: Array<{ key: SettingsRowKey; label: string; hint: string }> = [
+  private readonly rows: SettingsRow[] = [
     {
-      key: "showMainThinking",
-      label: "Show thinking in main agent",
-      hint: "True: stream reasoning, then Thought for…; False: Thinking… then Thought for…",
+      key: "thinkingDisplay",
+      label: "Thinking display",
+      hint: "off → summary (Thought for…) → full stream",
+      kind: "cycle",
+    },
+    {
+      key: "reasoningLevel",
+      label: "Reasoning depth",
+      hint: "Provider reasoning level for new turns",
+      kind: "cycle",
+    },
+    {
+      key: "responsePreference",
+      label: "Communication style",
+      hint: "concise / detailed / casual / technical",
+      kind: "cycle",
+    },
+    {
+      key: "statsOnExit",
+      label: "Stats on exit",
+      hint: "Full stats on /exit and in /usage when on",
+      kind: "bool",
+    },
+    {
+      key: "compactToolOutput",
+      label: "Compact tool rows",
+      hint: "Dim one-liners for read-only tools; expand to see detail",
+      kind: "bool",
     },
     {
       key: "showSubagentThinking",
-      label: "Show thinking in subagent",
-      hint: "True: thinking… under tasks; False: Thinking… then Thought for…",
+      label: "Subagent thinking",
+      hint: "Show thinking progress inside task tool rows",
+      kind: "bool",
     },
     {
       key: "useSubagentModel",
-      label: "Use different model for subagent",
-      hint: "True: task subagents use a separate provider/model",
+      label: "Subagent model",
+      hint: "Use a separate model for task subagents",
+      kind: "subagentModel",
+    },
+    {
+      key: "visionModelOverride",
+      label: "Vision override",
+      hint: "Model for images when main model lacks vision",
+      kind: "vision",
     },
   ];
 
-  /** User pressed Enter on the subagent model row while enabled. */
   onPickSubagentModel?: () => void;
-  /** User set useSubagentModel False → True (open picker). */
   onEnableSubagentModel?: () => void;
+  onPickVisionOverride?: () => void;
+  onClearVisionOverride?: () => void;
   onSubmit?: (values: SettingsValues) => void;
   onAbort?: () => void;
 
@@ -107,23 +169,59 @@ export class SettingsOverlay implements Component {
     this.values.useSubagentModel = true;
   }
 
+  setVisionModelOverride(model: string | undefined): void {
+    if (model === undefined) {
+      delete this.values.visionModelOverride;
+    } else {
+      this.values.visionModelOverride = model;
+    }
+  }
+
   setMeasureTerminalWidth(cols: number): void {
     this.measureTerminalWidth = cols;
   }
 
   preferredBoxWidth(terminalWidth: number): number {
     const terminal = this.measureTerminalWidth ?? terminalWidth;
-    const modelLine = this.subagentModelLine();
-    const widths = [
-      visibleWidth(formatSettingRowInner("Show thinking in main agent", true, true, 60)),
-      visibleWidth(this.rows[0]!.hint),
-      visibleWidth(modelLine),
-      visibleWidth(SETTINGS_FOOTER),
-    ];
+    const widths = this.rows.map((r) =>
+      visibleWidth(formatSettingRowInner(r.label, this.displayValue(r), true, 60))
+    );
+    widths.push(visibleWidth(SETTINGS_FOOTER));
     return intrinsicFramedBoxWidth(terminal, "Settings", widths);
   }
 
   invalidate(): void {}
+
+  private displayValue(row: SettingsRow): string {
+    switch (row.key) {
+      case "thinkingDisplay":
+        return formatCycleValue(row.label, this.values.thinkingDisplay);
+      case "reasoningLevel":
+        return formatCycleValue(row.label, this.values.reasoningLevel);
+      case "responsePreference":
+        return formatCycleValue(row.label, this.values.responsePreference);
+      case "statsOnExit":
+        return formatBool(this.values.statsOnExit);
+      case "compactToolOutput":
+        return formatBool(this.values.compactToolOutput);
+      case "showSubagentThinking":
+        return formatBool(this.values.showSubagentThinking);
+      case "useSubagentModel":
+        return this.values.useSubagentModel
+          ? formatCycleValue(
+              row.label,
+              this.values.subagentModel?.trim() || "(pick model)"
+            )
+          : formatBool(false);
+      case "visionModelOverride":
+        return formatCycleValue(
+          row.label,
+          this.values.visionModelOverride?.trim() || "(automatic)"
+        );
+      default:
+        return "";
+    }
+  }
 
   handleInput(data: string): void {
     if (data === "\x1b") {
@@ -132,8 +230,20 @@ export class SettingsOverlay implements Component {
     }
     if (data === "\r") {
       const row = this.rows[this.selectedIndex];
-      if (row?.key === "useSubagentModel" && this.values.useSubagentModel) {
+      if (!row) {
+        this.onSubmit?.({ ...this.values });
+        return;
+      }
+      if (row.key === "useSubagentModel" && this.values.useSubagentModel) {
         this.onPickSubagentModel?.();
+        return;
+      }
+      if (row.key === "visionModelOverride") {
+        if (this.values.visionModelOverride?.trim()) {
+          this.onClearVisionOverride?.();
+        } else {
+          this.onPickVisionOverride?.();
+        }
         return;
       }
       this.onSubmit?.({ ...this.values });
@@ -150,20 +260,56 @@ export class SettingsOverlay implements Component {
     if (data === " ") {
       const row = this.rows[this.selectedIndex];
       if (!row) return;
-      const wasFalse = !this.values[row.key];
-      this.values[row.key] = !this.values[row.key];
-      if (row.key === "useSubagentModel" && wasFalse && this.values.useSubagentModel) {
-        this.onEnableSubagentModel?.();
-      }
+      this.cycleRow(row);
     }
   }
 
-  private subagentModelLine(): string {
-    if (!this.values.useSubagentModel) return "";
-    const model = this.values.subagentModel?.trim();
-    return model
-      ? `Subagent model: ${model}`
-      : "Subagent model: (not set — Enter to choose)";
+  private cycleRow(row: SettingsRow): void {
+    switch (row.key) {
+      case "thinkingDisplay":
+        this.values.thinkingDisplay = cycleValue(
+          this.values.thinkingDisplay,
+          THINKING_CYCLE
+        );
+        break;
+      case "reasoningLevel":
+        this.values.reasoningLevel = cycleValue(
+          this.values.reasoningLevel,
+          REASONING_CYCLE
+        );
+        break;
+      case "responsePreference": {
+        const styles = COMM_STYLES as readonly string[];
+        const idx = styles.indexOf(this.values.responsePreference);
+        const next = styles[(idx + 1) % styles.length] ?? "concise";
+        this.values.responsePreference = next;
+        break;
+      }
+      case "statsOnExit":
+        this.values.statsOnExit = !this.values.statsOnExit;
+        break;
+      case "compactToolOutput":
+        this.values.compactToolOutput = !this.values.compactToolOutput;
+        break;
+      case "showSubagentThinking":
+        this.values.showSubagentThinking = !this.values.showSubagentThinking;
+        break;
+      case "useSubagentModel": {
+        const wasOff = !this.values.useSubagentModel;
+        this.values.useSubagentModel = !this.values.useSubagentModel;
+        if (wasOff && this.values.useSubagentModel) {
+          this.onEnableSubagentModel?.();
+        }
+        break;
+      }
+      case "visionModelOverride":
+        if (this.values.visionModelOverride?.trim()) {
+          delete this.values.visionModelOverride;
+        } else {
+          this.onPickVisionOverride?.();
+        }
+        break;
+    }
   }
 
   render(width: number): string[] {
@@ -179,7 +325,7 @@ export class SettingsOverlay implements Component {
       const selected = i === this.selectedIndex;
       const inner = formatSettingRowInner(
         row.label,
-        this.values[row.key],
+        this.displayValue(row),
         selected,
         innerWidth
       );
@@ -190,11 +336,6 @@ export class SettingsOverlay implements Component {
           : overlaySideLine(inner, innerWidth, boxWidth)
       );
       lines.push(overlaySideLine(hint, innerWidth, boxWidth));
-
-      if (row.key === "useSubagentModel" && this.values.useSubagentModel) {
-        const modelInner = `     ${overlayMuted(this.subagentModelLine())}`;
-        lines.push(overlaySideLine(modelInner, innerWidth, boxWidth));
-      }
     }
 
     lines.push(overlayEmptyLine(boxWidth));

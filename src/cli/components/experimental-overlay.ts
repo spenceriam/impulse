@@ -1,5 +1,4 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
-import { overlayBoxWidth } from "../layout.js";
 import {
   intrinsicFramedBoxWidth,
   overlayAnsi,
@@ -16,6 +15,8 @@ import {
 
 export interface ExperimentalFlags {
   advisor: boolean;
+  undo: boolean;
+  goal: boolean;
 }
 
 export interface ExperimentalOverlayOptions {
@@ -32,6 +33,16 @@ export class ExperimentalOverlay implements Component {
       key: "advisor",
       label: "Advisor mode",
       hint: "Strategic advisor + consult_advisor (experimental)",
+    },
+    {
+      key: "undo",
+      label: "Undo / redo",
+      hint: "Git checkpoint rewind + chat trim (/undo, /redo)",
+    },
+    {
+      key: "goal",
+      label: "Goal loop",
+      hint: "Hermes-style /goal autonomous loop (experimental)",
     },
   ];
 
@@ -50,8 +61,8 @@ export class ExperimentalOverlay implements Component {
     const terminal = this.measureTerminalWidth ?? terminalWidth;
     const widths = [
       visibleWidth("These features may break sessions. Enable only for testing."),
-      visibleWidth("[ ] Advisor mode"),
-      visibleWidth("Strategic advisor + consult_advisor (experimental)"),
+      visibleWidth("[ ] Goal loop"),
+      visibleWidth("Hermes-style /goal autonomous loop (experimental)"),
       visibleWidth("Space: toggle   Enter: save   Esc: cancel"),
     ];
     return intrinsicFramedBoxWidth(terminal, "Experimental features", widths);

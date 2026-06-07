@@ -50,13 +50,14 @@ export function probeGhCli(force = false): GhCliStatus {
   }
 
   const accountMatch = auth.stdout.match(/Logged in to github\.com account (\S+)/i);
-  cachedStatus = {
+  const status: GhCliStatus = {
     installed: true,
     authenticated: true,
-    account: accountMatch?.[1],
+    ...(accountMatch?.[1] !== undefined ? { account: accountMatch[1] } : {}),
   };
+  cachedStatus = status;
   cachedAt = now;
-  return cachedStatus;
+  return status;
 }
 
 export function clearGhCliCache(): void {

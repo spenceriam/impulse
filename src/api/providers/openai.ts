@@ -9,6 +9,8 @@ import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderCo
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
+import { toApiUsageFields } from "../usage-helpers.js";
+import { applyOpenAIPromptCacheKey } from "../../harness/prompt-cache-key.js";
 
 // OpenAI API endpoint
 const BASE_URL = "https://api.openai.com/v1";
@@ -142,7 +144,11 @@ export class OpenAIProvider implements AIProvider {
           (request as unknown as Record<string, unknown>)["reasoning_effort"] =
             rl === "low" ? "low" : rl === "high" ? "high" : "medium";
         }
-        
+        applyOpenAIPromptCacheKey(
+          request as unknown as Record<string, unknown>,
+          options.messages
+        );
+
         return client.chat.completions.create(request);
       },
       options.signal
@@ -179,7 +185,11 @@ export class OpenAIProvider implements AIProvider {
           (request as unknown as Record<string, unknown>)["reasoning_effort"] =
             rl === "low" ? "low" : rl === "high" ? "high" : "medium";
         }
-        
+        applyOpenAIPromptCacheKey(
+          request as unknown as Record<string, unknown>,
+          options.messages
+        );
+
         return client.chat.completions.create(request);
       },
       options.signal
@@ -270,11 +280,7 @@ export class OpenAIProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: response.usage ? {
-        prompt_tokens: response.usage.prompt_tokens,
-        completion_tokens: response.usage.completion_tokens,
-        total_tokens: response.usage.total_tokens,
-      } : undefined,
+      usage: toApiUsageFields(response.usage),
     };
   }
   
@@ -301,11 +307,7 @@ export class OpenAIProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: chunk.usage ? {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-      } : null,
+      usage: toApiUsageFields(chunk.usage) ?? null,
     };
   }
 }

@@ -47,7 +47,12 @@ import { SessionManager } from "../session/manager";
 import { generateTitle } from "../session/title-generator.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
 import { Bus, HeaderEvents } from "../bus/index.js";
-import { CompactManager, COMPACT_TRIGGER_THRESHOLD } from "../session/compact";
+import {
+  CompactManager,
+  COMPACT_TRIGGER_THRESHOLD,
+  CONTEXT_WRAPUP_THRESHOLD,
+  SAFETY_MARGIN,
+} from "../session/compact";
 import {
   ALLOW_ALL_TODO_NUDGE_MESSAGE,
   isTodoOnlyToolBatch,
@@ -121,6 +126,8 @@ export interface LoopEvents {
     contextPct: number;
     tokensPerSecond: number;
     durationMs: number;
+    /** Prompt tokens served from provider cache this turn (when reported). */
+    cacheReadTokens?: number;
     /** Set in DEBUG mode when [IMPULSE_DEBUG] markers remain in edited files */
     debugInstrumentationNudge?: string;
   }): void;
@@ -171,6 +178,8 @@ export class AgentLoop {
   private pendingUserRequest = "";
   /** Injected before the next model call in the same turn (latest wins). */
   private pendingSteer: string | null = null;
+  /** One wrap-up inject per agent turn when context is high. */
+  private contextWrapupInjected = false;
 
   /** Images to translate before next turn (uri + display label for tool UI). */
   setImages(images: Array<{ uri: string; display: string }>): void {
@@ -220,6 +229,10 @@ export class AgentLoop {
         session.model?.trim() ||
         config.defaultModel?.trim() ||
         "";
+
+      const { canonicalImpulseModelId } = await import("../harness/model-routing.js");
+      const { setCurrentCanonicalModelId } = await import("../harness/request-context.js");
+      setCurrentCanonicalModelId(canonicalImpulseModelId(model, config.defaultProvider));
 
       const displayMessage = turnOptions?.displayMessage ?? userMessage;
       this.pendingUserRequest = displayMessage;
@@ -272,15 +285,24 @@ export class AgentLoop {
       const userMsg: Message = {
         role: "user",
         content: transcriptContent,
-        apiContent,
+        ...(apiContent !== undefined ? { apiContent } : {}),
         timestamp: new Date().toISOString(),
       };
       await SessionManager.addMessage(userMsg);
       session = SessionManager.getCurrentSession()!;
 
-      if (orderedImages.length > 0 && config.visionMode) {
-        this.pendingImages = orderedImages;
-        await this.translateImages(config, events, signal, this.pendingUserRequest);
+      if (orderedImages.length > 0 && !nativeVision) {
+        const visionModel =
+          config.visionModelOverride?.trim() || config.visionModel?.trim();
+        if (visionModel) {
+          this.pendingImages = orderedImages;
+          await this.translateImages(
+            { ...config, visionModel, visionMode: true },
+            events,
+            signal,
+            this.pendingUserRequest
+          );
+        }
       }
       this.pendingImages = [];
 
@@ -338,7 +360,9 @@ export class AgentLoop {
       let lastSystemPrompt = "";
       let latestPromptTokens: number | undefined;
       let latestCompletionTokens = 0;
+      let latestCacheReadTokens = 0;
       let languageRetryUsed = false;
+      let reliabilityFallbackUsed = false;
       let consecutiveTodoOnlyRounds = 0;
       let allowAllTodoNudgeUsed = false;
       let lastUnproductiveCompact:
@@ -357,6 +381,7 @@ export class AgentLoop {
       };
 
       events.onTurnStart();
+      this.contextWrapupInjected = false;
 
       while (continueLoop && !signal.aborted) {
         await this.flushTurnInjections();
@@ -372,6 +397,8 @@ export class AgentLoop {
         });
         const systemPrompt = baseSystemPrompt + "\n\n" + visionSelfKnowledge;
         lastSystemPrompt = systemPrompt;
+        const { pinSystemPromptForTurn } = await import("../harness/session-cache.js");
+        pinSystemPromptForTurn(systemPrompt);
         let chatMessages = buildChatMessages(currentMessages, systemPrompt);
 
         // Check compaction before each iteration using the same request shape
@@ -380,7 +407,7 @@ export class AgentLoop {
         const estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
         const contextWindow = getContextWindow();
         const contextPct = estimatedTokens / contextWindow;
-        const safetyAdjustedTokens = Math.ceil(estimatedTokens * 1.15);
+        const safetyAdjustedTokens = Math.ceil(estimatedTokens * SAFETY_MARGIN);
 
         const shouldTryCompact =
           contextPct >= COMPACT_TRIGGER_THRESHOLD &&
@@ -416,27 +443,72 @@ export class AgentLoop {
 
         // Emergency compact if safety-adjusted estimate still exceeds window
         if (safetyAdjustedTokens >= contextWindow && contextWindow > 0) {
+          events.onCompacting();
           const emergency = await CompactManager.compact(session.id, false, { force: true });
+          session = SessionManager.getCurrentSession()!;
+          const postEmergencyMessages = session.messages ?? [];
+          chatMessages = buildChatMessages(postEmergencyMessages, systemPrompt);
+          const postEmergencyTokens = estimateRequestTokens(chatMessages, toolDefs);
           if (emergency.compacted) {
-            session = SessionManager.getCurrentSession()!;
-            chatMessages = buildChatMessages(session.messages ?? [], systemPrompt);
+            events.onCompacted(
+              emergency.removedCount,
+              emergency.summary,
+              postEmergencyTokens
+            );
           }
         }
 
-        // Hard cutoff: skip API request if still over context window
-        const finalEstimate = estimateRequestTokens(chatMessages, toolDefs);
-        if (finalEstimate >= contextWindow && contextWindow > 0) {
+        // High-context wrap-up steer (once per turn) before hard stop
+        const postCompactEstimate = estimateRequestTokens(chatMessages, toolDefs);
+        const postCompactPct = postCompactEstimate / contextWindow;
+        if (
+          !this.contextWrapupInjected &&
+          contextWindow > 0 &&
+          postCompactPct >= CONTEXT_WRAPUP_THRESHOLD &&
+          postCompactPct < 1
+        ) {
+          this.contextWrapupInjected = true;
           await SessionManager.addMessage({
-            role: "system",
-            content: "[Context limit reached]\nCurrent estimate: " + finalEstimate + " tokens / " + contextWindow + " context window (" + Math.round(finalEstimate / contextWindow * 100) + "%)\nMessages: " + (session.messages?.length ?? 0) + "\n\nSuggestions:\n- /compact  summarize older messages and try again\n- /new      start a fresh session to continue",
+            role: "user",
+            content:
+              "Context pressure note (apply before your next action): Context is nearly full. Finish concisely, avoid new tool sprawl unless essential, and prepare for compaction.",
             timestamp: new Date().toISOString(),
           });
-            events.onHardCutoff(finalEstimate);
+          session = SessionManager.getCurrentSession()!;
+          chatMessages = buildChatMessages(session.messages ?? [], systemPrompt);
+        }
+
+        // Hard cutoff: skip API request if safety-adjusted estimate still exceeds window
+        const finalEstimate = estimateRequestTokens(chatMessages, toolDefs);
+        const finalSafety = Math.ceil(finalEstimate * SAFETY_MARGIN);
+        if (finalSafety >= contextWindow && contextWindow > 0) {
+          events.onHardCutoff(finalEstimate);
           continueLoop = false;
           break;
         }
 
         // ── Stream response ─────────────────────────────────────────────────
+        let effectiveReasoningLevel =
+          config.reasoningLevel ?? (config.thinking ? "medium" : "off");
+        if (!reliabilityFallbackUsed && this.consecutiveFailures >= 2) {
+          const { reliabilityFallbackForModel } = await import("../harness/reliability.js");
+          const { canonicalImpulseModelId } = await import("../harness/model-routing.js");
+          const fallback = reliabilityFallbackForModel(
+            canonicalImpulseModelId(model, config.defaultProvider),
+            config
+          );
+          reliabilityFallbackUsed = true;
+          effectiveReasoningLevel = fallback.reasoningLevel;
+          const { formatImpulseUiStatus } = await import("../session/status-events.js");
+          await SessionManager.addMessage({
+            role: "system",
+            content: formatImpulseUiStatus(
+              `Reliability profile: reasoning ${fallback.reasoningLevel}`
+            ),
+            timestamp: new Date().toISOString(),
+          });
+        }
+
         const streamOptions: StreamCompletionOptions = {
           model,
           messages: chatMessages,
@@ -444,7 +516,7 @@ export class AgentLoop {
           stream: true,
           signal,
           max_tokens: config.maxOutputTokens,
-          reasoningLevel: config.reasoningLevel ?? (config.thinking ? "medium" : "off"),
+          reasoningLevel: effectiveReasoningLevel,
         };
 
         const partialToolCalls = new Map<number, PartialToolCall>();
@@ -456,6 +528,7 @@ export class AgentLoop {
         let chunkOutputTokens = 0;
         latestPromptTokens = undefined;
         latestCompletionTokens = 0;
+        latestCacheReadTokens = 0;
 
         const closeThinkingPhase = () => {
           if (thinkingPhaseStartedAt === null) return;
@@ -473,6 +546,10 @@ export class AgentLoop {
             chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
             latestPromptTokens = chunk.usage.prompt_tokens;
             latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
+            const cached = chunk.usage.prompt_tokens_details?.cached_tokens;
+            if (cached !== undefined && cached > 0) {
+              latestCacheReadTokens = cached;
+            }
           }
 
           const choice = chunk.choices[0];
@@ -561,6 +638,17 @@ export class AgentLoop {
 
         // ── No tool calls → done (or retry in English) ─────────────────────
         if (finishReason !== "tool_calls" || toolCalls.length === 0) {
+          const recentHadTools = (SessionManager.getCurrentSession()?.messages ?? [])
+            .slice(-8)
+            .some((m) => m.role === "tool");
+          if (
+            !accumulatedText.trim() &&
+            recentHadTools &&
+            !reliabilityFallbackUsed
+          ) {
+            this.consecutiveFailures = Math.max(this.consecutiveFailures, 2);
+            continue;
+          }
           if (
             !languageRetryUsed &&
             accumulatedText &&
@@ -609,7 +697,7 @@ export class AgentLoop {
             content: output,
             tool_call_id: toolCallId,
             timestamp: new Date().toISOString(),
-          } as Message);
+          });
         };
 
         const flushTaskBatch = async (): Promise<void> => {
@@ -731,13 +819,21 @@ export class AgentLoop {
             events.onToolStart(item.tc.id, "task", item.args);
           }
 
-          const specs: TaskCallSpec[] = toRun.map((item) => ({
-            toolCallId: item.tc.id,
-            subagentType: item.args["subagent_type"] as TaskCallSpec["subagentType"],
-            prompt: String(item.args["prompt"] ?? ""),
-            description: String(item.args["description"] ?? ""),
-            thoroughness: item.args["thoroughness"] as TaskCallSpec["thoroughness"],
-          }));
+          const specs: TaskCallSpec[] = toRun.map((item) => {
+            const spec: TaskCallSpec = {
+              toolCallId: item.tc.id,
+              subagentType: item.args["subagent_type"] as TaskCallSpec["subagentType"],
+              prompt: String(item.args["prompt"] ?? ""),
+              description: String(item.args["description"] ?? ""),
+            };
+            const thoroughness = item.args["thoroughness"] as
+              | TaskCallSpec["thoroughness"]
+              | undefined;
+            if (thoroughness !== undefined) {
+              spec.thoroughness = thoroughness;
+            }
+            return spec;
+          });
 
           const subagentModel = resolveSubagentModel(config, model);
           if (subagentThinkingEnabled === undefined) {
@@ -1042,6 +1138,7 @@ export class AgentLoop {
         contextPct: Math.min(1, contextTokens / getContextWindow()),
         tokensPerSecond,
         durationMs,
+        ...(latestCacheReadTokens > 0 ? { cacheReadTokens: latestCacheReadTokens } : {}),
         ...(debugInstrumentationNudge
           ? { debugInstrumentationNudge }
           : {}),

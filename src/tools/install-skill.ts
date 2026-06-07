@@ -66,7 +66,12 @@ export const installSkillTool: Tool<InstallSkillInput> = Tool.define(
       permission: "bash",
       patterns: [command],
       message: `Install skill: ${skillSlug}`,
-      metadata: { command, tool: "install_skill", skillSlug },
+      metadata: {
+        command,
+        tool: "install_skill",
+        skillSlug,
+        reason: `Install the "${skillSlug}" skill from the skills registry`,
+      },
     });
 
     const proc = Bun.spawn(["npx", ...args], {

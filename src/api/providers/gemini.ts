@@ -17,6 +17,7 @@ import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from ".
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
 import { discoverOpenAIModelCapabilities } from "./openai-compatible";
+import { toApiUsageFields } from "../usage-helpers.js";
 
 // Gemini API base
 const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
@@ -249,11 +250,7 @@ export class GeminiProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: response.usage ? {
-        prompt_tokens: response.usage.prompt_tokens,
-        completion_tokens: response.usage.completion_tokens,
-        total_tokens: response.usage.total_tokens,
-      } : undefined,
+      usage: toApiUsageFields(response.usage),
     };
   }
 
@@ -280,11 +277,7 @@ export class GeminiProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: chunk.usage ? {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-      } : null,
+      usage: toApiUsageFields(chunk.usage) ?? null,
     };
   }
 }

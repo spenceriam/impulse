@@ -14,6 +14,10 @@ import z from "zod";
 export type ReasoningLevel = "off" | "low" | "medium" | "high";
 const ReasoningLevelSchema = z.enum(["off", "low", "medium", "high"]);
 
+/** Main-agent thinking visibility in chat UI. */
+export type ThinkingDisplay = "off" | "summary" | "full";
+const ThinkingDisplaySchema = z.enum(["off", "summary", "full"]);
+
 const ProviderKeySchema = z.object({
   /** API key for this provider */
   apiKey: z.string().optional(),
@@ -56,7 +60,10 @@ const ConfigSchema = z.object({
   /** Vision mode — toggle for automatic image→text translation */
   visionMode: z.boolean().default(false).describe("Whether vision translation is active"),
 
-  /** Stream full thinking blocks in the main agent UI */
+  /** Main-agent thinking display: off | summary (Thought for…) | full stream */
+  thinkingDisplay: ThinkingDisplaySchema.default("summary"),
+
+  /** @deprecated use thinkingDisplay — migrated on load */
   showMainThinking: z.boolean().default(true).describe("Show reasoning stream in main chat"),
 
   /** Show thinking... progress lines inside subagent task tool rows */
@@ -100,8 +107,30 @@ const ConfigSchema = z.object({
   experimental: z
     .object({
       advisor: z.boolean().default(false),
+      undo: z.boolean().default(false),
+      goal: z.boolean().default(false),
     })
-    .default({ advisor: false }),
+    .default({ advisor: false, undo: false, goal: false }),
+
+  /** Show session summary on /exit and double Ctrl+C */
+  statsOnExit: z.boolean().default(false),
+
+  /** Optional vision model override when main model lacks native vision */
+  visionModelOverride: z.string().optional(),
+
+  /** Dim one-liner for read-only tool success rows */
+  compactToolOutput: z.boolean().default(true),
+
+  /** Per-model reliability overrides when tool continuations fail */
+  modelProfiles: z
+    .record(
+      z.string(),
+      z.object({
+        reasoningLevel: ReasoningLevelSchema.optional(),
+        preserveReasoning: z.boolean().optional(),
+      })
+    )
+    .optional(),
 
   // Legacy — kept for smooth migration; prefer providers[].apiKey
   apiKey: z.string().optional().describe("Legacy: use providers[defaultProvider].apiKey instead"),
@@ -200,6 +229,13 @@ export async function load(): Promise<Config> {
     providers,
   };
   const parsed = applyDefaults(merged as Partial<Config>);
+  // Migrate showMainThinking → thinkingDisplay
+  if (
+    (fileConfig as { thinkingDisplay?: ThinkingDisplay }).thinkingDisplay === undefined
+  ) {
+    parsed.thinkingDisplay =
+      fileConfig.showMainThinking === false ? "off" : "summary";
+  }
   // Legacy configs: existing defaultModel implies explicit choice
   if (
     fileConfig.defaultModel &&
@@ -218,6 +254,14 @@ export async function load(): Promise<Config> {
 /** Experimental advisor feature enabled in config. */
 export function isExperimentalAdvisorEnabled(config: Config): boolean {
   return config.experimental?.advisor === true;
+}
+
+export function isExperimentalUndoEnabled(config: Config): boolean {
+  return config.experimental?.undo === true;
+}
+
+export function isExperimentalGoalEnabled(config: Config): boolean {
+  return config.experimental?.goal === true;
 }
 
 /** Session-scoped advisor: active only when toggled in-session or restored on resume. */

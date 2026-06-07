@@ -81,15 +81,23 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           : outsideCwd
             ? `Overwrite file outside cwd: ${safePath}`
             : `Overwrite file: ${safePath}`;
+        const fileName = safePath.split(/[/\\]/).pop() ?? safePath;
         await askPermission({
           sessionID: "current",
           permission: permissionType,
           patterns: [safePath],
           message,
           metadata: {
+            path: safePath,
             contentLength: input.content.length,
             isNewFile,
-            ...(outsideCwd ? { reason: "Path outside working directory" } : {}),
+            reason: outsideCwd
+              ? isNewFile
+                ? "Create a file outside the project working directory"
+                : "Overwrite a file outside the project working directory"
+              : isNewFile
+                ? `Create new file ${fileName}`
+                : `Overwrite existing file ${fileName}`,
           },
         });
       }

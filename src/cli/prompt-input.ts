@@ -5,7 +5,6 @@
 import {
   Editor,
   matchesKey,
-  truncateToWidth,
   type EditorTheme,
   type Component,
   type Focusable,
@@ -28,7 +27,7 @@ export type PasteGroup = {
 
 type PasteSpan = { start: number; len: number; group: PasteGroup };
 
-type EditorWithCursor = Editor & {
+type EditorWithCursor = {
   state: { cursorLine: number; cursorCol: number };
 };
 
@@ -177,8 +176,6 @@ export class PromptInput implements Component, Focusable {
   focused = false;
 
   private editor: Editor;
-  /** @deprecated Arrow uses dim styling; mode color is context-bar only. */
-  private _modeColorCode = 34;
   private _pasteGroups: PasteGroup[] = [];
   private _detectedImages: string[] = [];
   private _nextImageIndex = 1;
@@ -199,15 +196,12 @@ export class PromptInput implements Component, Focusable {
   onArrowRight?: (() => void) | null;
   onEnter?: (() => void) | null;
 
-  constructor(tui?: { terminal: { rows: number; columns: number } }, theme?: EditorTheme) {
-    const t = tui ?? { terminal: { rows: 24, columns: 80 } };
-    this.editor = new Editor(t, theme ?? ({} as EditorTheme), { paddingX: 0 });
+  constructor(tui: ConstructorParameters<typeof Editor>[0], theme?: EditorTheme) {
+    this.editor = new Editor(tui, theme ?? ({} as EditorTheme), { paddingX: 0 });
   }
 
   /** No-op: prompt chevron uses dim styling to match separator lines. */
-  setModeColor(_code: number): void {
-    this._modeColorCode = _code;
-  }
+  setModeColor(_code: number): void {}
   setSecretMode(enabled: boolean): void {
     this._secretMode = enabled;
   }
@@ -217,14 +211,13 @@ export class PromptInput implements Component, Focusable {
 
   private _submitPayload: PromptSubmitPayload | null = null;
 
-  get onSubmit() {
-    return this.editor.onSubmit;
-  }
   set onSubmit(fn: ((payload: PromptSubmitPayload) => void) | undefined) {
-    if (fn !== undefined) {
-      this.editor.onSubmit = () => fn(this._submitPayload ?? this.getSubmitPayload());
+    if (fn === undefined) {
+      this.editor.onSubmit = () => {};
     } else {
-      this.editor.onSubmit = undefined as unknown as (value: string) => void;
+      this.editor.onSubmit = () => {
+        fn(this._submitPayload ?? this.getSubmitPayload());
+      };
     }
   }
 
@@ -468,7 +461,7 @@ export class PromptInput implements Component, Focusable {
         col = lineLen;
       }
     }
-    const ed = this.editor as EditorWithCursor;
+    const ed = this.editor as unknown as EditorWithCursor;
     ed.state.cursorLine = line;
     ed.state.cursorCol = col;
   }

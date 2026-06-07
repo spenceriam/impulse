@@ -2,7 +2,7 @@ import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi
 import { overlayBoxWidth } from "../layout.js";
 import { renderHelpCommandsTable, tableBorderFg } from "../markdown-table.js";
 import {
-  buildSlashCommandDefs,
+  buildCoreSlashCommandDefs,
   type BuildSlashCommandsOptions,
 } from "../slash-commands.js";
 import { shellTakeoverHint } from "../shell-shortcuts.js";
@@ -57,11 +57,7 @@ export function buildHelpContent(
   opts: BuildHelpOverlayOptions,
   innerWidth: number
 ): string[] {
-  const { reasoningLevelsLabel, experimentalAdvisor = false } = opts;
-  const defs = buildSlashCommandDefs({
-    experimentalAdvisor,
-    reasoningLevelsLabel,
-  });
+  const defs = buildCoreSlashCommandDefs(opts);
 
   const lines: string[] = [];
   const push = (s: string) => lines.push(s);
@@ -107,15 +103,9 @@ export function buildHelpContent(
   }
   pushBlank();
 
-  pushSection("Images and vision");
+  pushSection("Images");
   for (const row of wrapIndentedProse(
-    "Paste an image or file path to attach as [Pasted image #N]",
-    innerWidth
-  )) {
-    push(row);
-  }
-  for (const row of wrapIndentedProse(
-    "/vision — Toggle vision and choose a vision model (same or different provider)",
+    "Paste an image or file path to attach as [Pasted image #N]. Vision-capable models see images directly; others may use a vision override in /settings.",
     innerWidth
   )) {
     push(row);
@@ -158,11 +148,11 @@ export function buildHelpContent(
   pushSection("Keyboard");
   for (const keyLine of [
     "Tab — Cycle mode, or complete /command when line starts with /",
-    `Shift+Tab — Cycle reasoning (${reasoningLevelsLabel}); ignored while typing /commands`,
+    "Shift+Tab — Cycle reasoning level (ignored while typing a /command)",
     "↑ — Recall previous submitted prompt",
     "Esc — Close overlays (e.g. /help) or abort current turn",
-    "Ctrl+C — Hit again to cancel turn (while busy) or exit (idle)",
-    "Ctrl+C Ctrl+C — Exit with session summary when idle",
+    "/quit or /exit — Exit with session summary",
+    "Ctrl+C — Hit again to cancel turn while busy",
     "Ctrl+D — Exit",
   ]) {
     for (const row of wrapIndentedProse(keyLine, innerWidth)) {
