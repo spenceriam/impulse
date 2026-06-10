@@ -16,6 +16,7 @@ export function isInjectedUserMessage(msg: Message): boolean {
   const text = messageDisplayText(msg);
   return (
     text.startsWith("[User steering") ||
+    text.startsWith("Steering note (apply before your next action):") ||
     text.startsWith("[Request interrupted") ||
     text.startsWith("[System]") ||
     text.startsWith("Context pressure note")

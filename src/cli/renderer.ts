@@ -1408,6 +1408,8 @@ export class ImpulseRenderer {
   private lastExpandableThinking: ThinkingBlock | null = null;
   private goalState: GoalState | undefined;
   private lastAssistantTurnText = "";
+  /** Accumulates finalized assistant markdown segments for /copy across a turn. */
+  private currentTurnAssistantText = "";
   private responsePreference = "concise";
   /** Session-local turn speed display on context bar (/speedo); not persisted. */
   private speedoEnabled = false;
@@ -2299,6 +2301,7 @@ export class ImpulseRenderer {
     const events: LoopEvents = {
       onTurnStart: () => {
         this.clearCtrlCPending();
+        this.currentTurnAssistantText = "";
         this.streamBusyPhraseSet = false;
         this.contextTokens = Math.max(
           this.contextTokens,
@@ -2505,7 +2508,9 @@ export class ImpulseRenderer {
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
-        const turnText = this.streamingRaw.trim();
+        this.appendAssistantTurnSegment(this.streamingRaw);
+        const turnText = this.currentTurnAssistantText;
+        this.currentTurnAssistantText = "";
         if (this.streamingRaw) { this.addSectionGap(); }
         this.streamingRaw = ""; this.streamingText = null;
         this.thinkingRaw = "";  this.thinkingText = null;
@@ -2825,9 +2830,20 @@ export class ImpulseRenderer {
    * Without this, silent tools (set_header) leave streamingRaw open and glue the next
    * continuation chunk onto the same paragraph.
    */
+  private appendAssistantTurnSegment(segment: string): void {
+    const trimmed = segment.trim();
+    if (!trimmed) return;
+    this.currentTurnAssistantText = this.currentTurnAssistantText
+      ? `${this.currentTurnAssistantText}\n\n${trimmed}`
+      : trimmed;
+  }
+
   private finalizeAssistantStreamingSegment(gapAfter = true): void {
     if (!this.streamingRaw && !this.streamingText) return;
     const hadContent = this.streamingRaw.trim().length > 0;
+    if (hadContent) {
+      this.appendAssistantTurnSegment(this.streamingRaw);
+    }
     this.streamingRaw = "";
     this.streamingText = null;
     if (gapAfter && hadContent) {
