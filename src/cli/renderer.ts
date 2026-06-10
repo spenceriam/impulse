@@ -2424,6 +2424,9 @@ export class ImpulseRenderer {
         const block = this.toolBlocks.get(id);
         if (block) {
           if (isSilentUnchangedTodoWrite(_name, result)) {
+            if (this.latestTodoBlock === block) {
+              this.latestTodoBlock = null;
+            }
             this.chat.removeChild(block);
             if (this.lastToolGapSpacer) {
               this.chat.removeChild(this.lastToolGapSpacer);

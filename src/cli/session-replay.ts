@@ -6,6 +6,7 @@ import type { Message, MessageContentBlock, ToolCall, ToolResult } from "../sess
 import { isInjectedUserMessage, messageDisplayText } from "../session/injected-message.js";
 import { isImpulseUiMessage, parseImpulseUiContent } from "../session/status-events.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
+import { isSilentUnchangedTodoWrite } from "./components/tool-block.js";
 
 /** @deprecated Use SILENT_TOOLS from tools/silent-tools.ts */
 export const SILENT_REPLAY_TOOLS = SILENT_TOOLS;
@@ -101,13 +102,15 @@ function emitToolStep(
   toolResults: Map<string, { content: string }>
 ): void {
   if (SILENT_TOOLS.has(tc.tool)) return;
+  const result = buildToolResult(tc, toolResults);
+  if (isSilentUnchangedTodoWrite(tc.tool, result)) return;
   const id = tc.id ?? `replay_${tc.tool}_${steps.length}`;
   steps.push({
     type: "tool",
     id,
     name: tc.tool,
     args: tc.arguments ?? {},
-    result: buildToolResult(tc, toolResults),
+    result,
     durationMs: 0,
   });
 }

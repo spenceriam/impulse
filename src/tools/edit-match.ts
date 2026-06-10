@@ -78,6 +78,23 @@ export function countExactOccurrences(content: string, oldString: string): numbe
   return count;
 }
 
+/** Greedy left-to-right selection of non-overlapping matches. */
+export function filterNonOverlappingMatches(matches: EditMatchResult[]): EditMatchResult[] {
+  if (matches.length <= 1) return matches;
+
+  const sorted = [...matches].sort((a, b) => a.startIndex - b.startIndex);
+  const selected: EditMatchResult[] = [];
+  let lastEnd = -1;
+
+  for (const match of sorted) {
+    if (match.startIndex < lastEnd) continue;
+    selected.push(match);
+    lastEnd = match.endIndex;
+  }
+
+  return selected;
+}
+
 /** Find all line-trimmed windows matching oldString. */
 export function findAllLineTrimmed(content: string, oldString: string): EditMatchResult[] {
   const oldLines = splitLines(oldString);
@@ -130,7 +147,7 @@ export function replaceAllLineTrimmed(
   oldString: string,
   newString: string
 ): string {
-  const matches = findAllLineTrimmed(content, oldString);
+  const matches = filterNonOverlappingMatches(findAllLineTrimmed(content, oldString));
   if (matches.length === 0) return content;
 
   let result = content;
@@ -195,17 +212,19 @@ export function resolveEditMatch(
   const trimmedMatches = findAllLineTrimmed(content, oldString);
   if (trimmedMatches.length === 0) return null;
 
+  const nonOverlapping = filterNonOverlappingMatches(trimmedMatches);
+
   if (options.replaceAll) {
     return {
-      effectiveOldString: trimmedMatches[0]!.effectiveOldString,
+      effectiveOldString: nonOverlapping[0]!.effectiveOldString,
       usedFallback: true,
-      occurrences: trimmedMatches.length,
+      occurrences: nonOverlapping.length,
     };
   }
 
-  if (trimmedMatches.length !== 1) return null;
+  if (nonOverlapping.length !== 1) return null;
 
-  const match = trimmedMatches[0]!;
+  const match = nonOverlapping[0]!;
   return {
     effectiveOldString: match.effectiveOldString,
     usedFallback: true,
