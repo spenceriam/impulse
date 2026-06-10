@@ -13,12 +13,31 @@ function splitLines(text: string): string[] {
   return text.split("\n");
 }
 
-function lineCharIndex(lines: string[], lineIndex: number): number {
-  let idx = 0;
-  for (let i = 0; i < lineIndex; i++) {
-    idx += lines[i]!.length + 1;
+/** Start byte offset of each line (aligned with split("\n") segments). */
+function getLineStarts(content: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === "\n") {
+      starts.push(i + 1);
+    }
   }
-  return idx;
+  return starts;
+}
+
+/** Exclusive end of line content (strips CRLF or LF terminator before next line). */
+function lineContentEnd(content: string, lineStart: number, nextLineStart: number): number {
+  if (nextLineStart <= lineStart) return content.length;
+  if (
+    nextLineStart - lineStart >= 2 &&
+    content[nextLineStart - 2] === "\r" &&
+    content[nextLineStart - 1] === "\n"
+  ) {
+    return nextLineStart - 2;
+  }
+  if (content[nextLineStart - 1] === "\n") {
+    return nextLineStart - 1;
+  }
+  return nextLineStart;
 }
 
 function matchWindowAt(
@@ -36,18 +55,20 @@ function matchWindowAt(
 }
 
 function buildMatchFromWindow(
-  contentLines: string[],
+  content: string,
+  lineStarts: number[],
   startLine: number,
   oldLines: string[]
 ): EditMatchResult {
-  const effectiveOldString = contentLines
-    .slice(startLine, startLine + oldLines.length)
-    .join("\n");
-  const startIndex = lineCharIndex(contentLines, startLine);
+  const endLine = startLine + oldLines.length - 1;
+  const startIndex = lineStarts[startLine]!;
+  const endLineStart = lineStarts[endLine]!;
+  const nextLineStart = lineStarts[endLine + 1] ?? content.length;
+  const endIndex = lineContentEnd(content, endLineStart, nextLineStart);
   return {
-    effectiveOldString,
+    effectiveOldString: content.substring(startIndex, endIndex),
     startIndex,
-    endIndex: startIndex + effectiveOldString.length,
+    endIndex,
     usedFallback: true,
   };
 }
@@ -101,11 +122,12 @@ export function findAllLineTrimmed(content: string, oldString: string): EditMatc
   if (oldLines.length === 0) return [];
 
   const contentLines = splitLines(content);
+  const lineStarts = getLineStarts(content);
   const matches: EditMatchResult[] = [];
 
   for (let i = 0; i <= contentLines.length - oldLines.length; i++) {
     if (!matchWindowAt(contentLines, i, oldLines)) continue;
-    matches.push(buildMatchFromWindow(contentLines, i, oldLines));
+    matches.push(buildMatchFromWindow(content, lineStarts, i, oldLines));
   }
 
   return matches;

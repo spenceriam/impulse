@@ -18,7 +18,9 @@ export function isInjectedUserMessage(msg: Message): boolean {
     text.startsWith("[User steering") ||
     text.startsWith("Steering note (apply before your next action):") ||
     text.startsWith("[Request interrupted") ||
-    text.startsWith("[System]") ||
+    text.startsWith("[System] Permission bypass is active.") ||
+    text.startsWith("[System] Loop guard stopped this turn (") ||
+    text.startsWith("[System] Stop replanning.") ||
     text.startsWith("Context pressure note")
   );
 }
