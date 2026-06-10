@@ -51,4 +51,12 @@ describe("edit-match", () => {
     const error = buildOldStringNotFoundError("src/foo.ts", "alpha\nbeta", "gamma");
     expect(error).toBe("oldString not found in file: src/foo.ts");
   });
+
+  test("buildOldStringNotFoundError reports ambiguity instead of indentation hint", () => {
+    const content = "foo\nbar\nfoo\nbar";
+    const error = buildOldStringNotFoundError("src/foo.ts", content, "foo");
+    expect(error).toContain("found 2 times");
+    expect(error).toContain("whitespace normalization");
+    expect(error).not.toContain("Closest match");
+  });
 });

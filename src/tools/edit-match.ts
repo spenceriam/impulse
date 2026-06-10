@@ -186,6 +186,17 @@ export function buildOldStringNotFoundError(
   content: string,
   oldString: string
 ): string {
+  const trimmedMatches = findAllLineTrimmed(content, oldString);
+  if (trimmedMatches.length > 0) {
+    const nonOverlapping = filterNonOverlappingMatches(trimmedMatches);
+    if (nonOverlapping.length > 1) {
+      return `oldString found ${nonOverlapping.length} times in ${filePath} after whitespace normalization. Use replaceAll: true or provide a more specific oldString.`;
+    }
+    if (trimmedMatches.length > 1) {
+      return `oldString not found in ${filePath}. Multiple overlapping whitespace-normalized matches — provide a more specific oldString.`;
+    }
+  }
+
   const oldLines = splitLines(oldString);
   const contentLines = splitLines(content);
 

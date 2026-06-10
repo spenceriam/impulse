@@ -21,6 +21,7 @@ export function isInjectedUserMessage(msg: Message): boolean {
     text.startsWith("[System] Permission bypass is active.") ||
     text.startsWith("[System] Loop guard stopped this turn (") ||
     text.startsWith("[System] Stop replanning.") ||
-    text.startsWith("Context pressure note")
+    text.startsWith("Context pressure note") ||
+    text === "Please respond in English."
   );
 }

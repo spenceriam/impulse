@@ -32,6 +32,30 @@ describe("buildReplaySteps injected messages", () => {
     expect(steps[0]).toEqual({ type: "user", text: "run the cap smoke test" });
   });
 
+  test("legacy language-retry note falls back to injected", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: "Please respond in English.",
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const steps = buildReplaySteps(messages);
+    expect(steps[0]?.type).toBe("injected");
+  });
+
+  test("user message starting with [System] stays user when not a known nudge", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: "[System] design doc for the auth module",
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const steps = buildReplaySteps(messages);
+    expect(steps[0]?.type).toBe("user");
+  });
+
   test("legacy untagged steer prefix falls back to injected", () => {
     const messages: Message[] = [
       {
