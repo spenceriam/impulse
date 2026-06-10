@@ -1,8 +1,17 @@
-import { type Component } from "@mariozechner/pi-tui";
+import { type Component, visibleWidth } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
+import { overlayBoxWidth } from "../layout.js";
+import {
+  handleOverlayScrollInput,
+  overlayScrollPageStep,
+  OVERLAY_SCROLL_FOOTER,
+  sliceOverlayBody,
+} from "./overlay-scroll-region.js";
 import {
   capOverlayText,
+  intrinsicFramedBoxWidth,
   overlayBottomBorder,
+  overlayDim,
   overlayPushWrapped,
   overlayRenderBoxWidth,
   overlaySideLine,
@@ -18,6 +27,8 @@ const A = {
 };
 const dimText = (s: string) => A.fg(90, s);
 
+const QUESTION_CHROME_LINES = 3; // title + blank + footer/border region
+
 export class QuestionOverlay implements Component {
   private readonly context: string | undefined;
   private readonly questions: Question[];
@@ -27,6 +38,10 @@ export class QuestionOverlay implements Component {
   private customMode = false;
   private customInput = "";
   private reviewMode = false;
+  private maxHeight = 0;
+  private scrollTop = 0;
+  private measureTerminalWidth: number | null = null;
+  private lastBodyLineCount = 0;
 
   onSubmit?: (answers: string[][]) => void;
   onAbort?: () => void;
@@ -38,6 +53,27 @@ export class QuestionOverlay implements Component {
   }
 
   invalidate(): void {}
+
+  setMaxHeight(lines: number): void {
+    this.maxHeight = Math.max(0, lines);
+  }
+
+  setMeasureTerminalWidth(cols: number): void {
+    this.measureTerminalWidth = cols;
+  }
+
+  preferredBoxWidth(terminalWidth: number): number {
+    const terminal = this.measureTerminalWidth ?? terminalWidth;
+    const cap = overlayBoxWidth(terminal);
+    const lines = this.buildAllLines(cap);
+    const widths = lines.map((line) => visibleWidth(line.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")));
+    return Math.min(cap, intrinsicFramedBoxWidth(terminal, "Need your input", widths));
+  }
+
+  private viewportBodyLines(): number {
+    if (this.maxHeight <= QUESTION_CHROME_LINES) return 1;
+    return Math.max(1, this.maxHeight - QUESTION_CHROME_LINES);
+  }
 
   private get currentQuestion(): Question {
     return this.questions[this.selectedTopic]!;
@@ -76,6 +112,7 @@ export class QuestionOverlay implements Component {
 
     this.customMode = false;
     this.customInput = "";
+    this.scrollTop = 0;
     this.reviewMode = true;
   }
 
@@ -156,10 +193,18 @@ export class QuestionOverlay implements Component {
         this.reviewMode = false;
         this.selectedTopic = 0;
         this.selectedOption = 0;
+        this.scrollTop = 0;
         return;
       }
-      if (data === "\x1b") {
-        this.reviewMode = false;
+      const maxTop = Math.max(0, this.lastBodyLineCount - this.viewportBodyLines());
+      const scrollNext = handleOverlayScrollInput(
+        data,
+        this.scrollTop,
+        maxTop,
+        overlayScrollPageStep(this.viewportBodyLines())
+      );
+      if (scrollNext !== null) {
+        this.scrollTop = scrollNext;
         return;
       }
       return;
@@ -230,8 +275,7 @@ export class QuestionOverlay implements Component {
 
   }
 
-  render(width: number): string[] {
-    const boxWidth = overlayRenderBoxWidth(width);
+  private buildAllLines(boxWidth: number): string[] {
     const innerWidth = Math.max(20, boxWidth - 4);
 
     const lines: string[] = [];
@@ -242,6 +286,7 @@ export class QuestionOverlay implements Component {
     };
 
     if (this.reviewMode) {
+      const reviewBodyStart = lines.length;
       overlayPushWrapped(
         lines,
         `${A.bold}${A.fg(39, "Review your answers")}${A.reset}`,
@@ -266,12 +311,12 @@ export class QuestionOverlay implements Component {
         );
         pushBoxLine("");
       }
-      overlayPushWrapped(
-        lines,
-        `${A.dim}Enter submit  e edit  Esc go back${A.reset}`,
-        innerWidth,
-        boxWidth
-      );
+      const reviewBodyLines = lines.length - reviewBodyStart;
+      const reviewFooter =
+        reviewBodyLines > this.viewportBodyLines()
+          ? `Enter submit  e edit  ${OVERLAY_SCROLL_FOOTER}`
+          : "Enter submit  e edit  Esc go back";
+      overlayPushWrapped(lines, overlayDim(reviewFooter), innerWidth, boxWidth);
       lines.push(overlayBottomBorder(boxWidth));
       return lines;
     }
@@ -331,7 +376,11 @@ export class QuestionOverlay implements Component {
       const pointer = index === this.selectedOption ? A.fg(39, ">") : " ";
       const selected = this.isSelected(option.label);
       const marker = this.optionMarker(selected);
-      const line = `${pointer} ${marker} ${A.bold}${option.label}${A.reset} ${A.dim}— ${option.description}${A.reset}`;
+      const descSuffix =
+        option.description !== undefined && option.description.length > 0
+          ? ` ${A.dim}— ${option.description}${A.reset}`
+          : "";
+      const line = `${pointer} ${marker} ${A.bold}${option.label}${A.reset}${descSuffix}`;
       overlayPushWrapped(lines, line, innerWidth, boxWidth);
     }
 
@@ -351,5 +400,25 @@ export class QuestionOverlay implements Component {
     lines.push(overlayBottomBorder(boxWidth));
 
     return lines;
+  }
+
+  render(width: number): string[] {
+    const boxWidth = overlayRenderBoxWidth(width);
+    const allLines = this.buildAllLines(boxWidth);
+    if (this.maxHeight <= 0 || allLines.length <= this.maxHeight) {
+      this.scrollTop = 0;
+      this.lastBodyLineCount = Math.max(0, allLines.length - QUESTION_CHROME_LINES);
+      return allLines;
+    }
+
+    const chromeTop = [allLines[0]!];
+    const chromeBottom = allLines.slice(-2);
+    const body = allLines.slice(1, -2);
+    this.lastBodyLineCount = body.length;
+
+    const slice = sliceOverlayBody(body, this.viewportBodyLines(), this.scrollTop);
+    this.scrollTop = Math.min(this.scrollTop, slice.maxScrollTop);
+
+    return [...chromeTop, ...slice.visibleLines, ...chromeBottom];
   }
 }

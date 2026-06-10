@@ -16,10 +16,11 @@
 
 ## Current State
 
-**Status:** v1.5.0 (2026-06-06) — UX simplification, tiered feedback, harness plumbing, provider-neutral capabilities
+**Status:** v1.5.0 (2026-06-06) — UX simplification, tiered feedback, harness plumbing, provider-neutral capabilities, post-review hardening
 
 ### v1.5.0 (2026-06-06)
 
+- [x] Post-review hardening — compact summary round-trip, unified `token-estimate`, streaming/thinking fixes, provider setup UX, CI gate, atomic session writes, renderer extractions (`slash-dispatch`, `turn-queue`, `syncContextBar`)
 - [x] Tiered feedback — `impulse_ui` status events, compact read-only tools, keyboard expand on empty prompt
 - [x] `/settings` v1.5 — `thinkingDisplay` (off/summary/full), reasoning depth, communication style, `statsOnExit`, vision override, compact tool rows
 - [x] Permission overlay — short action + `metadata.reason` (~120 chars)
@@ -516,11 +517,11 @@ Status:
   ▼  Expanded
   ●  Status dot
   
-Todo:
-  [ ]  Pending (muted)
-  [>]  In progress (cyan)
-  [x]  Completed (muted)
-  [-]  Cancelled (muted)
+Todo (symbols only — no color accents on status glyphs):
+  ○  Pending (dim)
+  ◉  In progress (blinks ◉↔○ on latest block while agent busy)
+  ●  Completed (dim + strikethrough)
+  ○  Cancelled (dim + strikethrough, no ● glyph)
 
 Tool Results:
   [OK]    Success (green)
@@ -554,8 +555,8 @@ Loading Animation (Braille Wheel):
     ┃ ▶ file_write src/api/types.ts                              [OK]
     ┃ ▶ file_write src/api/client.ts                             [OK]
     ┃ ▼ todo_write (1/2)                                         [OK]
-    ┃   [>] Implement API client
-    ┃   [ ] Set up project structure
+    ┃   ◉ Implement API client
+    ┃   ○ Set up project structure
     
     ─────────────────────────────────────────────────────────────────────────────
     ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -565,7 +566,7 @@ Loading Animation (Braille Wheel):
 ```
 
 **Notes:**
-- Todos render inside `todo_read`/`todo_write` tool blocks; `/todo` shows the full list overlay
+- Todos render inside `todo_read`/`todo_write` tool blocks in the chat stream
 - Messages have accent lines (mode-colored for AI, gray for user)
 - Input area has mode-colored accent lines (no full border)
 - Status line includes spinner, version, optional [EXPRESS] and Queue indicators
@@ -758,27 +759,31 @@ interface Todo {
 
 ### UI Display
 
-Todos render inside the chat stream as expanded `todo_read` / `todo_write` tool blocks:
+Todos render inline in the chat stream as expanded `todo_read` / `todo_write` tool blocks:
 
 ```
 ▼ [OK] todo_write (1/2)
-  [>] Implement API client
-  [ ] Set up project structure
+  ◉ Implement API client
+  ○ Set up project structure
 ```
 
-Use `/todo` to open the full list overlay at any time.
+**Sliding window (lists > 20 items or many completed):** older done items collapse to a dim `… N done` line; one completed row stays above the active item; pending overflow shows `(N additional tasks)` under the last visible step — no `… more` ellipsis for pending rows.
 
-**Status indicators:**
-- `[>]` = in_progress (cyan text)
-- `[ ]` = pending (dim text)
-- `[x]` = completed (dim text)
-- `[-]` = cancelled (dim text + strikethrough entire line)
+**Status indicators (symbols only — no color accents):**
+- `◉` = in_progress (blinks ◉↔○ on the latest todo block while the agent is busy)
+- `○` = pending (dim)
+- `●` = completed (dim + strikethrough)
+- `○` + strikethrough = cancelled
+
+**Silent no-op:** `todo_write` calls that return `Todos unchanged.` render nothing in chat (model still receives the result).
 
 ### Agent Usage
 
 - Use for tasks with 3+ steps
+- Mark `in_progress` before starting; statuses update in real time (batch completions get a corrective note)
 - Only ONE todo `in_progress` at a time
 - Mark complete IMMEDIATELY after finishing
+- Plan closure: before ending a turn, every item must be `completed` or `cancelled`
 - Don't use for trivial single-step tasks
 
 ## Question Tool
@@ -801,7 +806,7 @@ interface Question {
 // Tool input
 interface QuestionToolInput {
   context?: string;           // Why clarification is needed (shown in header)
-  questions: Question[];      // Max 3 topics per call
+  questions: Question[];      // One or more topics (prefer 1-3; hard limit 8)
 }
 
 // Tool output
@@ -863,7 +868,7 @@ interface QuestionToolOutput {
 ### Agent Usage
 
 - **ALWAYS** use for gathering user preferences (never plain text questions)
-- Maximum **3 topics** per call - use follow-up calls for more
+- Prefer **1-3 topics** per call for focus; all topics you send are asked. Use follow-up calls for separate concerns (hard limit 8)
 - Each topic needs a short name (max 20 chars)
 - Users can always type a custom answer
 - Set `context` to explain WHY you're asking
@@ -884,7 +889,7 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 
 Core (~15): `/allow-all`, `/clear`, `/compact`, `/exit`, `/experimental`, `/help`, `/model`, `/mode`, `/new`, `/quit`, `/resume` (alias `/sessions`), `/restore` (alias `/show`), `/settings`, `/steer`, `/update`, `/usage`, `/user`.
 
-Hidden power-user: `/debug`, `/side` (and `/side --history`), `/advisor` (experimental), `/undo` `/redo` (experimental), `/goal` (experimental).
+Hidden power-user: `/copy`, `/debug`, `/side` (and `/side --history`), `/advisor` (experimental), `/undo` `/redo` (experimental), `/goal` (experimental).
 
 | Command | Description |
 |---------|-------------|
@@ -1005,8 +1010,19 @@ This ensures:
 ### pi-tui CLI Specifics
 - Layout is character-cell based — font size is controlled by the terminal emulator
 - Components receive terminal width in `render(width)` and must wrap/truncate accordingly
+- **Wrap policy (v1.5.1+):** no horizontal ellipsis (`…`) on user-visible content — wrap with `wrapTextWithAnsi` / `wrapGutterLines` instead; vertical row caps (`… N more lines`) are OK
 - Use `src/cli/layout.ts` helpers for overlay sizing on narrow split panes
 - Bottom chrome (prompt + context bar) stays pinned via scroll anchoring
+
+### Turn control (cancel / steer / nudges)
+- **Esc cancel** persists an interruption marker plus synthetic `Cancelled by user.` tool results for dangling `tool_calls` — the model must not "resume" a cancelled flow unless asked
+- **`/steer`** injects at the next tool-loop boundary (not instantly); pending steer suppresses planning and allow-all nudges for that iteration
+- **Loop nudges defer to the user** — both planning and allow-all messages end with "follow the user's message" on conflict
+- **Progress-aware counters** — real `todo_write` updates (`Todo list updated.`) do not count as todo-only replanning; duplicate bash no longer triggers the planning nudge (inline repeat notes handle that)
+- **Injected messages** — steer/nudge/interrupt markers persist with `injected: true` and replay as dim `[system note]` (not under the user's name); legacy sessions match known prefixes
+- **`file_edit` whitespace fallback** — unique line-trimmed match re-derives file indentation; failures hint at closest line when trim matches
+- **Queue preview** — stacked messages above prompt use dim text + `Queued messages` header (not user cyan)
+- **`/copy`** — copies last assistant response (raw markdown, no gutters) via OSC 52 + native clipboard
 
 ### Z.ai API Specifics
 - Thinking mode enabled by default on supported Z.ai GLM models
@@ -1048,6 +1064,13 @@ This ensures:
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 06-10-2026 | Tool UX hardening bundle | `file_edit` trimmed fallback; optional question descriptions; `injected` replay tagging; silent todo gap removal; `/copy`; queue preview dim + header |
+| 06-10-2026 | Cancel / steer / nudge priority | Interruption marker on abort; steer overrides nudges; progress-aware todo counters; duplicate-bash removed from planning nudge trigger |
+| 06-10-2026 | Todo sliding-window UI | Circle glyphs (◉/○/●) without color accents; 20-row cap anchored on active item; `(N additional tasks)` footer; slow blink on latest block; silent unchanged rows |
+| 06-10-2026 | Todo discipline hardening | Model-visible rules in `todo_write` description; nudges allow status updates; relational note on 3+ pending→completed jumps (Crush #2645 pattern) |
+| 06-09-2026 | Decision overlays: navigate+confirm only | Align with OpenCode post-rework UX; no hidden number hotkeys or instant-commit keys; Always requires double-confirm |
+| 06-09-2026 | Overlay viewport: bottom-center, scroll within maxHeight | Horizontally centered above prompt; pi-tui maxHeight clips; body scrolls when content overflows |
+| 06-09-2026 | Loop guard check-in at iteration 60 | Heuristics nudge below 60; user check-in at 60+; hard stop only at 120 |
 | 01-19-2026 | Use OpenTUI + SolidJS | Flicker-free rendering, Zig-powered performance |
 | 01-19-2026 | Single API key for all MCPs | Simplified configuration, better UX |
 | 01-19-2026 | Tab for mode switching | Discoverable, matches user mental model |

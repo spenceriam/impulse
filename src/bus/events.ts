@@ -93,7 +93,7 @@ export const MessageEvents = {
 // Question option schema for the question tool
 const QuestionOptionSchema = z.object({
   label: z.string().describe("Display text (1-5 words, concise)"),
-  description: z.string().describe("Explanation of choice"),
+  description: z.string().optional().describe("Explanation of choice"),
 });
 
 // Question schema for the question tool (v0.19.0 - topic-based tabs)

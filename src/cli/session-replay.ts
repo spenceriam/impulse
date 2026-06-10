@@ -3,10 +3,12 @@
  */
 
 import type { Message, MessageContentBlock, ToolCall, ToolResult } from "../session/store.js";
+import { isInjectedUserMessage, messageDisplayText } from "../session/injected-message.js";
 import { isImpulseUiMessage, parseImpulseUiContent } from "../session/status-events.js";
+import { SILENT_TOOLS } from "../tools/silent-tools.js";
 
-/** Tools that must not appear in the chat transcript on replay (matches renderer). */
-export const SILENT_REPLAY_TOOLS = new Set(["set_header", "todo_read"]);
+/** @deprecated Use SILENT_TOOLS from tools/silent-tools.ts */
+export const SILENT_REPLAY_TOOLS = SILENT_TOOLS;
 
 export type ReplayToolResult = {
   success: boolean;
@@ -16,6 +18,7 @@ export type ReplayToolResult = {
 
 export type ReplayStep =
   | { type: "user"; text: string }
+  | { type: "injected"; text: string }
   | { type: "status"; text: string }
   | { type: "thinking"; text: string; durationMs?: number }
   | { type: "assistantText"; text: string }
@@ -97,7 +100,7 @@ function emitToolStep(
   tc: ToolCall,
   toolResults: Map<string, { content: string }>
 ): void {
-  if (SILENT_REPLAY_TOOLS.has(tc.tool)) return;
+  if (SILENT_TOOLS.has(tc.tool)) return;
   const id = tc.id ?? `replay_${tc.tool}_${steps.length}`;
   steps.push({
     type: "tool",
@@ -216,9 +219,12 @@ export function buildReplaySteps(messages: Message[]): ReplayStep[] {
     if (isToolRoleMessage(msg)) continue;
 
     if (msg.role === "user") {
-      const text =
-        typeof msg.apiContent === "string" ? msg.apiContent : (msg.content ?? "");
-      steps.push({ type: "user", text });
+      const text = messageDisplayText(msg);
+      if (isInjectedUserMessage(msg)) {
+        steps.push({ type: "injected", text });
+      } else {
+        steps.push({ type: "user", text });
+      }
       continue;
     }
 

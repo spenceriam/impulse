@@ -5,12 +5,67 @@ All notable changes to impulse will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+  **Type:** patch
+  **Title:** Tool UX hardening — file_edit fallback, injected replay, queue preview, /copy
+
+  ### Added
+  - **`/copy`** — copy last assistant response to clipboard (OSC 52 + native fallback; gutter-free markdown)
+
+  ### Changed
+  - **Queue preview** — `Queued messages` header; dim numbered lines (restored from cyan user styling)
+  - **Question tool** — `options[].description` optional; collapsed validation errors for repeated array issues
+  - **Session replay** — injected steer/nudge/interrupt notes render as dim `[system note]` (not under user name)
+
+  ### Fixed
+  - **`file_edit`** — whitespace-normalized fallback when unique trimmed match; closest-line hint on failure
+  - **Silent `todo_write`** — unchanged no-ops no longer leave a blank gap in chat
+
 ## [1.5.0] - 2026-06-06
 
   **Type:** minor
-  **Title:** UX simplification, tiered feedback, harness plumbing, and provider-neutral capabilities
+  **Title:** UX simplification, tiered feedback, harness plumbing, provider-neutral capabilities, and v1.5 hardening
 
   ### Added
+  - **`--aa` / `--allow-all` startup flag** — bypass all permission prompts at launch (`IMPULSE_ALLOW_ALL=1` env alias); `/allow-all` slash unchanged
+  - **Planning-loop detector** — nudge after repeated todo/mkdir-only iterations or duplicate bash commands
+  - **Regression tests** — startup flags, planning nudge, tool duration tail, truncation policy
+
+  ### Changed
+  - **Queue preview** — full wrap with numbered lines; ↑ cycles edit index; footer `Queue: N` removed
+  - **Tool duration** — bracketed `[4.5s]` on the last wrapped summary line
+  - **Shell `!command` headers** — wrap long commands instead of horizontal clip
+  - **Steer inject** — silent application batched per turn boundary (no double acknowledgments)
+  - **Co-partner completion** — restored Findings/Next steps discipline for work turns
+
+  ### Fixed
+  - **`lastAssistantTurnText`** — captured before clearing streaming buffer (goal judge gets real last message)
+  - **Queue drain** — immediate when goal loop inactive; abort skips goal continuation
+  - **Empty assistant retry** — capped to one per turn
+  - **Question dedup** — matches topic + question text, not topic alone
+  - **Debug noise** — removed Cursor HTTP ingest instrumentation; no `[IMPULSE_DEBUG]` chat nudge in AGENT mode (`/debug` slash unchanged)
+  - **Compaction round-trip** — compact summaries merged into provider system prompt (were skipped by `buildChatMessages`)
+  - **Context % accuracy** — unified `token-estimate` module; footer uses `prompt_tokens` only; emergency compact recomputes safety margin
+  - **Compaction safety** — summary failure keeps session intact; no mid-turn auto-compact; usage cache invalidated on new messages
+  - **Streaming/thinking** — reasoning forwarded on OpenAI-compatible providers; Esc abort finalizes thinking/tools; text/thinking block order fixed
+  - **Provider setup** — Ollama baseUrl-only; env providers in picker; second provider no silent model switch; advisor resets provider manager
+  - **Tool correctness** — `file_edit` permission before read; real session IDs; bash PTY timeout; unknown commands fail-closed; grep wrap without ellipsis
+  - **Session I/O** — atomic session writes; compaction errors logged to file only
+  - **CI** — GitHub Actions workflow for typecheck + test on push/PR
+  - **Loop guard** — counting fixes (`bash` is substantive; planning counter resets); check-in overlay at iteration 60+ when heuristics trip; hard stop only at 120; honest stop message
+  - **Question tool** — no longer truncates topics beyond 3; prefers small batches via prompt guidance (hard limit 8 with explicit error)
+  - **todo_write** — identical list returns "Todos unchanged" with compact tool row (no fake-productive spam)
+  - **Repeat bash** — relational note on identical commands re-run in the same turn
+  - **Question answers** — logs answer-count mismatch instead of silent empty selections
+  - **DEBUG instrumentation** — restored end-of-turn `[IMPULSE_DEBUG]` cleanup nudge
+  - **Decision overlays** — navigate+confirm only (removed hidden number hotkeys); double-confirm on Always
+  - **Question overlay** — viewport-aware height with scroll for long multi-topic flows
+  - **Outside-cwd paths** — `--aa` allows `/tmp` and other paths; otherwise permission prompt per directory (clear blocked message)
+  - **Chat spacing** — blank row after expanded tool blocks (todos, diffs, errors); compact tool rows stay grouped
+  - **Paste normalization** — CRLF / lone CR stripped from bracketed paste and Wispr Flow transcripts (fixes gutter garble)
+
+  ### Added (v1.5.0 core)
   - **`[impulse_ui]` status events** — gutter-aligned system messages for compaction, mode changes, and reliability fallbacks; persisted for session replay, excluded from API history
   - **`/settings` v1.5** — `thinkingDisplay` (off/summary/full), reasoning depth, communication style, `statsOnExit`, vision model override, compact tool rows
   - **`@` file/directory autocomplete** — workspace fuzzy index with `@~/` expansion, ASCII `dir/` / `file` prefixes, 30s TTL

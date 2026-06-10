@@ -1,6 +1,9 @@
 import { Storage } from "../storage";
 import { Bus, SessionEvents } from "../bus";
+import { Global } from "../global";
 import crypto from "crypto";
+import fs from "fs/promises";
+import path from "path";
 import type { OptionalPatch } from "../util/omit-undefined.js";
 
 /**
@@ -70,7 +73,7 @@ export type UserMessageApiContent =
 export interface Message {
   role: "user" | "assistant" | "system" | "tool"
   content: string
-  /** Tool result messages (role tool). */
+  /** Required when role is "tool" — matches provider tool result messages. */
   tool_call_id?: string
   /** Expanded provider content when display differs (paste tokens, images). */
   apiContent?: UserMessageApiContent
@@ -83,6 +86,8 @@ export interface Message {
   tool_calls?: ToolCall[]
   mode?: string       // Mode used when generating (for assistant messages)
   model?: string      // Model used (e.g., "ollama/deepseek-v4-pro")
+  /** Synthetic user note injected by impulse (steer, nudge, interrupt marker). */
+  injected?: boolean
 }
 
 export type MessageContentBlock =
@@ -146,6 +151,21 @@ class SessionStoreImpl {
     return ["session", pid, sessionID];
   }
 
+  private sessionFilePath(sessionID: string, projectID: string): string {
+    return path.join(Global.Path.sessions, projectID, `${sessionID}.json`);
+  }
+
+  /** Write temp file then rename — avoids torn reads on crash mid-write. */
+  private async atomicWriteSession(session: Session): Promise<void> {
+    const target = this.sessionFilePath(session.id, session.projectID);
+    const dir = path.dirname(target);
+    const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(tmp, JSON.stringify(session, null, 2), "utf-8");
+    await fs.rename(tmp, target);
+  }
+
   async create(session: Omit<Session, "created_at" | "updated_at">): Promise<Session> {
     const now = new Date().toISOString();
     const newSession: Session = {
@@ -157,7 +177,7 @@ class SessionStoreImpl {
     // Cache the mapping
     this.sessionProjectMap.set(session.id, session.projectID);
 
-    await Storage.write(this.getKey(session.id, session.projectID), newSession);
+    await this.atomicWriteSession(newSession);
     Bus.publish(SessionEvents.Created, { sessionID: session.id, session: newSession });
 
     return newSession;
@@ -170,22 +190,47 @@ class SessionStoreImpl {
     return session;
   }
 
-  async update(sessionID: string, updates: OptionalPatch<Session>): Promise<Session> {
-    const projectID = this.sessionProjectMap.get(sessionID);
-    const updated = await Storage.update<Session>(this.getKey(sessionID, projectID), (draft) => {
-      for (const key of Object.keys(updates) as (keyof Session)[]) {
-        const val = updates[key];
-        if (val === undefined) {
-          delete (draft as unknown as Record<string, unknown>)[key as string];
-        } else {
-          (draft as unknown as Record<string, unknown>)[key as string] = val;
-        }
-      }
-      draft.updated_at = new Date().toISOString();
-    });
+  /** Cancel debounce and return any in-flight auto-save payload for this session. */
+  private takePendingUpdates(sessionID: string): Partial<Session> | undefined {
+    const timeout = this.saveTimeouts.get(sessionID);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.saveTimeouts.delete(sessionID);
+    }
 
-    Bus.publish(SessionEvents.Updated, { sessionID, session: updated });
-    return updated;
+    const pending = this.pendingUpdates.get(sessionID);
+    if (pending) {
+      this.pendingUpdates.delete(sessionID);
+    }
+    return pending;
+  }
+
+  private applyPatchToDraft(draft: Session, patch: OptionalPatch<Session>): void {
+    for (const key of Object.keys(patch) as (keyof Session)[]) {
+      const val = patch[key];
+      if (val === undefined) {
+        delete (draft as unknown as Record<string, unknown>)[key as string];
+      } else {
+        (draft as unknown as Record<string, unknown>)[key as string] = val;
+      }
+    }
+  }
+
+  async update(sessionID: string, updates: OptionalPatch<Session>): Promise<Session> {
+    const pending = this.takePendingUpdates(sessionID);
+    const projectID =
+      this.sessionProjectMap.get(sessionID) ?? (await this.read(sessionID)).projectID;
+    const draft = await this.read(sessionID, projectID);
+
+    if (pending && Object.keys(pending).length > 0) {
+      this.applyPatchToDraft(draft, pending);
+    }
+    this.applyPatchToDraft(draft, updates);
+    draft.updated_at = new Date().toISOString();
+
+    await this.atomicWriteSession(draft);
+    Bus.publish(SessionEvents.Updated, { sessionID, session: draft });
+    return draft;
   }
 
   autoSave(sessionID: string, updates: Partial<Session>): void {
@@ -219,7 +264,7 @@ class SessionStoreImpl {
    */
   async writeSnapshot(session: Session): Promise<void> {
     this.sessionProjectMap.set(session.id, session.projectID);
-    await Storage.write(this.getKey(session.id, session.projectID), session);
+    await this.atomicWriteSession(session);
   }
 
   /**

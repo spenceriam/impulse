@@ -131,6 +131,12 @@ export function buildSlashCommandDefs(
       hidden: true,
     },
     {
+      cmd: "/copy",
+      hint: "copy last response to clipboard",
+      helpDetail: "Copy the last assistant response (gutter-free markdown) via OSC 52 / native clipboard",
+      hidden: true,
+    },
+    {
       cmd: "/show",
       hint: "alias for /restore",
       helpDetail: "Alias for /restore",
@@ -149,6 +155,12 @@ export function buildSlashCommandDefs(
 
   if (opts.experimentalUndo) {
     defs.push(
+      {
+        cmd: "/checkpoint",
+        hint: "snapshot git + chat state",
+        helpDetail: "Create a git checkpoint at the current message index (experimental)",
+        hidden: true,
+      },
       {
         cmd: "/undo",
         hint: "revert git + chat to checkpoint",

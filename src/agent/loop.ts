@@ -28,6 +28,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Global } from "../global.js";
 import { Tool } from "../tools/registry";
+import { parseToolCallArguments } from "../tools/parse-tool-args.js";
 import { type Message } from "../session/store";
 import { buildVisionTranslatePrompt, buildVisionSelfKnowledge } from "./vision-prompt.js";
 
@@ -35,6 +36,7 @@ import { buildVisionTranslatePrompt, buildVisionSelfKnowledge } from "./vision-p
 const debugLogPath = path.join(Global.Path.logs, "debug.log");
 
 function debugLog(msg: string): void {
+  if (!isDebugEnabled()) return;
   const timestamp = new Date().toISOString();
   try {
     fs.mkdirSync(Global.Path.logs, { recursive: true });
@@ -43,6 +45,12 @@ function debugLog(msg: string): void {
     // Non-fatal when logs dir cannot be created
   }
 }
+import {
+  isDebugEnabled,
+  logAPIRequest,
+  logRawAPIMessages,
+} from "../util/debug-log.js";
+import { bashRepeatNote, todoUnchangedRepeatNote } from "./repeat-notes.js";
 import { SessionManager } from "../session/manager";
 import { generateTitle } from "../session/title-generator.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
@@ -54,13 +62,36 @@ import {
   SAFETY_MARGIN,
 } from "../session/compact";
 import {
+  applySafetyMargin,
+  estimateRequestTokens,
+  resolveFooterContextTokens,
+} from "../session/token-estimate.js";
+import { setAgentTurnActive } from "../session/turn-active.js";
+import {
   ALLOW_ALL_TODO_NUDGE_MESSAGE,
   isTodoOnlyToolBatch,
   shouldInjectAllowAllTodoNudge,
 } from "./allow-all-nudge.js";
+import { finalizeAbortedTurn } from "./abort-interruption.js";
+import {
+  isSubstantiveToolBatch,
+  PLANNING_LOOP_NUDGE_MESSAGE,
+  shouldInjectPlanningLoopNudge,
+} from "./planning-nudge.js";
+import { formatSteeringNote } from "./steer-injection.js";
+import { isTodoWriteRealUpdate } from "./todo-progress.js";
+import {
+  createLoopGuardCounters,
+  forceFinalReason,
+  heuristicTrippedReason,
+  shouldForceFinal,
+  shouldLoopCheckin,
+  snoozeLoopCheckin,
+  type LoopCheckinDecision,
+} from "./loop-guard.js";
+import { buildDebugInstrumentationNudge } from "./debug-nudge.js";
 import { generateSystemPrompt } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
-import { buildDebugInstrumentationNudge } from "./self-check.js";
 import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
@@ -79,6 +110,10 @@ import {
 } from "../permission/task-batch.js";
 import type { ToolResult } from "../tools/registry";
 import { resolveSubagentThinkingEnabled } from "./subagent-thinking.js";
+import {
+  accumulateToolCallDelta,
+  type PartialToolCall,
+} from "./tool-call-accumulator.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Event types emitted by the loop to the renderer
@@ -116,6 +151,11 @@ export interface LoopEvents {
   onTaskBatchPermission?: (
     input: TaskBatchPermissionInput
   ) => Promise<TaskBatchDecision>;
+  /** Loop guard check-in when heuristics trip after iteration 60. */
+  onLoopCheckin?: (input: {
+    reason: string;
+    iteration: number;
+  }) => Promise<LoopCheckinDecision>;
   /** Context compaction */
   onCompacting(): void;
   onCompacted(removedCount: number, summary: string, contextTokens?: number): void;
@@ -128,35 +168,12 @@ export interface LoopEvents {
     durationMs: number;
     /** Prompt tokens served from provider cache this turn (when reported). */
     cacheReadTokens?: number;
-    /** Set in DEBUG mode when [IMPULSE_DEBUG] markers remain in edited files */
+    /** DEBUG mode: leftover [IMPULSE_DEBUG] markers in edited files. */
     debugInstrumentationNudge?: string;
   }): void;
   onHardCutoff(contextTokens: number): void;
   /** Fatal error */
   onError(err: Error): void;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface PartialToolCall {
-  index: number;
-  id: string;
-  name: string;
-  argumentsJson: string;
-}
-
-function estimateTokens(value: unknown): number {
-  // Rough estimate: 1 token ≈ 3.5 chars for code/structured text
-  return Math.ceil(JSON.stringify(value).length / 3.5);
-}
-
-function estimateRequestTokens(messages: ChatMessage[], tools: ToolDefinition[]): number {
-  return estimateTokens({
-    messages,
-    ...(tools.length > 0 ? { tools } : {}),
-  });
 }
 
 export interface RunTurnOptions {
@@ -191,16 +208,25 @@ export class AgentLoop {
     this.pendingSteer = text.trim();
   }
 
-  private async flushTurnInjections(): Promise<void> {
+  private async injectUserNotes(notes: string[]): Promise<void> {
+    const trimmed = notes.map((n) => n.trim()).filter((n) => n.length > 0);
+    if (trimmed.length === 0) return;
+    await SessionManager.addMessage({
+      role: "user",
+      content: trimmed.join("\n\n"),
+      injected: true,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private async flushTurnInjections(extraNotes: string[] = []): Promise<void> {
+    const notes = [...extraNotes];
     if (this.pendingSteer) {
       const note = this.pendingSteer;
       this.pendingSteer = null;
-      await SessionManager.addMessage({
-        role: "user",
-        content: `Steering note (apply before your next action): ${note}`,
-        timestamp: new Date().toISOString(),
-      });
+      notes.push(formatSteeringNote(note));
     }
+    await this.injectUserNotes(notes);
   }
 
   async run(
@@ -211,6 +237,10 @@ export class AgentLoop {
   ): Promise<void> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
+    setAgentTurnActive(true);
+
+    let abortIterationText = "";
+    let abortIterationAssistantPersisted = false;
 
     try {
       const config = await loadConfig();
@@ -359,17 +389,20 @@ export class AgentLoop {
       let estimatedGeneratedTokens = 0;
       let lastSystemPrompt = "";
       let latestPromptTokens: number | undefined;
-      let latestCompletionTokens = 0;
       let latestCacheReadTokens = 0;
       let languageRetryUsed = false;
       let reliabilityFallbackUsed = false;
-      let consecutiveTodoOnlyRounds = 0;
+      const loopGuard = createLoopGuardCounters();
+      let lastWritePath = "";
       let allowAllTodoNudgeUsed = false;
+      let planningLoopNudgeUsed = false;
+      const bashCommandCounts = new Map<string, number>();
+      let consecutiveTodoUnchangedCount = 0;
+      const debugEditedFiles = new Set<string>();
+      let emptyRetryUsed = false;
       let lastUnproductiveCompact:
         | { tokens: number; messageCount: number }
         | undefined;
-      const debugEditedFiles = new Set<string>();
-
       const noteGeneratedChunk = (text: string): void => {
         const now = Date.now();
         if (firstGenerationTime === null) firstGenerationTime = now;
@@ -384,8 +417,6 @@ export class AgentLoop {
       this.contextWrapupInjected = false;
 
       while (continueLoop && !signal.aborted) {
-        await this.flushTurnInjections();
-
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
         const baseSystemPrompt = await generateSystemPrompt(mode, undefined, config, {
           sessionId: session.id,
@@ -404,10 +435,10 @@ export class AgentLoop {
         // Check compaction before each iteration using the same request shape
         // sent to the provider: system prompt, history, preserved reasoning,
         // tool calls/results, and tool definitions.
-        const estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
+        let estimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
         const contextWindow = getContextWindow();
         const contextPct = estimatedTokens / contextWindow;
-        const safetyAdjustedTokens = Math.ceil(estimatedTokens * SAFETY_MARGIN);
+        let safetyAdjustedTokens = applySafetyMargin(estimatedTokens, SAFETY_MARGIN);
 
         const shouldTryCompact =
           contextPct >= COMPACT_TRIGGER_THRESHOLD &&
@@ -439,6 +470,8 @@ export class AgentLoop {
                   messageCount: compactedMessages.length,
                 }
               : undefined;
+          estimatedTokens = compactedEstimatedTokens;
+          safetyAdjustedTokens = applySafetyMargin(estimatedTokens, SAFETY_MARGIN);
         }
 
         // Emergency compact if safety-adjusted estimate still exceeds window
@@ -456,6 +489,8 @@ export class AgentLoop {
               postEmergencyTokens
             );
           }
+          estimatedTokens = postEmergencyTokens;
+          safetyAdjustedTokens = applySafetyMargin(estimatedTokens, SAFETY_MARGIN);
         }
 
         // High-context wrap-up steer (once per turn) before hard stop
@@ -472,6 +507,7 @@ export class AgentLoop {
             role: "user",
             content:
               "Context pressure note (apply before your next action): Context is nearly full. Finish concisely, avoid new tool sprawl unless essential, and prepare for compaction.",
+            injected: true,
             timestamp: new Date().toISOString(),
           });
           session = SessionManager.getCurrentSession()!;
@@ -480,7 +516,7 @@ export class AgentLoop {
 
         // Hard cutoff: skip API request if safety-adjusted estimate still exceeds window
         const finalEstimate = estimateRequestTokens(chatMessages, toolDefs);
-        const finalSafety = Math.ceil(finalEstimate * SAFETY_MARGIN);
+        const finalSafety = applySafetyMargin(finalEstimate, SAFETY_MARGIN);
         if (finalSafety >= contextWindow && contextWindow > 0) {
           events.onHardCutoff(finalEstimate);
           continueLoop = false;
@@ -519,6 +555,12 @@ export class AgentLoop {
           reasoningLevel: effectiveReasoningLevel,
         };
 
+        await logAPIRequest(model, chatMessages, toolDefs.length > 0 ? toolDefs : undefined);
+        await logRawAPIMessages(chatMessages);
+
+        abortIterationText = "";
+        abortIterationAssistantPersisted = false;
+
         const partialToolCalls = new Map<number, PartialToolCall>();
         let accumulatedText = "";
         let accumulatedThinking = "";
@@ -527,7 +569,6 @@ export class AgentLoop {
         let finishReason: string | null = null;
         let chunkOutputTokens = 0;
         latestPromptTokens = undefined;
-        latestCompletionTokens = 0;
         latestCacheReadTokens = 0;
 
         const closeThinkingPhase = () => {
@@ -545,7 +586,6 @@ export class AgentLoop {
           if (chunk.usage) {
             chunkOutputTokens = chunk.usage.completion_tokens ?? 0;
             latestPromptTokens = chunk.usage.prompt_tokens;
-            latestCompletionTokens = chunk.usage.completion_tokens ?? 0;
             const cached = chunk.usage.prompt_tokens_details?.cached_tokens;
             if (cached !== undefined && cached > 0) {
               latestCacheReadTokens = cached;
@@ -581,26 +621,16 @@ export class AgentLoop {
           if (delta.tool_calls) {
             closeThinkingPhase();
             for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!partialToolCalls.has(idx)) {
-                // First chunk for this tool call — initialise from it, don't append
-                partialToolCalls.set(idx, {
-                  index: idx,
-                  id: tc.id ?? `call_${idx}_${Date.now()}`,
-                  name: tc.function?.name ?? "",
-                  argumentsJson: tc.function?.arguments ?? "",
-                });
-              } else {
-                // Subsequent chunks — append incremental fragments only
-                const partial = partialToolCalls.get(idx)!;
-                if (tc.id) partial.id = tc.id;
-                if (tc.function?.name) partial.name += tc.function.name;
-                if (tc.function?.arguments) partial.argumentsJson += tc.function.arguments;
-              }
+              accumulateToolCallDelta(
+                partialToolCalls,
+                tc,
+                (idx) => `call_${idx}_${Date.now()}`,
+              );
             }
           }
         }
 
+        abortIterationText = accumulatedText;
         if (signal.aborted) break;
 
         if (thinkingPhaseStartedAt !== null) {
@@ -635,17 +665,21 @@ export class AgentLoop {
               })) } : {}),
         };
         await SessionManager.addMessage(assistantMsg);
+        abortIterationAssistantPersisted = true;
+        abortIterationText = "";
 
         // ── No tool calls → done (or retry in English) ─────────────────────
-        if (finishReason !== "tool_calls" || toolCalls.length === 0) {
+        if (toolCalls.length === 0) {
           const recentHadTools = (SessionManager.getCurrentSession()?.messages ?? [])
             .slice(-8)
             .some((m) => m.role === "tool");
           if (
             !accumulatedText.trim() &&
             recentHadTools &&
-            !reliabilityFallbackUsed
+            !reliabilityFallbackUsed &&
+            !emptyRetryUsed
           ) {
+            emptyRetryUsed = true;
             this.consecutiveFailures = Math.max(this.consecutiveFailures, 2);
             continue;
           }
@@ -658,6 +692,7 @@ export class AgentLoop {
             await SessionManager.addMessage({
               role: "user",
               content: "Please respond in English.",
+              injected: true,
               timestamp: new Date().toISOString(),
             });
             continue;
@@ -670,18 +705,7 @@ export class AgentLoop {
         // ── Execute tool calls ──────────────────────────────────────────────
         let allSucceeded = true;
         let advisorCalledThisTurn = false;
-
-        const trackDebugEdit = (
-          toolName: string,
-          args: Record<string, unknown>
-        ): void => {
-          if (mode !== "DEBUG") return;
-          if (toolName !== "file_edit" && toolName !== "file_write") return;
-          const fp =
-            (typeof args["filePath"] === "string" && args["filePath"]) ||
-            (typeof args["path"] === "string" && args["path"]);
-          if (fp) debugEditedFiles.add(fp);
-        };
+        let todoBatchHadRealUpdate = false;
 
         type PendingTaskItem = { tc: PartialToolCall; args: Record<string, unknown> };
         const pendingTaskBatch: PendingTaskItem[] = [];
@@ -873,12 +897,8 @@ export class AgentLoop {
         for (const tc of toolCalls) {
           if (signal.aborted) break;
 
-          let args: Record<string, unknown>;
-          try {
-            args = JSON.parse(tc.argumentsJson);
-          } catch {
-            args = { raw: tc.argumentsJson };
-          }
+          const parsedArgs = parseToolCallArguments(tc.argumentsJson);
+          const args = parsedArgs.args;
 
           // Tool gate enforcement
           if (
@@ -890,13 +910,13 @@ export class AgentLoop {
               events.onToolStart(tc.id, tc.name, args);
               allSucceeded = false;
 
-              const blockedMsg = {
-                role: "tool" as const,
+              const blockedMsg: Message = {
+                role: "tool",
                 content: ADVISOR_GATE_MESSAGE,
                 tool_call_id: tc.id,
                 timestamp: new Date().toISOString(),
-              } as unknown as Message;
-              await SessionManager.addMessage(blockedMsg as unknown as Message);
+              };
+              await SessionManager.addMessage(blockedMsg);
               events.onToolEnd(tc.id, tc.name, {
                 success: false,
                 output: ADVISOR_GATE_MESSAGE,
@@ -910,8 +930,8 @@ export class AgentLoop {
             const toolStart = Date.now();
             events.onToolStart(tc.id, "consult_advisor", args);
 
-            // Get full system prompt and tool def summaries
-            const fullSystemPrompt = (session as { system?: string }).system ?? "";
+            // Mirror main-loop system prompt (session.system is not populated)
+            const fullSystemPrompt = lastSystemPrompt;
             const toolDefSummaries = toolDefs.map((t) => ({
               type: t.type,
               function: { name: t.function.name, description: t.function.description ?? "" },
@@ -958,13 +978,13 @@ export class AgentLoop {
 
             const durationMs = Date.now() - toolStart;
 
-            const advisorToolMsg = {
-              role: "tool" as const,
+            const advisorToolMsg: Message = {
+              role: "tool",
               content: resultText,
               tool_call_id: tc.id,
               timestamp: new Date().toISOString(),
-            } as unknown as Message;
-            await SessionManager.addMessage(advisorToolMsg as unknown as Message);
+            };
+            await SessionManager.addMessage(advisorToolMsg);
             events.onToolEnd(
               tc.id,
               "consult_advisor",
@@ -983,12 +1003,32 @@ export class AgentLoop {
 
           await flushTaskBatch();
 
+          // Question requires a questions array — fail fast with a clear tool row.
+          if (
+            tc.name === "question" &&
+            (!Array.isArray(args["questions"]) || args["questions"].length === 0)
+          ) {
+            const toolStart = Date.now();
+            events.onToolStart(tc.id, tc.name, args);
+            const output =
+              parsedArgs.parseError !== undefined
+                ? `Invalid question tool arguments (JSON parse error). Retry with valid JSON including a questions array (one or more topics).`
+                : `Invalid question tool arguments: questions array is required (one or more topics with options). Received ${typeof args["context"] === "string" ? "context only" : "incomplete payload"}.`;
+            const failResult = { success: false, output };
+            const durationMs = Date.now() - toolStart;
+            await persistToolResult(tc.id, output);
+            events.onToolEnd(tc.id, tc.name, failResult, durationMs);
+            this.consecutiveFailures++;
+            allSucceeded = false;
+            continue;
+          }
+
           // Execute — individual tools are responsible for invoking the
           // centralized permission module when approval is required.
           const toolStart = Date.now();
           events.onToolStart(tc.id, tc.name, args);
 
-          const result = await Tool.execute(tc.name, args);
+          let result = await Tool.execute(tc.name, args);
           const durationMs = Date.now() - toolStart;
 
           if (!result.success) {
@@ -996,18 +1036,77 @@ export class AgentLoop {
             allSucceeded = false;
           } else {
             this.consecutiveFailures = 0;
-            trackDebugEdit(tc.name, args);
+          }
+
+          if (
+            mode === "DEBUG" &&
+            (tc.name === "file_write" || tc.name === "file_edit") &&
+            result.success
+          ) {
+            const editedPath =
+              typeof args["filePath"] === "string" ? args["filePath"] : "";
+            if (editedPath) debugEditedFiles.add(editedPath);
+          }
+
+          if (tc.name === "bash" && result.success) {
+            const cmd =
+              typeof args["command"] === "string" ? args["command"].trim() : "";
+            if (cmd) {
+              const repeatCount = (bashCommandCounts.get(cmd) ?? 0) + 1;
+              bashCommandCounts.set(cmd, repeatCount);
+              const note = bashRepeatNote(repeatCount);
+              if (note) {
+                result = { ...result, output: `${result.output}${note}` };
+              }
+            }
+          }
+
+          if (tc.name === "todo_write") {
+            if (result.metadata?.["unchanged"] === true) {
+              consecutiveTodoUnchangedCount += 1;
+              const note = todoUnchangedRepeatNote(consecutiveTodoUnchangedCount);
+              if (note) {
+                result = { ...result, output: `${result.output}${note}` };
+              }
+            } else if (result.success) {
+              consecutiveTodoUnchangedCount = 0;
+            }
+          }
+
+          if (isTodoWriteRealUpdate(tc.name, result.output)) {
+            todoBatchHadRealUpdate = true;
           }
 
           // Add tool result to session
-          const toolResultMsg = {
-            role: "tool" as const,
+          const toolResultMsg: Message = {
+            role: "tool",
             content: result.output,
             tool_call_id: tc.id,
             timestamp: new Date().toISOString(),
           };
-          await SessionManager.addMessage(toolResultMsg as unknown as Message);
+          await SessionManager.addMessage(toolResultMsg);
           events.onToolEnd(tc.id, tc.name, result, durationMs);
+
+          if (tc.name === "file_write" && result.success) {
+            const writePath = typeof args["filePath"] === "string" ? args["filePath"] : "";
+            if (writePath) {
+              if (writePath === lastWritePath) {
+                loopGuard.consecutiveSamePathWrites++;
+              } else {
+                lastWritePath = writePath;
+                loopGuard.consecutiveSamePathWrites = 1;
+              }
+            }
+          } else if (tc.name === "file_read") {
+            const readPath = typeof args["filePath"] === "string" ? args["filePath"] : "";
+            if (readPath && readPath === lastWritePath) {
+              loopGuard.consecutiveSamePathWrites = 0;
+              lastWritePath = "";
+            }
+          } else if (isSubstantiveToolBatch([tc.name]) && tc.name !== "file_write") {
+            loopGuard.consecutiveSamePathWrites = 0;
+            lastWritePath = "";
+          }
 
           // Auto-stuck: trigger advisor if too many consecutive failures
           if (
@@ -1025,11 +1124,9 @@ export class AgentLoop {
               function: { name: t.function.name, description: t.function.description ?? "" },
             }));
 
-            const fullSystemPrompt = (session as { system?: string }).system ?? "";
-
             const advisorResult = await runAdvisorConsultation({
               advisorModel: config.advisorModel,
-              fullSystemPrompt,
+              fullSystemPrompt: lastSystemPrompt,
               toolDefinitions: toolDefSummaries,
               fullHistory: chatMessages,
               topic: "auto-stuck-recovery",
@@ -1056,32 +1153,118 @@ export class AgentLoop {
           // Keep looping to let the model handle the errors
         }
 
-        if (isTodoOnlyToolBatch(toolCalls.map((tc) => tc.name))) {
-          consecutiveTodoOnlyRounds++;
+        const toolNames = toolCalls.map((tc) => tc.name);
+        if (isTodoOnlyToolBatch(toolNames)) {
+          if (!todoBatchHadRealUpdate) {
+            loopGuard.consecutiveTodoOnlyRounds++;
+          } else {
+            loopGuard.consecutiveTodoOnlyRounds = 0;
+          }
         } else {
-          consecutiveTodoOnlyRounds = 0;
+          loopGuard.consecutiveTodoOnlyRounds = 0;
         }
 
+        const steerPending = this.pendingSteer !== null;
+        const batchNotes: string[] = [];
+
         if (
+          !steerPending &&
           shouldInjectAllowAllTodoNudge({
-            consecutiveTodoOnlyRounds,
+            consecutiveTodoOnlyRounds: loopGuard.consecutiveTodoOnlyRounds,
             nudgeUsed: allowAllTodoNudgeUsed,
           })
         ) {
           allowAllTodoNudgeUsed = true;
-          await SessionManager.addMessage({
-            role: "user",
-            content: ALLOW_ALL_TODO_NUDGE_MESSAGE,
-            timestamp: new Date().toISOString(),
-          });
+          batchNotes.push(ALLOW_ALL_TODO_NUDGE_MESSAGE);
         }
 
-        await this.flushTurnInjections();
+        if (!isSubstantiveToolBatch(toolNames)) {
+          const skipPlanningBump =
+            isTodoOnlyToolBatch(toolNames) && todoBatchHadRealUpdate;
+          if (!skipPlanningBump) {
+            loopGuard.planningIterations++;
+          }
+        } else {
+          loopGuard.planningIterations = 0;
+          if (
+            !toolNames.every((name) => name === "file_write" || name === "todo_write")
+          ) {
+            loopGuard.consecutiveSamePathWrites = 0;
+            lastWritePath = "";
+          }
+        }
+
+        if (
+          !steerPending &&
+          shouldInjectPlanningLoopNudge({
+            planningIterations: loopGuard.planningIterations,
+            nudgeUsed: planningLoopNudgeUsed,
+          })
+        ) {
+          planningLoopNudgeUsed = true;
+          batchNotes.push(PLANNING_LOOP_NUDGE_MESSAGE);
+        }
+
+        await this.flushTurnInjections(batchNotes);
+
+        loopGuard.loopIteration++;
+        if (shouldForceFinal(loopGuard)) {
+          const forcedText = await this.runForcedFinalTurn({
+            manager,
+            model,
+            events,
+            signal,
+            lastSystemPrompt,
+            config,
+            reason: forceFinalReason(loopGuard),
+            noteGeneratedChunk,
+          });
+          outputTokens += Math.ceil(forcedText.length / 4);
+          continueLoop = false;
+          break;
+        }
+
+        if (shouldLoopCheckin(loopGuard)) {
+          const reason = heuristicTrippedReason(loopGuard) ?? "looping detected";
+          const decision =
+            (await events.onLoopCheckin?.({
+              reason,
+              iteration: loopGuard.loopIteration,
+            })) ?? "continue";
+
+          if (decision === "stop") {
+            continueLoop = false;
+            break;
+          }
+
+          if (decision === "finalize") {
+            const forcedText = await this.runForcedFinalTurn({
+              manager,
+              model,
+              events,
+              signal,
+              lastSystemPrompt,
+              config,
+              reason,
+              noteGeneratedChunk,
+            });
+            outputTokens += Math.ceil(forcedText.length / 4);
+            continueLoop = false;
+            break;
+          }
+
+          snoozeLoopCheckin(loopGuard);
+        }
 
         session = SessionManager.getCurrentSession()!;
       }
 
       if (signal.aborted) {
+        this.pendingSteer = null;
+        await finalizeAbortedTurn({
+          iterationText: abortIterationText,
+          iterationAssistantPersisted: abortIterationAssistantPersisted,
+        });
         return;
       }
 
@@ -1123,10 +1306,10 @@ export class AgentLoop {
         buildChatMessages(finalMessages, lastSystemPrompt),
         toolDefs
       );
-      const providerContextTokens = latestPromptTokens !== undefined
-        ? latestPromptTokens + latestCompletionTokens
-        : undefined;
-      const contextTokens = providerContextTokens ?? estimatedContextTokens;
+      const contextTokens = resolveFooterContextTokens({
+        promptTokens: latestPromptTokens,
+        estimatedTokens: estimatedContextTokens,
+      });
       const debugInstrumentationNudge =
         mode === "DEBUG"
           ? buildDebugInstrumentationNudge([...debugEditedFiles])
@@ -1145,9 +1328,17 @@ export class AgentLoop {
       });
 
     } catch (err) {
-      if (err instanceof Error && err.message.includes("aborted")) return;
+      if (signal.aborted || (err instanceof Error && err.message.includes("aborted"))) {
+        this.pendingSteer = null;
+        await finalizeAbortedTurn({
+          iterationText: abortIterationText,
+          iterationAssistantPersisted: abortIterationAssistantPersisted,
+        });
+        return;
+      }
       events.onError(err instanceof Error ? err : new Error(String(err)));
     } finally {
+      setAgentTurnActive(false);
       this.abortController = null;
     }
   }
@@ -1162,6 +1353,71 @@ export class AgentLoop {
       return config.visionModel;
     }
     return null;
+  }
+
+  /** One text-only model call after loop-guard fires — tools disabled. */
+  private async runForcedFinalTurn(params: {
+    manager: Awaited<ReturnType<typeof getProviderManager>>;
+    model: string;
+    events: LoopEvents;
+    signal: AbortSignal;
+    lastSystemPrompt: string;
+    config: Awaited<ReturnType<typeof loadConfig>>;
+    reason: string;
+    noteGeneratedChunk: (text: string) => void;
+  }): Promise<string> {
+    const { formatImpulseUiStatus } = await import("../session/status-events.js");
+    await SessionManager.addMessage({
+      role: "system",
+      content: formatImpulseUiStatus(
+        `Loop guard stopped this turn (${params.reason})`
+      ),
+      timestamp: new Date().toISOString(),
+    });
+    await SessionManager.addMessage({
+      role: "user",
+      content: `[System] Loop guard stopped this turn (${params.reason}). Produce your final summary now — tool calls are disabled for this response.`,
+      injected: true,
+      timestamp: new Date().toISOString(),
+    });
+
+    const messages = buildChatMessages(
+      SessionManager.getCurrentSession()?.messages ?? [],
+      params.lastSystemPrompt
+    );
+    const reasoningLevel =
+      params.config.reasoningLevel ?? (params.config.thinking ? "medium" : "off");
+
+    let accumulatedText = "";
+    for await (const chunk of params.manager.stream({
+      model: params.model,
+      messages,
+      stream: true,
+      signal: params.signal,
+      max_tokens: params.config.maxOutputTokens,
+      reasoningLevel,
+    })) {
+      if (params.signal.aborted) break;
+      const delta = chunk.choices[0]?.delta;
+      if (delta?.content) {
+        params.noteGeneratedChunk(delta.content);
+        accumulatedText += delta.content;
+        params.events.onToken(delta.content);
+      }
+      if (delta?.reasoning_content) {
+        params.events.onThinking(delta.reasoning_content);
+      }
+    }
+
+    if (accumulatedText.trim()) {
+      await SessionManager.addMessage({
+        role: "assistant",
+        content: accumulatedText,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return accumulatedText;
   }
 
   /** Translate images via vision model, inject as tool calls in session */
@@ -1225,11 +1481,11 @@ export class AgentLoop {
         await SessionManager.addMessage(assistantMsg);
 
         const toolMsg: Message = {
-          role: "tool" as any,
+          role: "tool",
           content: `[${imageLabel}]: ${description}`,
           tool_call_id: toolId,
           timestamp: new Date().toISOString(),
-        } as unknown as Message;
+        };
         await SessionManager.addMessage(toolMsg);
 
         events.onToolEnd(toolId, "vision_translate", {

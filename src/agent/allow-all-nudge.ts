@@ -4,8 +4,12 @@
 
 import { isAllowAllBypass } from "../permission/index.js";
 
+const DEFER_TO_USER =
+  " If this conflicts with the user's latest message, follow the user's message.";
+
 export const ALLOW_ALL_TODO_NUDGE_MESSAGE =
-  "[System] Permission bypass is active. Proceed with substantive tools now.";
+  "[System] Permission bypass is active. Proceed with substantive tools now." +
+  DEFER_TO_USER;
 
 const TODO_ONLY_TOOLS = new Set(["todo_read", "todo_write"]);
 

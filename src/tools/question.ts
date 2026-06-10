@@ -2,20 +2,33 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { Bus } from "../bus";
 import { QuestionEvents } from "../bus/events";
+import { SessionManager } from "../session/manager.js";
+import { fileError } from "../util/logger.js";
+import {
+  partitionQuestionsByPriorAnswers,
+  priorAnsweredQuestionsFromSession,
+  questionAnswerKey,
+} from "./question-dedup.js";
+
+export const QUESTION_TOPIC_HARD_LIMIT = 8;
 
 /**
  * Question Option - a single choice option
  */
 const QuestionOptionSchema = z.object({
   label: z.string().describe("Display text (1-5 words, concise)"),
-  description: z.string().describe("Explanation of choice"),
+  description: z.string().optional().describe("Explanation of choice"),
 });
 
 /**
  * Question - a single question with options, grouped by topic
  */
 const QuestionSchema = z.object({
-  topic: z.string().max(20).describe("Topic/category name shown as tab (max 20 chars, e.g. 'Project setup', 'UI stack')"),
+  topic: z
+    .string()
+    .transform((s) => s.trim().slice(0, 20))
+    .pipe(z.string().min(1))
+    .describe("Topic/category name shown as tab (max 20 chars, e.g. 'Project setup', 'UI stack')"),
   question: z.string().describe("Complete question text"),
   options: z.array(QuestionOptionSchema).describe("Available choices (user can also type custom answer)"),
   multiple: z.boolean().optional().describe("Allow selecting multiple choices"),
@@ -23,11 +36,13 @@ const QuestionSchema = z.object({
 
 /**
  * Question Tool Input Schema
- * Maximum 3 questions (topics) per call - use follow-up calls for more
  */
 const QuestionToolSchema = z.object({
   context: z.string().optional().describe("Brief explanation shown in header of why clarification is needed"),
-  questions: z.array(QuestionSchema).min(1).describe("Questions to ask (max 3 topics per call; extra topics are ignored)"),
+  questions: z
+    .array(QuestionSchema)
+    .min(1)
+    .describe("Questions to ask (prefer 1-3 topics; hard limit 8)"),
 });
 
 export type QuestionOption = z.infer<typeof QuestionOptionSchema>;
@@ -81,7 +96,7 @@ export function hasPendingQuestion(): boolean {
 
 const DESCRIPTION = `Ask structured questions via the question overlay.
 
-Provide up to 3 topics per call. See docs/tools/question.md for examples.`;
+Prefer 1-3 topics per call for focus; all topics you send are asked. See docs/tools/question.md for examples.`;
 
 export const questionTool: Tool<QuestionToolInput> = Tool.define(
   "question",
@@ -96,8 +111,46 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
         };
       }
 
-      const questions = input.questions.slice(0, 3);
-      const wasTruncated = input.questions.length > questions.length;
+      if (input.questions.length > QUESTION_TOPIC_HARD_LIMIT) {
+        return {
+          success: false,
+          output: `Too many topics (${input.questions.length}). Max ${QUESTION_TOPIC_HARD_LIMIT} per call; prefer 1-3 focused topics per call.`,
+        };
+      }
+
+      const questions = input.questions;
+
+      const sessionMessages = SessionManager.getCurrentSession()?.messages ?? [];
+      const prior = priorAnsweredQuestionsFromSession(sessionMessages);
+
+      const { unanswered, cachedAnswers } = partitionQuestionsByPriorAnswers(
+        questions,
+        prior
+      );
+
+      if (unanswered.length === 0) {
+        const formattedAnswers = questions.map((q, i) => {
+          const selected = cachedAnswers[i] ?? [];
+          return `${q.topic}: ${selected.join(", ")}`;
+        });
+        return {
+          success: true,
+          output: `User already answered these topics earlier in this session:\n${formattedAnswers.join("\n")}`,
+          metadata: {
+            type: "question",
+            context: input.context,
+            deduplicated: true,
+            questions: questions.map((question, index) => ({
+              topic: question.topic,
+              question: question.question,
+              options: question.options.map((option) => option.label),
+              answers: cachedAnswers[index] ?? [],
+            })),
+          },
+        };
+      }
+
+      const questionsToAsk = unanswered;
 
       // Create a promise that will be resolved by the UI
       const answersPromise = new Promise<string[][]>((resolve, reject) => {
@@ -108,34 +161,55 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
       // Publish event to notify UI to show the question overlay
       Bus.publish(QuestionEvents.Asked, {
         context: input.context,
-        questions,
+        questions: questionsToAsk,
       });
 
       // Wait for user to answer (UI will call resolveQuestion or rejectQuestion)
-      const answers = await answersPromise;
+      const freshAnswers = await answersPromise;
+
+      if (freshAnswers.length !== questionsToAsk.length) {
+        fileError(
+          `question tool answer count mismatch: expected ${questionsToAsk.length}, got ${freshAnswers.length}`
+        );
+      }
+
+      const mergedAnswers: string[][] = [];
+      let freshIndex = 0;
+      for (const question of questions) {
+        const existing = prior.byAnswerKey.get(
+          questionAnswerKey(question.topic, question.question)
+        );
+        if (existing && existing.length > 0) {
+          mergedAnswers.push(existing);
+        } else {
+          mergedAnswers.push(freshAnswers[freshIndex] ?? []);
+          freshIndex++;
+        }
+      }
 
       // Format answers for the AI
       const formattedAnswers = questions.map((q, i) => {
-        const selected = answers[i] || [];
+        const selected = mergedAnswers[i] || [];
         return `${q.topic}: ${selected.join(", ") || "(no selection)"}`;
       });
 
-      const truncationNote = wasTruncated
-        ? `Note: Received ${input.questions.length} topics; only the first 3 were asked.\n`
-        : "";
+      const skippedNote =
+        cachedAnswers.length > 0
+          ? `Note: ${cachedAnswers.length} topic(s) were already answered this session and were not re-asked.\n`
+          : "";
 
       return {
         success: true,
-        output: `${truncationNote}User responded:\n${formattedAnswers.join("\n")}`,
+        output: `${skippedNote}User responded:\n${formattedAnswers.join("\n")}`,
         metadata: {
           type: "question",
           context: input.context,
-          truncatedTopicCount: wasTruncated ? input.questions.length - questions.length : 0,
+          deduplicatedTopics: questions.length - questionsToAsk.length,
           questions: questions.map((question, index) => ({
             topic: question.topic,
             question: question.question,
             options: question.options.map((option) => option.label),
-            answers: answers[index] ?? [],
+            answers: mergedAnswers[index] ?? [],
           })),
         },
       };
