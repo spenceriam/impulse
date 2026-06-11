@@ -30,7 +30,11 @@ export const PermissionRequest = z.object({
   permission: z.string(), // Tool type: "edit", "bash", "task", etc.
   patterns: z.array(z.string()), // File paths, commands, etc.
   message: z.string(), // Human-readable description
-  metadata: z.record(z.string(), z.any()).optional(), // Tool-specific data (diff, command, etc.)
+  /** Tool-specific data. Mutating tools should pass `reason` (user-facing, ~120 chars). */
+  metadata: z
+    .record(z.string(), z.any())
+    .optional()
+    .describe("command, path, description, reason (AI-written user explanation), etc."),
   tool: z.object({
     messageID: z.string(),
     callID: z.string(),

@@ -4,12 +4,21 @@ import { readFile, writeFile } from "fs/promises";
 import { resolve, relative, isAbsolute } from "path";
 import { createPatch } from "diff";
 import { createCompactDiff } from "../util/compact-diff";
-import { sanitizePath } from "../util/path";
+import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
+import { SessionManager } from "../session/manager";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
 import { zCodeEdit, zFilePath } from "./schemas/branded";
+import {
+  applyReplacement,
+  buildOldStringNotFoundError,
+  findExact,
+  replaceAllExact,
+  replaceAllLineTrimmed,
+  resolveEditMatch,
+} from "./edit-match.js";
 
 const DESCRIPTION = `Edit a file by exact string replacement.
 
@@ -46,7 +55,7 @@ export const fileEdit: Tool<EditInput> = Tool.define(
   EditSchema,
   async (input: EditInput): Promise<ToolResult> => {
     try {
-      const safePath = sanitizePath(input.filePath);
+      const safePath = await resolveToolPath(input.filePath, "file_edit");
       
       // Check mode-based path restrictions (PLAN -> docs/ or PRD.md)
       const modeError = validateWritePath(safePath);
@@ -57,29 +66,39 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         };
       }
       
-      const content = await readFile(safePath, "utf-8");
-      
       const outsideCwd = !isWithinCwd(safePath);
+      const fileName = safePath.split(/[/\\]/).pop() ?? safePath;
       await askPermission({
-        sessionID: "current",
+        sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
         permission: "edit",
         patterns: [safePath],
         message: outsideCwd ? `Edit file outside cwd: ${safePath}` : `Edit file: ${safePath}`,
         metadata: {
+          path: safePath,
           oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
           newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
-          ...(outsideCwd ? { reason: "Path outside working directory" } : {}),
+          reason: outsideCwd
+            ? "Edit a file outside the project working directory"
+            : `Apply a code edit to ${fileName}`,
         },
       });
-      
-      const occurrences = (content.match(new RegExp(escapeRegex(input.oldString), "g")) ?? []).length;
 
-      if (occurrences === 0) {
+      const content = await readFile(safePath, "utf-8");
+
+      const resolved = resolveEditMatch(
+        content,
+        input.oldString,
+        input.replaceAll ? { replaceAll: true } : {}
+      );
+
+      if (!resolved) {
         return {
           success: false,
-          output: `oldString not found in file: ${input.filePath}`,
+          output: buildOldStringNotFoundError(input.filePath, content, input.oldString),
         };
       }
+
+      const { effectiveOldString, usedFallback, occurrences } = resolved;
 
       if (occurrences > 1 && !input.replaceAll) {
         return {
@@ -90,17 +109,18 @@ export const fileEdit: Tool<EditInput> = Tool.define(
 
       let newContent: string;
       if (input.replaceAll) {
-        const escapedOld = escapeRegex(input.oldString);
-        newContent = content.replace(new RegExp(escapedOld, "g"), input.newString);
+        newContent = usedFallback
+          ? replaceAllLineTrimmed(content, input.oldString, input.newString)
+          : replaceAllExact(content, effectiveOldString, input.newString);
       } else {
-        const index = content.indexOf(input.oldString);
-        if (index === -1) {
+        const match = findExact(content, effectiveOldString);
+        if (!match) {
           return {
             success: false,
-            output: `oldString not found in file: ${input.filePath}`,
+            output: buildOldStringNotFoundError(input.filePath, content, input.oldString),
           };
         }
-        newContent = content.substring(0, index) + input.newString + content.substring(index + input.oldString.length);
+        newContent = applyReplacement(content, match, input.newString);
       }
 
       const shouldSkipDiff = Buffer.byteLength(content, "utf-8") + Buffer.byteLength(newContent, "utf-8") > MAX_DIFF_BYTES;
@@ -140,9 +160,13 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         isNew: false 
       });
 
+      const fallbackNote = usedFallback
+        ? "\nNote: matched with whitespace-normalized fallback."
+        : "";
+
       return {
         success: true,
-        output: `File edited successfully: ${input.filePath}`,
+        output: `File edited successfully: ${input.filePath}${fallbackNote}`,
         metadata: {
           type: "file_edit",
           filePath: input.filePath,
@@ -172,6 +196,3 @@ export const fileEdit: Tool<EditInput> = Tool.define(
   }
 );
 
-function escapeRegex(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

@@ -75,6 +75,12 @@ export class ThinkingBlock implements Component {
     this.expanded = expanded;
   }
 
+  toggleExpanded(): boolean {
+    if (this.phase !== "finalized") return false;
+    this.expanded = !this.expanded;
+    return true;
+  }
+
   isFinalized(): boolean {
     return this.phase === "finalized";
   }

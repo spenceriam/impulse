@@ -47,7 +47,12 @@ async function reasoningCapabilityForModel(
     const pc = (config.providers as Record<string, { type?: string; baseUrl?: string; apiKey?: string }>)[
       provider
     ];
-    if (pc?.type && pc.baseUrl && pc.apiKey && modelName) {
+    if (
+      (pc?.type === "openai-compatible" || pc?.type === "anthropic-compatible") &&
+      pc.baseUrl &&
+      pc.apiKey &&
+      modelName
+    ) {
       try {
         return await probeReasoningSupport(pc.type, pc.baseUrl, pc.apiKey, modelName);
       } catch {

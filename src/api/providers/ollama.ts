@@ -20,7 +20,10 @@ import type {
 } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { modelSupportsVisionFallback } from "../capabilities";
 import type { ReasoningLevel } from "../../util/config";
+import { toApiUsageFields } from "../usage-helpers.js";
 
 // Default Ollama Cloud endpoint
 export const OLLAMA_DEFAULT_BASE_URL = "https://ollama.com";
@@ -301,6 +304,23 @@ export class OllamaProvider implements AIProvider {
     this.client = null;
     this._clientKey = null;
   }
+
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    const base = (this.config.baseUrl || OLLAMA_DEFAULT_BASE_URL).replace(/\/\/$/, "");
+    const result = await testOllamaConnection(base, this.config.apiKey);
+    if (!result.success) return undefined;
+
+    const clean = stripPrefix(model);
+    const available = result.models.find((m) => m === clean || m.endsWith(`/${clean}`));
+    if (!available) return undefined;
+
+    // Ollama model IDs are unpredictable — rely on heuristic fallback.
+    const vision = modelSupportsVisionFallback(clean);
+    const lower = clean.toLowerCase();
+    const reasoning = lower.includes("think") || lower.includes("reason");
+
+    return { vision, reasoning, source: "heuristic", discoveredAt: Date.now() };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,13 +422,7 @@ function transformResponse(response: OpenAI.ChatCompletion): ChatCompletionRespo
           ? ("tool_calls" as const)
           : choice.finish_reason,
     })),
-    usage: response.usage
-      ? {
-          prompt_tokens: response.usage.prompt_tokens,
-          completion_tokens: response.usage.completion_tokens,
-          total_tokens: response.usage.total_tokens,
-        }
-      : undefined,
+    usage: toApiUsageFields(response.usage),
   };
 }
 
@@ -438,12 +452,6 @@ function transformChunk(chunk: OpenAI.ChatCompletionChunk): ChatCompletionChunk 
           ? ("tool_calls" as const)
           : choice.finish_reason,
     })),
-    usage: chunk.usage
-      ? {
-          prompt_tokens: chunk.usage.prompt_tokens,
-          completion_tokens: chunk.usage.completion_tokens,
-          total_tokens: chunk.usage.total_tokens,
-        }
-      : null,
+    usage: toApiUsageFields(chunk.usage) ?? null,
   };
 }

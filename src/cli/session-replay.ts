@@ -3,9 +3,13 @@
  */
 
 import type { Message, MessageContentBlock, ToolCall, ToolResult } from "../session/store.js";
+import { isInjectedUserMessage, messageDisplayText } from "../session/injected-message.js";
+import { isImpulseUiMessage, parseImpulseUiContent } from "../session/status-events.js";
+import { SILENT_TOOLS } from "../tools/silent-tools.js";
+import { isSilentUnchangedTodoWrite } from "./components/tool-block.js";
 
-/** Tools that must not appear in the chat transcript on replay (matches renderer). */
-export const SILENT_REPLAY_TOOLS = new Set(["set_header"]);
+/** @deprecated Use SILENT_TOOLS from tools/silent-tools.ts */
+export const SILENT_REPLAY_TOOLS = SILENT_TOOLS;
 
 export type ReplayToolResult = {
   success: boolean;
@@ -15,6 +19,8 @@ export type ReplayToolResult = {
 
 export type ReplayStep =
   | { type: "user"; text: string }
+  | { type: "injected"; text: string }
+  | { type: "status"; text: string }
   | { type: "thinking"; text: string; durationMs?: number }
   | { type: "assistantText"; text: string }
   | {
@@ -33,7 +39,7 @@ type StoredToolMessage = {
 };
 
 function isToolRoleMessage(msg: Message): msg is Message & StoredToolMessage {
-  return (msg as { role?: string }).role === "tool" && typeof (msg as StoredToolMessage).tool_call_id === "string";
+  return msg.role === "tool" && typeof msg.tool_call_id === "string";
 }
 
 /** Index tool result rows by tool_call_id for post-rework sessions. */
@@ -95,14 +101,16 @@ function emitToolStep(
   tc: ToolCall,
   toolResults: Map<string, { content: string }>
 ): void {
-  if (SILENT_REPLAY_TOOLS.has(tc.tool)) return;
+  if (SILENT_TOOLS.has(tc.tool)) return;
+  const result = buildToolResult(tc, toolResults);
+  if (isSilentUnchangedTodoWrite(tc.tool, result)) return;
   const id = tc.id ?? `replay_${tc.tool}_${steps.length}`;
   steps.push({
     type: "tool",
     id,
     name: tc.tool,
     args: tc.arguments ?? {},
-    result: buildToolResult(tc, toolResults),
+    result,
     durationMs: 0,
   });
 }
@@ -203,13 +211,23 @@ export function buildReplaySteps(messages: Message[]): ReplayStep[] {
   const steps: ReplayStep[] = [];
 
   for (const msg of messages) {
-    if (msg.role === "system") continue;
+    if (msg.role === "system") {
+      if (isImpulseUiMessage(msg)) {
+        const text = parseImpulseUiContent(msg.content);
+        if (/^Mode: /.test(text)) continue;
+        steps.push({ type: "status", text });
+      }
+      continue;
+    }
     if (isToolRoleMessage(msg)) continue;
 
     if (msg.role === "user") {
-      const text =
-        typeof msg.apiContent === "string" ? msg.apiContent : (msg.content ?? "");
-      steps.push({ type: "user", text });
+      const text = messageDisplayText(msg);
+      if (isInjectedUserMessage(msg)) {
+        steps.push({ type: "injected", text });
+      } else {
+        steps.push({ type: "user", text });
+      }
       continue;
     }
 

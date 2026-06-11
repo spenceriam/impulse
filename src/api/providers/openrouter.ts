@@ -16,6 +16,9 @@ import type {
 } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { discoverOpenAIModelCapabilities } from "./openai-compatible";
+import { toApiUsageFields } from "../usage-helpers.js";
 
 const BASE_URL = "https://openrouter.ai/api/v1";
 
@@ -179,6 +182,16 @@ export class OpenRouterProvider implements AIProvider {
     this._apiKey = null;
   }
 
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+    const clean = this.stripPrefix(model);
+    return discoverOpenAIModelCapabilities(
+      this.config.baseUrl || BASE_URL,
+      this.config.apiKey,
+      clean
+    );
+  }
+
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
     return {
       id: response.id,
@@ -204,13 +217,7 @@ export class OpenRouterProvider implements AIProvider {
             ? ("tool_calls" as const)
             : choice.finish_reason,
       })),
-      usage: response.usage
-        ? {
-            prompt_tokens: response.usage.prompt_tokens,
-            completion_tokens: response.usage.completion_tokens,
-            total_tokens: response.usage.total_tokens,
-          }
-        : undefined,
+      usage: toApiUsageFields(response.usage),
     };
   }
 
@@ -242,13 +249,7 @@ export class OpenRouterProvider implements AIProvider {
             ? ("tool_calls" as const)
             : choice.finish_reason,
       })),
-      usage: chunk.usage
-        ? {
-            prompt_tokens: chunk.usage.prompt_tokens,
-            completion_tokens: chunk.usage.completion_tokens,
-            total_tokens: chunk.usage.total_tokens,
-          }
-        : null,
+      usage: toApiUsageFields(chunk.usage) ?? null,
     };
   }
 }

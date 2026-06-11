@@ -310,9 +310,9 @@ async function discoverModelsOnce(
         const apiRows: ProviderModelEntry[] = entries
           .map((m) => ({
             id: (m.id ?? m.name ?? "") as string,
-            context_length: m.context_length,
-            created: m.created,
-            created_at: m.created_at,
+            ...(m.context_length !== undefined ? { context_length: m.context_length } : {}),
+            ...(m.created !== undefined ? { created: m.created } : {}),
+            ...(m.created_at !== undefined ? { created_at: m.created_at } : {}),
           }))
           .filter((m) => m.id.length > 0);
 

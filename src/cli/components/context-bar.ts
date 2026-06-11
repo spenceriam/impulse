@@ -18,8 +18,8 @@ import {
 import * as os from "os";
 import * as path from "path";
 import { execSync } from "child_process";
-import { visionStatusSuffix } from "../symbols.js";
 import { formatDurationMs } from "../format-helpers.js";
+import { applyOptionalPatch, type OptionalPatch } from "../../util/omit-undefined.js";
 
 export const RIGHT_PAD_COLS = 4;
 
@@ -264,6 +264,9 @@ export interface ContextBarState {
   lastTurnMs?: number;
   allowAllBypass?: boolean;
   showTurnSpeed?: boolean;
+  queueDepth?: number;
+  goalLabel?: string;
+  showAdvisorInBar?: boolean;
 }
 
 export class ContextBarComponent implements Component {
@@ -275,8 +278,8 @@ export class ContextBarComponent implements Component {
     this.state = state;
   }
 
-  update(state: Partial<ContextBarState>): void {
-    this.state = { ...this.state, ...state };
+  update(state: OptionalPatch<ContextBarState>): void {
+    this.state = applyOptionalPatch(this.state, state);
   }
 
   invalidate(): void {
@@ -305,16 +308,11 @@ export class ContextBarComponent implements Component {
       s.reasoningLevel && s.reasoningLevel !== "off"
         ? ` (${clr.model(s.reasoningLevel)})`
         : "";
-    const advisorSeg = s.advisorModel
-      ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))}`
-      : "";
-    const modelFull =
-      modelSeg +
-      rlSeg +
-      advisorSeg +
-      (s.visionMode && s.visionModel
-        ? ` ${sep}${clr.advisor(shortModel(s.visionModel))}${clr.advisor(visionStatusSuffix())}`
-        : "");
+    const advisorSeg =
+      s.showAdvisorInBar !== false && s.advisorModel
+        ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))}`
+        : "";
+    const modelFull = modelSeg + rlSeg + advisorSeg;
 
     const ctxSeg = `${clr.ctx(tokStr)} ${formatPercentColored(pct, pctStr)}`;
     const dirSeg = clr.dir(shortDir(cwd));
@@ -323,8 +321,17 @@ export class ContextBarComponent implements Component {
       : "";
     const dirBranchFull = dirSeg + branchSeg;
 
+    const queueSeg =
+      s.queueDepth && s.queueDepth > 0
+        ? clr.sep(` Queue: ${s.queueDepth}`)
+        : "";
+    const goalSeg = s.goalLabel
+      ? clr.sep(` Goal: ${truncateToWidth(s.goalLabel, 24)}`)
+      : "";
     const modeFull =
       (s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode)) +
+      queueSeg +
+      goalSeg +
       (s.autoCompactOff ? clr.sep(" compact:OFF") : "");
 
     let statsFull = "";

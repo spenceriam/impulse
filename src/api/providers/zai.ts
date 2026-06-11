@@ -8,6 +8,9 @@ import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { toApiUsageFields } from "../usage-helpers.js";
+import { discoverOpenAIModelCapabilities } from "./openai-compatible";
 
 // Z.AI Coding Plan API endpoint
 const BASE_URL = "https://api.z.ai/api/coding/paas/v4/";
@@ -203,7 +206,16 @@ export class ZAIProvider implements AIProvider {
     this.client = null;
     this.apiKey = null;
   }
-  
+
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+    return discoverOpenAIModelCapabilities(
+      this.config.baseUrl || BASE_URL,
+      this.config.apiKey,
+      model
+    );
+  }
+
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
     return {
       id: response.id,
@@ -227,12 +239,7 @@ export class ZAIProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: response.usage ? {
-        prompt_tokens: response.usage.prompt_tokens,
-        completion_tokens: response.usage.completion_tokens,
-        total_tokens: response.usage.total_tokens,
-        prompt_tokens_details: (response.usage as unknown as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details,
-      } : undefined,
+      usage: toApiUsageFields(response.usage),
     };
   }
   
@@ -260,12 +267,7 @@ export class ZAIProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: chunk.usage ? {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-        prompt_tokens_details: (chunk.usage as unknown as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details,
-      } : null,
+      usage: toApiUsageFields(chunk.usage) ?? null,
     };
   }
 }

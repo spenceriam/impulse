@@ -6,9 +6,9 @@
  * or returns structured metadata worth showing (todos, task actions).
  */
 
-import { truncateToWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import { GUTTER, maxLineWidth, truncateGutterLine } from "../gutter.js";
-import { formatDurationMs } from "../format-helpers.js";
+import { formatDurationBracketed, formatDurationMs } from "../format-helpers.js";
 
 /** Sub-indent for continuation lines under a tool block (GUTTER + 3 more spaces) */
 const SUB_INDENT = GUTTER + "   ";
@@ -23,6 +23,7 @@ import {
   type GrepMetadata,
   type ToolMetadata,
   type TaskActionEntry,
+  type QuestionMetadata,
   type TodoMetadata,
 } from "../../types/tool-metadata.js";
 
@@ -50,7 +51,13 @@ const QUESTION_SPINNER = [">--", "->-", "-->", "--<", "-<-", "<--"];
 const TOOL_FRAME_MS = 180;
 const QUESTION_FRAME_MS = 160;
 const MAX_OUTPUT_ROWS = 30;
-const MAX_TODO_ROWS = 12;
+const BASH_MAX_OUTPUT_ROWS = 100;
+const MAX_TODO_ROWS = 20;
+export const TODO_BLINK_PHASE_MS = 800;
+
+const TODO_GLYPH_ACTIVE = "◉";
+const TODO_GLYPH_PENDING = "○";
+const TODO_GLYPH_DONE = "●";
 const DIFF_REVEAL_LINES_PER_TICK = 2;
 
 export const DIFF_REVEAL_TICK_MS = 25;
@@ -65,11 +72,46 @@ export type ToolBlockOptions = {
   subagentCodename?: string;
 };
 
-export type ToolBlockDoneOptions = {
-  collapsed?: boolean;
+export type TodoRenderOptions = {
+  blinkActive?: boolean;
+  nowMs?: number;
 };
 
+export type ToolBlockDoneOptions = {
+  collapsed?: boolean;
+  /** Dim one-liner for read-only tools; expand on toggle. */
+  compact?: boolean;
+};
+
+/** Read-only tools that default to a dim collapsed row on success. */
+const COMPACT_READONLY_TOOLS = new Set([
+  "file_read",
+  "glob",
+  "grep",
+  "web_search",
+  "web_fetch",
+  "bash",
+]);
+
+export function shouldCompactToolOutput(
+  name: string,
+  success: boolean,
+  metadata?: Record<string, unknown>
+): boolean {
+  if (name === "todo_write") {
+    return success && metadata?.["unchanged"] === true;
+  }
+  if (name === "todo_read") return true;
+  return success && COMPACT_READONLY_TOOLS.has(name);
+}
+
 type TodoPreviewItem = TodoMetadata["todos"][number];
+
+export type TodoWindowSelection = {
+  headCollapseLabel?: string;
+  visible: TodoPreviewItem[];
+  tailHiddenCount: number;
+};
 
 export type ToolBlockState =
   | {
@@ -100,6 +142,8 @@ export type ToolBlockState =
       result: RenderedResult;
       durationMs: number;
       collapsed?: boolean;
+      compact?: boolean;
+      userExpanded?: boolean;
     };
 
 export function displayToolName(name: string, codename?: string): string {
@@ -181,16 +225,49 @@ export function summarizeTodoArgs(name: string, args: Record<string, unknown>): 
 }
 
 function summarizeTodoDoneSummary(name: string, metadata: TodoMetadata): string {
+  if (name === "todo_write" && metadata.unchanged) return "todos unchanged";
   const counts = summarizeTodoCounts(metadata.todos);
-  if (name === "todo_write") return `todos updated · ${counts}`.slice(0, 70);
+  if (name === "todo_write") return `todos updated · ${counts}`;
   if (metadata.total === 0) return "read todos · empty";
-  return `read todos · ${counts}`.slice(0, 70);
+  return `read todos · ${counts}`;
+}
+
+function questionTopicsFromArgs(args: Record<string, unknown>): string[] {
+  const questions = args["questions"];
+  if (!Array.isArray(questions)) return [];
+  return questions
+    .map((entry) => {
+      if (typeof entry !== "object" || entry === null) return "";
+      const topic = (entry as { topic?: string }).topic;
+      return typeof topic === "string" ? topic.trim() : "";
+    })
+    .filter((topic) => topic.length > 0);
+}
+
+/** Running row: topic tab names (context stays in the overlay only). */
+function summarizeQuestionRunning(args: Record<string, unknown>): string {
+  if (!Array.isArray(args["questions"])) {
+    return "missing questions array";
+  }
+  const topics = questionTopicsFromArgs(args);
+  if (topics.length === 0) return "empty questions";
+  if (topics.length === 1) return topics[0]!;
+  return topics.join(" · ");
+}
+
+/** Done row: topic → selected answer(s). */
+function summarizeQuestionDone(metadata: QuestionMetadata): string {
+  const parts = metadata.questions.map((q) => {
+    const selected = q.answers.map((a) => a.trim()).filter(Boolean);
+    const answer = selected.length > 0 ? selected.join(", ") : "—";
+    return `${q.topic}: ${answer}`;
+  });
+  return parts.length > 0 ? parts.join(" · ") : "answered";
 }
 
 function summarizeArgs(name: string, args: Record<string, unknown>): string {
   if (name === "question") {
-    const context = typeof args["context"] === "string" ? String(args["context"]) : "";
-    return context.length > 0 ? context.slice(0, 70) : "waiting for your answer…";
+    return summarizeQuestionRunning(args);
   }
 
   if (name === "todo_write" || name === "todo_read") {
@@ -199,35 +276,33 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
 
   if (name === "task") {
     const description = typeof args["description"] === "string" ? String(args["description"]) : "delegating subagent task";
-    return description.length > 70 ? `${description.slice(0, 67)}…` : description;
+    return description;
   }
 
   if (name === "glob") {
     const pattern = typeof args["pattern"] === "string" ? String(args["pattern"]) : "pattern";
     const path = typeof args["path"] === "string" ? ` in ${String(args["path"])}` : "";
-    return `${pattern}${path}`.slice(0, 70);
+    return `${pattern}${path}`;
   }
 
   if (name === "grep") {
     const pattern = typeof args["pattern"] === "string" ? String(args["pattern"]) : "pattern";
     const path = typeof args["path"] === "string" ? ` in ${String(args["path"])}` : "";
     const include = typeof args["include"] === "string" ? ` (${String(args["include"])})` : "";
-    return `${pattern}${path}${include}`.slice(0, 70);
+    return `${pattern}${path}${include}`;
   }
 
   const keys = ["path", "filePath", "file", "command", "pattern", "query", "description", "prompt", "url"];
   for (const key of keys) {
     if (typeof args[key] === "string") {
-      const value = String(args[key]);
-      return value.length > 70 ? `${value.slice(0, 67)}…` : value;
+      return String(args[key]);
     }
   }
 
   return Object.entries(args)
     .slice(0, 1)
     .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-    .join("")
-    .slice(0, 70);
+    .join("");
 }
 
 function asToolMetadata(value: Record<string, unknown> | undefined): ToolMetadata | null {
@@ -235,10 +310,77 @@ function asToolMetadata(value: Record<string, unknown> | undefined): ToolMetadat
   return value as unknown as ToolMetadata;
 }
 
+export function isSilentUnchangedTodoWrite(
+  name: string,
+  result: { metadata?: Record<string, unknown> }
+): boolean {
+  if (name !== "todo_write") return false;
+  const metadata = asToolMetadata(result.metadata);
+  return metadata !== null && TypeGuards.isTodo(metadata) && metadata.unchanged === true;
+}
+
 function wrapPrefixed(prefix: string, text: string, width: number): string[] {
-  const available = Math.max(8, maxLineWidth(width) - prefix.length);
+  const available = Math.max(8, maxLineWidth(width) - visibleWidth(prefix));
   const wrapped = wrapTextWithAnsi(text.length > 0 ? text : " ", available);
-  return wrapped.map((line) => truncateGutterLine(`${prefix}${line}`, width));
+  return wrapped.map((line, i) => {
+    const p = i === 0 ? prefix : SUB_INDENT;
+    return truncateGutterLine(`${p}${line}`, width);
+  });
+}
+
+function formatToolDuration(durationMs: number): string {
+  return clr.duration(formatDurationBracketed(durationMs));
+}
+
+function appendSummaryTail(lines: string[], tail: string, width: number): void {
+  if (!tail) return;
+  if (lines.length === 0) {
+    lines.push(truncateGutterLine(`${GUTTER}${tail.trimStart()}`, width));
+    return;
+  }
+  const lastIdx = lines.length - 1;
+  const last = lines[lastIdx]!;
+  const candidate = `${last}${tail}`;
+  if (visibleWidth(candidate) <= maxLineWidth(width)) {
+    lines[lastIdx] = truncateGutterLine(candidate, width);
+    return;
+  }
+  lines.push(truncateGutterLine(`${SUB_INDENT}${tail.trimStart()}`, width));
+}
+
+/** Tool header row: wrap args; tail (duration) on the last summary line. */
+function wrapToolSummaryLine(
+  prefix: string,
+  args: string,
+  width: number,
+  suffix = ""
+): string[] {
+  const bodyAvail = Math.max(8, maxLineWidth(width) - visibleWidth(prefix));
+  const wrapped = wrapTextWithAnsi(args.length > 0 ? args : " ", bodyAvail);
+  const lines: string[] = [];
+  if (wrapped.length === 0) {
+    lines.push(truncateGutterLine(`${prefix}${clr.args(" ")}`, width));
+  } else {
+    lines.push(truncateGutterLine(`${prefix}${clr.args(wrapped[0]!)}`, width));
+    const contAvail = Math.max(8, maxLineWidth(width) - visibleWidth(SUB_INDENT));
+    for (let i = 1; i < wrapped.length; i++) {
+      for (const sub of wrapTextWithAnsi(wrapped[i]!, contAvail)) {
+        lines.push(truncateGutterLine(`${SUB_INDENT}${clr.args(sub)}`, width));
+      }
+    }
+  }
+  appendSummaryTail(lines, suffix, width);
+  return lines;
+}
+
+function wrapCompactToolLine(
+  verb: string,
+  args: string,
+  width: number,
+  suffix = ""
+): string[] {
+  const prefix = `${GUTTER}${clr.dim("·")} ${clr.dim(verb)} `;
+  return wrapToolSummaryLine(prefix, args, width, suffix);
 }
 
 function renderTrimmedOutput(output: string, width: number, maxRows: number): string[] {
@@ -261,32 +403,132 @@ function renderTrimmedOutput(output: string, width: number, maxRows: number): st
   ];
 }
 
-function todoLine(todo: TodoMetadata["todos"][number]): string {
+/** Blink phase for the active todo glyph (◉ ↔ ○). */
+export function activeTodoBlinkGlyph(nowMs: number, enabled: boolean): string {
+  if (!enabled) return TODO_GLYPH_ACTIVE;
+  const phase = Math.floor(nowMs / TODO_BLINK_PHASE_MS) % 2;
+  return phase === 0 ? TODO_GLYPH_ACTIVE : TODO_GLYPH_PENDING;
+}
+
+export function formatTodoLine(
+  todo: TodoMetadata["todos"][number],
+  opts?: TodoRenderOptions
+): string {
+  const nowMs = opts?.nowMs ?? Date.now();
   switch (todo.status) {
-    case "in_progress":
-      return `${clr.running("[>]")} ${todo.content}`;
+    case "in_progress": {
+      const glyph = activeTodoBlinkGlyph(nowMs, opts?.blinkActive === true);
+      return `${glyph} ${todo.content}`;
+    }
     case "completed":
-      return `${clr.dim("[✓]")} ${c.dim}${c.strike}${todo.content}${c.reset}`;
+      return `${clr.dim(TODO_GLYPH_DONE)} ${c.dim}${c.strike}${todo.content}${c.reset}`;
     case "cancelled":
-      return `${clr.dim("[-]")} ${c.dim}${c.strike}${todo.content}${c.reset}`;
+      return `${clr.dim(TODO_GLYPH_PENDING)} ${c.dim}${c.strike}${todo.content}${c.reset}`;
     default:
-      return `${clr.pending("[ ]")} ${todo.content}`;
+      return `${clr.pending(TODO_GLYPH_PENDING)} ${todo.content}`;
   }
 }
 
-function renderTodoListFromTodos(todos: TodoPreviewItem[], width: number): string[] {
-  const visibleTodos = todos.slice(0, MAX_TODO_ROWS);
-  const lines = visibleTodos.flatMap((todo) => wrapPrefixed(SUB_INDENT, todoLine(todo), width));
+/** Pick visible todo rows anchored on the in-progress item (or first pending / all-done tail). */
+export function selectTodoWindow(
+  todos: TodoPreviewItem[],
+  maxRows: number = MAX_TODO_ROWS
+): TodoWindowSelection {
+  if (todos.length === 0) {
+    return { visible: [], tailHiddenCount: 0 };
+  }
 
-  if (todos.length > MAX_TODO_ROWS) {
-    lines.push(truncateGutterLine(`       ${clr.dim(`… ${todos.length - MAX_TODO_ROWS} more items`)}`, width));
+  let anchorIdx = todos.findIndex((todo) => todo.status === "in_progress");
+  if (anchorIdx < 0) {
+    anchorIdx = todos.findIndex((todo) => todo.status === "pending");
+  }
+
+  if (anchorIdx < 0) {
+    if (todos.length <= 2) {
+      return { visible: todos, tailHiddenCount: 0 };
+    }
+    const hiddenDone = todos.length - 2;
+    return {
+      headCollapseLabel: `… ${hiddenDone} done`,
+      visible: todos.slice(-2),
+      tailHiddenCount: 0,
+    };
+  }
+
+  const contextStart = Math.max(0, anchorIdx - 1);
+  const hiddenBeforeContext = contextStart;
+
+  let headCollapseLabel: string | undefined;
+  if (hiddenBeforeContext > 0) {
+    const hiddenItems = todos.slice(0, hiddenBeforeContext);
+    const allDoneOrCancelled = hiddenItems.every(
+      (todo) => todo.status === "completed" || todo.status === "cancelled"
+    );
+    headCollapseLabel = allDoneOrCancelled
+      ? `… ${hiddenBeforeContext} done`
+      : `… ${hiddenBeforeContext} earlier`;
+  }
+
+  const available = todos.slice(contextStart);
+  if (available.length <= maxRows) {
+    return headCollapseLabel !== undefined
+      ? { headCollapseLabel, visible: available, tailHiddenCount: 0 }
+      : { visible: available, tailHiddenCount: 0 };
+  }
+
+  const tailHiddenCount = available.length - maxRows;
+  return headCollapseLabel !== undefined
+    ? {
+        headCollapseLabel,
+        visible: available.slice(0, maxRows),
+        tailHiddenCount,
+      }
+    : {
+        visible: available.slice(0, maxRows),
+        tailHiddenCount,
+      };
+}
+
+function renderTodoListFromTodos(
+  todos: TodoPreviewItem[],
+  width: number,
+  opts?: TodoRenderOptions
+): string[] {
+  const { headCollapseLabel, visible, tailHiddenCount } = selectTodoWindow(todos, MAX_TODO_ROWS);
+  const lines: string[] = [];
+
+  if (headCollapseLabel) {
+    lines.push(truncateGutterLine(`       ${clr.dim(headCollapseLabel)}`, width));
+  }
+
+  for (const todo of visible) {
+    const blinkActive = todo.status === "in_progress" && opts?.blinkActive === true;
+    lines.push(
+      ...wrapPrefixed(
+        SUB_INDENT,
+        formatTodoLine(todo, { ...opts, blinkActive }),
+        width
+      )
+    );
+  }
+
+  if (tailHiddenCount > 0) {
+    const label =
+      tailHiddenCount === 1
+        ? "(1 additional task)"
+        : `(${tailHiddenCount} additional tasks)`;
+    lines.push(truncateGutterLine(`       ${clr.dim(label)}`, width));
   }
 
   return lines;
 }
 
-function renderTodoList(metadata: TodoMetadata, width: number): string[] {
-  return renderTodoListFromTodos(metadata.todos, width);
+function renderTodoList(
+  metadata: TodoMetadata,
+  width: number,
+  opts?: TodoRenderOptions
+): string[] {
+  return renderTodoListFromTodos(metadata.todos, width, opts);
 }
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
@@ -566,10 +808,12 @@ function renderMetadata(
   output: string,
   success: boolean,
   width: number,
-  maxDiffLines?: number
+  maxDiffLines?: number,
+  toolName?: string,
+  todoRenderOpts?: TodoRenderOptions
 ): string[] {
   if (metadata && TypeGuards.isTodo(metadata)) {
-    return renderTodoList(metadata, width);
+    return renderTodoList(metadata, width, todoRenderOpts);
   }
 
   if (metadata && TypeGuards.isTask(metadata) && metadata.actions.length > 0) {
@@ -599,7 +843,8 @@ function renderMetadata(
     if (isUserDecisionToolOutput(output)) {
       return [];
     }
-    return renderTrimmedOutput(output, width, MAX_OUTPUT_ROWS);
+    const maxRows = toolName === "bash" ? BASH_MAX_OUTPUT_ROWS : MAX_OUTPUT_ROWS;
+    return renderTrimmedOutput(output, width, maxRows);
   }
 
   return [];
@@ -608,6 +853,7 @@ function renderMetadata(
 export class ToolBlock implements Component {
   private state: ToolBlockState;
   private subagentLines: SubagentProgressLine[] = [];
+  private todoBlinkEnabled = false;
 
   constructor(name: string, args: Record<string, unknown>, opts?: ToolBlockOptions) {
     const previewTodos = name === "todo_write" ? parseTodosFromArgs(args) : undefined;
@@ -639,7 +885,8 @@ export class ToolBlock implements Component {
     if (this.state.status !== "running" || this.state.name !== "task") return;
 
     if (status === "queued") {
-      this.state = { ...this.state, taskPhase: "queued", taskStartedAt: undefined };
+      const { taskStartedAt: _dropped, ...rest } = this.state;
+      this.state = { ...rest, taskPhase: "queued" };
       return;
     }
     if (status === "running") {
@@ -684,8 +931,62 @@ export class ToolBlock implements Component {
     return this.state.status === "running" || this.state.status === "revealing";
   }
 
+  isTodoTool(): boolean {
+    return this.state.name === "todo_write" || this.state.name === "todo_read";
+  }
+
+  setTodoBlinkEnabled(enabled: boolean): void {
+    this.todoBlinkEnabled = enabled;
+  }
+
+  private getTodoRenderOpts(): TodoRenderOptions {
+    return {
+      blinkActive: this.todoBlinkEnabled,
+      nowMs: Date.now(),
+    };
+  }
+
+  isSilentUnchangedTodo(): boolean {
+    if (this.state.status !== "done") return false;
+    return isSilentUnchangedTodoWrite(this.state.name, this.state.result);
+  }
+
   isRevealing(): boolean {
     return this.state.status === "revealing";
+  }
+
+  /** True when the block renders body lines beyond the summary row (diff, todos, errors). */
+  hasExpandedBody(): boolean {
+    const state = this.state;
+    if (state.status === "revealing") return true;
+    if (state.status === "running") {
+      return !!(
+        (state.previewTodos && state.previewTodos.length > 0) ||
+        (state.name === "task" && this.subagentLines.length > 0)
+      );
+    }
+    if (state.status !== "done") return false;
+    if (state.compact && !state.userExpanded && classifyOutcome(state.result) === "success") {
+      return false;
+    }
+    if (state.collapsed) return false;
+    const metadata = asToolMetadata(state.result.metadata);
+    if (metadata && TypeGuards.isTodo(metadata)) {
+      return metadata.unchanged !== true;
+    }
+    if (metadata && (TypeGuards.isFileEdit(metadata) || TypeGuards.isFileWrite(metadata))) {
+      return true;
+    }
+    if (!state.result.success && state.result.output.trim().length > 0) return true;
+    const bodyLines = renderMetadata(
+      metadata,
+      state.result.output,
+      state.result.success,
+      120,
+      undefined,
+      state.name
+    );
+    return bodyLines.length > 0;
   }
 
   setDone(result: RenderedResult, durationMs: number, opts?: ToolBlockDoneOptions): void {
@@ -699,6 +1000,10 @@ export class ToolBlock implements Component {
     const metadata = asToolMetadata(result.metadata);
     if (metadata && TypeGuards.isTodo(metadata)) {
       argsSummary = summarizeTodoDoneSummary(name, metadata);
+    } else if (metadata && TypeGuards.isQuestion(metadata)) {
+      argsSummary = summarizeQuestionDone(metadata);
+    } else if (name === "question" && result.success) {
+      argsSummary = "answered";
     }
     this.state = {
       status: "done",
@@ -708,7 +1013,22 @@ export class ToolBlock implements Component {
       result,
       durationMs,
       ...(opts?.collapsed ? { collapsed: true } : {}),
+      ...(opts?.compact ? { compact: true, userExpanded: false } : {}),
     };
+  }
+
+  toggleExpanded(): boolean {
+    if (this.state.status !== "done" || !this.state.compact) return false;
+    this.state = { ...this.state, userExpanded: !this.state.userExpanded };
+    return true;
+  }
+
+  isCompactCollapsed(): boolean {
+    return (
+      this.state.status === "done" &&
+      this.state.compact === true &&
+      this.state.userExpanded !== true
+    );
   }
 
   beginDiffReveal(result: RenderedResult, durationMs: number, opts?: ToolBlockDoneOptions): boolean {
@@ -767,44 +1087,48 @@ export class ToolBlock implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
+    if (this.isSilentUnchangedTodo()) {
+      return [];
+    }
+
     const state = this.state;
+    const todoRenderOpts = this.getTodoRenderOpts();
 
     const toolLabel = displayToolName(state.name, state.subagentCodename);
 
-    if (state.status === "running" || state.status === "revealing") {
-      const isRevealing = state.status === "revealing";
-      const runningState = isRevealing
-        ? { ...state, status: "running" as const, taskStartedAt: undefined }
-        : state;
-      if (isRevealing) {
-        const outcome = classifyOutcome(state.result);
-        const taskAborted = state.name === "task" && outcome === "aborted";
-        const icon = taskAborted
-          ? clr.dim("✓")
-          : outcome === "success"
-            ? clr.success("✓")
-            : clr.error("✗");
-        const duration = clr.duration(formatDurationMs(state.durationMs));
-        const toolLabel = displayToolName(state.name, state.subagentCodename);
-        const lines = [
-          truncateGutterLine(
-            `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}  ${duration}`,
-            width
-          ),
-        ];
-        const metadata = asToolMetadata(state.result.metadata);
-        lines.push(
-          ...renderMetadata(
-            metadata,
-            state.result.output,
-            state.result.success,
-            width,
-            state.revealedCount
-          )
-        );
-        return lines;
-      }
+    if (state.status === "revealing") {
+      const outcome = classifyOutcome(state.result);
+      const taskAborted = state.name === "task" && outcome === "aborted";
+      const icon = taskAborted
+        ? clr.dim("✓")
+        : outcome === "success"
+          ? clr.success("✓")
+          : clr.error("✗");
+      const duration = formatToolDuration(state.durationMs);
+      const revealLabel = displayToolName(state.name, state.subagentCodename);
+      const lines = wrapToolSummaryLine(
+        `${GUTTER}${icon} ${clr.toolName(revealLabel)}  `,
+        state.argsSummary,
+        width,
+        `  ${duration}`
+      );
+      const metadata = asToolMetadata(state.result.metadata);
+      lines.push(
+        ...renderMetadata(
+          metadata,
+          state.result.output,
+          state.result.success,
+          width,
+          state.revealedCount,
+          state.name,
+          todoRenderOpts
+        )
+      );
+      return lines;
+    }
 
+    if (state.status === "running") {
+      const runningState = state;
       const spinner =
         runningState.name === "task" && runningState.taskPhase === "queued"
           ? clr.dim(QUEUED_TASK_SPINNER)
@@ -815,21 +1139,56 @@ export class ToolBlock implements Component {
         runningState.name === "task" && runningState.taskPhase === "queued"
           ? `  ${clr.dim("queued")}`
           : runningState.name === "task" && runningState.taskStartedAt !== undefined
-            ? `  ${clr.duration(formatDurationMs(Date.now() - runningState.taskStartedAt))}`
+            ? `  ${formatToolDuration(Date.now() - runningState.taskStartedAt)}`
             : "";
-      const lines = [
-        truncateGutterLine(
-          `${GUTTER}${spinner} ${clr.toolName(toolLabel)}  ${clr.args(runningState.argsSummary)}${taskSuffix}`,
-          width
-        ),
-      ];
+      const lines = wrapToolSummaryLine(
+        `${GUTTER}${spinner} ${clr.toolName(toolLabel)}  `,
+        runningState.argsSummary,
+        width,
+        taskSuffix
+      );
       if (runningState.previewTodos && runningState.previewTodos.length > 0) {
-        lines.push(...renderTodoListFromTodos(runningState.previewTodos, width));
+        lines.push(...renderTodoListFromTodos(runningState.previewTodos, width, todoRenderOpts));
       }
       if (runningState.name === "task" && this.subagentLines.length > 0) {
         lines.push(...renderSubagentProgressLines(this.subagentLines, width));
       }
       return lines;
+    }
+
+    if (state.status === "done" && state.compact && !state.userExpanded) {
+      const outcome = classifyOutcome(state.result);
+      if (outcome !== "success") {
+        const icon = clr.error("✗");
+        return [
+          truncateGutterLine(
+            `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}`,
+            width
+          ),
+        ];
+      }
+      const verb =
+        state.name === "file_read"
+          ? "read"
+          : state.name === "glob"
+            ? "glob"
+            : state.name === "grep"
+              ? "grep"
+              : state.name === "web_search"
+                ? "search"
+                : state.name === "web_fetch"
+                  ? "fetch"
+                  : state.name === "bash"
+                    ? "bash"
+                    : state.name === "todo_read"
+                      ? "todos"
+                      : state.name;
+      return wrapCompactToolLine(
+        verb,
+        state.argsSummary,
+        width,
+        `  ${formatToolDuration(state.durationMs)}`
+      );
     }
 
     if (state.status === "done" && state.collapsed) {
@@ -841,14 +1200,12 @@ export class ToolBlock implements Component {
           ? clr.success("✓")
           : clr.error("✗");
       const label = outcomeLabel(outcome, state.name, state.subagentCodename);
-      const duration = clr.duration(formatDurationMs(state.durationMs));
+      const duration = formatToolDuration(state.durationMs);
       const suffix = label.length > 0 ? `  ${label}` : "";
-      return [
-        truncateGutterLine(
-          `${GUTTER}${icon} ${clr.toolName(displayToolName(state.name, state.subagentCodename))}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`,
-          width
-        ),
-      ];
+      const rowLabel = displayToolName(state.name, state.subagentCodename);
+      const prefix = `${GUTTER}${icon} ${clr.toolName(rowLabel)}  `;
+      const tail = `${suffix}  ${duration}`;
+      return wrapToolSummaryLine(prefix, state.argsSummary, width, tail);
     }
 
     const outcome = classifyOutcome(state.result);
@@ -859,16 +1216,23 @@ export class ToolBlock implements Component {
         ? clr.success("✓")
         : clr.error("✗");
     const label = outcomeLabel(outcome, state.name, state.subagentCodename);
-    const duration = clr.duration(formatDurationMs(state.durationMs));
+    const duration = formatToolDuration(state.durationMs);
     const suffix = label.length > 0 ? `  ${label}` : "";
-    const lines = [
-      truncateGutterLine(
-        `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}${suffix}  ${duration}`,
-        width
-      ),
-    ];
+    const prefix = `${GUTTER}${icon} ${clr.toolName(toolLabel)}  `;
+    const tail = `${suffix}  ${duration}`;
+    const lines = wrapToolSummaryLine(prefix, state.argsSummary, width, tail);
     const metadata = asToolMetadata(state.result.metadata);
-    lines.push(...renderMetadata(metadata, state.result.output, state.result.success, width));
+    lines.push(
+      ...renderMetadata(
+        metadata,
+        state.result.output,
+        state.result.success,
+        width,
+        undefined,
+        state.name,
+        todoRenderOpts
+      )
+    );
     return lines;
   }
 }

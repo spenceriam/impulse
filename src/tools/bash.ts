@@ -691,8 +691,11 @@ export const bashTool: Tool<BashInput> = Tool.define(
           metadata: {
             command: input.command,
             workdir: input.workdir,
-            reason: permCheck.reason,
             description: input.description,
+            reason:
+              input.description?.trim() ||
+              permCheck.reason ||
+              "Run a shell command on your machine",
           },
         });
       }

@@ -91,7 +91,6 @@ const WATCH_DEBOUNCE_MS = 500;
  * gracefulExit(). One instance per Impulse session.
  */
 export class GitBranchWatcher {
-  private cwd: string;
   private gitPaths: GitPaths | null;
   private cachedBranch: string | null | undefined = undefined;
   private watcher: FSWatcher | null = null;
@@ -99,7 +98,6 @@ export class GitBranchWatcher {
   private disposed = false;
 
   constructor(cwd: string) {
-    this.cwd = cwd;
     this.gitPaths = findGitPaths(cwd);
   }
 

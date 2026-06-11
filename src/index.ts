@@ -97,7 +97,11 @@ function parseEnrichSessionTitlesArgs(argv: string[]): {
     if (Number.isFinite(n) && n > 0) limit = n;
   }
   const dryRun = argv.includes("--dry-run");
-  return { projectScope, limit, dryRun };
+  return {
+    projectScope,
+    dryRun,
+    ...(limit !== undefined ? { limit } : {}),
+  };
 }
 
 function parseResumeArg(argv: string[]): ResumeStartup | undefined {
@@ -227,13 +231,24 @@ if (!currentConfig.userProfile?.name) {
   await runOnboarding();
 }
 
-const resumeStartup = parseResumeArg(args);
+let resumeStartup = parseResumeArg(args);
+if (!resumeStartup) {
+  const { consumeUpdateResumeHint, isUpdateResumeHintValid } = await import(
+    "./util/update-resume-hint.js"
+  );
+  const updateHint = consumeUpdateResumeHint();
+  if (updateHint && isUpdateResumeHintValid(updateHint)) {
+    resumeStartup = { sessionId: updateHint.sessionId };
+  }
+}
 const messageArgs = stripResumeArgs(args).filter(
   (a) => !a.startsWith("-") && a !== "--setup"
 );
 
 // ─── Init tools & start ──────────────────────────────────────────────────────
-await printStartupSplash({ resume: resumeStartup });
+await printStartupSplash(
+  resumeStartup !== undefined ? { resume: resumeStartup } : undefined
+);
 await waitForTuiStart({ timeoutMs: 3000 });
 await initPty();
 

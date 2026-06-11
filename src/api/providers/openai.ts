@@ -8,6 +8,9 @@ import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { toApiUsageFields } from "../usage-helpers.js";
+import { applyOpenAIPromptCacheKey } from "../../harness/prompt-cache-key.js";
 
 // OpenAI API endpoint
 const BASE_URL = "https://api.openai.com/v1";
@@ -141,7 +144,11 @@ export class OpenAIProvider implements AIProvider {
           (request as unknown as Record<string, unknown>)["reasoning_effort"] =
             rl === "low" ? "low" : rl === "high" ? "high" : "medium";
         }
-        
+        applyOpenAIPromptCacheKey(
+          request as unknown as Record<string, unknown>,
+          options.messages
+        );
+
         return client.chat.completions.create(request);
       },
       options.signal
@@ -178,7 +185,11 @@ export class OpenAIProvider implements AIProvider {
           (request as unknown as Record<string, unknown>)["reasoning_effort"] =
             rl === "low" ? "low" : rl === "high" ? "high" : "medium";
         }
-        
+        applyOpenAIPromptCacheKey(
+          request as unknown as Record<string, unknown>,
+          options.messages
+        );
+
         return client.chat.completions.create(request);
       },
       options.signal
@@ -198,7 +209,55 @@ export class OpenAIProvider implements AIProvider {
     this.client = null;
     this.apiKey = null;
   }
-  
+
+  /**
+   * Discover model capabilities by querying the OpenAI /v1/models endpoint.
+   * Works for any OpenAI-compatible endpoint (Groq, Nous, local proxies, etc.).
+   */
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+
+    const base = this.config.baseUrl || BASE_URL;
+    const resp = await fetch(`${base}/models`, {
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resp.ok) return undefined;
+
+    const data = (await resp.json()) as {
+      data?: Array<{
+        id: string;
+        [key: string]: unknown;
+      }>;
+    };
+
+    const m = data.data?.find((d) => d.id === model);
+    if (!m) return undefined;
+
+    // OpenAI model IDs are well-known; we can map them with confidence.
+    const lowerId = model.toLowerCase();
+    const vision =
+      lowerId.includes("vision") ||
+      lowerId.startsWith("gpt-4o") ||
+      lowerId.startsWith("gpt-4-turbo") ||
+      lowerId.startsWith("o1") ||
+      lowerId.startsWith("o3") ||
+      lowerId.startsWith("o4") ||
+      false;
+
+    // Reasoning: o-series is the only confirmed line as of mid-2025.
+    const reasoning =
+      lowerId.startsWith("o1") ||
+      lowerId.startsWith("o3") ||
+      lowerId.startsWith("o4") ||
+      false;
+
+    return { vision, reasoning, source: "heuristic", discoveredAt: Date.now() };
+  }
+
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
     return {
       id: response.id,
@@ -221,11 +280,7 @@ export class OpenAIProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: response.usage ? {
-        prompt_tokens: response.usage.prompt_tokens,
-        completion_tokens: response.usage.completion_tokens,
-        total_tokens: response.usage.total_tokens,
-      } : undefined,
+      usage: toApiUsageFields(response.usage),
     };
   }
   
@@ -252,11 +307,7 @@ export class OpenAIProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: chunk.usage ? {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-      } : null,
+      usage: toApiUsageFields(chunk.usage) ?? null,
     };
   }
 }

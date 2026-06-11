@@ -16,7 +16,7 @@ export function zFilePath() {
     .describe(
       "File or directory path (relative or absolute). Plain path text only — do not wrap in Markdown links."
     )
-    .brand<FilePath>();
+    .brand<"FilePath">();
 }
 
 /** Shell command string — not a file path. */
@@ -26,7 +26,7 @@ export function zCommandString() {
     .describe(
       "Shell command to execute. Provide the command text only, not a file path or Markdown."
     )
-    .brand<CommandString>();
+    .brand<"CommandString">();
 }
 
 /** Glob pattern (e.g. star-star slash star dot ts). */
@@ -37,15 +37,16 @@ export function zGlobPattern() {
       message: "Glob pattern must be plain text, not a Markdown link",
     })
     .describe("Glob pattern (e.g. **/*.ts, src/**/*.md). Not a file path.")
-    .brand<GlobPattern>();
+    .brand<"GlobPattern">();
 }
 
 /** Exact file content snippet used for search/replace edits. */
 export function zCodeEdit() {
   return z
     .string()
+    .min(1, "must not be empty")
     .describe(
       "Exact text snippet from the file to find or replace. Must match file content precisely, including whitespace."
     )
-    .brand<CodeEdit>();
+    .brand<"CodeEdit">();
 }

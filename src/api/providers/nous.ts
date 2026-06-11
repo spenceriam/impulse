@@ -9,6 +9,9 @@ import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import type { ModelCapabilities } from "../capabilities";
+import { discoverOpenAIModelCapabilities } from "./openai-compatible";
+import { toApiUsageFields } from "../usage-helpers.js";
 
 // Nous Research Inference API endpoint
 const BASE_URL = "https://inference-api.nousresearch.com/v1";
@@ -199,6 +202,15 @@ export class NousProvider implements AIProvider {
     this.apiKey = null;
   }
 
+  async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
+    if (!this.config.apiKey) return undefined;
+    return discoverOpenAIModelCapabilities(
+      this.config.baseUrl || BASE_URL,
+      this.config.apiKey,
+      model
+    );
+  }
+
   private transformResponse(response: OpenAI.ChatCompletion): ChatCompletionResponse {
     return {
       id: response.id,
@@ -221,11 +233,7 @@ export class NousProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: response.usage ? {
-        prompt_tokens: response.usage.prompt_tokens,
-        completion_tokens: response.usage.completion_tokens,
-        total_tokens: response.usage.total_tokens,
-      } : undefined,
+      usage: toApiUsageFields(response.usage),
     };
   }
 
@@ -252,11 +260,7 @@ export class NousProvider implements AIProvider {
         },
         finish_reason: choice.finish_reason === "function_call" ? "tool_calls" as const : choice.finish_reason,
       })),
-      usage: chunk.usage ? {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-      } : null,
+      usage: toApiUsageFields(chunk.usage) ?? null,
     };
   }
 }

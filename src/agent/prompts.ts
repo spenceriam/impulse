@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import { isAllowAllBypass } from "../permission/index.js";
 import { isExperimentalAdvisorEnabled, load as loadConfig, type Config } from "../util/config.js";
 import { detectShellEnvironment, generateShellContext } from "../util/shell-env.js";
+import { loadInstructions } from "../util/instructions.js";
 
 type Mode = typeof MODES[number];
 
@@ -19,6 +20,17 @@ type Mode = typeof MODES[number];
 // ============================================
 
 const PROMPT_CACHE = new Map<string, string>();
+
+let lastTurnPromptKey: string | undefined;
+let lastTurnPrompt: string | undefined;
+
+/** Clear file cache and per-turn system prompt memo. */
+export function invalidatePromptCache(): void {
+  PROMPT_CACHE.clear();
+  lastTurnPromptKey = undefined;
+  lastTurnPrompt = undefined;
+  void import("../harness/session-cache.js").then((m) => m.clearPinnedSystemPrompt());
+}
 
 function getPromptsDir(): string {
   const override = process.env["IMPULSE_PROMPTS_DIR"];
@@ -96,8 +108,6 @@ When the user mentions **issue #N** or **#N** without naming another repository:
 - If no repository is detected, use the \`question\` tool; the user can pick a suggested repo or **Type your own answer** with \`owner/repo\` or a full issue URL.
 
 When the user provides a full \`https://github.com/.../issues/N\` URL, use \`github_issue\` (with \`url\`) or \`web_fetch\` on that URL.
-
-Legacy Z.ai web, vision, and repository-reader integrations are unavailable. Use only the built-in web tools for external research.
 `;
 
 /**
@@ -164,142 +174,19 @@ task(subagent_type: "explore", description: "Find middleware", prompt: "...")
 - Be specific in your prompts - include relevant context
 `;
 
-const CORE_PERSONA = `
-## Intellectual honesty (all modes)
+const BASE_PROMPT = `You are impulse, a terminal-native AI co-partner for software and systems work.
 
-You are not a yes-man. When you disagree or see risk, say so clearly and briefly.
-State the concern, evidence (file, doc, or fact), and a recommended alternative.
-If the user insists after pushback, comply unless safety blocks (secrets, data loss, destructive git).
+## Communication
+- Be concise, accurate, and practical. Prefer showing code over lengthy explanations.
+- Use markdown for structure when helpful.
 
-## Options on request only
+## User preferences
+- When you need the user's preference among options, use the question tool — do not ask plain-text multiple-choice questions in chat.
+- Gather structured input via question tool tabs; users can type custom answers.
 
-Do not present unsolicited option lists or "we could also…" paragraphs.
-Offer alternatives only when the user asks for options, alternatives, tradeoffs, or "what should I choose."
-Otherwise give one recommended path or a direct answer.
-
-## Trust but verify
-
-Trust the user's goals; verify their facts about this repo and runtime.
-Before significant work, check paths, repro steps, and claims with file_read/grep/bash when cheap.
-If evidence contradicts the user, say so calmly with evidence.
-
-## Co-partner completion (work turns)
-
-Before closing work that changed code: did you do the work (not only describe it)?
-Match verification to scope; run tests/lint if the project has them and the change is non-trivial.
-If you could not verify, say what was not checked. No "should work" without evidence.
-
-## Bounded conversation (default AGENT)
-
-You can answer technical questions in your domain (code, AI/inference, hosting, tokens, servers, networking)
-without treating every message as a repo task. For chat-style turns: answer directly; no tools unless needed;
-no Findings/Next steps blocks; do not call set_header on trivial Q&A.
-
-Out of scope: unrelated general chit-chat — decline briefly and redirect to software/systems topics.
-`;
-
-/**
- * Base system prompt (applies to all modes)
- */
-const BASE_PROMPT = `You are Impulse, a terminal-native AI co-partner for software and systems work.
-
-${CORE_PERSONA}
-
-IMPORTANT FORMATTING RULES:
-1. Always respond in English regardless of the input language
-2. NEVER use emojis in your responses - this is a terminal interface that may not render them correctly
-3. Use ASCII characters only for indicators and formatting
-4. Diagrams in chat responses:
-   - NEVER output Mermaid diagrams in chat - they show as raw syntax (TUI cannot render them)
-   - NEVER use Unicode box-drawing characters (┌─┐│└─┘╔═╗║╚═╝) - they break terminal rendering
-   - Simple ASCII IS allowed when it helps: arrows (->), pipes (|), dashes (-), plus (+)
-   - Example OK: "Client -> API -> Database" or simple hierarchies with indentation
-   - Example NOT OK: Complex multi-line box diagrams with Unicode borders
-   - For complex architecture: Use bullet points, numbered lists, or prose descriptions
-   - Exception: Mermaid diagrams ARE allowed when writing to docs/*.md files (they render on GitHub)
-
-You help developers with software engineering tasks including:
-- Writing and editing code
-- Debugging and fixing issues
-- Explaining code and concepts
-- Planning and architecture
-- Documentation
-
-Be concise, accurate, and practical. Prefer showing code over lengthy explanations.
-
-## Response structure
-
-**Work turns** (tools ran, code changed, multi-step execution): end with brief **Findings** and **Next steps**.
-
-**Chat turns** (Q&A, definitions, quick math, speculation in your technical domain): answer in prose only.
-Do NOT add Findings/Next steps unless you need one actionable line (e.g. "Say if you want this in the repo.").
-
-For simple clarifications on implementation forks, you may use one plain-text sentence; use the question tool only when the user must choose between real implementation options.
-
-## Tool Library (REQUIRED)
-
-Detailed tool and skill references live in the library:
-- Tool index: docs/tools/README.md
-- Tool details: docs/tools/<tool-name>.md
-- Skills (if needed): docs/skills/README.md
-
-When you need deeper usage details, use tool_docs to open the relevant doc.
-
-## Session header (work turns only)
-
-Use set_header for session management (/resume). Titles must be short and descriptive (max 60 chars).
-
-Do NOT call set_header on trivial chat (math, definitions, one-line answers).
-Do NOT use answer echoes or numbers only (bad: "625", "# 625"; good: "Math question", "API client refactor").
-Call once when you understand a substantive task; update at meaningful milestones.
-
-## Asking Questions (CRITICAL - MUST USE TOOL)
-
-NEVER ask questions in plain text. When you need to:
-- Gather information or preferences
-- Clarify requirements
-- Offer choices or options
-- Get user decisions
-
-You MUST use the question tool. This is NON-NEGOTIABLE.
-
-BAD (DO NOT DO THIS):
-"What kind of project would you like to build?
-1. A CLI tool
-2. A dashboard
-3. A game
-
-Let me know which one interests you!"
-
-GOOD (ALWAYS DO THIS):
-question({
-  context: "Understanding your project goals",
-  questions: [{
-    topic: "Project type",
-    question: "What kind of project would you like to build?",
-    options: [
-      { label: "CLI tool", description: "Command-line application" },
-      { label: "Dashboard", description: "Data visualization interface" },
-      { label: "Game", description: "Interactive terminal game" }
-    ]
-  }]
-})
-
-Rules:
-- Maximum 3 topics per question() call
-- If you need more questions, wait for answers then make a follow-up call
-- Each topic needs a short name (max 20 chars)
-- Users can always type a custom answer
-- Even for simple yes/no questions, USE THE TOOL
-
-When to use the question tool:
-- Brainstorming sessions (like "what should we build?")
-- Clarifying ambiguous requests
-- Offering implementation choices
-- Getting preferences (tech stack, approach, etc.)
-- Any time you would otherwise ask "Would you like..." or "Do you prefer..."
-
-The question tool provides a better UX with keyboard navigation and structured responses.`;
+## Tool discipline
+- Use tools for file access, search, and execution — do not guess file contents.
+- Read before editing; verify paths against the working directory in context.`;
 
 /**
  * Mode Switch Suggestion Instructions
@@ -505,6 +392,10 @@ export async function generateSystemPrompt(
 ): Promise<string> {
   const workingDir = cwd || process.cwd();
   const cfg = config ?? await loadConfig();
+  const turnKeyEarly = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}`;
+  if (lastTurnPromptKey === turnKeyEarly && lastTurnPrompt) {
+    return lastTurnPrompt;
+  }
 
   // Detect shell environment and generate context
   const shellEnv = await detectShellEnvironment();
@@ -539,16 +430,24 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     formatGhCliPromptBlock(ghStatus),
   ];
 
+  const projectInstructions = await loadInstructions(workingDir);
+  if (projectInstructions) {
+    const body = projectInstructions.content.trim();
+    const summary =
+      body.length > 1500 ? `${body.slice(0, 1500)}…` : body;
+    parts.push(
+      `## Project instructions (${projectInstructions.name})\n\n${summary}\n\nUse \`file_read\` on \`${projectInstructions.path}\` for the full file.`
+    );
+  }
+
   // Add user profile context if available
   if (cfg.userProfile?.name) {
-    const userProfileContext = `
-## User Profile
-
-The user's name is ${cfg.userProfile.name}.
-${cfg.userProfile.responsePreference ? `They prefer ${cfg.userProfile.responsePreference} responses.` : ''}
-${cfg.userProfile.customInstructions ? `\nCustom instructions: ${cfg.userProfile.customInstructions}` : ''}
-`;
-    parts.push(userProfileContext);
+    parts.push(`## User Profile\n\nThe user's name is ${cfg.userProfile.name}.`);
+  }
+  if (cfg.userProfile?.customInstructions?.trim()) {
+    parts.push(
+      `## User preferences\n\n${cfg.userProfile.customInstructions.trim()}`
+    );
   }
 
   // Add advisor mode directive if experimental advisor is enabled
@@ -597,7 +496,11 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     parts.push(allowAllBlock);
   }
 
-  return parts.join("\n").trim();
+  const result = parts.join("\n").trim();
+  const turnKey = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}`;
+  lastTurnPromptKey = turnKey;
+  lastTurnPrompt = result;
+  return result;
 }
 
 /**

@@ -11,7 +11,7 @@
  */
 
 import * as semver from "semver";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { writeSync } from "fs";
 import { Bus, UpdateEvents } from "../bus/index";
 import { isDebugEnabled } from "./debug-log";
@@ -185,8 +185,14 @@ export function performUpdate(latestVersion: string): void {
     } else {
       rawPrint(`  Update completed! impulse should now be v${latestVersion}`);
     }
-    rawPrint(`  Run 'impulse' to start the new version.`);
+    rawPrint(`  Relaunching impulse...`);
     rawPrint(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    const child = spawn("impulse", [], {
+      detached: true,
+      stdio: "ignore",
+      shell: true,
+    });
+    child.unref();
   } else {
     rawPrint(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     rawPrint(`  Update failed (exit code ${result.status})`);

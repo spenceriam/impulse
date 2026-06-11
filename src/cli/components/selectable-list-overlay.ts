@@ -9,7 +9,6 @@ import {
   computeTableColumnLayout,
   overlayBoxWidth,
   resolveSessionPickerOverlayWidth,
-  type ListOverlayContentMeasure,
 } from "../layout.js";
 import {
   maxListRowsForHeight,
@@ -162,7 +161,7 @@ export function computeTableLayout(
 function formatTableHeaderLine(
   headers: SelectableListTableHeaders,
   widths: TableColumnWidths,
-  innerWidth: number,
+  _innerWidth: number,
   omitModelColumn = false
 ): string {
   const prefix = "    ";
@@ -388,20 +387,6 @@ export class SelectableListOverlay implements Component {
       : "Search: _";
   }
 
-  private contentMeasureParts(): ListOverlayContentMeasure {
-    return {
-      title: this.title,
-      searchPlain: this.searchPlainText(),
-      rows: this.filtered,
-      helpLines: this.helpLines,
-      tableHeaders: this.layout === "table" ? this.tableHeaders : undefined,
-      emptyMessage: this.emptyMessage,
-      loadingMessage: this.loadingMessage,
-      loading: this.loading,
-      rowsEmpty: this.rows.length === 0,
-    };
-  }
-
   private terminalWidthForCap(hostWidth: number): number {
     return this.measureTerminalWidth ?? hostWidth;
   }
@@ -412,7 +397,9 @@ export class SelectableListOverlay implements Component {
       searchPlain: this.searchPlainText(),
       rows,
       helpLines: this.helpLines,
-      tableHeaders: this.layout === "table" ? this.tableHeaders : undefined,
+      ...(this.layout === "table" && this.tableHeaders !== undefined
+        ? { tableHeaders: this.tableHeaders }
+        : {}),
       emptyMessage: this.emptyMessage,
       loadingMessage: this.loadingMessage,
       loading: this.loading,
@@ -607,7 +594,7 @@ export class SelectableListOverlay implements Component {
 
   private buildDisplayLines(
     terminalWidth: number,
-    panelInnerWidth: number
+    _panelInnerWidth: number
   ): DisplayLine[] {
     const out: DisplayLine[] = [];
     const terminalCapInner = Math.max(

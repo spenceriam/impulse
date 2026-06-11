@@ -8,7 +8,7 @@ export const VISION_NERD_ICON = "\u{F06D0}";
 export const VISION_STATUS_FALLBACK = "(vision)";
 
 export function isNerdIconsEnabled(): boolean {
-  const v = process.env.IMPULSE_NERD_ICONS?.trim().toLowerCase();
+  const v = process.env["IMPULSE_NERD_ICONS"]?.trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes";
 }
 

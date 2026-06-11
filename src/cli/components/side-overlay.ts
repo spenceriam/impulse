@@ -116,7 +116,7 @@ export class SideOverlay implements Component {
   ): SideOverlayLiveState {
     return {
       userText,
-      contextSnapshot: opts.contextSnapshot,
+      ...(opts.contextSnapshot !== undefined ? { contextSnapshot: opts.contextSnapshot } : {}),
       usedContext: opts.usedContext,
       thinkingText: "",
       answerText: "",

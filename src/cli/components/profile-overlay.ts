@@ -1,6 +1,5 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import type { UserProfile } from "../../util/config.js";
-import { overlayBoxWidth } from "../layout.js";
 import {
   intrinsicFramedBoxWidth,
   overlayAnsi,
@@ -53,7 +52,9 @@ export class ProfileOverlay implements Component {
   onCancel?: () => void;
 
   constructor(opts: ProfileOverlayOptions) {
-    this.profile = opts.profile;
+    if (opts.profile !== undefined) {
+      this.profile = opts.profile;
+    }
   }
 
   setMeasureTerminalWidth(cols: number): void {
@@ -63,11 +64,9 @@ export class ProfileOverlay implements Component {
   preferredBoxWidth(terminalWidth: number): number {
     const terminal = this.measureTerminalWidth ?? terminalWidth;
     const name = this.profile?.name?.trim() ?? "";
-    const preference = this.profile?.responsePreference?.trim() || "concise";
     const instructions = this.profile?.customInstructions?.trim() ?? "";
     const widths: number[] = [
       visibleWidth(`name: ${name || "(not set)"}`),
-      visibleWidth(`preference: ${preference}`),
       visibleWidth(instructions || "(none)"),
       visibleWidth("  > Edit profile  e or Enter"),
       visibleWidth("↑/↓ navigate   e: edit   Esc: close"),
@@ -119,15 +118,9 @@ export class ProfileOverlay implements Component {
     lines.push(overlayEmptyLine(boxWidth));
 
     const name = this.profile?.name?.trim() ?? "";
-    const preference = this.profile?.responsePreference?.trim() || "concise";
     const instructions = this.profile?.customInstructions?.trim() ?? "";
 
     for (const inner of fieldLines("name", name, innerWidth)) {
-      lines.push(overlaySideLine(inner, innerWidth, boxWidth));
-    }
-    lines.push(overlayEmptyLine(boxWidth));
-
-    for (const inner of fieldLines("preference", preference, innerWidth)) {
       lines.push(overlaySideLine(inner, innerWidth, boxWidth));
     }
     lines.push(overlayEmptyLine(boxWidth));

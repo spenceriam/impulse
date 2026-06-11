@@ -64,8 +64,6 @@ export function formatTaskToolResultFromRun(
   const thoroughnessNote = buildTaskThoroughnessNote({
     subagent_type: spec.subagentType,
     thoroughness: spec.thoroughness,
-    prompt: spec.prompt,
-    description: spec.description,
   });
 
   let output = run.output;
@@ -132,10 +130,14 @@ export async function runTaskBatch(
         spec.thoroughness,
         {
           parentToolCallId: spec.toolCallId,
-          signal: options.signal,
-          subagentReasoningCapable: options.subagentReasoningCapable,
-          showSubagentThinkingDetail: options.showSubagentThinkingDetail,
-          model: options.model,
+          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          ...(options.subagentReasoningCapable !== undefined
+            ? { subagentReasoningCapable: options.subagentReasoningCapable }
+            : {}),
+          ...(options.showSubagentThinkingDetail !== undefined
+            ? { showSubagentThinkingDetail: options.showSubagentThinkingDetail }
+            : {}),
+          ...(options.model !== undefined ? { model: options.model } : {}),
         }
       );
       results.set(spec.toolCallId, {

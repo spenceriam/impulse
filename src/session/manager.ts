@@ -8,6 +8,7 @@ import {
 } from "./store";
 import { CheckpointManager } from "./checkpoint";
 import { CompactManager } from "./compact";
+import type { OptionalPatch } from "../util/omit-undefined.js";
 
 interface SessionManagerOptions {
   defaultModel?: string
@@ -115,7 +116,9 @@ class SessionManagerImpl {
     return await this.load(sessionID);
   }
 
-  async update(updates: Partial<Omit<Session, "id" | "created_at" | "updated_at">>): Promise<Session> {
+  async update(
+    updates: OptionalPatch<Omit<Session, "id" | "created_at" | "updated_at">>
+  ): Promise<Session> {
     if (!this.currentSession) {
       throw new Error("No active session to update");
     }
