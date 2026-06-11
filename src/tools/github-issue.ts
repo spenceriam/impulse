@@ -37,21 +37,22 @@ function parseIssueUrl(url: string): { owner: string; repo: string; number: numb
 function preprocessGithubIssueInput(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return raw;
   const obj = { ...(raw as Record<string, unknown>) };
-  if (typeof obj.number === "string") {
-    const fromUrl = parseIssueUrl(obj.number);
+  if (typeof obj["number"] === "string") {
+    const numStr = obj["number"];
+    const fromUrl = parseIssueUrl(numStr);
     if (fromUrl) {
-      obj.url = obj.url ?? obj.number;
-      obj.number = fromUrl.number;
-      obj.owner = obj.owner ?? fromUrl.owner;
-      obj.repo = obj.repo ?? fromUrl.repo;
+      obj["url"] = obj["url"] ?? numStr;
+      obj["number"] = fromUrl.number;
+      obj["owner"] = obj["owner"] ?? fromUrl.owner;
+      obj["repo"] = obj["repo"] ?? fromUrl.repo;
     } else {
-      const n = parseInt(obj.number, 10);
-      if (!Number.isNaN(n) && n > 0) obj.number = n;
+      const n = parseInt(numStr, 10);
+      if (!Number.isNaN(n) && n > 0) obj["number"] = n;
     }
   }
-  if (obj.number === undefined && typeof obj.url === "string") {
-    const fromUrl = parseIssueUrl(obj.url);
-    if (fromUrl) obj.number = fromUrl.number;
+  if (obj["number"] === undefined && typeof obj["url"] === "string") {
+    const fromUrl = parseIssueUrl(obj["url"]);
+    if (fromUrl) obj["number"] = fromUrl.number;
   }
   return obj;
 }

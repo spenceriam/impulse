@@ -3,7 +3,12 @@ import { Tool, ToolResult } from "./registry";
 import { readFile, writeFile } from "fs/promises";
 import { resolve, relative, isAbsolute } from "path";
 import { createPatch } from "diff";
-import { createCompactDiff } from "../util/compact-diff";
+import {
+  capCompactDiffResult,
+  createCompactDiff,
+  MAX_DIFF_INPUT_BYTES,
+  MAX_DIFF_PATCH_BYTES,
+} from "../util/compact-diff";
 import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
@@ -33,7 +38,6 @@ const EditSchema = z.object({
 });
 
 type EditInput = z.infer<typeof EditSchema>;
-const MAX_DIFF_BYTES = 200_000; // 200KB
 
 /**
  * Check if a path is within the current working directory
@@ -123,7 +127,9 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         newContent = applyReplacement(content, match, input.newString);
       }
 
-      const shouldSkipDiff = Buffer.byteLength(content, "utf-8") + Buffer.byteLength(newContent, "utf-8") > MAX_DIFF_BYTES;
+      const combinedBytes =
+        Buffer.byteLength(content, "utf-8") + Buffer.byteLength(newContent, "utf-8");
+      const shouldSkipDiff = combinedBytes > MAX_DIFF_INPUT_BYTES;
       let diff = "";
       let compactDiff: string[] | undefined;
       let linesAdded = 0;
@@ -131,25 +137,29 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       let firstChangedLine: number | undefined;
       let diffSkipped = false;
       let diffReason: string | undefined;
+      let diffTruncatedLines: number | undefined;
 
       if (shouldSkipDiff) {
         diffSkipped = true;
         diffReason = "File too large to diff";
       } else {
-        // Generate unified diff before writing
-        diff = createPatch(
-          input.filePath,
-          content,      // old content
-          newContent,   // new content
-          "original",
-          "modified"
-        );
-
         const compact = createCompactDiff(content, newContent);
-        compactDiff = compact.lines;
-        linesAdded = compact.additions;
-        linesRemoved = compact.removals;
-        firstChangedLine = compact.firstChangedLine;
+        const capped = capCompactDiffResult(compact);
+        compactDiff = capped.compactDiff;
+        linesAdded = capped.linesAdded;
+        linesRemoved = capped.linesRemoved;
+        firstChangedLine = capped.firstChangedLine;
+        diffTruncatedLines = capped.diffTruncatedLines;
+
+        if (combinedBytes <= MAX_DIFF_PATCH_BYTES) {
+          diff = createPatch(
+            input.filePath,
+            content,
+            newContent,
+            "original",
+            "modified"
+          );
+        }
       }
 
       await writeFile(safePath, newContent, "utf-8");
@@ -178,6 +188,7 @@ export const fileEdit: Tool<EditInput> = Tool.define(
           firstChangedLine,
           diffSkipped,
           diffReason,
+          diffTruncatedLines,
         },
       };
     } catch (error) {
