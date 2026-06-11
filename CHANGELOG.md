@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-11
+
+  **Type:** minor
+  **Title:** Bottom bar visuals, smarter diffs, prompt history upgrades, github_issue URLs
+
+  ### Added
+  - **Bottom bar visuals** — `/settings` option `full` / `reduced` / `minimal` / `off` for a quieter footer; persisted globally in `~/.impulse/config.json`
+  - **Prompt history** — Up recalls slash commands and `!` shell commands; draft restore on Down; per-project persistence (20 entries) under `~/.impulse/history/`
+  - **`github_issue` URL input** — full `https://github.com/owner/repo/issues/N` URLs accepted in the `number` or `url` field, including cross-repo links
+
+  ### Changed
+  - **File edit/write diffs** — compact diff always computed for large files; only the true changed hunks render, with truncation footer when output exceeds the cap
+
 ## [1.5.1] - 2026-06-11
 
   **Type:** patch
