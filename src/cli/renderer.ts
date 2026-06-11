@@ -2427,6 +2427,9 @@ export class ImpulseRenderer {
             if (this.latestTodoBlock === block) {
               this.latestTodoBlock = null;
             }
+            if (this.lastExpandableTool === block) {
+              this.lastExpandableTool = null;
+            }
             this.chat.removeChild(block);
             if (this.lastToolGapSpacer) {
               this.chat.removeChild(this.lastToolGapSpacer);
