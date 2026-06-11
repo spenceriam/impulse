@@ -84,13 +84,18 @@ function pidAlive(pid: number): boolean {
 }
 
 /**
- * Marker belongs to this project + cwd and its owning process is gone —
- * i.e. the session was interrupted, not currently open in another instance.
+ * Marker belongs to this project + cwd and the session was interrupted,
+ * not currently open in another instance.
+ *
+ * Pid semantics: `bun --watch` re-executes the script in the SAME process,
+ * so a marker carrying our own pid at startup means a watch reload of this
+ * process — resume it. Only a different, still-alive pid means another live
+ * instance owns the session.
  */
 export function isActiveSessionMarkerValid(marker: ActiveSessionMarker): boolean {
   if (marker.projectID !== getCurrentProjectID()) return false;
   if (marker.cwd && path.resolve(marker.cwd) !== path.resolve(process.cwd())) return false;
-  if (marker.pid === process.pid) return false;
+  if (marker.pid === process.pid) return true;
   if (pidAlive(marker.pid)) return false;
   return true;
 }

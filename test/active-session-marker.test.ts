@@ -59,8 +59,15 @@ describe("active session marker", () => {
     expect(readActiveSessionMarker(tmpDir)).toBeUndefined();
   });
 
-  test("marker from our own pid is not valid (still running)", () => {
+  test("marker from our own pid is valid (bun --watch reload reuses the pid)", () => {
     writeActiveSessionMarker("sess_self", { baseDir: tmpDir });
+    const marker = readActiveSessionMarker(tmpDir)!;
+    expect(isActiveSessionMarkerValid(marker)).toBe(true);
+  });
+
+  test("marker from a different live pid is not valid (other instance owns it)", () => {
+    // PID 1 (launchd/init) is always alive and never us.
+    writeRawMarker({ pid: 1 });
     const marker = readActiveSessionMarker(tmpDir)!;
     expect(isActiveSessionMarkerValid(marker)).toBe(false);
   });
