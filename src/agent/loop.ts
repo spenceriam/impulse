@@ -301,6 +301,19 @@ export class AgentLoop {
           ? (buildUserMessageContent(segments, nativeVision) as Message["apiContent"])
           : userMessage;
 
+      const storedApiContent: Message["apiContent"] =
+        apiContent === undefined
+          ? undefined
+          : typeof apiContent === "string"
+            ? apiContent.includes("\r")
+              ? normalizePasteContent(apiContent)
+              : apiContent
+            : apiContent.map((part) =>
+                part.type === "text" && part.text.includes("\r")
+                  ? { ...part, text: normalizePasteContent(part.text) }
+                  : part
+              );
+
       const orderedImages =
         segments && segments.length > 0
           ? segments
@@ -311,13 +324,15 @@ export class AgentLoop {
 
       const hasTextPaste = segments?.some((s) => s.kind === "paste") ?? false;
       const rawTranscript =
-        hasTextPaste && typeof apiContent === "string" ? apiContent : displayMessage;
+        hasTextPaste && typeof storedApiContent === "string"
+          ? storedApiContent
+          : displayMessage;
       const transcriptContent = normalizePasteContent(rawTranscript);
 
       const userMsg: Message = {
         role: "user",
         content: transcriptContent,
-        ...(apiContent !== undefined ? { apiContent } : {}),
+        ...(storedApiContent !== undefined ? { apiContent: storedApiContent } : {}),
         timestamp: new Date().toISOString(),
       };
       await SessionManager.addMessage(userMsg);
