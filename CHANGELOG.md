@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ### Changed
   - **File edit/write diffs** — compact diff always computed for large files; only the true changed hunks render, with truncation footer when output exceeds the cap
 
+  ### Fixed
+  - **#80** — first-run CLI onboarding now sets `modelExplicitlySet` so the first prompt works without re-running `/model`; existing broken configs repaired on load when `defaultModel` is saved
+
 ## [1.5.1] - 2026-06-11
 
   **Type:** patch

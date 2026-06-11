@@ -442,6 +442,7 @@ async function runSetup(): Promise<void> {
       providers: {},
       defaultProvider: providerKey,
       defaultModel,
+      modelExplicitlySet: Boolean(defaultModel?.trim()),
       hasSeenWelcome: true,
     })
   );
@@ -454,6 +455,7 @@ async function runSetup(): Promise<void> {
   };
   cfg.defaultProvider = providerKey;
   cfg.defaultModel = defaultModel;
+  cfg.modelExplicitlySet = Boolean(defaultModel?.trim());
   if (envVar) process.env[envVar] = key;
 
   await saveConfig(cfg as Parameters<typeof saveConfig>[0]);

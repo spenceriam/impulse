@@ -243,13 +243,7 @@ export async function load(): Promise<Config> {
     parsed.thinkingDisplay =
       fileConfig.showMainThinking === false ? "off" : "summary";
   }
-  // Legacy configs: existing defaultModel implies explicit choice
-  if (
-    fileConfig.defaultModel &&
-    typeof (fileConfig as { modelExplicitlySet?: boolean }).modelExplicitlySet !== "boolean"
-  ) {
-    parsed.modelExplicitlySet = true;
-  }
+  repairModelExplicitlySet(fileConfig, parsed);
   // Advisor requires experimental flag
   if (parsed.advisorMode && !isExperimentalAdvisorEnabled(parsed)) {
     parsed.advisorMode = false;
@@ -298,6 +292,19 @@ export function applySessionVision(config: Config): Config {
     };
   }
   return { ...config, visionMode: false };
+}
+
+/**
+ * Non-empty defaultModel implies the user chose a model (onboarding, /model, cli setup).
+ * Repairs first-run onboarding configs that saved defaultModel without modelExplicitlySet (#80).
+ */
+export function repairModelExplicitlySet(
+  fileConfig: Partial<Config>,
+  parsed: Config
+): void {
+  if (fileConfig.defaultModel?.trim() && parsed.modelExplicitlySet !== true) {
+    parsed.modelExplicitlySet = true;
+  }
 }
 
 /** Whether the user has saved a default model (required before chat). */
