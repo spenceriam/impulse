@@ -12,28 +12,9 @@ const DESCRIPTION = `Read a GitHub issue via GitHub CLI (gh). Requires gh instal
 
 Does not use web_fetch. If gh is unavailable, the tool returns the canonical issue URL — use web_fetch on that URL instead.
 
-For "issue #N" in the current workspace, omit owner/repo (uses Repository context).`;
+For "issue #N" in the current workspace, omit owner/repo (uses Repository context).
 
-const GithubIssueSchema = z.object({
-  number: z.number().int().positive().describe("Issue number"),
-  owner: z.string().optional().describe("Repository owner (defaults to workspace repo)"),
-  repo: z.string().optional().describe("Repository name (defaults to workspace repo)"),
-  url: z
-    .string()
-    .optional()
-    .describe("Full GitHub issue URL (overrides number/owner/repo when parseable)"),
-});
-
-type GithubIssueInput = z.infer<typeof GithubIssueSchema>;
-
-interface GhIssueJson {
-  title?: string;
-  body?: string;
-  state?: string;
-  url?: string;
-  labels?: Array<{ name?: string }>;
-  comments?: Array<{ author?: { login?: string }; body?: string }>;
-}
+Accepts an issue number or a full https://github.com/owner/repo/issues/N URL (URLs may be passed in either the number or url field).`;
 
 function parseIssueUrl(url: string): { owner: string; repo: string; number: number } | null {
   try {
@@ -51,6 +32,56 @@ function parseIssueUrl(url: string): { owner: string; repo: string; number: numb
     return null;
   }
   return null;
+}
+
+function preprocessGithubIssueInput(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const obj = { ...(raw as Record<string, unknown>) };
+  if (typeof obj.number === "string") {
+    const fromUrl = parseIssueUrl(obj.number);
+    if (fromUrl) {
+      obj.url = obj.url ?? obj.number;
+      obj.number = fromUrl.number;
+      obj.owner = obj.owner ?? fromUrl.owner;
+      obj.repo = obj.repo ?? fromUrl.repo;
+    } else {
+      const n = parseInt(obj.number, 10);
+      if (!Number.isNaN(n) && n > 0) obj.number = n;
+    }
+  }
+  if (obj.number === undefined && typeof obj.url === "string") {
+    const fromUrl = parseIssueUrl(obj.url);
+    if (fromUrl) obj.number = fromUrl.number;
+  }
+  return obj;
+}
+
+export const GithubIssueSchema = z.preprocess(
+  preprocessGithubIssueInput,
+  z.object({
+    number: z
+      .number()
+      .int()
+      .positive()
+      .describe("Issue number, or paste a full GitHub issue URL here"),
+    owner: z.string().optional().describe("Repository owner (defaults to workspace repo)"),
+    repo: z.string().optional().describe("Repository name (defaults to workspace repo)"),
+    url: z
+      .string()
+      .optional()
+      .describe("Full GitHub issue URL (overrides number/owner/repo when parseable)"),
+  })
+);
+
+type GithubIssueInput = z.infer<typeof GithubIssueSchema>;
+
+interface GhIssueJson {
+  title?: string;
+  body?: string;
+  state?: string;
+  url?: string;
+  labels?: Array<{ name?: string }>;
+  comments?: Array<{ author?: { login?: string }; body?: string }>;
 }
 
 function resolveTarget(input: GithubIssueInput, ctx: RepoContext | null): {

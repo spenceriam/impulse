@@ -4,9 +4,9 @@ Read a GitHub issue using GitHub CLI (`gh`). **Requires `gh` installed and authe
 
 ## Parameters
 
-- `number` (required): Issue number
+- `number` (required unless `url` is provided): Issue number, numeric string, or full issue URL
 - `owner`, `repo` (optional): default to workspace repo from Repository context
-- `url` (optional): full issue URL (parses owner/repo/number)
+- `url` (optional): full issue URL (parses owner/repo/number; sufficient on its own)
 
 ## When to use
 
