@@ -72,6 +72,7 @@ const LIST_OVERLAY_MAX_HEIGHT = 18;
 import { overlayMinWidth } from "./layout.js";
 import { overlayMaxHeightForContent, overlayViewportMaxHeight } from "./overlay-height.js";
 import { PromptHistory } from "./prompt-history.js";
+import { loadPromptHistory, savePromptHistory } from "../util/prompt-history-store.js";
 import {
   isAllowAllBypass,
   resetAllowAllBypass,
@@ -1526,6 +1527,9 @@ export class ImpulseRenderer {
     this.contextWindow = SessionManager.getCurrentSession()?.context_window ?? this.contextWindow;
     this.contextTokens = this.estimateCurrentSessionTokens();
 
+    const historyEntries = await loadPromptHistory();
+    this.promptHistory.loadEntries(historyEntries);
+
     // Debug logging
     debugLog(`Session started`);
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
@@ -1659,13 +1663,15 @@ export class ImpulseRenderer {
         return;
       }
       if (this.isRunning) return;
+      this.promptHistory.saveDraft(this.promptInput.getText());
       const prev = this.promptHistory.previous();
       if (prev !== null) this.promptInput.setText(prev);
     };
     this.promptInput.onArrowDown = () => {
       if (this.modelSetup) return;
-      this.promptHistory.resetIndex();
-      this.promptInput.clear();
+      const draft = this.promptHistory.takeDraft();
+      if (draft !== null) this.promptInput.setText(draft);
+      else this.promptInput.clear();
     };
     this.promptInput.onTabForward = () => {
       if (this.modelSetup) return;
@@ -2226,6 +2232,7 @@ export class ImpulseRenderer {
 
     const bangCommand = parseBangCommand(input);
     if (bangCommand) {
+      this.recordSubmittedPrompt(input);
       this.promptInput.clear();
       void this.runBangCommand(bangCommand);
       return;
@@ -2248,6 +2255,7 @@ export class ImpulseRenderer {
     }
 
     if (shouldTreatAsSlashCommand(input)) {
+      this.recordSubmittedPrompt(payload.apiText.trim());
       await this.handleSlash(payload.apiText.trim());
       this.tui.requestRender();
       return;
@@ -2258,8 +2266,8 @@ export class ImpulseRenderer {
       // Save the prompt to history even when model isn't configured
       // so the user can retrieve it with the up arrow after configuring the model
       const transcript = userTranscriptText(payload);
-      this.promptHistory.push(transcript);
-      
+      this.recordSubmittedPrompt(transcript);
+
       this.addChatLine(
         clr.warn("No model selected. Run ") + clr.tool("/model") + clr.warn(" to choose a provider and model first.")
       );
@@ -2277,6 +2285,13 @@ export class ImpulseRenderer {
   }
 
   // ?? Agent turn ????????????????????????????????????????????????????????????
+
+  private recordSubmittedPrompt(text: string): void {
+    const t = text.trim();
+    if (!t) return;
+    this.promptHistory.push(t);
+    void savePromptHistory(this.promptHistory.toJSON()).catch(() => {});
+  }
 
   private async runTurn(payload: PromptSubmitPayload): Promise<void> {
     if (!this.isNonemptySubmitPayload(payload)) {
@@ -2323,7 +2338,7 @@ export class ImpulseRenderer {
     }
 
     this.promptInput.clear();
-    this.promptHistory.push(transcript);
+    this.recordSubmittedPrompt(transcript);
 
     this.isRunning = true;
     this.modeChangeText = null;
@@ -3063,7 +3078,7 @@ export class ImpulseRenderer {
     this.syncAllowAllBypassUi();
     this.speedoEnabled = false;
     this.syncSpeedoUi();
-    this.promptHistory.reset();
+    this.promptHistory.resetIndex();
     this.resetTurnUiState();
     this.clearChatView();
     this.addChatLine(clr.dim("New session started"));
