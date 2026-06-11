@@ -1,4 +1,4 @@
-import { type Component, visibleWidth } from "@mariozechner/pi-tui";
+import { type Component, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
@@ -71,8 +71,10 @@ export class QuestionOverlay implements Component {
     return Math.min(cap, intrinsicFramedBoxWidth(terminal, "Need your input", widths));
   }
 
-  private viewportBodyLines(): number {
-    const chromeLines = 1 + Math.max(1, this.allLinesLength - this.chromeBottomStart);
+  private viewportBodyLines(chromeBottomStart?: number, allLinesLength?: number): number {
+    const bottomStart = chromeBottomStart ?? this.chromeBottomStart;
+    const totalLength = allLinesLength ?? this.allLinesLength;
+    const chromeLines = 1 + Math.max(1, totalLength - bottomStart);
     if (this.maxHeight <= chromeLines) return 1;
     return Math.max(1, this.maxHeight - chromeLines);
   }
@@ -314,11 +316,15 @@ export class QuestionOverlay implements Component {
         pushBoxLine("");
       }
       const reviewBodyLines = lines.length - reviewBodyStart;
-      const reviewFooter =
-        reviewBodyLines > this.viewportBodyLines()
-          ? `Enter submit  e edit  ${OVERLAY_SCROLL_FOOTER}`
-          : "Enter submit  e edit  Esc go back";
       this.chromeBottomStart = lines.length;
+      const scrollFooter = `Enter submit  e edit  ${OVERLAY_SCROLL_FOOTER}`;
+      const projectedChromeBottom =
+        wrapTextWithAnsi(overlayDim(scrollFooter), innerWidth).length + 1;
+      const reviewFooter =
+        reviewBodyLines >
+        this.viewportBodyLines(this.chromeBottomStart, lines.length + projectedChromeBottom)
+          ? scrollFooter
+          : "Enter submit  e edit  Esc go back";
       overlayPushWrapped(lines, overlayDim(reviewFooter), innerWidth, boxWidth);
       lines.push(overlayBottomBorder(boxWidth));
       return lines;

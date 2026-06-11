@@ -413,10 +413,18 @@ export class ImpulseRenderer {
     block.setTodoBlinkEnabled(this.isRunning);
   }
 
-  private removeSilentTodoToolBlock(block: ToolBlock, id: string): void {
-    if (this.latestTodoBlock === block) {
-      this.latestTodoBlock = null;
+  private findLatestVisibleTodoBlock(): ToolBlock | null {
+    for (let i = this.chat.children.length - 1; i >= 0; i--) {
+      const child = this.chat.children[i];
+      if (child instanceof ToolBlock && child.isTodoTool()) {
+        return child;
+      }
     }
+    return null;
+  }
+
+  private removeSilentTodoToolBlock(block: ToolBlock, id: string): void {
+    const wasLatestTodo = this.latestTodoBlock === block;
     if (this.lastExpandableTool === block) {
       this.lastExpandableTool = null;
     }
@@ -432,6 +440,9 @@ export class ImpulseRenderer {
       this.preToolSpacing = null;
     }
     this.toolBlocks.delete(id);
+    if (wasLatestTodo) {
+      this.latestTodoBlock = this.findLatestVisibleTodoBlock();
+    }
   }
 
   /** Check if advisor mode should be turned off (all tasks complete) */

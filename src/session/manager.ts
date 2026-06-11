@@ -109,7 +109,11 @@ class SessionManagerImpl {
 
   async load(sessionID: string): Promise<Session> {
     const session = await SessionStoreInstance.read(sessionID);
-    await this.exitCurrent();
+    if (this.currentSession?.id === sessionID) {
+      await this.flushCurrent();
+    } else {
+      await this.exitCurrent();
+    }
 
     this.currentSession = session;
     this.sessionHistory.push(session);
