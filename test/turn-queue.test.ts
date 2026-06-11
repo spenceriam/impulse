@@ -78,6 +78,16 @@ describe("buildQueuePreviewText", () => {
     expect(text).not.toMatch(/\x1b\[36m/);
   });
 
+  test("omits header when all queued messages are blank", () => {
+    const text = buildQueuePreviewText({
+      items: [payload("  "), payload("\n")],
+      holdDrain: false,
+      editIndex: 0,
+      width: 80,
+    });
+    expect(text).not.toContain("Queued messages");
+  });
+
   test("returns empty when queue is empty and not editing", () => {
     expect(
       buildQueuePreviewText({

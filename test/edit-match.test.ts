@@ -7,6 +7,11 @@ import {
 } from "../src/tools/edit-match.js";
 
 describe("edit-match", () => {
+  test("findExact rejects empty oldString", () => {
+    expect(findExact("hello", "")).toBeNull();
+    expect(resolveEditMatch("hello", "")).toBeNull();
+  });
+
   test("findExact matches literal substring", () => {
     const content = "  hello world\n  foo bar";
     const match = findExact(content, "hello world");

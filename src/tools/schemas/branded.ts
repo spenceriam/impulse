@@ -44,6 +44,7 @@ export function zGlobPattern() {
 export function zCodeEdit() {
   return z
     .string()
+    .min(1, "must not be empty")
     .describe(
       "Exact text snippet from the file to find or replace. Must match file content precisely, including whitespace."
     )

@@ -75,6 +75,7 @@ function buildMatchFromWindow(
 
 /** Exact substring match (current file_edit behavior). */
 export function findExact(content: string, oldString: string): EditMatchResult | null {
+  if (!oldString) return null;
   const index = content.indexOf(oldString);
   if (index === -1) return null;
   return {
@@ -158,6 +159,7 @@ export function applyReplacement(
 
 /** Replace all exact occurrences of oldString in content. */
 export function replaceAllExact(content: string, oldString: string, newString: string): string {
+  if (!oldString) return content;
   return content.split(oldString).join(newString);
 }
 
@@ -233,6 +235,8 @@ export function resolveEditMatch(
   oldString: string,
   options: ResolveEditMatchOptions = {}
 ): ResolvedEditMatch | null {
+  if (!oldString) return null;
+
   const exact = findExact(content, oldString);
   if (exact) {
     return {
