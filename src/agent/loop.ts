@@ -97,7 +97,8 @@ import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
 import { modelSupportsVision } from "../api/capabilities.js";
 import type { PromptSegment } from "../cli/prompt-input.js";
-import { buildUserMessageContent } from "../cli/prompt-input.js";
+import { buildUserMessageContent, normalizePasteContent } from "../cli/prompt-input.js";
+import { capToolResultContent } from "../util/tool-output-cap.js";
 import {
   MAX_CONCURRENT_SUBAGENTS,
   runTaskBatch,
@@ -309,8 +310,9 @@ export class AgentLoop {
           : [...this.pendingImages];
 
       const hasTextPaste = segments?.some((s) => s.kind === "paste") ?? false;
-      const transcriptContent =
+      const rawTranscript =
         hasTextPaste && typeof apiContent === "string" ? apiContent : displayMessage;
+      const transcriptContent = normalizePasteContent(rawTranscript);
 
       const userMsg: Message = {
         role: "user",
@@ -720,7 +722,7 @@ export class AgentLoop {
         ): Promise<void> => {
           await SessionManager.addMessage({
             role: "tool",
-            content: output,
+            content: capToolResultContent(output),
             tool_call_id: toolCallId,
             timestamp: new Date().toISOString(),
           });
@@ -1082,7 +1084,7 @@ export class AgentLoop {
           // Add tool result to session
           const toolResultMsg: Message = {
             role: "tool",
-            content: result.output,
+            content: capToolResultContent(result.output),
             tool_call_id: tc.id,
             timestamp: new Date().toISOString(),
           };

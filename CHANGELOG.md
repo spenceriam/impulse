@@ -7,20 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-  **Type:** patch
-  **Title:** Tool UX hardening — file_edit fallback, injected replay, queue preview, /copy
+## [1.5.1] - 2026-06-11
 
-  ### Added
-  - **`/copy`** — copy last assistant response to clipboard (OSC 52 + native fallback; gutter-free markdown)
+  **Type:** patch
+  **Title:** Open bug batch — narrow render, context safety, queue UX, paste replay
 
   ### Changed
-  - **Queue preview** — `Queued messages` header; dim numbered lines (restored from cyan user styling)
-  - **Question tool** — `options[].description` optional; collapsed validation errors for repeated array issues
-  - **Session replay** — injected steer/nudge/interrupt notes render as dim `[system note]` (not under user name)
+  - **Context bar** — `Allow-All` label (was `All Permissions Bypassed`) for narrow terminals
+  - **Question tool** — topic tab cap raised to 60 characters
+  - **Queue preview** — wrap-only lines; expanded paste text; empty Enter deletes while editing
 
   ### Fixed
-  - **`file_edit`** — whitespace-normalized fallback when unique trimmed match; closest-line hint on failure
-  - **Silent `todo_write`** — unchanged no-ops no longer leave a blank gap in chat
+  - **#56** — failed tool rows, `!` shell headers, and question overlay footer wrap on narrow panes
+  - **#57** — question topics longer than 20 characters accepted (up to 60)
+  - **#61** — CR line endings normalized in stored transcripts and session replay (dictation/CRLF paste)
+  - **#68** — back-to-back relabeled `todo_write` lists collapse into one block
+  - **#70** — bash byte/per-line caps, tool-result cap at history insert, compaction survives giant messages
+  - **#72** — bash command titles sanitize newlines/control chars; failure output strips ANSI
+  - **#74** — queue preview no longer ellipsizes after wrap; delete queued item via empty Enter while editing
 
 ## [1.5.0] - 2026-06-06
 

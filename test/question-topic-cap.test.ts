@@ -28,6 +28,28 @@ describe("question topic cap", () => {
     expect(result.output).toContain("prefer 1-3");
   });
 
+  test("accepts topic up to 60 characters", async () => {
+    const longTopic = "Clarifying the reduced level - what stays and what goes";
+    expect(longTopic.length).toBeLessThanOrEqual(60);
+    expect(longTopic.length).toBeGreaterThan(20);
+
+    const asked: string[] = [];
+    const unsub = Bus.subscribe((event) => {
+      if (event.type !== QuestionEvents.Asked.name) return;
+      const payload = event.properties as { questions: Array<{ topic: string }> };
+      asked.push(...payload.questions.map((q) => q.topic));
+      rejectQuestion();
+    });
+
+    await Tool.execute("question", {
+      questions: [makeQuestion(longTopic)],
+    });
+    unsub();
+
+    expect(asked).toEqual([longTopic]);
+    expect(asked[0]!.length).toBeLessThanOrEqual(60);
+  });
+
   test("asks all topics within limit (no truncation)", async () => {
     const questions = Array.from({ length: 5 }, (_, i) => makeQuestion(`T${i + 1}`));
     const asked: string[] = [];

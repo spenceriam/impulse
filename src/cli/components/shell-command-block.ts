@@ -2,8 +2,8 @@
  * One user `!command` run in the chat transcript (history per command).
  */
 
-import { wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
-import { GUTTER, gutterContent, innerWidth, truncateGutterLine } from "../gutter.js";
+import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } from "../gutter.js";
 import { formatDurationMs } from "../format-helpers.js";
 import { shellTakeoverHint } from "../shell-shortcuts.js";
 
@@ -17,6 +17,40 @@ const SPINNER = ["··●", "·●·", "●··", "·●·"];
 let spinFrame = 0;
 
 const MAX_BODY_LINES = 24;
+const SHELL_CONT_INDENT = GUTTER + "   ";
+
+function wrapShellHeaderLine(
+  prefix: string,
+  command: string,
+  width: number,
+  suffix = ""
+): string[] {
+  const bodyAvail = Math.max(8, maxLineWidth(width) - visibleWidth(prefix));
+  const wrapped = wrapTextWithAnsi(command.length > 0 ? command : " ", bodyAvail);
+  const lines: string[] = [];
+  if (wrapped.length === 0) {
+    lines.push(truncateGutterLine(`${prefix}${dim(" ")}`, width));
+  } else {
+    lines.push(truncateGutterLine(`${prefix}${dim(wrapped[0]!)}`, width));
+    const contAvail = Math.max(8, maxLineWidth(width) - visibleWidth(SHELL_CONT_INDENT));
+    for (let i = 1; i < wrapped.length; i++) {
+      for (const sub of wrapTextWithAnsi(wrapped[i]!, contAvail)) {
+        lines.push(truncateGutterLine(`${SHELL_CONT_INDENT}${dim(sub)}`, width));
+      }
+    }
+  }
+  if (suffix) {
+    const lastIdx = lines.length - 1;
+    const last = lines[lastIdx]!;
+    const candidate = `${last}${suffix}`;
+    if (visibleWidth(candidate) <= maxLineWidth(width)) {
+      lines[lastIdx] = truncateGutterLine(candidate, width);
+    } else {
+      lines.push(truncateGutterLine(`${SHELL_CONT_INDENT}${suffix.trimStart()}`, width));
+    }
+  }
+  return lines;
+}
 
 export type ShellBlockPhase = "running" | "done" | "cancelled";
 
@@ -71,19 +105,21 @@ export class ShellCommandBlock implements Component {
     if (this.phase === "running") {
       const sp = yellow(SPINNER[spinFrame]!);
       lines.push(
-        truncateGutterLine(`${GUTTER}${sp} ${cyan("!")} ${dim(this.command)}`, width)
+        ...wrapShellHeaderLine(`${GUTTER}${sp} ${cyan("!")} `, this.command, width)
       );
     } else if (this.phase === "cancelled") {
       lines.push(
-        truncateGutterLine(`${GUTTER}${red("✗")} ${cyan("!")} ${dim(this.command)}`, width)
+        ...wrapShellHeaderLine(`${GUTTER}${red("✗")} ${cyan("!")} `, this.command, width)
       );
     } else {
       const icon = this.exitCode === 0 ? green("✓") : red("✗");
       const dur = dim(formatDurationMs(this.durationMs));
       lines.push(
-        truncateGutterLine(
-          `${GUTTER}${icon} ${cyan("!")} ${dim(this.command)}  ${dur}`,
-          width
+        ...wrapShellHeaderLine(
+          `${GUTTER}${icon} ${cyan("!")} `,
+          this.command,
+          width,
+          `  ${dur}`
         )
       );
     }

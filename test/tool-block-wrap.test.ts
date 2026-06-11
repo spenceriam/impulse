@@ -18,4 +18,24 @@ describe("ToolBlock compact wrap", () => {
     }
     expect(lines.join("\n")).toContain("package.json");
   });
+
+  test("multiline bash command collapses newlines in summary", () => {
+    const command = "gh issue create \\\n--repo spenceriam/impulse \\\n--title bug";
+    const block = new ToolBlock("bash", { command });
+    const lines = block.render(80);
+    expect(lines.join("\n")).not.toContain("\r");
+    expect(lines.join("\n")).toContain("gh issue create");
+    expect(lines.join("\n")).toContain("--repo");
+  });
+
+  test("failed compact bash wraps instead of horizontal ellipsis", () => {
+    const command = "npm run test -- " + "segment-".repeat(20);
+    const block = new ToolBlock("bash", { command });
+    block.setDone({ success: false, output: "fail" }, 40, { compact: true });
+    const lines = block.render(40);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(line).not.toContain("…");
+    }
+  });
 });

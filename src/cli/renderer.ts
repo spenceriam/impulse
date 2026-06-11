@@ -82,6 +82,7 @@ import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import {
   DIFF_REVEAL_TICK_MS,
   extractDiffLinesFromMetadata,
+  isCosmeticTodoRewrite,
   isSilentUnchangedTodoWrite,
   ToolBlock,
   shouldCompactToolOutput,
@@ -406,6 +407,27 @@ export class ImpulseRenderer {
     }
     this.latestTodoBlock = block;
     block.setTodoBlinkEnabled(this.isRunning);
+  }
+
+  private removeSilentTodoToolBlock(block: ToolBlock, id: string): void {
+    if (this.latestTodoBlock === block) {
+      this.latestTodoBlock = null;
+    }
+    if (this.lastExpandableTool === block) {
+      this.lastExpandableTool = null;
+    }
+    this.chat.removeChild(block);
+    if (this.lastToolGapSpacer) {
+      this.chat.removeChild(this.lastToolGapSpacer);
+      this.lastToolGapSpacer = null;
+    }
+    if (this.preToolSpacing) {
+      this.lastBandWasTool = this.preToolSpacing.lastBandWasTool;
+      this.lastBandToolHadBody = this.preToolSpacing.lastBandToolHadBody;
+      this.hasTrailingGap = this.preToolSpacing.hasTrailingGap;
+      this.preToolSpacing = null;
+    }
+    this.toolBlocks.delete(id);
   }
 
   /** Check if advisor mode should be turned off (all tasks complete) */
@@ -1251,6 +1273,14 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
+  private deleteQueueEdit(): void {
+    const { editIndex } = this.turnQueue.editState;
+    this.turnQueue.deleteAt(editIndex);
+    this.promptInput.clear();
+    this.updateQueuePreview();
+    this.tui.requestRender();
+  }
+
   private commitQueueEdit(payload: PromptSubmitPayload): void {
     this.turnQueue.commitEdit(payload);
     this.promptInput.clear();
@@ -1351,6 +1381,8 @@ export class ImpulseRenderer {
   private turnShowsImpulseHeader = false;
   private toolBlocks = new Map<string, ToolBlock>();
   private latestTodoBlock: ToolBlock | null = null;
+  /** Todo block shown before the current in-flight todo_write (for cosmetic rewrites). */
+  private todoBlockBeforeRewrite: ToolBlock | null = null;
   private taskCodenames = new Map<string, string>();
   private diffRevealInterval: ReturnType<typeof setInterval> | null = null;
   private taskBatchOverlayHandle: OverlayHandle | null = null;
@@ -2130,7 +2162,7 @@ export class ImpulseRenderer {
     const input = payload.displayMessage.trim();
     if (!input) {
       if (this.turnQueue.isHoldDrain) {
-        this.cancelQueueEdit();
+        this.deleteQueueEdit();
         this.tui.requestRender();
         return;
       }
@@ -2402,6 +2434,9 @@ export class ImpulseRenderer {
         this.lastBandWasTool = true;
         this.lastBandToolHadBody = false;
         this.lastExpandableTool = block;
+        if (name === "todo_write") {
+          this.todoBlockBeforeRewrite = this.latestTodoBlock;
+        }
         if (name === "todo_write" || name === "todo_read") {
           this.markLatestTodoBlock(block);
         }
@@ -2424,24 +2459,25 @@ export class ImpulseRenderer {
         const block = this.toolBlocks.get(id);
         if (block) {
           if (isSilentUnchangedTodoWrite(_name, result)) {
-            if (this.latestTodoBlock === block) {
-              this.latestTodoBlock = null;
+            this.removeSilentTodoToolBlock(block, id);
+            if (!this.isRunning) {
+              this.tui.requestRender();
+              return;
             }
-            if (this.lastExpandableTool === block) {
-              this.lastExpandableTool = null;
+            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            this.updateLiveMetrics(result.output.length, true);
+            this.tui.requestRender();
+            return;
+          }
+
+          if (isCosmeticTodoRewrite(_name, result)) {
+            const prev = this.todoBlockBeforeRewrite;
+            this.todoBlockBeforeRewrite = null;
+            this.removeSilentTodoToolBlock(block, id);
+            if (prev) {
+              prev.setDone(result, durationMs, { collapsed: false, compact: false });
+              this.markLatestTodoBlock(prev);
             }
-            this.chat.removeChild(block);
-            if (this.lastToolGapSpacer) {
-              this.chat.removeChild(this.lastToolGapSpacer);
-              this.lastToolGapSpacer = null;
-            }
-            if (this.preToolSpacing) {
-              this.lastBandWasTool = this.preToolSpacing.lastBandWasTool;
-              this.lastBandToolHadBody = this.preToolSpacing.lastBandToolHadBody;
-              this.hasTrailingGap = this.preToolSpacing.hasTrailingGap;
-              this.preToolSpacing = null;
-            }
-            this.toolBlocks.delete(id);
             if (!this.isRunning) {
               this.tui.requestRender();
               return;

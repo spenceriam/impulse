@@ -1,8 +1,10 @@
 import type { Message } from "./store.js";
+import { normalizePasteContent } from "../cli/prompt-input.js";
 
 /** User-visible text for a stored message (API content when expanded). */
 export function messageDisplayText(msg: Message): string {
-  return typeof msg.apiContent === "string" ? msg.apiContent : (msg.content ?? "");
+  const raw = typeof msg.apiContent === "string" ? msg.apiContent : (msg.content ?? "");
+  return raw.includes("\r") ? normalizePasteContent(raw) : raw;
 }
 
 /**
