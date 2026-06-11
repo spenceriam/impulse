@@ -681,6 +681,7 @@ export class AgentLoop {
           ) {
             emptyRetryUsed = true;
             this.consecutiveFailures = Math.max(this.consecutiveFailures, 2);
+            await this.flushTurnInjections();
             continue;
           }
           if (
@@ -695,6 +696,7 @@ export class AgentLoop {
               injected: true,
               timestamp: new Date().toISOString(),
             });
+            await this.flushTurnInjections();
             continue;
           }
           await this.flushTurnInjections();
