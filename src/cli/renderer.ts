@@ -78,6 +78,7 @@ import {
   setAllowAllBypass,
 } from "../permission/index.js";
 import { ContextBarComponent } from "./components/context-bar.js";
+import { clearActiveSessionMarker } from "../util/active-session-marker.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import {
   DIFF_REVEAL_TICK_MS,
@@ -328,6 +329,8 @@ export type ResumeStartup = "picker" | { sessionId: string };
 
 export interface ImpulseRendererOptions {
   resume?: ResumeStartup;
+  /** "interrupted" when resume came from the active-session marker (#78). */
+  resumeReason?: "interrupted";
   /** Skip disclaimer; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
   allowAllOnStartup?: boolean;
 }
@@ -337,6 +340,7 @@ export class ImpulseRenderer {
   private terminal = new ProcessTerminal();
   private tui!: TUI;
   private readonly startupResume: ResumeStartup | null;
+  private readonly startupResumeReason: "interrupted" | null;
   private readonly allowAllOnStartup: boolean;
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
@@ -1451,6 +1455,7 @@ export class ImpulseRenderer {
 
   constructor(options?: ImpulseRendererOptions) {
     this.startupResume = options?.resume ?? null;
+    this.startupResumeReason = options?.resumeReason ?? null;
     this.allowAllOnStartup = options?.allowAllOnStartup ?? false;
   }
 
@@ -1483,10 +1488,24 @@ export class ImpulseRenderer {
     });
 
     if (!SessionManager.getCurrentSession()) {
-      await SessionManager.createNew();
-      const sess = SessionManager.getCurrentSession();
-      if (sess && config.defaultModel?.trim()) {
-        await SessionManager.update({ model: config.defaultModel });
+      // When startup resume targets a known session, load it directly instead
+      // of eagerly creating a blank session first (avoids orphan empty
+      // sessions; #78). Falls back to a fresh session if the load fails.
+      let resumedAtBoot = false;
+      if (this.startupResume && this.startupResume !== "picker") {
+        try {
+          await SessionManager.load(this.startupResume.sessionId);
+          resumedAtBoot = true;
+        } catch {
+          resumedAtBoot = false;
+        }
+      }
+      if (!resumedAtBoot) {
+        await SessionManager.createNew();
+        const sess = SessionManager.getCurrentSession();
+        if (sess && config.defaultModel?.trim()) {
+          await SessionManager.update({ model: config.defaultModel });
+        }
       }
     }
 
@@ -1552,6 +1571,9 @@ export class ImpulseRenderer {
 
       if (event.type === BranchEvents.Changed.name) {
         this.contextBar.invalidate();
+        // Session state is intentionally untouched on branch changes (#78) —
+        // surface a small note so users know why version/behavior may differ.
+        this.addChatLine(clr.dim("Git branch changed — session unaffected"));
         this.tui.requestRender();
         return;
       }
@@ -1815,6 +1837,15 @@ export class ImpulseRenderer {
       await this.cmdResume("");
     } else if (this.startupResume) {
       await this.applyResumeSession(this.startupResume.sessionId);
+      if (this.startupResumeReason === "interrupted") {
+        const sess = SessionManager.getCurrentSession();
+        const title =
+          sess?.headerTitle?.trim() || sess?.name?.trim() || "previous session";
+        this.addChatLine(
+          clr.dim(`Previous session interrupted — resumed '${title}'`)
+        );
+        this.tui.requestRender();
+      }
     }
   }
 
@@ -2845,6 +2876,7 @@ export class ImpulseRenderer {
 
   private async gracefulExit(): Promise<void> {
     await SessionManager.flushCurrent();
+    clearActiveSessionMarker();
     const session = SessionManager.getCurrentSession();
     const config = await loadConfig();
     this.branchWatcher?.dispose();
@@ -3670,6 +3702,7 @@ export class ImpulseRenderer {
     this.addChatLine(clr.dim("Installing update and relaunching..."));
     this.tui.requestRender();
     await SessionManager.flushCurrent();
+    clearActiveSessionMarker();
     const session = SessionManager.getCurrentSession();
     if (session?.id) {
       writeUpdateResumeHint(session.id);

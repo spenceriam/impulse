@@ -10,7 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.5.1] - 2026-06-11
 
   **Type:** patch
-  **Title:** Open bug batch — narrow render, context safety, queue UX, paste replay
+  **Title:** Open bug batch — narrow render, context safety, queue UX, paste replay, session auto-resume
+
+  ### Added
+  - **Session auto-resume** — interrupted sessions (dev watch reload, crash, kill) automatically resume on next launch via a per-project active-session marker; cleared on clean `/exit`/`/quit`
+  - **Branch-change notice** — dim `Git branch changed — session unaffected` line when the git branch switches mid-session
 
   ### Changed
   - **Context bar** — `Allow-All` label (was `All Permissions Bypassed`) for narrow terminals
@@ -25,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#70** — bash byte/per-line caps, tool-result cap at history insert, compaction survives giant messages
   - **#72** — bash command titles sanitize newlines/control chars; failure output strips ANSI
   - **#74** — queue preview no longer ellipsizes after wrap; delete queued item via empty Enter while editing
+  - **#78** — process restarts no longer discard the live session; startup resume also skips the eager blank session (no more orphan empty session files)
 
 ## [1.5.0] - 2026-06-06
 
