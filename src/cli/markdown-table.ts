@@ -59,10 +59,16 @@ export function slashCommandsToTable(defs: SlashCommandDef[]): MarkdownTable {
   };
 }
 
+function unescapeTableCell(cell: string): string {
+  return cell.replace(/\\\|/g, "|");
+}
+
 function splitTableRow(line: string): string[] {
   const trimmed = line.trim();
   const withoutOuter = trimmed.replace(/^\|/, "").replace(/\|$/, "");
-  return withoutOuter.split("|").map((cell) => cell.trim());
+  return withoutOuter
+    .split(/(?<!\\)\|/)
+    .map((cell) => unescapeTableCell(cell.trim()));
 }
 
 function isTableCandidate(line: string): boolean {
@@ -128,9 +134,11 @@ export function tableTotalWidth(widths: number[]): number {
   return widths.reduce((sum, width) => sum + width, 0) + widths.length * 3 + 1;
 }
 
+const TABLE_MIN_COLUMN_WIDTH = 8;
+
 export function tableColumnWidths(table: MarkdownTable, maxWidth?: number): number[] {
   const formatted = formatTable(table);
-  return formatted.header.map((header, column) => {
+  const widths = formatted.header.map((header, column) => {
     const rowMax = formatted.rows.reduce(
       (max, row) => Math.max(max, visibleWidth(row[column] ?? "")),
       0
@@ -139,6 +147,24 @@ export function tableColumnWidths(table: MarkdownTable, maxWidth?: number): numb
     const maxColWidth = maxWidth ? Math.floor(maxWidth * 0.8) : 120;
     return Math.max(3, Math.min(maxColWidth, naturalWidth));
   });
+
+  if (!maxWidth) return widths;
+
+  while (tableTotalWidth(widths) > maxWidth) {
+    let widest = TABLE_MIN_COLUMN_WIDTH;
+    let widestIndex = -1;
+    for (let index = 0; index < widths.length; index += 1) {
+      const width = widths[index]!;
+      if (width > TABLE_MIN_COLUMN_WIDTH && width > widest) {
+        widest = width;
+        widestIndex = index;
+      }
+    }
+    if (widestIndex < 0) break;
+    widths[widestIndex] = widths[widestIndex]! - 1;
+  }
+
+  return widths;
 }
 
 function renderBorder(left: string, middle: string, right: string, widths: number[]): string {

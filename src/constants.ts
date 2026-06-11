@@ -23,6 +23,23 @@ export function normalizeMode(mode?: string): Mode {
   return LEGACY_MODE_MAP[mode.toUpperCase()] ?? "AGENT";
 }
 
+/** User-facing mode label. WORK is a legacy alias mapped to AGENT in normalizeMode. */
+export function displayModeLabel(mode: Mode | string): string {
+  return normalizeMode(mode);
+}
+
+/** Default execution mode — omitted from context bar (implicit). */
+export function isDefaultMode(mode: Mode | string): boolean {
+  return normalizeMode(mode) === "AGENT";
+}
+
+/** Modes shown in /mode help and Tab cycling. */
+export const MODE_CYCLE: Mode[] = ["AGENT", "EXPLORE", "PLAN", "DEBUG"];
+
+export function displayModeOptions(): string {
+  return MODE_CYCLE.map(displayModeLabel).join(" | ");
+}
+
 /** Friendly display names for known provider models. */
 export const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "z.ai/glm-4.7": "Z.ai GLM 4.7",

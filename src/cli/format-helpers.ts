@@ -18,6 +18,11 @@ export function dimRuleIndented(terminalWidth: number, indent = 2): string {
   return `${DIM}${" ".repeat(indent)}${"─".repeat(inner)}${RESET}`;
 }
 
+/** Bracketed duration for tool summary rows — distinct from tool output. */
+export function formatDurationBracketed(durationMs: number): string {
+  return `[${formatDurationMs(durationMs)}]`;
+}
+
 /** Format elapsed duration for tool rows, speedometer, etc. */
 export function formatDurationMs(durationMs: number): string {
   if (durationMs < 100) {

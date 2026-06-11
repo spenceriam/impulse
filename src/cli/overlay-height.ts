@@ -17,3 +17,17 @@ export function overlayMaxHeightForContent(
   const desired = Math.max(minHeight, contentLineCount);
   return Math.min(desired, available);
 }
+
+/** Max overlay height from terminal viewport only (no content pre-measure). */
+export function overlayViewportMaxHeight(
+  terminalRows: number,
+  reservedBottom: number = PERMISSION_OVERLAY_RESERVED_BOTTOM,
+  opts?: { min?: number; topMargin?: number }
+): number {
+  return overlayMaxHeightForContent(
+    terminalRows,
+    Number.MAX_SAFE_INTEGER,
+    reservedBottom,
+    opts
+  );
+}

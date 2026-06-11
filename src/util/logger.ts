@@ -91,5 +91,11 @@ export async function error(message: string): Promise<void> {
   console.error(message);
 }
 
+/** Write error to log file only (no stderr — safe during TUI sessions). */
+export async function fileError(message: string): Promise<void> {
+  const entry = formatLogEntry("error", message);
+  await writeToLogFile(entry);
+}
+
 export type { LogLevel };
 

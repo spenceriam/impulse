@@ -166,10 +166,16 @@ export function buildSubmitPayload(editorText: string, groups: PasteGroup[]): Pr
   };
 }
 
+/** Normalize line endings from bracketed paste / speech-to-text input. */
+export function normalizePasteContent(content: string): string {
+  return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 /** Chat transcript / history text: expand collapsed paste tokens to full apiText. */
 export function userTranscriptText(payload: PromptSubmitPayload): string {
   const hasTextPaste = payload.segments.some((s) => s.kind === "paste");
-  return hasTextPaste ? payload.apiText : payload.displayMessage;
+  const text = hasTextPaste ? payload.apiText : payload.displayMessage;
+  return text.includes("\r") ? normalizePasteContent(text) : text;
 }
 
 export class PromptInput implements Component, Focusable {
@@ -677,7 +683,7 @@ export class PromptInput implements Component, Focusable {
 
   private _finalizePaste(): void {
     this._isPasting = false;
-    const content = this._pasteBuffer;
+    const content = normalizePasteContent(this._pasteBuffer);
     this._pasteBuffer = "";
 
     const lines = content.split("\n").filter((l) => l.length > 0);

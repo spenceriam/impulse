@@ -108,6 +108,8 @@ export interface TaskMetadata {
 export interface TodoMetadata {
   type: "todo";
   source: "read" | "write";
+  /** True when todo_write received an identical list — no write performed. */
+  unchanged?: boolean;
   todos: Array<{
     id: string;
     content: string;
