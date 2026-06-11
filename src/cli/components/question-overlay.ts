@@ -1,4 +1,4 @@
-import { type Component, visibleWidth } from "@mariozechner/pi-tui";
+import { type Component, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
@@ -27,8 +27,6 @@ const A = {
 };
 const dimText = (s: string) => A.fg(90, s);
 
-const QUESTION_CHROME_LINES = 3; // title + blank + footer/border region
-
 export class QuestionOverlay implements Component {
   private readonly context: string | undefined;
   private readonly questions: Question[];
@@ -42,6 +40,9 @@ export class QuestionOverlay implements Component {
   private scrollTop = 0;
   private measureTerminalWidth: number | null = null;
   private lastBodyLineCount = 0;
+  /** Index in buildAllLines output where footer + bottom border begin. */
+  private chromeBottomStart = 0;
+  private allLinesLength = 0;
 
   onSubmit?: (answers: string[][]) => void;
   onAbort?: () => void;
@@ -70,9 +71,12 @@ export class QuestionOverlay implements Component {
     return Math.min(cap, intrinsicFramedBoxWidth(terminal, "Need your input", widths));
   }
 
-  private viewportBodyLines(): number {
-    if (this.maxHeight <= QUESTION_CHROME_LINES) return 1;
-    return Math.max(1, this.maxHeight - QUESTION_CHROME_LINES);
+  private viewportBodyLines(chromeBottomStart?: number, allLinesLength?: number): number {
+    const bottomStart = chromeBottomStart ?? this.chromeBottomStart;
+    const totalLength = allLinesLength ?? this.allLinesLength;
+    const chromeLines = 1 + Math.max(1, totalLength - bottomStart);
+    if (this.maxHeight <= chromeLines) return 1;
+    return Math.max(1, this.maxHeight - chromeLines);
   }
 
   private get currentQuestion(): Question {
@@ -312,9 +316,14 @@ export class QuestionOverlay implements Component {
         pushBoxLine("");
       }
       const reviewBodyLines = lines.length - reviewBodyStart;
+      this.chromeBottomStart = lines.length;
+      const scrollFooter = `Enter submit  e edit  ${OVERLAY_SCROLL_FOOTER}`;
+      const projectedChromeBottom =
+        wrapTextWithAnsi(overlayDim(scrollFooter), innerWidth).length + 1;
       const reviewFooter =
-        reviewBodyLines > this.viewportBodyLines()
-          ? `Enter submit  e edit  ${OVERLAY_SCROLL_FOOTER}`
+        reviewBodyLines >
+        this.viewportBodyLines(this.chromeBottomStart, lines.length + projectedChromeBottom)
+          ? scrollFooter
           : "Enter submit  e edit  Esc go back";
       overlayPushWrapped(lines, overlayDim(reviewFooter), innerWidth, boxWidth);
       lines.push(overlayBottomBorder(boxWidth));
@@ -361,6 +370,7 @@ export class QuestionOverlay implements Component {
         boxWidth
       );
       pushBoxLine("");
+      this.chromeBottomStart = lines.length;
       overlayPushWrapped(
         lines,
         `${A.dim}Type answer   Enter submit   Esc abort${A.reset}`,
@@ -396,6 +406,7 @@ export class QuestionOverlay implements Component {
     const hints = this.currentQuestion.multiple
       ? `${A.dim}↑/↓ move   Space toggle   Enter confirm/custom   Tab next topic   Esc abort${A.reset}`
       : `${A.dim}↑/↓ move   Enter select/advance   Space select   Tab next topic   Esc abort${A.reset}`;
+    this.chromeBottomStart = lines.length;
     overlayPushWrapped(lines, hints, innerWidth, boxWidth);
     lines.push(overlayBottomBorder(boxWidth));
 
@@ -405,15 +416,17 @@ export class QuestionOverlay implements Component {
   render(width: number): string[] {
     const boxWidth = overlayRenderBoxWidth(width);
     const allLines = this.buildAllLines(boxWidth);
+    this.allLinesLength = allLines.length;
+    const chromeBottomCount = allLines.length - this.chromeBottomStart;
     if (this.maxHeight <= 0 || allLines.length <= this.maxHeight) {
       this.scrollTop = 0;
-      this.lastBodyLineCount = Math.max(0, allLines.length - QUESTION_CHROME_LINES);
+      this.lastBodyLineCount = Math.max(0, allLines.length - 1 - chromeBottomCount);
       return allLines;
     }
 
     const chromeTop = [allLines[0]!];
-    const chromeBottom = allLines.slice(-2);
-    const body = allLines.slice(1, -2);
+    const chromeBottom = allLines.slice(this.chromeBottomStart);
+    const body = allLines.slice(1, this.chromeBottomStart);
     this.lastBodyLineCount = body.length;
 
     const slice = sliceOverlayBody(body, this.viewportBodyLines(), this.scrollTop);

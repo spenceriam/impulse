@@ -16,6 +16,7 @@ import { detectPowerShellVersion, translatePosixToPowerShell } from "./posix-tra
 import { detectShellEnvironment } from "../util/shell-env";
 import { detectAndPublishBranchChange } from "../git/branch-detect";
 import { SessionManager } from "../session/manager";
+import { capBashOutputLines } from "../util/tool-output-cap.js";
 
 /** Default bash/PTY timeout per docs/tools/bash.md */
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -538,14 +539,9 @@ async function executeWithPty(
     
     const elapsed = Date.now() - startTime;
     const maxLines = 2000;
-    const outputLines = result.output.split("\n");
-    let output = result.output;
-    
-    if (outputLines.length >= maxLines) {
-      output = outputLines.slice(0, maxLines).join("\n");
-      output += `\n[Output truncated to ${maxLines} lines]`;
-    }
-    
+    const capped = capBashOutputLines(result.output, maxLines);
+    let output = capped.output;
+
     if (timedOut) {
       output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
     }
@@ -561,7 +557,7 @@ async function executeWithPty(
         workdir: input.workdir,
         exitCode: result.exitCode,
         duration: elapsed,
-        truncated: outputLines.length >= maxLines,
+        truncated: capped.truncated,
         interactive: true,
         pid: result.pid,
       },
@@ -652,15 +648,9 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
   }
   
-  const outputLines = combinedOutput.length > 0 ? combinedOutput.split("\n") : [];
-
-  let output = combinedOutput;
-  let wasTruncated = false;
-  if (outputLines.length >= maxLines) {
-    output = outputLines.slice(0, maxLines).join("\n");
-    output += `\n[Output truncated to ${maxLines} lines]`;
-    wasTruncated = true;
-  }
+  const capped = capBashOutputLines(combinedOutput, maxLines);
+  let output = capped.output;
+  let wasTruncated = capped.truncated;
 
   if (exitCode === -1) {
     output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;

@@ -78,10 +78,12 @@ import {
   setAllowAllBypass,
 } from "../permission/index.js";
 import { ContextBarComponent } from "./components/context-bar.js";
+import { clearActiveSessionMarker } from "../util/active-session-marker.js";
 import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import {
   DIFF_REVEAL_TICK_MS,
   extractDiffLinesFromMetadata,
+  isCosmeticTodoRewrite,
   isSilentUnchangedTodoWrite,
   ToolBlock,
   shouldCompactToolOutput,
@@ -327,6 +329,8 @@ export type ResumeStartup = "picker" | { sessionId: string };
 
 export interface ImpulseRendererOptions {
   resume?: ResumeStartup;
+  /** "interrupted" when resume came from the active-session marker (#78). */
+  resumeReason?: "interrupted";
   /** Skip disclaimer; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
   allowAllOnStartup?: boolean;
 }
@@ -336,6 +340,7 @@ export class ImpulseRenderer {
   private terminal = new ProcessTerminal();
   private tui!: TUI;
   private readonly startupResume: ResumeStartup | null;
+  private readonly startupResumeReason: "interrupted" | null;
   private readonly allowAllOnStartup: boolean;
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
@@ -406,6 +411,38 @@ export class ImpulseRenderer {
     }
     this.latestTodoBlock = block;
     block.setTodoBlinkEnabled(this.isRunning);
+  }
+
+  private findLatestVisibleTodoBlock(): ToolBlock | null {
+    for (let i = this.chat.children.length - 1; i >= 0; i--) {
+      const child = this.chat.children[i];
+      if (child instanceof ToolBlock && child.isTodoTool()) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  private removeSilentTodoToolBlock(block: ToolBlock, id: string): void {
+    const wasLatestTodo = this.latestTodoBlock === block;
+    if (this.lastExpandableTool === block) {
+      this.lastExpandableTool = null;
+    }
+    this.chat.removeChild(block);
+    if (this.lastToolGapSpacer) {
+      this.chat.removeChild(this.lastToolGapSpacer);
+      this.lastToolGapSpacer = null;
+    }
+    if (this.preToolSpacing) {
+      this.lastBandWasTool = this.preToolSpacing.lastBandWasTool;
+      this.lastBandToolHadBody = this.preToolSpacing.lastBandToolHadBody;
+      this.hasTrailingGap = this.preToolSpacing.hasTrailingGap;
+      this.preToolSpacing = null;
+    }
+    this.toolBlocks.delete(id);
+    if (wasLatestTodo) {
+      this.latestTodoBlock = this.findLatestVisibleTodoBlock();
+    }
   }
 
   /** Check if advisor mode should be turned off (all tasks complete) */
@@ -1251,6 +1288,14 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
+  private deleteQueueEdit(): void {
+    const { editIndex } = this.turnQueue.editState;
+    this.turnQueue.deleteAt(editIndex);
+    this.promptInput.clear();
+    this.updateQueuePreview();
+    this.tui.requestRender();
+  }
+
   private commitQueueEdit(payload: PromptSubmitPayload): void {
     this.turnQueue.commitEdit(payload);
     this.promptInput.clear();
@@ -1351,6 +1396,8 @@ export class ImpulseRenderer {
   private turnShowsImpulseHeader = false;
   private toolBlocks = new Map<string, ToolBlock>();
   private latestTodoBlock: ToolBlock | null = null;
+  /** Todo block shown before the current in-flight todo_write (for cosmetic rewrites). */
+  private todoBlockBeforeRewrite: ToolBlock | null = null;
   private taskCodenames = new Map<string, string>();
   private diffRevealInterval: ReturnType<typeof setInterval> | null = null;
   private taskBatchOverlayHandle: OverlayHandle | null = null;
@@ -1419,6 +1466,7 @@ export class ImpulseRenderer {
 
   constructor(options?: ImpulseRendererOptions) {
     this.startupResume = options?.resume ?? null;
+    this.startupResumeReason = options?.resumeReason ?? null;
     this.allowAllOnStartup = options?.allowAllOnStartup ?? false;
   }
 
@@ -1451,10 +1499,24 @@ export class ImpulseRenderer {
     });
 
     if (!SessionManager.getCurrentSession()) {
-      await SessionManager.createNew();
-      const sess = SessionManager.getCurrentSession();
-      if (sess && config.defaultModel?.trim()) {
-        await SessionManager.update({ model: config.defaultModel });
+      // When startup resume targets a known session, load it directly instead
+      // of eagerly creating a blank session first (avoids orphan empty
+      // sessions; #78). Falls back to a fresh session if the load fails.
+      let resumedAtBoot = false;
+      if (this.startupResume && this.startupResume !== "picker") {
+        try {
+          await SessionManager.load(this.startupResume.sessionId);
+          resumedAtBoot = true;
+        } catch {
+          resumedAtBoot = false;
+        }
+      }
+      if (!resumedAtBoot) {
+        await SessionManager.createNew();
+        const sess = SessionManager.getCurrentSession();
+        if (sess && config.defaultModel?.trim()) {
+          await SessionManager.update({ model: config.defaultModel });
+        }
       }
     }
 
@@ -1520,6 +1582,9 @@ export class ImpulseRenderer {
 
       if (event.type === BranchEvents.Changed.name) {
         this.contextBar.invalidate();
+        // Session state is intentionally untouched on branch changes (#78) —
+        // surface a small note so users know why version/behavior may differ.
+        this.addChatLine(clr.dim("Git branch changed — session unaffected"));
         this.tui.requestRender();
         return;
       }
@@ -1783,6 +1848,15 @@ export class ImpulseRenderer {
       await this.cmdResume("");
     } else if (this.startupResume) {
       await this.applyResumeSession(this.startupResume.sessionId);
+      if (this.startupResumeReason === "interrupted") {
+        const sess = SessionManager.getCurrentSession();
+        const title =
+          sess?.headerTitle?.trim() || sess?.name?.trim() || "previous session";
+        this.addChatLine(
+          clr.dim(`Previous session interrupted — resumed '${title}'`)
+        );
+        this.tui.requestRender();
+      }
     }
   }
 
@@ -2130,7 +2204,7 @@ export class ImpulseRenderer {
     const input = payload.displayMessage.trim();
     if (!input) {
       if (this.turnQueue.isHoldDrain) {
-        this.cancelQueueEdit();
+        this.deleteQueueEdit();
         this.tui.requestRender();
         return;
       }
@@ -2402,6 +2476,9 @@ export class ImpulseRenderer {
         this.lastBandWasTool = true;
         this.lastBandToolHadBody = false;
         this.lastExpandableTool = block;
+        if (name === "todo_write") {
+          this.todoBlockBeforeRewrite = this.latestTodoBlock;
+        }
         if (name === "todo_write" || name === "todo_read") {
           this.markLatestTodoBlock(block);
         }
@@ -2424,24 +2501,25 @@ export class ImpulseRenderer {
         const block = this.toolBlocks.get(id);
         if (block) {
           if (isSilentUnchangedTodoWrite(_name, result)) {
-            if (this.latestTodoBlock === block) {
-              this.latestTodoBlock = null;
+            this.removeSilentTodoToolBlock(block, id);
+            if (!this.isRunning) {
+              this.tui.requestRender();
+              return;
             }
-            if (this.lastExpandableTool === block) {
-              this.lastExpandableTool = null;
+            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            this.updateLiveMetrics(result.output.length, true);
+            this.tui.requestRender();
+            return;
+          }
+
+          if (isCosmeticTodoRewrite(_name, result)) {
+            const prev = this.todoBlockBeforeRewrite;
+            this.todoBlockBeforeRewrite = null;
+            this.removeSilentTodoToolBlock(block, id);
+            if (prev) {
+              prev.setDone(result, durationMs, { collapsed: false, compact: false });
+              this.markLatestTodoBlock(prev);
             }
-            this.chat.removeChild(block);
-            if (this.lastToolGapSpacer) {
-              this.chat.removeChild(this.lastToolGapSpacer);
-              this.lastToolGapSpacer = null;
-            }
-            if (this.preToolSpacing) {
-              this.lastBandWasTool = this.preToolSpacing.lastBandWasTool;
-              this.lastBandToolHadBody = this.preToolSpacing.lastBandToolHadBody;
-              this.hasTrailingGap = this.preToolSpacing.hasTrailingGap;
-              this.preToolSpacing = null;
-            }
-            this.toolBlocks.delete(id);
             if (!this.isRunning) {
               this.tui.requestRender();
               return;
@@ -2809,6 +2887,7 @@ export class ImpulseRenderer {
 
   private async gracefulExit(): Promise<void> {
     await SessionManager.flushCurrent();
+    clearActiveSessionMarker();
     const session = SessionManager.getCurrentSession();
     const config = await loadConfig();
     this.branchWatcher?.dispose();
@@ -3634,6 +3713,7 @@ export class ImpulseRenderer {
     this.addChatLine(clr.dim("Installing update and relaunching..."));
     this.tui.requestRender();
     await SessionManager.flushCurrent();
+    clearActiveSessionMarker();
     const session = SessionManager.getCurrentSession();
     if (session?.id) {
       writeUpdateResumeHint(session.id);

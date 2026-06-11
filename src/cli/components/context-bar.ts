@@ -336,7 +336,7 @@ export class ContextBarComponent implements Component {
 
     let statsFull = "";
     if (s.allowAllBypass) {
-      statsFull = c.fg(214, "All Permissions Bypassed");
+      statsFull = c.fg(214, "Allow-All");
     } else if (s.showTurnSpeed) {
       if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
         statsFull += clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`);

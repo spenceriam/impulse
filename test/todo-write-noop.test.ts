@@ -46,6 +46,45 @@ describe("todo_write no-op dedup", () => {
     expect(result.metadata?.["unchanged"]).toBe(true);
   });
 
+  test("flags cosmetic rewrite when only wording changes", async () => {
+    await Todo.update([
+      {
+        id: "1",
+        content: "Create feature branch fix/branch-contextbar-refresh",
+        status: "in_progress",
+        priority: "high",
+      },
+      {
+        id: "2",
+        content: "Add branch.changed event to src/bus/events.ts",
+        status: "pending",
+        priority: "medium",
+      },
+    ]);
+
+    const result = await Tool.execute("todo_write", {
+      todos: [
+        {
+          id: "1",
+          content: "T0: Create feature branch fix/branch-contextbar-refresh",
+          status: "in_progress",
+          priority: "high",
+        },
+        {
+          id: "2",
+          content: "T1: Add branch.changed event to src/bus/events.ts",
+          status: "pending",
+          priority: "medium",
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("Todo list updated");
+    expect(result.metadata?.["cosmetic"]).toBe(true);
+    expect(result.metadata?.["unchanged"]).toBeUndefined();
+  });
+
   test("updates when status changes", async () => {
     const result = await Tool.execute("todo_write", {
       todos: [

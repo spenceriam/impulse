@@ -9,6 +9,7 @@ import {
 import { CheckpointManager } from "./checkpoint";
 import { CompactManager } from "./compact";
 import type { OptionalPatch } from "../util/omit-undefined.js";
+import { writeActiveSessionMarker } from "../util/active-session-marker.js";
 
 interface SessionManagerOptions {
   defaultModel?: string
@@ -101,16 +102,22 @@ class SessionManagerImpl {
     const newSession = await SessionStoreInstance.create(session);
     this.currentSession = newSession;
     this.sessionHistory.push(newSession);
+    writeActiveSessionMarker(newSession.id);
 
     return newSession;
   }
 
   async load(sessionID: string): Promise<Session> {
     const session = await SessionStoreInstance.read(sessionID);
-    await this.exitCurrent();
+    if (this.currentSession?.id === sessionID) {
+      await this.flushCurrent();
+    } else {
+      await this.exitCurrent();
+    }
 
     this.currentSession = session;
     this.sessionHistory.push(session);
+    writeActiveSessionMarker(session.id);
 
     Bus.publish(SessionEvents.Status, {
       sessionID,
@@ -207,6 +214,7 @@ class SessionManagerImpl {
     const snap = { ...this.currentSession, updated_at: new Date().toISOString() };
     await SessionStoreInstance.writeSnapshot(snap);
     this.currentSession = snap;
+    writeActiveSessionMarker(snap.id);
   }
 
   async save(name?: string): Promise<Session> {

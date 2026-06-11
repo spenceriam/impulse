@@ -110,6 +110,8 @@ export interface TodoMetadata {
   source: "read" | "write";
   /** True when todo_write received an identical list — no write performed. */
   unchanged?: boolean;
+  /** True when todo_write only relabeled/reworded items (same statuses) — UI updates in place. */
+  cosmetic?: boolean;
   todos: Array<{
     id: string;
     content: string;

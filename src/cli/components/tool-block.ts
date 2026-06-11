@@ -265,6 +265,20 @@ function summarizeQuestionDone(metadata: QuestionMetadata): string {
   return parts.length > 0 ? parts.join(" · ") : "answered";
 }
 
+function stripAnsiForWrap(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+/** Collapse control chars / newlines so tool row titles stay single-logical-line for pi-tui. */
+function sanitizeToolArgText(text: string): string {
+  return stripAnsiForWrap(text)
+    .replace(/\r\n/g, " ")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function summarizeArgs(name: string, args: Record<string, unknown>): string {
   if (name === "question") {
     return summarizeQuestionRunning(args);
@@ -295,7 +309,7 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
   const keys = ["path", "filePath", "file", "command", "pattern", "query", "description", "prompt", "url"];
   for (const key of keys) {
     if (typeof args[key] === "string") {
-      return String(args[key]);
+      return sanitizeToolArgText(String(args[key]));
     }
   }
 
@@ -317,6 +331,15 @@ export function isSilentUnchangedTodoWrite(
   if (name !== "todo_write") return false;
   const metadata = asToolMetadata(result.metadata);
   return metadata !== null && TypeGuards.isTodo(metadata) && metadata.unchanged === true;
+}
+
+export function isCosmeticTodoRewrite(
+  name: string,
+  result: { metadata?: Record<string, unknown> }
+): boolean {
+  if (name !== "todo_write") return false;
+  const metadata = asToolMetadata(result.metadata);
+  return metadata !== null && TypeGuards.isTodo(metadata) && metadata.cosmetic === true;
 }
 
 function wrapPrefixed(prefix: string, text: string, width: number): string[] {
@@ -384,7 +407,7 @@ function wrapCompactToolLine(
 }
 
 function renderTrimmedOutput(output: string, width: number, maxRows: number): string[] {
-  const normalized = output.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
+  const normalized = stripAnsiForWrap(output.replace(/\r\n/g, "\n").replace(/\r/g, "\n")).trimEnd();
   if (!normalized) return [];
 
   const rendered: string[] = [];
@@ -1160,12 +1183,8 @@ export class ToolBlock implements Component {
       const outcome = classifyOutcome(state.result);
       if (outcome !== "success") {
         const icon = clr.error("✗");
-        return [
-          truncateGutterLine(
-            `${GUTTER}${icon} ${clr.toolName(toolLabel)}  ${clr.args(state.argsSummary)}`,
-            width
-          ),
-        ];
+        const prefix = `${GUTTER}${icon} ${clr.toolName(toolLabel)}  `;
+        return wrapToolSummaryLine(prefix, state.argsSummary, width);
       }
       const verb =
         state.name === "file_read"

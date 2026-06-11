@@ -97,7 +97,8 @@ import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
 import { modelSupportsVision } from "../api/capabilities.js";
 import type { PromptSegment } from "../cli/prompt-input.js";
-import { buildUserMessageContent } from "../cli/prompt-input.js";
+import { buildUserMessageContent, normalizePasteContent } from "../cli/prompt-input.js";
+import { capToolResultContent } from "../util/tool-output-cap.js";
 import {
   MAX_CONCURRENT_SUBAGENTS,
   runTaskBatch,
@@ -300,6 +301,19 @@ export class AgentLoop {
           ? (buildUserMessageContent(segments, nativeVision) as Message["apiContent"])
           : userMessage;
 
+      const storedApiContent: Message["apiContent"] =
+        apiContent === undefined
+          ? undefined
+          : typeof apiContent === "string"
+            ? apiContent.includes("\r")
+              ? normalizePasteContent(apiContent)
+              : apiContent
+            : apiContent.map((part) =>
+                part.type === "text" && part.text.includes("\r")
+                  ? { ...part, text: normalizePasteContent(part.text) }
+                  : part
+              );
+
       const orderedImages =
         segments && segments.length > 0
           ? segments
@@ -309,13 +323,16 @@ export class AgentLoop {
           : [...this.pendingImages];
 
       const hasTextPaste = segments?.some((s) => s.kind === "paste") ?? false;
-      const transcriptContent =
-        hasTextPaste && typeof apiContent === "string" ? apiContent : displayMessage;
+      const rawTranscript =
+        hasTextPaste && typeof storedApiContent === "string"
+          ? storedApiContent
+          : displayMessage;
+      const transcriptContent = normalizePasteContent(rawTranscript);
 
       const userMsg: Message = {
         role: "user",
         content: transcriptContent,
-        ...(apiContent !== undefined ? { apiContent } : {}),
+        ...(storedApiContent !== undefined ? { apiContent: storedApiContent } : {}),
         timestamp: new Date().toISOString(),
       };
       await SessionManager.addMessage(userMsg);
@@ -720,7 +737,7 @@ export class AgentLoop {
         ): Promise<void> => {
           await SessionManager.addMessage({
             role: "tool",
-            content: output,
+            content: capToolResultContent(output),
             tool_call_id: toolCallId,
             timestamp: new Date().toISOString(),
           });
@@ -1082,7 +1099,7 @@ export class AgentLoop {
           // Add tool result to session
           const toolResultMsg: Message = {
             role: "tool",
-            content: result.output,
+            content: capToolResultContent(result.output),
             tool_call_id: tc.id,
             timestamp: new Date().toISOString(),
           };

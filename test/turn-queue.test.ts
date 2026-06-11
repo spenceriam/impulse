@@ -53,6 +53,17 @@ describe("TurnQueueManager", () => {
     expect(q.isHoldDrain).toBe(false);
   });
 
+  test("deleteAt removes item at index and ends edit when queue empty", () => {
+    const q = new TurnQueueManager(5, nonempty);
+    q.enqueue(payload("one"));
+    q.enqueue(payload("two"));
+    expect(q.beginEdit()).toBe(true);
+    expect(q.deleteAt(0)).toBe(true);
+    expect(q.length).toBe(1);
+    expect(q.isHoldDrain).toBe(false);
+    expect(q.at(0)?.displayMessage).toBe("two");
+  });
+
   test("clearHead removes first item", () => {
     const q = new TurnQueueManager(5, nonempty);
     q.enqueue(payload("first"));
@@ -86,6 +97,43 @@ describe("buildQueuePreviewText", () => {
       width: 80,
     });
     expect(text).not.toContain("Queued messages");
+  });
+
+  test("long queued text wraps without horizontal ellipsis", () => {
+    const long = "fix the failing grep test and ".repeat(8);
+    const text = buildQueuePreviewText({
+      items: [payload(long)],
+      holdDrain: false,
+      editIndex: 0,
+      width: 80,
+    });
+    expect(text.split("\n").length).toBeGreaterThan(1);
+    expect(text).not.toContain("…");
+    expect(text).toContain("fix the failing");
+  });
+
+  test("expands pasted queue preview text", () => {
+    const text = buildQueuePreviewText({
+      items: [
+        {
+          apiText: "line one\nline two\nline three",
+          displayMessage: "[Pasted 3 lines  30 chars #1]",
+          orderedImages: [],
+          segments: [
+            {
+              kind: "paste",
+              display: "[Pasted 3 lines  30 chars #1]",
+              content: "line one\nline two\nline three",
+            },
+          ],
+        },
+      ],
+      holdDrain: false,
+      editIndex: 0,
+      width: 80,
+    });
+    expect(text).toContain("line one");
+    expect(text).not.toContain("[Pasted");
   });
 
   test("returns empty when queue is empty and not editing", () => {

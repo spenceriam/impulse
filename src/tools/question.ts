@@ -26,9 +26,9 @@ const QuestionOptionSchema = z.object({
 const QuestionSchema = z.object({
   topic: z
     .string()
-    .transform((s) => s.trim().slice(0, 20))
+    .transform((s) => s.trim().slice(0, 60))
     .pipe(z.string().min(1))
-    .describe("Topic/category name shown as tab (max 20 chars, e.g. 'Project setup', 'UI stack')"),
+    .describe("Topic/category name shown as tab (max 60 chars, e.g. 'Project setup', 'UI stack')"),
   question: z.string().describe("Complete question text"),
   options: z.array(QuestionOptionSchema).describe("Available choices (user can also type custom answer)"),
   multiple: z.boolean().optional().describe("Allow selecting multiple choices"),

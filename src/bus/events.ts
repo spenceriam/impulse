@@ -98,7 +98,7 @@ const QuestionOptionSchema = z.object({
 
 // Question schema for the question tool (v0.19.0 - topic-based tabs)
 const QuestionSchema = z.object({
-  topic: z.string().max(20).describe("Topic/category name shown as tab (max 20 chars)"),
+  topic: z.string().max(60).describe("Topic/category name shown as tab (max 60 chars)"),
   question: z.string().describe("Complete question text"),
   options: z.array(QuestionOptionSchema).describe("Available choices"),
   multiple: z.boolean().optional().describe("Allow selecting multiple choices"),

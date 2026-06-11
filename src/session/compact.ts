@@ -2,6 +2,10 @@ import { Bus, SessionEvents } from "../bus";
 import { SessionStoreInstance, Message } from "./store";
 import { getProviderManager } from "../api/manager";
 import type { ChatMessage } from "../api/types";
+import {
+  MAX_COMPACT_TOOL_MESSAGE_CHARS,
+  stubOversizedMessageContent,
+} from "../util/tool-output-cap.js";
 
 // Compact thresholds (exported for context bar + agent loop)
 export const COMPACT_WARNING_THRESHOLD = 0.50;  // Orange % in context bar (50–59%)
@@ -11,6 +15,8 @@ export const CONTEXT_WRAPUP_THRESHOLD = 0.80;
 /** Safety margin applied to token estimates before emergency compact / hard cutoff. */
 export const SAFETY_MARGIN = 1.15;
 const TOOL_OUTPUT_RETENTION = 3;               // Keep outputs for last N tool calls
+/** Max chars for a tool message kept in the recent tail after compaction. */
+const MAX_RECENT_TOOL_MESSAGE_CHARS = 8000;
 
 interface CompactConfig {
   threshold: number
@@ -163,6 +169,18 @@ class CompactManagerImpl {
     this.usageCache.delete(sessionID);
   }
 
+  private capOversizedToolMessages(messages: Message[]): Message[] {
+    return messages.map((msg) => {
+      if (msg.role !== "tool" || msg.content.length <= MAX_RECENT_TOOL_MESSAGE_CHARS) {
+        return msg;
+      }
+      return {
+        ...msg,
+        content: stubOversizedMessageContent(msg.content, MAX_RECENT_TOOL_MESSAGE_CHARS),
+      };
+    });
+  }
+
   private pruneToolOutputs(messages: Message[]): Message[] {
     const toolCallIndices: number[] = [];
 
@@ -203,7 +221,11 @@ class CompactManagerImpl {
       text.length > max ? `${text.slice(0, max - 3)}...` : text;
 
     for (const msg of messages) {
-      let text = `[${msg.role.toUpperCase()}]: ${msg.content}`;
+      const body =
+        msg.role === "tool"
+          ? truncateText(msg.content, MAX_COMPACT_TOOL_MESSAGE_CHARS)
+          : msg.content;
+      let text = `[${msg.role.toUpperCase()}]: ${body}`;
 
       if (msg.tool_calls && msg.tool_calls.length > 0) {
         const toolNames = msg.tool_calls.map(tc => tc.tool).filter(Boolean).join(", ");
@@ -391,7 +413,7 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
     try {
       await SessionStoreInstance.flushSave(sessionID);
       const session = await SessionStoreInstance.read(sessionID);
-      const messages = session.messages;
+      const messages = this.capOversizedToolMessages(session.messages);
       const todos = session.todos || [];
       const keepRecentCount =
         options.force && messages.length <= this.config.keepRecentCount

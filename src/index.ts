@@ -232,6 +232,7 @@ if (!currentConfig.userProfile?.name) {
 }
 
 let resumeStartup = parseResumeArg(args);
+let resumeReason: "interrupted" | undefined;
 if (!resumeStartup) {
   const { consumeUpdateResumeHint, isUpdateResumeHintValid } = await import(
     "./util/update-resume-hint.js"
@@ -239,6 +240,17 @@ if (!resumeStartup) {
   const updateHint = consumeUpdateResumeHint();
   if (updateHint && isUpdateResumeHintValid(updateHint)) {
     resumeStartup = { sessionId: updateHint.sessionId };
+  }
+}
+if (!resumeStartup) {
+  // Auto-resume sessions interrupted by dev watch reloads, crashes, or kills (#78).
+  const { resolveInterruptedSessionResume } = await import(
+    "./util/active-session-marker.js"
+  );
+  const interrupted = await resolveInterruptedSessionResume();
+  if (interrupted) {
+    resumeStartup = interrupted;
+    resumeReason = "interrupted";
   }
 }
 const messageArgs = stripResumeArgs(args).filter(
@@ -253,7 +265,9 @@ await waitForTuiStart({ timeoutMs: 3000 });
 await initPty();
 
 const renderer = new ImpulseRenderer(
-  resumeStartup ? { resume: resumeStartup } : undefined
+  resumeStartup
+    ? { resume: resumeStartup, ...(resumeReason ? { resumeReason } : {}) }
+    : undefined
 );
 await renderer.start();
 

@@ -94,6 +94,16 @@ export class TurnQueueManager {
     this.editIndex = 0;
   }
 
+  /** Remove the queued item at index (used when user clears text and presses Enter while editing). */
+  deleteAt(index: number): boolean {
+    if (index < 0 || index >= this.queue.length) return false;
+    this.queue.splice(index, 1);
+    this.editOriginal = null;
+    this.holdDrain = false;
+    this.editIndex = 0;
+    return true;
+  }
+
   commitEdit(payload: PromptSubmitPayload): void {
     if (!this.holdDrain) return;
     if (this.isNonempty(payload) && this.editIndex < this.queue.length) {
