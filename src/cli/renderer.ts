@@ -1796,6 +1796,7 @@ export class ImpulseRenderer {
       reasoningLevel: this.reasoningDisplayLabel(),
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
       showAdvisorInBar: this.experimentalAdvisorEnabled && (config.advisorMode ?? false),
+      bottomBarVisual: config.bottomBarVisual ?? "full",
     });
     this.syncVisionFromConfig(config);
     this.syncSpeedoUi();
@@ -2832,8 +2833,11 @@ export class ImpulseRenderer {
       chatLines += this.measureComponentLines(child as Component, width);
     }
 
-    // Spacer above spinner (1) + separator + prompt + separator + context bar (3)
-    let otherLines = 1 + 1 + 1 + 1 + 3;
+    // Spacer above spinner (1) + separator + prompt + separator + context bar
+    const contextBarLines = this.contextBar
+      ? this.measureComponentLines(this.contextBar, width)
+      : 3;
+    let otherLines = 1 + 1 + 1 + 1 + contextBarLines;
     otherLines += this.measureComponentLines(this.spinnerText, width);
     otherLines += this.measureComponentLines(this.modelSetupText, width);
     otherLines += this.measureComponentLines(this.autocompleteText, width);
@@ -3748,6 +3752,7 @@ export class ImpulseRenderer {
     this.thinkingDisplay = config.thinkingDisplay ?? "summary";
     this.responsePreference = config.userProfile?.responsePreference?.trim() || "concise";
     this.compactToolOutputEnabled = config.compactToolOutput ?? true;
+    this.contextBar?.update({ bottomBarVisual: config.bottomBarVisual ?? "full" });
     this.applyThinkingDisplayMode();
   }
 
@@ -4503,6 +4508,7 @@ export class ImpulseRenderer {
       showSubagentThinking: config.showSubagentThinking,
       useSubagentModel: config.useSubagentModel,
       compactToolOutput: config.compactToolOutput ?? true,
+      bottomBarVisual: config.bottomBarVisual ?? "full",
       ...(config.subagentModel !== undefined ? { subagentModel: config.subagentModel } : {}),
       ...(config.visionModelOverride !== undefined
         ? { visionModelOverride: config.visionModelOverride }
@@ -4524,6 +4530,7 @@ export class ImpulseRenderer {
       config.showSubagentThinking = values.showSubagentThinking;
       config.useSubagentModel = values.useSubagentModel;
       config.compactToolOutput = values.compactToolOutput;
+      config.bottomBarVisual = values.bottomBarVisual;
       config.visionModelOverride = values.visionModelOverride;
       if (values.subagentModel !== undefined) {
         config.subagentModel = values.subagentModel;

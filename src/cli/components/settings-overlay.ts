@@ -1,5 +1,9 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
-import type { ReasoningLevel, ThinkingDisplay } from "../../util/config.js";
+import type {
+  BottomBarVisual,
+  ReasoningLevel,
+  ThinkingDisplay,
+} from "../../util/config.js";
 import {
   intrinsicFramedBoxWidth,
   overlayAnsi,
@@ -17,6 +21,7 @@ import {
 const COMM_STYLES = ["concise", "detailed", "casual", "technical"] as const;
 const THINKING_CYCLE: ThinkingDisplay[] = ["off", "summary", "full"];
 const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
+const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
 
 export interface SettingsValues {
   thinkingDisplay: ThinkingDisplay;
@@ -28,6 +33,7 @@ export interface SettingsValues {
   subagentModel?: string;
   visionModelOverride?: string;
   compactToolOutput: boolean;
+  bottomBarVisual: BottomBarVisual;
 }
 
 export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boolean {
@@ -40,7 +46,8 @@ export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boole
     a.useSubagentModel === b.useSubagentModel &&
     (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "") &&
     (a.visionModelOverride?.trim() ?? "") === (b.visionModelOverride?.trim() ?? "") &&
-    a.compactToolOutput === b.compactToolOutput
+    a.compactToolOutput === b.compactToolOutput &&
+    a.bottomBarVisual === b.bottomBarVisual
   );
 }
 
@@ -124,6 +131,12 @@ export class SettingsOverlay implements Component {
       kind: "bool",
     },
     {
+      key: "bottomBarVisual",
+      label: "Bottom bar visuals",
+      hint: "full → reduced → minimal → off",
+      kind: "cycle",
+    },
+    {
       key: "compactToolOutput",
       label: "Compact tool rows",
       hint: "Dim one-liners for read-only tools; expand to see detail",
@@ -202,6 +215,8 @@ export class SettingsOverlay implements Component {
         return formatCycleValue(row.label, this.values.responsePreference);
       case "statsOnExit":
         return formatBool(this.values.statsOnExit);
+      case "bottomBarVisual":
+        return formatCycleValue(row.label, this.values.bottomBarVisual);
       case "compactToolOutput":
         return formatBool(this.values.compactToolOutput);
       case "showSubagentThinking":
@@ -287,6 +302,12 @@ export class SettingsOverlay implements Component {
       }
       case "statsOnExit":
         this.values.statsOnExit = !this.values.statsOnExit;
+        break;
+      case "bottomBarVisual":
+        this.values.bottomBarVisual = cycleValue(
+          this.values.bottomBarVisual,
+          BOTTOM_BAR_CYCLE
+        );
         break;
       case "compactToolOutput":
         this.values.compactToolOutput = !this.values.compactToolOutput;

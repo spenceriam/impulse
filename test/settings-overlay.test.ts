@@ -12,6 +12,7 @@ describe("settingsValuesEqual", () => {
     subagentModel: "ollama/foo",
     visionModelOverride: undefined,
     compactToolOutput: true,
+    bottomBarVisual: "full" as const,
   };
 
   test("detects identical values", () => {
@@ -36,6 +37,12 @@ describe("settingsValuesEqual", () => {
   test("detects subagent model change", () => {
     expect(
       settingsValuesEqual(base, { ...base, subagentModel: "ollama/bar" })
+    ).toBe(false);
+  });
+
+  test("detects bottom bar visual change", () => {
+    expect(
+      settingsValuesEqual(base, { ...base, bottomBarVisual: "minimal" })
     ).toBe(false);
   });
 });

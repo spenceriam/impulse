@@ -18,6 +18,10 @@ const ReasoningLevelSchema = z.enum(["off", "low", "medium", "high"]);
 export type ThinkingDisplay = "off" | "summary" | "full";
 const ThinkingDisplaySchema = z.enum(["off", "summary", "full"]);
 
+/** Bottom context bar verbosity. */
+export type BottomBarVisual = "full" | "reduced" | "minimal" | "off";
+const BottomBarVisualSchema = z.enum(["full", "reduced", "minimal", "off"]);
+
 const ProviderKeySchema = z.object({
   /** API key for this provider */
   apiKey: z.string().optional(),
@@ -120,6 +124,9 @@ const ConfigSchema = z.object({
 
   /** Dim one-liner for read-only tool success rows */
   compactToolOutput: z.boolean().default(true),
+
+  /** Bottom context bar verbosity: full | reduced | minimal | off */
+  bottomBarVisual: BottomBarVisualSchema.default("full"),
 
   /** Per-model reliability overrides when tool continuations fail */
   modelProfiles: z
