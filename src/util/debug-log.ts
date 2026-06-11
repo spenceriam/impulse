@@ -38,6 +38,14 @@ export async function enableDebugLog(): Promise<string> {
 }
 
 /**
+ * Disable debug logging and clear the active session log path.
+ */
+export function disableDebugLog(): void {
+  debugEnabled = false;
+  sessionLogPath = null;
+}
+
+/**
  * Check if debug logging is enabled
  */
 export function isDebugEnabled(): boolean {
@@ -134,9 +142,21 @@ export async function logToolExecution(
 /**
  * Log an API request
  */
+function contentLengthForLog(content: unknown): number {
+  if (typeof content === "string") return content.length;
+  if (Array.isArray(content)) return JSON.stringify(content).length;
+  return 0;
+}
+
+function contentPreviewForLog(content: unknown): string | null {
+  if (typeof content === "string") return content.slice(0, 200);
+  if (Array.isArray(content)) return JSON.stringify(content).slice(0, 200);
+  return null;
+}
+
 export async function logAPIRequest(
   model: string,
-  messages: Array<{ role: string; content?: string | null }>,
+  messages: Array<{ role: string; content?: unknown }>,
   tools?: unknown[]
 ): Promise<void> {
   await appendLog({
@@ -144,10 +164,10 @@ export async function logAPIRequest(
     timestamp: new Date().toISOString(),
     model,
     messageCount: messages.length,
-    messages: messages.map(m => ({
+    messages: messages.map((m) => ({
       role: m.role,
-      contentLength: typeof m.content === "string" ? m.content.length : 0,
-      contentPreview: typeof m.content === "string" ? m.content.slice(0, 200) : null,
+      contentLength: contentLengthForLog(m.content),
+      contentPreview: contentPreviewForLog(m.content),
     })),
     toolCount: tools?.length || 0,
   });
@@ -198,7 +218,12 @@ export async function logError(
  * Log raw API messages being sent
  */
 export async function logRawAPIMessages(
-  messages: Array<{ role: string; content?: string | null; reasoning_content?: string; tool_calls?: unknown[] }>
+  messages: Array<{
+    role: string;
+    content?: unknown;
+    reasoning_content?: string | undefined;
+    tool_calls?: unknown[] | undefined;
+  }>
 ): Promise<void> {
   await appendLog({
     type: "raw_api_messages",

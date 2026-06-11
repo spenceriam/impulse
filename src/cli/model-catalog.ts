@@ -87,6 +87,20 @@ let catalogCache: { loadedAt: number; data: CatalogData } | null = null;
 let globalIndex: Map<string, { bucket: string; record: ModelsDevRecord }> | null =
   null;
 
+/** Per-model-family fallback when catalog/discovery cannot resolve context window. */
+export function defaultContextWindowForModel(modelId: string): number {
+  const bare = (
+    modelId.includes("/") ? modelId.split("/").slice(1).join("/") : modelId
+  ).toLowerCase();
+
+  if (/gemini.*2\.|gemini-2|1[\s._-]?m|million/.test(bare)) return 1_000_000;
+  if (/claude.*opus|200k|sonnet-4|opus-4/.test(bare)) return 200_000;
+  if (/32k|gpt-3\.5|gpt-35/.test(bare)) return 32_768;
+  if (/8k|gpt-4-0314/.test(bare)) return 8_192;
+  // Most current flagship / coding models (128k-class)
+  return 128_000;
+}
+
 export function formatContextK(tokens: number): string {
   if (tokens >= 1_000_000) {
     const m = tokens / 1_000_000;

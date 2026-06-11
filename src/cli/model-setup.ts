@@ -84,6 +84,17 @@ export function providerConfig(config: Config, providerKey: string): StoredProvi
   return providers[providerKey] ?? {};
 }
 
+/** Whether stored config is sufficient to use a built-in provider. */
+export function isStoredProviderConfigured(
+  providerKey: string,
+  stored: StoredProviderConfig
+): boolean {
+  if (providerKey === "ollama") {
+    return !!(stored.apiKey || stored.baseUrl);
+  }
+  return !!stored.apiKey;
+}
+
 /** Configured custom provider keys (excludes built-in provider keys). */
 export function listConfiguredCustomProviderKeys(config: Config): string[] {
   const providers = (config.providers as Record<string, StoredProviderConfig | undefined>) ?? {};
@@ -436,14 +447,67 @@ export function modelUsesProvider(model: string | undefined, providerKey: string
   return model === providerKey || model.startsWith(prefix);
 }
 
+const BUILTIN_PROVIDER_LABELS: Record<string, string> = {
+  "z.ai": "Z.ai",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  groq: "Groq",
+  gemini: "Google Gemini",
+  nous: "Nous Research",
+};
+
+export function builtinProviderLabel(key: string): string {
+  return (
+    MODEL_PROVIDERS.find((p) => p.key === key)?.label ??
+    BUILTIN_PROVIDER_LABELS[key] ??
+    key
+  );
+}
+
+/** Configured providers for /model picker (custom + env/file builtins). */
+export function listConfiguredProviderKeysForPicker(
+  config: Config
+): Array<{ providerKey: string; provider: ModelProviderOption }> {
+  const entries: Array<{ providerKey: string; provider: ModelProviderOption }> = [];
+  const seen = new Set<string>();
+
+  for (const key of listConfiguredCustomProviderKeys(config)) {
+    const stored = providerConfig(config, key);
+    if (!isStoredProviderConfigured(key, stored)) continue;
+    seen.add(key);
+    entries.push({ providerKey: key, provider: resolveCustomProviderOption(key, config) });
+  }
+
+  for (const key of KNOWN_PROVIDER_KEYS) {
+    if (seen.has(key)) continue;
+    const stored = providerConfig(config, key);
+    if (!isStoredProviderConfigured(key, stored)) continue;
+    const template = MODEL_PROVIDERS.find((p) => !p.isCustom && p.key === key);
+    entries.push({
+      providerKey: key,
+      provider:
+        template ??
+        ({
+          key,
+          label: builtinProviderLabel(key),
+          envVar: "",
+          defaultModel: "",
+          modelBaseUrl: "",
+        } satisfies ModelProviderOption),
+    });
+  }
+
+  return entries;
+}
+
 export function countConfiguredProviders(config: Config): number {
   let n = 0;
   for (const key of listConfiguredCustomProviderKeys(config)) {
-    if (providerConfig(config, key).apiKey) n++;
+    if (isStoredProviderConfigured(key, providerConfig(config, key))) n++;
   }
   for (const mp of MODEL_PROVIDERS) {
     if (mp.isCustom) continue;
-    if (providerConfig(config, mp.key).apiKey) n++;
+    if (isStoredProviderConfigured(mp.key, providerConfig(config, mp.key))) n++;
   }
   return n;
 }

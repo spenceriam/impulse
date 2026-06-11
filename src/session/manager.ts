@@ -33,7 +33,19 @@ class SessionManagerImpl {
       const payload = event.properties as { sessionID?: unknown; session?: unknown };
       if (payload.sessionID !== this.currentSession?.id) return;
 
-      this.currentSession = payload.session as Session;
+      const incoming = payload.session as Session;
+      const current = this.currentSession;
+      if (!current) {
+        this.currentSession = incoming;
+        return;
+      }
+
+      if (incoming.messages.length < current.messages.length) {
+        this.currentSession = { ...incoming, messages: current.messages };
+        return;
+      }
+
+      this.currentSession = incoming;
     });
   }
 
@@ -166,17 +178,27 @@ class SessionManagerImpl {
     // consolidated per-turn so the session on disk always reflects a
     // complete conversation state rather than mid-turn snapshots.
     SessionStoreInstance.autoSave(this.currentSession.id, { messages });
+    CompactManager.invalidateCache(this.currentSession.id);
 
-    const messageIndex = messages.length - 1;
-    const summary = message.role === "user" ? message.content.slice(0, 100) : undefined;
+    await CompactManager.maybeCompact(this.currentSession.id);
+  }
 
-    await CheckpointManager.createCheckpoint(
+  /** Git checkpoint at current message index (explicit /checkpoint or experimental undo). */
+  async createCheckpoint(summary?: string): Promise<boolean> {
+    if (!this.currentSession) {
+      return false;
+    }
+
+    const messageIndex = this.currentSession.messages.length - 1;
+    if (messageIndex < 0) {
+      return false;
+    }
+
+    return await CheckpointManager.createCheckpoint(
       this.currentSession.id,
       messageIndex,
       summary
     );
-
-    await CompactManager.maybeCompact(this.currentSession.id);
   }
 
   async flushCurrent(): Promise<void> {

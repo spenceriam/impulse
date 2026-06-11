@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { resolve, relative, isAbsolute } from "path";
-import { sanitizePath } from "../util/path";
+import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { Bus } from "../bus";
 import { 
@@ -15,6 +15,10 @@ import { zCommandString, zFilePath } from "./schemas/branded";
 import { detectPowerShellVersion, translatePosixToPowerShell } from "./posix-translation";
 import { detectShellEnvironment } from "../util/shell-env";
 import { detectAndPublishBranchChange } from "../git/branch-detect";
+import { SessionManager } from "../session/manager";
+
+/** Default bash/PTY timeout per docs/tools/bash.md */
+const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
@@ -354,11 +358,11 @@ function encodePowerShellCommand(command: string): string {
 
 async function getSpawnOptions(
   input: BashInput,
+  cwd: string,
   options: { interactive?: boolean } = {}
 ): Promise<SpawnOptions> {
-  const cwd = input.workdir ? sanitizePath(input.workdir) : undefined;
   const common: SpawnOptions = {
-    ...(cwd ? { cwd } : {}),
+    cwd,
     env: process.env,
     cmd: [],
   };
@@ -410,6 +414,10 @@ export function needsPermission(command: string, workdir?: string): { needed: bo
     return { needed: true, reason: "High-risk command" };
   }
 
+  if (classification === "unknown") {
+    return { needed: true, reason: "Unrecognized command — approval required" };
+  }
+
   for (const path of extractPaths(command)) {
     if (!isWithinCwd(path, cwd)) {
       return { needed: true, reason: `Path outside working directory: ${path}` };
@@ -437,9 +445,9 @@ export function getActivePtyHandle(toolCallId: string): PtyHandle | undefined {
 async function executeWithPty(
   input: BashInput,
   toolCallId: string,
-  abortSignal: AbortSignal
+  abortSignal: AbortSignal,
+  cwd: string
 ): Promise<ToolResult> {
-  const cwd = input.workdir ? sanitizePath(input.workdir) : process.cwd();
   const startTime = Date.now();
   
   let lastOutput = "";
@@ -474,7 +482,7 @@ async function executeWithPty(
   };
   
   try {
-    const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input, { interactive: true }) : undefined;
+    const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input, cwd, { interactive: true }) : undefined;
     const ptyOptions = spawnOptions
       ? (() => {
           const [shell, ...args] = spawnOptions.cmd;
@@ -502,8 +510,28 @@ async function executeWithPty(
     activePtyHandles.set(toolCallId, handle);
     Bus.emit(PtyEvents.Started, { toolCallId, pid: handle.pid });
     
-    // Wait for result
-    const result = await handle.result;
+    const timeoutMs = input.timeout ?? DEFAULT_BASH_TIMEOUT_MS;
+    let timedOut = false;
+    const result = await new Promise<{ output: string; exitCode: number; pid?: number }>((resolve) => {
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          handle.kill();
+        } catch {
+          /* ignore */
+        }
+        resolve({
+          output: lastOutput,
+          exitCode: -1,
+          pid: handle.pid,
+        });
+      }, timeoutMs);
+
+      void handle.result.then((ptyResult) => {
+        clearTimeout(timer);
+        if (!timedOut) resolve(ptyResult);
+      });
+    });
     
     // Clean up handle
     activePtyHandles.delete(toolCallId);
@@ -518,6 +546,10 @@ async function executeWithPty(
       output += `\n[Output truncated to ${maxLines} lines]`;
     }
     
+    if (timedOut) {
+      output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
+    }
+
     return {
       success: result.exitCode === 0,
       output: output || "Command completed successfully.",
@@ -557,10 +589,10 @@ async function executeWithPty(
 /**
  * Execute command with standard Bun.spawn (non-interactive, host-shell aware)
  */
-async function executeWithSpawn(input: BashInput): Promise<ToolResult> {
+async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResult> {
   const startTime = Date.now();
   const maxLines = 2000;
-  const spawnOptions = await getSpawnOptions(input);
+  const spawnOptions = await getSpawnOptions(input, cwd);
 
   const proc = Bun.spawn({
     cmd: spawnOptions.cmd,
@@ -684,7 +716,7 @@ export const bashTool: Tool<BashInput> = Tool.define(
       
       if (permCheck.needed) {
         await askPermission({
-          sessionID: "current",
+          sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
           permission: "bash",
           patterns: [input.command],
           message: input.description || `Execute: ${input.command.slice(0, 50)}...`,
@@ -703,7 +735,9 @@ export const bashTool: Tool<BashInput> = Tool.define(
       // Determine if we should use interactive mode
       const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
       
-      const cwd = input.workdir ? sanitizePath(input.workdir) : process.cwd();
+      const cwd = input.workdir
+        ? await resolveToolPath(input.workdir, "bash")
+        : process.cwd();
       let result: ToolResult;
 
       // Use PTY if interactive mode is requested AND PTY is available
@@ -712,13 +746,13 @@ export const bashTool: Tool<BashInput> = Tool.define(
         currentAbortController = new AbortController();
         
         try {
-          result = await executeWithPty(input, toolCallId, currentAbortController.signal);
+          result = await executeWithPty(input, toolCallId, currentAbortController.signal, cwd);
         } finally {
           currentAbortController = null;
         }
       } else {
         // Fallback to standard execution
-        result = await executeWithSpawn(input);
+        result = await executeWithSpawn(input, cwd);
       }
 
       if (result.success) {

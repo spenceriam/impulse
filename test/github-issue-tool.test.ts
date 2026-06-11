@@ -1,20 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { Tool, isToolAllowedForMode } from "../src/tools/registry.js";
+import { probeGhCli } from "../src/git/gh-cli.js";
 import "../src/tools/init.js";
+
+const ghReady = probeGhCli(true);
 
 describe("github_issue tool", () => {
   test("allowed in PLAN mode as read_only", () => {
     expect(isToolAllowedForMode("github_issue", "PLAN")).toBe(true);
   });
 
-  test("returns gh install message when gh missing", async () => {
-    const originalProbe = await import("../src/git/gh-cli.js");
-    // If gh is installed in CI, skip strict message test
-    const status = originalProbe.probeGhCli(true);
-    if (status.installed && status.authenticated) {
-      return;
-    }
-
+  test.skipIf(ghReady.installed && ghReady.authenticated)(
+    "returns gh install message when gh missing",
+    async () => {
+    const status = probeGhCli(true);
     const result = await Tool.execute("github_issue", { number: 50 });
     expect(result.success).toBe(false);
     if (!status.installed) {
@@ -24,5 +23,6 @@ describe("github_issue tool", () => {
     }
     expect(result.output).toContain("github.com");
     expect(result.output).toContain("/issues/50");
-  });
+    }
+  );
 });

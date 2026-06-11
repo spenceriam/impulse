@@ -49,7 +49,23 @@ function advisorPlansDir(): string {
   return path.join(os.homedir(), ".impulse", "advisor-plans");
 }
 
-function sanitizePath(filePath: string, baseDir: string = process.cwd()): string {
+export type SanitizePathOptions = {
+  baseDir?: string;
+  /** Skip cwd containment (explicit permission or --aa); symlink checks still apply when inside cwd. */
+  allowOutsideCwd?: boolean;
+};
+
+function sanitizePath(
+  filePath: string,
+  baseDirOrOptions: string | SanitizePathOptions = process.cwd()
+): string {
+  const options: SanitizePathOptions =
+    typeof baseDirOrOptions === "string"
+      ? { baseDir: baseDirOrOptions }
+      : baseDirOrOptions;
+  const baseDir = options.baseDir ?? process.cwd();
+  const allowOutsideCwd = options.allowOutsideCwd === true;
+
   const resolved = path.isAbsolute(filePath)
     ? path.resolve(filePath)
     : path.resolve(baseDir, filePath);
@@ -63,6 +79,10 @@ function sanitizePath(filePath: string, baseDir: string = process.cwd()): string
     }
   } catch {
     // plans dir may not exist yet
+  }
+
+  if (allowOutsideCwd) {
+    return resolveWithExistingAncestors(resolved);
   }
 
   const normalizedBaseDir = path.resolve(baseDir);
@@ -81,4 +101,4 @@ function sanitizePath(filePath: string, baseDir: string = process.cwd()): string
   return realPath;
 }
 
-export { sanitizePath, SecurityError };
+export { sanitizePath, SecurityError, isWithinBase };

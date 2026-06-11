@@ -51,6 +51,18 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
         };
       }
 
+      const currentTitle = SessionManager.getCurrentSession()?.headerTitle;
+      if (currentTitle === title) {
+        return {
+          success: true,
+          output: "Header unchanged.",
+          metadata: {
+            title,
+            unchanged: true,
+          },
+        };
+      }
+
       await SessionManager.setHeaderTitle(title);
       Bus.publish(HeaderEvents.Updated, { title });
 

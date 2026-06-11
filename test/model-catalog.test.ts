@@ -1,5 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { enrichModelId } from "../src/cli/model-catalog.js";
+import { defaultContextWindowForModel, enrichModelId } from "../src/cli/model-catalog.js";
+
+describe("defaultContextWindowForModel", () => {
+  test("uses 128k for typical flagship models", () => {
+    expect(defaultContextWindowForModel("openai/gpt-4o")).toBe(128_000);
+    expect(defaultContextWindowForModel("anthropic/claude-3-5-haiku")).toBe(128_000);
+  });
+
+  test("uses 200k for extended-context claude families", () => {
+    expect(defaultContextWindowForModel("anthropic/claude-sonnet-4")).toBe(200_000);
+  });
+
+  test("uses family-specific defaults", () => {
+    expect(defaultContextWindowForModel("google/gemini-2.0-flash")).toBe(1_000_000);
+    expect(defaultContextWindowForModel("openai/gpt-3.5-turbo")).toBe(32_768);
+  });
+});
 
 describe("model catalog context resolution", () => {
   test("prefers provider API context_length over models.dev context", () => {
