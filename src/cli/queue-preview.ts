@@ -27,15 +27,16 @@ export function buildQueuePreviewText(input: QueuePreviewInput): string {
     );
   }
 
-  if (items.length > 0) {
-    lines.push(`${GUTTER}${clr.dim("Queued messages")}`);
-  }
-
   const contIndent = "   ";
+  let queueHeaderAdded = false;
 
   for (let i = 0; i < items.length; i++) {
     const text = items[i]!.displayMessage.trim();
     if (!text) continue;
+    if (!queueHeaderAdded) {
+      lines.push(`${GUTTER}${clr.dim("Queued messages")}`);
+      queueHeaderAdded = true;
+    }
     const active = holdDrain && i === editIndex;
     const marker = active ? clr.dim(`> ${i + 1} `) : clr.dim(`${i + 1} `);
     const firstAvail = Math.max(8, innerWidth(width) - visibleWidth(marker));
