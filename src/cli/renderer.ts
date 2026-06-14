@@ -332,7 +332,7 @@ export interface ImpulseRendererOptions {
   resume?: ResumeStartup;
   /** "interrupted" when resume came from the active-session marker (#78). */
   resumeReason?: "interrupted";
-  /** Skip disclaimer; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
+  /** Prompt the allow-all disclaimer at startup; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
   allowAllOnStartup?: boolean;
 }
 
@@ -343,6 +343,8 @@ export class ImpulseRenderer {
   private readonly startupResume: ResumeStartup | null;
   private readonly startupResumeReason: "interrupted" | null;
   private readonly allowAllOnStartup: boolean;
+  /** True once the startup disclaimer is accepted; keeps allow-all sticky across session switches. */
+  private allowAllStartupAgreed = false;
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
   private welcomeChildCount = 0;
@@ -1809,11 +1811,7 @@ export class ImpulseRenderer {
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
-    resetAllowAllBypass();
-    if (this.allowAllOnStartup) {
-      setAllowAllBypass(true);
-    }
-    this.syncAllowAllBypassUi();
+    this.applyAllowAllForSessionScope();
 
     this.tui.addInputListener((data) => {
       if (this.shellTakeoverActive && this.shellCommandRunning) {
@@ -1844,7 +1842,14 @@ export class ImpulseRenderer {
 
     this.tui.start();
     if (this.allowAllOnStartup) {
-      this.addChatLine(clr.dim("All permissions bypassed"));
+      const agreed = await this.showAllowAllDisclaimer();
+      if (agreed) {
+        this.allowAllStartupAgreed = true;
+        this.applyAllowAllForSessionScope();
+        this.addChatLine(clr.dim("All permissions bypassed"));
+      } else {
+        this.addChatLine(clr.dim("Allow-all not enabled."));
+      }
       this.tui.requestRender();
     }
     // Discover reasoning capabilities in background (non-blocking)
@@ -3078,8 +3083,7 @@ export class ImpulseRenderer {
     if (newCfg.defaultModel?.trim()) {
       await SessionManager.update({ model: newCfg.defaultModel });
     }
-    resetAllowAllBypass();
-    this.syncAllowAllBypassUi();
+    this.applyAllowAllForSessionScope();
     this.speedoEnabled = false;
     this.syncSpeedoUi();
     this.promptHistory.resetIndex();
@@ -4548,7 +4552,10 @@ export class ImpulseRenderer {
     };
 
     await new Promise<void>((resolve) => {
-      const handle = this.showContentSizedOverlay(overlay, { maxHeight: 20 });
+      const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
+      const maxHeight = overlayViewportMaxHeight(rows);
+      overlay.setMaxHeight(maxHeight);
+      const handle = this.showContentSizedOverlay(overlay, { maxHeight });
       this.settingsOverlayHandle = handle;
 
       const cleanupNav = this.tui.addInputListener((data: string) => {
@@ -4782,6 +4789,14 @@ export class ImpulseRenderer {
     } else {
       this.addChatLine(`  ${clr.error("!")} Unknown mode. Options: ${displayModeOptions()}`);
     }
+  }
+
+  private applyAllowAllForSessionScope(): void {
+    resetAllowAllBypass();
+    if (this.allowAllStartupAgreed) {
+      setAllowAllBypass(true);
+    }
+    this.syncAllowAllBypassUi();
   }
 
   private syncAllowAllBypassUi(): void {
@@ -5389,8 +5404,7 @@ export class ImpulseRenderer {
   private async applyResumeSession(sessionID: string): Promise<void> {
     try {
       const session = await SessionManager.load(sessionID);
-      resetAllowAllBypass();
-      this.syncAllowAllBypassUi();
+      this.applyAllowAllForSessionScope();
       this.resetTurnUiState();
       this.clearChatView();
       this.applySessionToRenderer(session);
