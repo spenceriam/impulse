@@ -1,5 +1,35 @@
 import { describe, expect, test } from "bun:test";
-import { parseStartupFlags } from "../src/cli/startup-flags.js";
+import {
+  findUnknownFlag,
+  parseStartupFlags,
+} from "../src/cli/startup-flags.js";
+
+describe("findUnknownFlag", () => {
+  test("returns unknown typos", () => {
+    expect(findUnknownFlag(["--updat"])).toBe("--updat");
+    expect(findUnknownFlag(["--verbose"])).toBe("--verbose");
+  });
+
+  test("accepts known boolean flags", () => {
+    expect(findUnknownFlag(["--version"])).toBeUndefined();
+    expect(findUnknownFlag(["--update"])).toBeUndefined();
+    expect(findUnknownFlag(["--aa"])).toBeUndefined();
+    expect(findUnknownFlag(["--allow-all"])).toBeUndefined();
+    expect(findUnknownFlag(["--resume"])).toBeUndefined();
+    expect(findUnknownFlag(["-r"])).toBeUndefined();
+  });
+
+  test("accepts value flags with their values", () => {
+    expect(findUnknownFlag(["--limit", "5"])).toBeUndefined();
+    expect(findUnknownFlag(["--project", "current"])).toBeUndefined();
+    expect(findUnknownFlag(["--resume", "abc123"])).toBeUndefined();
+  });
+
+  test("ignores tokens after -- end-of-options", () => {
+    expect(findUnknownFlag(["--", "--weird"])).toBeUndefined();
+    expect(findUnknownFlag(["--aa", "--", "--updat"])).toBeUndefined();
+  });
+});
 
 describe("parseStartupFlags", () => {
   test("detects --aa and strips it from argv", () => {

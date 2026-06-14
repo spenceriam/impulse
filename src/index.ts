@@ -21,6 +21,7 @@ import { testOllamaConnection } from "./api/providers/ollama.js";
 import { discoverModels } from "./cli/model-setup.js";
 import "./tools/init.js";
 import { ImpulseRenderer, type ResumeStartup } from "./cli/renderer.js";
+import { parseStartupFlags, findUnknownFlag } from "./cli/startup-flags.js";
 import { printStartupSplash, waitForTuiStart } from "./cli/startup-splash.js";
 import { initPty } from "./pty/index.js";
 import { migrateHomeIfNeeded } from "./session/migrate-home.js";
@@ -34,6 +35,12 @@ import * as path from "path";
 registerCrashRecoveryHandlers();
 
 const args = process.argv.slice(2);
+
+const unknownFlag = findUnknownFlag(args);
+if (unknownFlag) {
+  console.error(`unknown flag: ${unknownFlag}\nTry 'impulse --help'.`);
+  process.exit(1);
+}
 
 // ─── --version ───────────────────────────────────────────────────────────────
 if (args.includes("--version") || args.includes("-v")) {
@@ -112,6 +119,15 @@ function parseResumeArg(argv: string[]): ResumeStartup | undefined {
     return { sessionId: next };
   }
   return "picker";
+}
+
+function buildMessageArgs(argv: string[]): string[] {
+  const stripped = stripResumeArgs(argv).filter((a) => a !== "--setup");
+  const sepIdx = stripped.indexOf("--");
+  if (sepIdx >= 0) {
+    return stripped.slice(sepIdx + 1);
+  }
+  return stripped.filter((a) => !a.startsWith("-"));
 }
 
 function stripResumeArgs(argv: string[]): string[] {
@@ -253,9 +269,8 @@ if (!resumeStartup) {
     resumeReason = "interrupted";
   }
 }
-const messageArgs = stripResumeArgs(args).filter(
-  (a) => !a.startsWith("-") && a !== "--setup"
-);
+const { flags: startupFlags } = parseStartupFlags(args);
+const messageArgs = buildMessageArgs(args);
 
 // ─── Init tools & start ──────────────────────────────────────────────────────
 await printStartupSplash(
@@ -264,11 +279,12 @@ await printStartupSplash(
 await waitForTuiStart({ timeoutMs: 3000 });
 await initPty();
 
-const renderer = new ImpulseRenderer(
-  resumeStartup
+const renderer = new ImpulseRenderer({
+  ...(resumeStartup
     ? { resume: resumeStartup, ...(resumeReason ? { resumeReason } : {}) }
-    : undefined
-);
+    : {}),
+  allowAllOnStartup: startupFlags.allowAllOnStartup,
+});
 await renderer.start();
 
 if (messageArgs.length > 0 && messageArgs[0]) {
