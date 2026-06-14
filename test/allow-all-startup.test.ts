@@ -39,4 +39,16 @@ describe("startup allow-all session scope", () => {
     applyAllowAllForSessionScope(false);
     expect(isAllowAllBypass()).toBe(false);
   });
+
+  test("user toggle off clears startup sticky across session switch", () => {
+    let allowAllStartupAgreed = true;
+    applyAllowAllForSessionScope(allowAllStartupAgreed);
+    expect(isAllowAllBypass()).toBe(true);
+
+    allowAllStartupAgreed = false;
+    setAllowAllBypass(false);
+
+    applyAllowAllForSessionScope(allowAllStartupAgreed);
+    expect(isAllowAllBypass()).toBe(false);
+  });
 });

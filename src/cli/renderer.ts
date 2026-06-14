@@ -4861,6 +4861,7 @@ export class ImpulseRenderer {
     }
 
     if (isAllowAllBypass()) {
+      this.allowAllStartupAgreed = false;
       setAllowAllBypass(false);
       this.syncAllowAllBypassUi();
       this.addChatLine(clr.dim("Permission bypass off"));
