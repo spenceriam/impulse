@@ -45,9 +45,9 @@ function preprocessGithubIssueInput(raw: unknown): unknown {
       obj["number"] = fromUrl.number;
       obj["owner"] = obj["owner"] ?? fromUrl.owner;
       obj["repo"] = obj["repo"] ?? fromUrl.repo;
-    } else {
+    } else if (/^\d+$/.test(numStr)) {
       const n = parseInt(numStr, 10);
-      if (!Number.isNaN(n) && n > 0) obj["number"] = n;
+      if (n > 0) obj["number"] = n;
     }
   }
   if (obj["number"] === undefined && typeof obj["url"] === "string") {
