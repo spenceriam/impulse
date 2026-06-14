@@ -34,6 +34,8 @@ export interface FileWriteMetadata {
   firstChangedLine?: number; // First changed line in the new file
   diffSkipped?: boolean;     // True if diff was skipped due to size
   diffReason?: string;       // Reason diff was skipped
+  /** Number of compactDiff lines dropped due to metadata size cap. */
+  diffTruncatedLines?: number;
 }
 
 // ============================================
@@ -50,6 +52,8 @@ export interface FileEditMetadata {
   firstChangedLine?: number; // First changed line in the new file
   diffSkipped?: boolean;     // True if diff was skipped due to size
   diffReason?: string;       // Reason diff was skipped
+  /** Number of compactDiff lines dropped due to metadata size cap. */
+  diffTruncatedLines?: number;
 }
 
 // ============================================

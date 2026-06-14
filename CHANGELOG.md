@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-11
+
+  **Type:** minor
+  **Title:** Bottom bar visuals, smarter diffs, prompt history upgrades, github_issue URLs
+
+  ### Added
+  - **Bottom bar visuals** — `/settings` option `full` / `reduced` / `minimal` / `off` for a quieter footer; persisted globally in `~/.impulse/config.json`
+  - **Prompt history** — Up recalls slash commands and `!` shell commands; draft restore on Down; per-project persistence (20 entries) under `~/.impulse/history/`
+  - **`github_issue` URL input** — full `https://github.com/owner/repo/issues/N` URLs accepted in the `number` or `url` field, including cross-repo links
+
+  ### Changed
+  - **File edit/write diffs** — compact diff always computed for large files; only the true changed hunks render, with truncation footer when output exceeds the cap
+
+  ### Fixed
+  - **#80** — first-run CLI onboarding now sets `modelExplicitlySet` so the first prompt works without re-running `/model`; existing broken configs repaired on load when `defaultModel` is saved
+  - **`/settings` overlay** — scrollable body with pinned footer; viewport-sized height so key hints are never clipped when options grow
+  - **#83** — `--aa` / `--allow-all` now prompt the allow-all disclaimer at launch (agree to enable; sticky across `/new` and `/resume` for the run, shown in context bar); unknown CLI flags are rejected instead of silently starting
+  - **Allow-all context bar** — indicator stays visible in reduced/minimal bottom-bar visuals (shown as `AA`)
+
 ## [1.5.1] - 2026-06-11
 
   **Type:** patch

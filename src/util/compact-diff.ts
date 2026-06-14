@@ -15,6 +15,44 @@ export interface CompactDiffResult {
 
 const DEFAULT_CONTEXT_LINES = 2;
 
+/** Hard input safety valve: skip diffing entirely above this (pathological files). */
+export const MAX_DIFF_INPUT_BYTES = 2_000_000;
+
+/** Max compactDiff lines stored in tool metadata; excess is truncated. */
+export const MAX_COMPACT_DIFF_LINES = 200;
+
+/** Legacy unified patch gate — UI prefers compactDiff. */
+export const MAX_DIFF_PATCH_BYTES = 200_000;
+
+export interface CappedCompactDiff {
+  compactDiff: string[];
+  linesAdded: number;
+  linesRemoved: number;
+  firstChangedLine?: number;
+  diffTruncatedLines?: number;
+}
+
+/** Store compact diff lines with a metadata cap; counts reflect the full change. */
+export function capCompactDiffResult(compact: CompactDiffResult): CappedCompactDiff {
+  const base: Pick<CappedCompactDiff, "linesAdded" | "linesRemoved"> & {
+    firstChangedLine?: number;
+  } = {
+    linesAdded: compact.additions,
+    linesRemoved: compact.removals,
+  };
+  if (compact.firstChangedLine !== undefined) {
+    base.firstChangedLine = compact.firstChangedLine;
+  }
+  if (compact.lines.length <= MAX_COMPACT_DIFF_LINES) {
+    return { compactDiff: compact.lines, ...base };
+  }
+  return {
+    compactDiff: compact.lines.slice(0, MAX_COMPACT_DIFF_LINES),
+    diffTruncatedLines: compact.lines.length - MAX_COMPACT_DIFF_LINES,
+    ...base,
+  };
+}
+
 function normalizeToLf(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }

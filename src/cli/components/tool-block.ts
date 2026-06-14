@@ -601,22 +601,42 @@ function renderDiffSkipped(reason: string | undefined, width: number): string[] 
   return [truncateGutterLine(`       ${clr.dim(`diff skipped: ${reason ?? "not available"}`)}`, width)];
 }
 
+function appendDiffTruncatedFooter(
+  lines: string[],
+  metadata: FileEditMetadata | FileWriteMetadata,
+  width: number
+): void {
+  if (metadata.diffTruncatedLines && metadata.diffTruncatedLines > 0) {
+    lines.push(
+      truncateGutterLine(
+        `       ${clr.dim(`… ${metadata.diffTruncatedLines} more lines`)}`,
+        width
+      )
+    );
+  }
+}
+
 function renderFileEditMetadata(
   metadata: FileEditMetadata,
   width: number,
   maxDiffLines?: number
 ): string[] {
+  const replacements = metadata.replacements ?? 1;
+  const summaryLine = truncateGutterLine(
+    `       ${clr.dim("~")} ${clr.dim(`${replacements} ${pluralize(replacements, "replacement")},`)} ${clr.success(`+${metadata.linesAdded}`)} ${clr.error(`-${metadata.linesRemoved}`)}`,
+    width,
+  );
+
   if (metadata.diffSkipped) {
-    return renderDiffSkipped(metadata.diffReason, width);
+    const lines: string[] = [];
+    if (metadata.linesAdded > 0 || metadata.linesRemoved > 0) {
+      lines.push(summaryLine);
+    }
+    lines.push(...renderDiffSkipped(metadata.diffReason, width));
+    return lines;
   }
 
-  const replacements = metadata.replacements ?? 1;
-  const lines = [
-    truncateGutterLine(
-      `       ${clr.dim("~")} ${clr.dim(`${replacements} ${pluralize(replacements, "replacement")},`)} ${clr.success(`+${metadata.linesAdded}`)} ${clr.error(`-${metadata.linesRemoved}`)}`,
-      width,
-    ),
-  ];
+  const lines = [summaryLine];
 
   if (metadata.compactDiff && metadata.compactDiff.length > 0) {
     if (maxDiffLines === undefined || maxDiffLines > 0) {
@@ -634,6 +654,7 @@ function renderFileEditMetadata(
           )
         );
       }
+      appendDiffTruncatedFooter(lines, metadata, width);
     }
   } else if (metadata.diff) {
     lines.push(SUB_INDENT);
@@ -678,6 +699,7 @@ function renderFileWriteMetadata(
           )
         );
       }
+      appendDiffTruncatedFooter(lines, metadata, width);
     }
   } else if (metadata.diff) {
     lines.push(SUB_INDENT);

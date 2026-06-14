@@ -18,6 +18,10 @@ const ReasoningLevelSchema = z.enum(["off", "low", "medium", "high"]);
 export type ThinkingDisplay = "off" | "summary" | "full";
 const ThinkingDisplaySchema = z.enum(["off", "summary", "full"]);
 
+/** Bottom context bar verbosity. */
+export type BottomBarVisual = "full" | "reduced" | "minimal" | "off";
+const BottomBarVisualSchema = z.enum(["full", "reduced", "minimal", "off"]);
+
 const ProviderKeySchema = z.object({
   /** API key for this provider */
   apiKey: z.string().optional(),
@@ -120,6 +124,9 @@ const ConfigSchema = z.object({
 
   /** Dim one-liner for read-only tool success rows */
   compactToolOutput: z.boolean().default(true),
+
+  /** Bottom context bar verbosity: full | reduced | minimal | off */
+  bottomBarVisual: BottomBarVisualSchema.default("full"),
 
   /** Per-model reliability overrides when tool continuations fail */
   modelProfiles: z
@@ -236,13 +243,7 @@ export async function load(): Promise<Config> {
     parsed.thinkingDisplay =
       fileConfig.showMainThinking === false ? "off" : "summary";
   }
-  // Legacy configs: existing defaultModel implies explicit choice
-  if (
-    fileConfig.defaultModel &&
-    typeof (fileConfig as { modelExplicitlySet?: boolean }).modelExplicitlySet !== "boolean"
-  ) {
-    parsed.modelExplicitlySet = true;
-  }
+  repairModelExplicitlySet(fileConfig, parsed);
   // Advisor requires experimental flag
   if (parsed.advisorMode && !isExperimentalAdvisorEnabled(parsed)) {
     parsed.advisorMode = false;
@@ -291,6 +292,19 @@ export function applySessionVision(config: Config): Config {
     };
   }
   return { ...config, visionMode: false };
+}
+
+/**
+ * Non-empty defaultModel implies the user chose a model (onboarding, /model, cli setup).
+ * Repairs first-run onboarding configs that saved defaultModel without modelExplicitlySet (#80).
+ */
+export function repairModelExplicitlySet(
+  fileConfig: Partial<Config>,
+  parsed: Config
+): void {
+  if (fileConfig.defaultModel?.trim() && parsed.modelExplicitlySet !== true) {
+    parsed.modelExplicitlySet = true;
+  }
 }
 
 /** Whether the user has saved a default model (required before chat). */

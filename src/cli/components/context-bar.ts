@@ -10,7 +10,11 @@
 import type { Component } from "@mariozechner/pi-tui";
 import { truncateToWidth } from "@mariozechner/pi-tui";
 import { GUTTER, GUTTER_WIDTH } from "../gutter.js";
-import { formatContextBarRight } from "../context-bar-date.js";
+import {
+  formatContextBarRight,
+  formatContextBarVersionOnly,
+} from "../context-bar-date.js";
+import type { BottomBarVisual } from "../../util/config.js";
 import {
   COMPACT_WARNING_THRESHOLD,
   COMPACT_TRIGGER_THRESHOLD,
@@ -267,6 +271,7 @@ export interface ContextBarState {
   queueDepth?: number;
   goalLabel?: string;
   showAdvisorInBar?: boolean;
+  bottomBarVisual?: BottomBarVisual;
 }
 
 export class ContextBarComponent implements Component {
@@ -288,9 +293,16 @@ export class ContextBarComponent implements Component {
 
   render(width: number): string[] {
     const s = this.state;
-    const cwd = s.cwd ?? process.cwd();
+    const visual = s.bottomBarVisual ?? "full";
 
-    if (this.cachedBranch === null || this.branchCwd !== cwd) {
+    if (visual === "off") {
+      return [truncateToWidth(GUTTER, width)];
+    }
+
+    const cwd = s.cwd ?? process.cwd();
+    const showBranch = visual === "full";
+
+    if (showBranch && (this.cachedBranch === null || this.branchCwd !== cwd)) {
       this.cachedBranch = gitBranch(cwd);
       this.branchCwd = cwd;
     }
@@ -305,39 +317,46 @@ export class ContextBarComponent implements Component {
     const worker = shortModel(s.workerModel);
     const modelSeg = clr.model(worker);
     const rlSeg =
-      s.reasoningLevel && s.reasoningLevel !== "off"
+      visual === "full" && s.reasoningLevel && s.reasoningLevel !== "off"
         ? ` (${clr.model(s.reasoningLevel)})`
         : "";
     const advisorSeg =
-      s.showAdvisorInBar !== false && s.advisorModel
+      visual === "full" && s.showAdvisorInBar !== false && s.advisorModel
         ? ` ${sep}${clr.advisor(shortModel(s.advisorModel))}`
         : "";
     const modelFull = modelSeg + rlSeg + advisorSeg;
 
-    const ctxSeg = `${clr.ctx(tokStr)} ${formatPercentColored(pct, pctStr)}`;
-    const dirSeg = clr.dir(shortDir(cwd));
-    const branchSeg = this.cachedBranch
-      ? ` ${clr.dir("⎇")} ${clr.dir(this.cachedBranch)}`
-      : "";
+    const ctxSeg =
+      visual === "full"
+        ? `${clr.ctx(tokStr)} ${formatPercentColored(pct, pctStr)}`
+        : formatPercentColored(pct, pctStr);
+    const dirSeg = visual !== "minimal" ? clr.dir(shortDir(cwd)) : "";
+    const branchSeg =
+      showBranch && this.cachedBranch
+        ? ` ${clr.dir("⎇")} ${clr.dir(this.cachedBranch)}`
+        : "";
     const dirBranchFull = dirSeg + branchSeg;
 
     const queueSeg =
-      s.queueDepth && s.queueDepth > 0
+      visual === "full" && s.queueDepth && s.queueDepth > 0
         ? clr.sep(` Queue: ${s.queueDepth}`)
         : "";
-    const goalSeg = s.goalLabel
-      ? clr.sep(` Goal: ${truncateToWidth(s.goalLabel, 24)}`)
-      : "";
+    const goalSeg =
+      visual === "full" && s.goalLabel
+        ? clr.sep(` Goal: ${truncateToWidth(s.goalLabel, 24)}`)
+        : "";
     const modeFull =
-      (s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode)) +
-      queueSeg +
-      goalSeg +
-      (s.autoCompactOff ? clr.sep(" compact:OFF") : "");
+      visual === "full"
+        ? (s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode)) +
+          queueSeg +
+          goalSeg +
+          (s.autoCompactOff ? clr.sep(" compact:OFF") : "")
+        : "";
 
     let statsFull = "";
     if (s.allowAllBypass) {
-      statsFull = c.fg(214, "Allow-All");
-    } else if (s.showTurnSpeed) {
+      statsFull = c.fg(214, visual === "full" ? "Allow-All" : "AA");
+    } else if (visual === "full" && s.showTurnSpeed) {
       if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
         statsFull += clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`);
       }
@@ -347,7 +366,12 @@ export class ContextBarComponent implements Component {
     }
 
     const now = new Date();
-    const rightSeg = clr.dim(formatContextBarRight(s.impulseVersion, now));
+    const rightSeg =
+      visual === "minimal"
+        ? ""
+        : visual === "reduced"
+          ? clr.dim(formatContextBarVersionOnly(s.impulseVersion))
+          : clr.dim(formatContextBarRight(s.impulseVersion, now));
     const rightWidth = visibleWidth(rightSeg);
     const avail = width - GUTTER_WIDTH;
     const leftAvail = Math.max(0, avail - rightWidth - RIGHT_PAD_COLS);

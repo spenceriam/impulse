@@ -72,6 +72,7 @@ const LIST_OVERLAY_MAX_HEIGHT = 18;
 import { overlayMinWidth } from "./layout.js";
 import { overlayMaxHeightForContent, overlayViewportMaxHeight } from "./overlay-height.js";
 import { PromptHistory } from "./prompt-history.js";
+import { loadPromptHistory, savePromptHistory } from "../util/prompt-history-store.js";
 import {
   isAllowAllBypass,
   resetAllowAllBypass,
@@ -331,7 +332,7 @@ export interface ImpulseRendererOptions {
   resume?: ResumeStartup;
   /** "interrupted" when resume came from the active-session marker (#78). */
   resumeReason?: "interrupted";
-  /** Skip disclaimer; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
+  /** Prompt the allow-all disclaimer at startup; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
   allowAllOnStartup?: boolean;
 }
 
@@ -342,6 +343,8 @@ export class ImpulseRenderer {
   private readonly startupResume: ResumeStartup | null;
   private readonly startupResumeReason: "interrupted" | null;
   private readonly allowAllOnStartup: boolean;
+  /** True once the startup disclaimer is accepted; keeps allow-all sticky across session switches. */
+  private allowAllStartupAgreed = false;
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
   private welcomeChildCount = 0;
@@ -1526,6 +1529,9 @@ export class ImpulseRenderer {
     this.contextWindow = SessionManager.getCurrentSession()?.context_window ?? this.contextWindow;
     this.contextTokens = this.estimateCurrentSessionTokens();
 
+    const historyEntries = await loadPromptHistory();
+    this.promptHistory.loadEntries(historyEntries);
+
     // Debug logging
     debugLog(`Session started`);
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
@@ -1659,13 +1665,15 @@ export class ImpulseRenderer {
         return;
       }
       if (this.isRunning) return;
+      this.promptHistory.saveDraft(this.promptInput.getText());
       const prev = this.promptHistory.previous();
       if (prev !== null) this.promptInput.setText(prev);
     };
     this.promptInput.onArrowDown = () => {
       if (this.modelSetup) return;
-      this.promptHistory.resetIndex();
-      this.promptInput.clear();
+      const draft = this.promptHistory.takeDraft();
+      if (draft !== null) this.promptInput.setText(draft);
+      else this.promptInput.clear();
     };
     this.promptInput.onTabForward = () => {
       if (this.modelSetup) return;
@@ -1790,6 +1798,7 @@ export class ImpulseRenderer {
       reasoningLevel: this.reasoningDisplayLabel(),
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
       showAdvisorInBar: this.experimentalAdvisorEnabled && (config.advisorMode ?? false),
+      bottomBarVisual: config.bottomBarVisual ?? "full",
     });
     this.syncVisionFromConfig(config);
     this.syncSpeedoUi();
@@ -1802,11 +1811,7 @@ export class ImpulseRenderer {
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
-    resetAllowAllBypass();
-    if (this.allowAllOnStartup) {
-      setAllowAllBypass(true);
-    }
-    this.syncAllowAllBypassUi();
+    this.applyAllowAllForSessionScope();
 
     this.tui.addInputListener((data) => {
       if (this.shellTakeoverActive && this.shellCommandRunning) {
@@ -1837,7 +1842,14 @@ export class ImpulseRenderer {
 
     this.tui.start();
     if (this.allowAllOnStartup) {
-      this.addChatLine(clr.dim("All permissions bypassed"));
+      const agreed = await this.showAllowAllDisclaimer();
+      if (agreed) {
+        this.allowAllStartupAgreed = true;
+        this.applyAllowAllForSessionScope();
+        this.addChatLine(clr.dim("All permissions bypassed"));
+      } else {
+        this.addChatLine(clr.dim("Allow-all not enabled."));
+      }
       this.tui.requestRender();
     }
     // Discover reasoning capabilities in background (non-blocking)
@@ -2226,6 +2238,7 @@ export class ImpulseRenderer {
 
     const bangCommand = parseBangCommand(input);
     if (bangCommand) {
+      this.recordSubmittedPrompt(input);
       this.promptInput.clear();
       void this.runBangCommand(bangCommand);
       return;
@@ -2248,6 +2261,7 @@ export class ImpulseRenderer {
     }
 
     if (shouldTreatAsSlashCommand(input)) {
+      this.recordSubmittedPrompt(payload.apiText.trim());
       await this.handleSlash(payload.apiText.trim());
       this.tui.requestRender();
       return;
@@ -2258,8 +2272,8 @@ export class ImpulseRenderer {
       // Save the prompt to history even when model isn't configured
       // so the user can retrieve it with the up arrow after configuring the model
       const transcript = userTranscriptText(payload);
-      this.promptHistory.push(transcript);
-      
+      this.recordSubmittedPrompt(transcript);
+
       this.addChatLine(
         clr.warn("No model selected. Run ") + clr.tool("/model") + clr.warn(" to choose a provider and model first.")
       );
@@ -2277,6 +2291,13 @@ export class ImpulseRenderer {
   }
 
   // ?? Agent turn ????????????????????????????????????????????????????????????
+
+  private recordSubmittedPrompt(text: string): void {
+    const t = text.trim();
+    if (!t) return;
+    this.promptHistory.push(t);
+    void savePromptHistory(this.promptHistory.toJSON()).catch(() => {});
+  }
 
   private async runTurn(payload: PromptSubmitPayload): Promise<void> {
     if (!this.isNonemptySubmitPayload(payload)) {
@@ -2323,7 +2344,7 @@ export class ImpulseRenderer {
     }
 
     this.promptInput.clear();
-    this.promptHistory.push(transcript);
+    this.recordSubmittedPrompt(transcript);
 
     this.isRunning = true;
     this.modeChangeText = null;
@@ -2817,8 +2838,11 @@ export class ImpulseRenderer {
       chatLines += this.measureComponentLines(child as Component, width);
     }
 
-    // Spacer above spinner (1) + separator + prompt + separator + context bar (3)
-    let otherLines = 1 + 1 + 1 + 1 + 3;
+    // Spacer above spinner (1) + separator + prompt + separator + context bar
+    const contextBarLines = this.contextBar
+      ? this.measureComponentLines(this.contextBar, width)
+      : 3;
+    let otherLines = 1 + 1 + 1 + 1 + contextBarLines;
     otherLines += this.measureComponentLines(this.spinnerText, width);
     otherLines += this.measureComponentLines(this.modelSetupText, width);
     otherLines += this.measureComponentLines(this.autocompleteText, width);
@@ -3059,11 +3083,10 @@ export class ImpulseRenderer {
     if (newCfg.defaultModel?.trim()) {
       await SessionManager.update({ model: newCfg.defaultModel });
     }
-    resetAllowAllBypass();
-    this.syncAllowAllBypassUi();
+    this.applyAllowAllForSessionScope();
     this.speedoEnabled = false;
     this.syncSpeedoUi();
-    this.promptHistory.reset();
+    this.promptHistory.resetIndex();
     this.resetTurnUiState();
     this.clearChatView();
     this.addChatLine(clr.dim("New session started"));
@@ -3733,6 +3756,7 @@ export class ImpulseRenderer {
     this.thinkingDisplay = config.thinkingDisplay ?? "summary";
     this.responsePreference = config.userProfile?.responsePreference?.trim() || "concise";
     this.compactToolOutputEnabled = config.compactToolOutput ?? true;
+    this.contextBar?.update({ bottomBarVisual: config.bottomBarVisual ?? "full" });
     this.applyThinkingDisplayMode();
   }
 
@@ -4488,6 +4512,7 @@ export class ImpulseRenderer {
       showSubagentThinking: config.showSubagentThinking,
       useSubagentModel: config.useSubagentModel,
       compactToolOutput: config.compactToolOutput ?? true,
+      bottomBarVisual: config.bottomBarVisual ?? "full",
       ...(config.subagentModel !== undefined ? { subagentModel: config.subagentModel } : {}),
       ...(config.visionModelOverride !== undefined
         ? { visionModelOverride: config.visionModelOverride }
@@ -4509,6 +4534,7 @@ export class ImpulseRenderer {
       config.showSubagentThinking = values.showSubagentThinking;
       config.useSubagentModel = values.useSubagentModel;
       config.compactToolOutput = values.compactToolOutput;
+      config.bottomBarVisual = values.bottomBarVisual;
       config.visionModelOverride = values.visionModelOverride;
       if (values.subagentModel !== undefined) {
         config.subagentModel = values.subagentModel;
@@ -4526,7 +4552,10 @@ export class ImpulseRenderer {
     };
 
     await new Promise<void>((resolve) => {
-      const handle = this.showContentSizedOverlay(overlay, { maxHeight: 20 });
+      const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
+      const maxHeight = overlayViewportMaxHeight(rows);
+      overlay.setMaxHeight(maxHeight);
+      const handle = this.showContentSizedOverlay(overlay, { maxHeight });
       this.settingsOverlayHandle = handle;
 
       const cleanupNav = this.tui.addInputListener((data: string) => {
@@ -4762,6 +4791,14 @@ export class ImpulseRenderer {
     }
   }
 
+  private applyAllowAllForSessionScope(): void {
+    resetAllowAllBypass();
+    if (this.allowAllStartupAgreed) {
+      setAllowAllBypass(true);
+    }
+    this.syncAllowAllBypassUi();
+  }
+
   private syncAllowAllBypassUi(): void {
     this.syncContextBar({ allowAllBypass: isAllowAllBypass() });
     this.tui?.requestRender();
@@ -4824,6 +4861,7 @@ export class ImpulseRenderer {
     }
 
     if (isAllowAllBypass()) {
+      this.allowAllStartupAgreed = false;
       setAllowAllBypass(false);
       this.syncAllowAllBypassUi();
       this.addChatLine(clr.dim("Permission bypass off"));
@@ -5367,8 +5405,7 @@ export class ImpulseRenderer {
   private async applyResumeSession(sessionID: string): Promise<void> {
     try {
       const session = await SessionManager.load(sessionID);
-      resetAllowAllBypass();
-      this.syncAllowAllBypassUi();
+      this.applyAllowAllForSessionScope();
       this.resetTurnUiState();
       this.clearChatView();
       this.applySessionToRenderer(session);

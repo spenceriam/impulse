@@ -1,5 +1,10 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
-import type { ReasoningLevel, ThinkingDisplay } from "../../util/config.js";
+import type {
+  BottomBarVisual,
+  ReasoningLevel,
+  ThinkingDisplay,
+} from "../../util/config.js";
+import { composeScrollableOverlay } from "./overlay-scroll-region.js";
 import {
   intrinsicFramedBoxWidth,
   overlayAnsi,
@@ -17,6 +22,7 @@ import {
 const COMM_STYLES = ["concise", "detailed", "casual", "technical"] as const;
 const THINKING_CYCLE: ThinkingDisplay[] = ["off", "summary", "full"];
 const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
+const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
 
 export interface SettingsValues {
   thinkingDisplay: ThinkingDisplay;
@@ -28,6 +34,7 @@ export interface SettingsValues {
   subagentModel?: string;
   visionModelOverride?: string;
   compactToolOutput: boolean;
+  bottomBarVisual: BottomBarVisual;
 }
 
 export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boolean {
@@ -40,7 +47,8 @@ export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boole
     a.useSubagentModel === b.useSubagentModel &&
     (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "") &&
     (a.visionModelOverride?.trim() ?? "") === (b.visionModelOverride?.trim() ?? "") &&
-    a.compactToolOutput === b.compactToolOutput
+    a.compactToolOutput === b.compactToolOutput &&
+    a.bottomBarVisual === b.bottomBarVisual
   );
 }
 
@@ -59,6 +67,7 @@ type SettingsRow = {
 
 const SETTINGS_FOOTER =
   "↑/↓ move   Space: cycle/toggle   Enter: save (vision/model: pick)   Esc: cancel";
+const SETTINGS_FOOTER_SCROLL_SUFFIX = "   (more ↑/↓)";
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
@@ -97,6 +106,8 @@ export class SettingsOverlay implements Component {
   private values: SettingsValues;
   private selectedIndex = 0;
   private measureTerminalWidth: number | null = null;
+  private maxHeight = 0;
+  private scrollTop = 0;
 
   private readonly rows: SettingsRow[] = [
     {
@@ -122,6 +133,12 @@ export class SettingsOverlay implements Component {
       label: "Stats on exit",
       hint: "Full stats on /exit and in /usage when on",
       kind: "bool",
+    },
+    {
+      key: "bottomBarVisual",
+      label: "Bottom bar visuals",
+      hint: "full → reduced → minimal → off",
+      kind: "cycle",
     },
     {
       key: "compactToolOutput",
@@ -181,12 +198,18 @@ export class SettingsOverlay implements Component {
     this.measureTerminalWidth = cols;
   }
 
+  setMaxHeight(lines: number): void {
+    this.maxHeight = Math.max(0, lines);
+  }
+
   preferredBoxWidth(terminalWidth: number): number {
     const terminal = this.measureTerminalWidth ?? terminalWidth;
     const widths = this.rows.map((r) =>
       visibleWidth(formatSettingRowInner(r.label, this.displayValue(r), true, 60))
     );
-    widths.push(visibleWidth(SETTINGS_FOOTER));
+    widths.push(
+      visibleWidth(SETTINGS_FOOTER + SETTINGS_FOOTER_SCROLL_SUFFIX)
+    );
     return intrinsicFramedBoxWidth(terminal, "Settings", widths);
   }
 
@@ -202,6 +225,8 @@ export class SettingsOverlay implements Component {
         return formatCycleValue(row.label, this.values.responsePreference);
       case "statsOnExit":
         return formatBool(this.values.statsOnExit);
+      case "bottomBarVisual":
+        return formatCycleValue(row.label, this.values.bottomBarVisual);
       case "compactToolOutput":
         return formatBool(this.values.compactToolOutput);
       case "showSubagentThinking":
@@ -257,6 +282,14 @@ export class SettingsOverlay implements Component {
       this.selectedIndex = Math.min(this.rows.length - 1, this.selectedIndex + 1);
       return;
     }
+    if (data === "\x1b[H" || data === "\x1bOH") {
+      this.selectedIndex = 0;
+      return;
+    }
+    if (data === "\x1b[F" || data === "\x1bOF") {
+      this.selectedIndex = this.rows.length - 1;
+      return;
+    }
     if (data === " ") {
       const row = this.rows[this.selectedIndex];
       if (!row) return;
@@ -288,6 +321,12 @@ export class SettingsOverlay implements Component {
       case "statsOnExit":
         this.values.statsOnExit = !this.values.statsOnExit;
         break;
+      case "bottomBarVisual":
+        this.values.bottomBarVisual = cycleValue(
+          this.values.bottomBarVisual,
+          BOTTOM_BAR_CYCLE
+        );
+        break;
       case "compactToolOutput":
         this.values.compactToolOutput = !this.values.compactToolOutput;
         break;
@@ -315,12 +354,16 @@ export class SettingsOverlay implements Component {
   render(width: number): string[] {
     const boxWidth = overlayRenderBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
-    const lines: string[] = [];
 
-    lines.push(overlayTitleLine("Settings", boxWidth));
-    lines.push(overlayEmptyLine(boxWidth));
+    const top = [
+      overlayTitleLine("Settings", boxWidth),
+      overlayEmptyLine(boxWidth),
+    ];
 
+    const body: string[] = [];
+    const rowSpans: { start: number; length: number }[] = [];
     for (let i = 0; i < this.rows.length; i++) {
+      const start = body.length;
       const row = this.rows[i]!;
       const selected = i === this.selectedIndex;
       const inner = formatSettingRowInner(
@@ -330,18 +373,41 @@ export class SettingsOverlay implements Component {
         innerWidth
       );
       const hint = `     ${overlayMuted(row.hint)}`;
-      lines.push(
+      body.push(
         selected
           ? padSelectedSideLine(inner, innerWidth, boxWidth)
           : overlaySideLine(inner, innerWidth, boxWidth)
       );
-      lines.push(overlaySideLine(hint, innerWidth, boxWidth));
+      body.push(overlaySideLine(hint, innerWidth, boxWidth));
+      rowSpans.push({ start, length: body.length - start });
     }
 
-    lines.push(overlayEmptyLine(boxWidth));
-    overlayPushWrapped(lines, SETTINGS_FOOTER, innerWidth, boxWidth);
-    lines.push(overlayBottomBorder(boxWidth));
-    return lines;
+    const buildBottom = (footerText: string): string[] => {
+      const bottom: string[] = [overlayEmptyLine(boxWidth)];
+      overlayPushWrapped(bottom, footerText, innerWidth, boxWidth);
+      bottom.push(overlayBottomBorder(boxWidth));
+      return bottom;
+    };
+
+    let bottom = buildBottom(SETTINGS_FOOTER);
+    const needsScrollAffordance =
+      this.maxHeight > 0 &&
+      top.length + body.length + bottom.length > this.maxHeight;
+    if (needsScrollAffordance) {
+      bottom = buildBottom(SETTINGS_FOOTER + SETTINGS_FOOTER_SCROLL_SUFFIX);
+    }
+
+    const keepVisible = rowSpans[this.selectedIndex];
+    const result = composeScrollableOverlay({
+      top,
+      body,
+      bottom,
+      maxHeight: this.maxHeight,
+      scrollTop: this.scrollTop,
+      ...(keepVisible !== undefined ? { keepVisible } : {}),
+    });
+    this.scrollTop = result.scrollTop;
+    return result.lines;
   }
 }
 

@@ -58,3 +58,46 @@ export function handleOverlayScrollInput(
   }
   return null;
 }
+
+export interface ScrollableOverlayInput {
+  top: string[];
+  body: string[];
+  bottom: string[];
+  maxHeight: number;
+  scrollTop: number;
+  keepVisible?: { start: number; length: number };
+}
+
+export interface ScrollableOverlayResult {
+  lines: string[];
+  scrollTop: number;
+  needsScroll: boolean;
+}
+
+/** Pinned top/bottom chrome with a vertically sliced body. */
+export function composeScrollableOverlay(
+  input: ScrollableOverlayInput
+): ScrollableOverlayResult {
+  const chrome = input.top.length + input.bottom.length;
+  if (input.maxHeight <= 0 || input.body.length + chrome <= input.maxHeight) {
+    return {
+      lines: [...input.top, ...input.body, ...input.bottom],
+      scrollTop: 0,
+      needsScroll: false,
+    };
+  }
+  const viewport = Math.max(1, input.maxHeight - chrome);
+  let scrollTop = input.scrollTop;
+  if (input.keepVisible) {
+    const { start, length } = input.keepVisible;
+    const end = start + Math.max(1, length) - 1;
+    if (start < scrollTop) scrollTop = start;
+    else if (end > scrollTop + viewport - 1) scrollTop = end - viewport + 1;
+  }
+  const slice = sliceOverlayBody(input.body, viewport, scrollTop);
+  return {
+    lines: [...input.top, ...slice.visibleLines, ...input.bottom],
+    scrollTop: Math.min(Math.max(0, scrollTop), slice.maxScrollTop),
+    needsScroll: slice.needsScroll,
+  };
+}

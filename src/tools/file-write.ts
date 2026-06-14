@@ -6,7 +6,13 @@ import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
 import { createPatch } from "diff";
-import { createAddedFileCompactDiff, createCompactDiff } from "../util/compact-diff";
+import {
+  capCompactDiffResult,
+  createAddedFileCompactDiff,
+  createCompactDiff,
+  MAX_DIFF_INPUT_BYTES,
+  MAX_DIFF_PATCH_BYTES,
+} from "../util/compact-diff";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
 import { zFilePath } from "./schemas/branded";
@@ -22,7 +28,6 @@ const WriteSchema = z.object({
 });
 
 type WriteInput = z.infer<typeof WriteSchema>;
-const MAX_DIFF_BYTES = 200_000; // 200KB
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -117,7 +122,8 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       }
 
       const newSize = Buffer.byteLength(input.content, "utf-8");
-      const shouldSkipDiff = existingSize + newSize > MAX_DIFF_BYTES;
+      const combinedBytes = existingSize + newSize;
+      const shouldSkipDiff = combinedBytes > MAX_DIFF_INPUT_BYTES;
 
       if (!isNewFile && !shouldSkipDiff) {
         try {
@@ -145,25 +151,32 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
       let firstChangedLine: number | undefined;
       let diffSkipped = false;
       let diffReason: string | undefined;
+      let diffTruncatedLines: number | undefined;
       if (shouldSkipDiff) {
         diffSkipped = true;
         diffReason = "File too large to diff";
       } else if (isNewFile) {
-        // For new files, create a diff showing all lines as additions
-        diff = createPatch(fileName, "", input.content, "", "");
         const compact = createAddedFileCompactDiff(input.content);
-        compactDiff = compact.lines;
-        linesAdded = compact.additions;
-        linesRemoved = compact.removals;
-        firstChangedLine = compact.firstChangedLine;
+        const capped = capCompactDiffResult(compact);
+        compactDiff = capped.compactDiff;
+        linesAdded = capped.linesAdded;
+        linesRemoved = capped.linesRemoved;
+        firstChangedLine = capped.firstChangedLine;
+        diffTruncatedLines = capped.diffTruncatedLines;
+        if (combinedBytes <= MAX_DIFF_PATCH_BYTES) {
+          diff = createPatch(fileName, "", input.content, "", "");
+        }
       } else {
-        // For overwrites, create a proper diff
-        diff = createPatch(fileName, existingContent, input.content, "", "");
         const compact = createCompactDiff(existingContent, input.content);
-        compactDiff = compact.lines;
-        linesAdded = compact.additions;
-        linesRemoved = compact.removals;
-        firstChangedLine = compact.firstChangedLine;
+        const capped = capCompactDiffResult(compact);
+        compactDiff = capped.compactDiff;
+        linesAdded = capped.linesAdded;
+        linesRemoved = capped.linesRemoved;
+        firstChangedLine = capped.firstChangedLine;
+        diffTruncatedLines = capped.diffTruncatedLines;
+        if (combinedBytes <= MAX_DIFF_PATCH_BYTES) {
+          diff = createPatch(fileName, existingContent, input.content, "", "");
+        }
       }
 
       // Emit file edited event for formatters
@@ -187,6 +200,7 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           firstChangedLine,
           diffSkipped,
           diffReason,
+          diffTruncatedLines,
         },
       };
     } catch (error) {

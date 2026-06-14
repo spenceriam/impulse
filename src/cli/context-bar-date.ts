@@ -11,3 +11,8 @@ export function formatContextBarDate(now: Date = new Date()): string {
 export function formatContextBarRight(version: string, now: Date = new Date()): string {
   return `v${version} | ${formatContextBarDate(now)}`;
 }
+
+/** Version only for reduced bottom bar mode (no ANSI). */
+export function formatContextBarVersionOnly(version: string): string {
+  return `v${version}`;
+}
