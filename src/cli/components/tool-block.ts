@@ -679,11 +679,6 @@ function renderFileWriteMetadata(
   const lines = [truncateGutterLine(`       ${summary}`, width)];
 
   if (metadata.diffSkipped) {
-    if (linesAdded > 0 || linesRemoved > 0) {
-      // summary already in lines[0]
-    } else {
-      lines.length = 0;
-    }
     lines.push(...renderDiffSkipped(metadata.diffReason, width));
     return lines;
   }
