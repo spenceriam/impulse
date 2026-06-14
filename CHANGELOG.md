@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Fixed
   - **#80** — first-run CLI onboarding now sets `modelExplicitlySet` so the first prompt works without re-running `/model`; existing broken configs repaired on load when `defaultModel` is saved
+  - **`/settings` overlay** — scrollable body with pinned footer; viewport-sized height so key hints are never clipped when options grow
+  - **#83** — `--aa` / `--allow-all` now prompt the allow-all disclaimer at launch (agree to enable; sticky across `/new` and `/resume` for the run, shown in context bar); unknown CLI flags are rejected instead of silently starting
+  - **Allow-all context bar** — indicator stays visible in reduced/minimal bottom-bar visuals (shown as `AA`)
 
 ## [1.5.1] - 2026-06-11
 
