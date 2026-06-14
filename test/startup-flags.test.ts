@@ -66,4 +66,20 @@ describe("parseStartupFlags", () => {
       if (prev !== undefined) process.env["IMPULSE_ALLOW_ALL"] = prev;
     }
   });
+
+  test("ignores --aa and --allow-all after -- end-of-options", () => {
+    const prev = process.env["IMPULSE_ALLOW_ALL"];
+    delete process.env["IMPULSE_ALLOW_ALL"];
+    try {
+      const aa = parseStartupFlags(["--", "--aa"]);
+      expect(aa.flags.allowAllOnStartup).toBe(false);
+      expect(aa.argv).toEqual(["--", "--aa"]);
+
+      const allowAll = parseStartupFlags(["--", "--allow-all"]);
+      expect(allowAll.flags.allowAllOnStartup).toBe(false);
+      expect(allowAll.argv).toEqual(["--", "--allow-all"]);
+    } finally {
+      if (prev !== undefined) process.env["IMPULSE_ALLOW_ALL"] = prev;
+    }
+  });
 });

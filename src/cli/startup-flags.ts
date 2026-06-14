@@ -42,14 +42,18 @@ export function findUnknownFlag(argv: string[]): string | undefined {
 }
 
 export function parseStartupFlags(argv: string[]): { flags: StartupFlags; argv: string[] } {
+  const sepIdx = argv.indexOf("--");
+  const flagArgv = sepIdx >= 0 ? argv.slice(0, sepIdx) : argv;
+
   let allowAllOnStartup =
-    argv.includes("--aa") ||
-    argv.includes("--allow-all") ||
+    flagArgv.includes("--aa") ||
+    flagArgv.includes("--allow-all") ||
     process.env["IMPULSE_ALLOW_ALL"] === "1";
 
   const argvOut: string[] = [];
-  for (const arg of argv) {
-    if (arg === "--aa" || arg === "--allow-all") continue;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if ((arg === "--aa" || arg === "--allow-all") && (sepIdx < 0 || i < sepIdx)) continue;
     argvOut.push(arg);
   }
 

@@ -43,4 +43,37 @@ describe("prompt history store", () => {
     const loaded = await loadPromptHistory({ projectID, baseDir: tmpDir });
     expect(loaded).toEqual([]);
   });
+
+  test("serialized overlapping saves keep all entries", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "impulse-history-"));
+    const projectID = getCurrentProjectID();
+    const baseDir = tmpDir;
+
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const originalWriteFile = fs.promises.writeFile;
+    let writeCount = 0;
+    fs.promises.writeFile = async (...args) => {
+      writeCount++;
+      if (writeCount === 1) await gate;
+      return originalWriteFile(...args);
+    };
+
+    try {
+      const saveChain = Promise.resolve()
+        .then(() => savePromptHistory(["first"], { projectID, baseDir }))
+        .then(() => savePromptHistory(["first", "second"], { projectID, baseDir }));
+
+      releaseFirst();
+      await saveChain;
+
+      const loaded = await loadPromptHistory({ projectID, baseDir });
+      expect(loaded).toEqual(["first", "second"]);
+    } finally {
+      fs.promises.writeFile = originalWriteFile;
+    }
+  });
 });
