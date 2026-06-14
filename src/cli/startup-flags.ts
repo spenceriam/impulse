@@ -31,7 +31,8 @@ export function findUnknownFlag(argv: string[]): string | undefined {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--") return undefined;
-    if (!a.startsWith("-")) continue;
+    // Stop at the first non-flag token; trailing args are message text (may include -words).
+    if (!a.startsWith("-")) return undefined;
     if (KNOWN_BOOLEAN_FLAGS.has(a) || VALUE_FLAGS.has(a)) {
       if (VALUE_FLAGS.has(a)) i++;
       continue;

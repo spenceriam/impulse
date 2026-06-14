@@ -29,6 +29,11 @@ describe("findUnknownFlag", () => {
     expect(findUnknownFlag(["--", "--weird"])).toBeUndefined();
     expect(findUnknownFlag(["--aa", "--", "--updat"])).toBeUndefined();
   });
+
+  test("ignores dash-prefixed words in trailing message args", () => {
+    expect(findUnknownFlag(["explain", "the", "-j", "option"])).toBeUndefined();
+    expect(findUnknownFlag(["--aa", "explain", "the", "-j", "option"])).toBeUndefined();
+  });
 });
 
 describe("parseStartupFlags", () => {
