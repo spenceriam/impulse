@@ -1466,7 +1466,7 @@ impulse --verbose
 
 ### Overview
 
-impulse uses GitHub Actions for automated builds and npm publishing. The pipeline builds standalone binaries for 6 platform/architecture combinations and publishes them as scoped npm packages.
+impulse uses GitHub Actions for automated builds and npm publishing. The pipeline builds standalone binaries for 7 platform/architecture combinations and publishes them as scoped npm packages.
 
 ### Workflows
 
@@ -1488,8 +1488,9 @@ impulse uses GitHub Actions for automated builds and npm publishing. The pipelin
 | macOS | ARM64 | `macos-latest` | Native | `@spenceriam/impulse-darwin-arm64` |
 | macOS | x64 | `macos-15-intel` | Native | `@spenceriam/impulse-darwin-x64` |
 | Windows | x64 | `windows-latest` | Native | `@spenceriam/impulse-windows-x64` |
+| Windows | ARM64 | `ubuntu-latest` | Cross-compile (`bun-windows-arm64`) | `@spenceriam/impulse-windows-arm64` |
 
-**Note:** Windows ARM64 is not currently supported. Bun doesn't have a cross-compile target for Windows ARM64 yet (`bun-windows-aarch64` returns "Unsupported compile target"). Will be added when Bun supports it.
+**Note:** Windows ARM64 is cross-compiled from Linux in CI (Bun `bun-windows-arm64` target). Native Windows ARM runners are not required.
 
 ### Build Process
 
@@ -1505,7 +1506,7 @@ impulse uses GitHub Actions for automated builds and npm publishing. The pipelin
 
 ### Publishing
 
-1. Platform packages published first (6 packages)
+1. Platform packages published first (7 packages)
 2. CLI wrapper package (`@spenceriam/impulse`) published last with `optionalDependencies` pointing to all platform packages
 3. Publish targets:
    - npm registry (`registry.npmjs.org`) for installation

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+  ### Added
+  - **Windows on ARM npm install** — `@spenceriam/impulse-windows-arm64` platform package for Snapdragon X and other Windows ARM64 devices; CI cross-compiles with Bun `bun-windows-arm64` and bundles `@vscode/ripgrep-win32-arm64`
+
 ## [1.6.0] - 2026-06-11
 
   **Type:** minor
