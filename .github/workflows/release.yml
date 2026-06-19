@@ -49,9 +49,11 @@ jobs:
             platform: windows
             arch: x64
             target: bun-windows-x64
-          # NOTE: Windows ARM64 not supported - Bun doesn't have cross-compile target yet
-          # Error: "Unsupported compile target: bun-windows-aarch64"
-          # Will add when Bun supports it
+          # Windows ARM64 (cross-compiled from Linux — Bun target bun-windows-arm64)
+          - os: ubuntu-latest
+            platform: windows
+            arch: arm64
+            target: bun-windows-arm64
 
     runs-on: ${{ matrix.os }}
     
@@ -310,7 +312,8 @@ jobs:
               "@spenceriam/impulse-linux-arm64": "$VERSION",
               "@spenceriam/impulse-darwin-x64": "$VERSION",
               "@spenceriam/impulse-darwin-arm64": "$VERSION",
-              "@spenceriam/impulse-windows-x64": "$VERSION"
+              "@spenceriam/impulse-windows-x64": "$VERSION",
+              "@spenceriam/impulse-windows-arm64": "$VERSION"
             }
           }
           EOF
