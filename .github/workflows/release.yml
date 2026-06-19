@@ -101,11 +101,31 @@ jobs:
         run: |
           RG_PLATFORM="${{ matrix.platform == 'windows' && 'win32' || matrix.platform }}"
           RG_PKG="@vscode/ripgrep-${RG_PLATFORM}-${{ matrix.arch }}"
+          RG_PKG_SLUG="ripgrep-${RG_PLATFORM}-${{ matrix.arch }}"
+          OUT_DIR="packages/${{ matrix.platform }}-${{ matrix.arch }}/bin"
+          RG_VERSION=$(node -p "require('./node_modules/@vscode/ripgrep/package.json').version")
+          TARBALL_URL="https://registry.npmjs.org/@vscode/${RG_PKG_SLUG}/-/ripgrep-${RG_PLATFORM}-${{ matrix.arch }}-${RG_VERSION}.tgz"
+
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            cp "node_modules/${RG_PKG}/bin/rg.exe" "packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/rg.exe"
+            SRC="node_modules/${RG_PKG}/bin/rg.exe"
+            DEST="${OUT_DIR}/rg.exe"
+            if [ -f "$SRC" ]; then
+              cp "$SRC" "$DEST"
+            else
+              echo "Downloading ${RG_PKG}@${RG_VERSION} (not installed for host OS)..."
+              curl -fsSL "$TARBALL_URL" | tar -xzf - -O package/bin/rg.exe > "$DEST"
+            fi
           else
-            cp "node_modules/${RG_PKG}/bin/rg" "packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/rg"
-            chmod +x "packages/${{ matrix.platform }}-${{ matrix.arch }}/bin/rg"
+            SRC="node_modules/${RG_PKG}/bin/rg"
+            DEST="${OUT_DIR}/rg"
+            if [ -f "$SRC" ]; then
+              cp "$SRC" "$DEST"
+              chmod +x "$DEST"
+            else
+              echo "Downloading ${RG_PKG}@${RG_VERSION} (not installed for host OS)..."
+              curl -fsSL "$TARBALL_URL" | tar -xzf - -O package/bin/rg > "$DEST"
+              chmod +x "$DEST"
+            fi
           fi
 
       - name: Create platform package.json
