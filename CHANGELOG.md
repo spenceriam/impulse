@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-19
+
+  **Type:** patch
+  **Title:** Windows npm postinstall fix
+
+  ### Fixed
+  - **npm install on Windows** — `postinstall.mjs` imported `platform-package.mjs` from the wrong path (`../` instead of `./`), breaking global install on all platforms
+
 ## [1.6.1] - 2026-06-19
 
   **Type:** patch

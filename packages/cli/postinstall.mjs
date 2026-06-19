@@ -5,7 +5,7 @@ import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
-import { platformPackageName } from "../platform-package.mjs";
+import { platformPackageName } from "./platform-package.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);

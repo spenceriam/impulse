@@ -1,6 +1,6 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "private": true,
   "description": "Terminal-based provider-flexible AI co-partner agent for fast software development",
   "type": "module",
