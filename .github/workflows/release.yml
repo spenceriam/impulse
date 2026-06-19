@@ -321,7 +321,12 @@ jobs:
       - name: Publish CLI wrapper
         run: |
           cd packages/cli
-          npm publish --access public
+          VERSION="${{ steps.version.outputs.version }}"
+          if npm view "@spenceriam/impulse@${VERSION}" version >/dev/null 2>&1; then
+            echo "@spenceriam/impulse@${VERSION} already on npm — skipping wrapper publish"
+          else
+            npm publish --access public
+          fi
 
       - name: Setup Node.js for GitHub Packages
         uses: actions/setup-node@v4
