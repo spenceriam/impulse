@@ -1488,7 +1488,7 @@ impulse uses GitHub Actions for automated builds and npm publishing. The pipelin
 | macOS | ARM64 | `macos-latest` | Native | `@spenceriam/impulse-darwin-arm64` |
 | macOS | x64 | `macos-15-intel` | Native | `@spenceriam/impulse-darwin-x64` |
 | Windows | x64 | `windows-latest` | Native | `@spenceriam/impulse-windows-x64` |
-| Windows | ARM64 | `ubuntu-latest` | Cross-compile (`bun-windows-arm64`) | `@spenceriam/impulse-windows-arm64` |
+| Windows | ARM64 | `ubuntu-latest` | Cross-compile (`bun-windows-arm64`) | `@spenceriam/impulse-win32-arm64` |
 
 **Note:** Windows ARM64 is cross-compiled from Linux in CI (Bun `bun-windows-arm64` target). Native Windows ARM runners are not required.
 

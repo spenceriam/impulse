@@ -5,6 +5,7 @@ import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
+import { platformPackageName } from "../platform-package.mjs";
 import os from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -45,7 +46,7 @@ function detectPlatformAndArch() {
 
 function findBinary() {
   const { platform, arch } = detectPlatformAndArch();
-  const packageName = `@spenceriam/impulse-${platform}-${arch}`;
+  const packageName = platformPackageName(platform, arch);
   const binaryName = platform === "windows" ? "impulse.exe" : "impulse";
 
   try {

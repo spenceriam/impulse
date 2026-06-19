@@ -13,10 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Title:** Windows on ARM npm binary
 
   ### Added
-  - **Windows on ARM npm install** — `@spenceriam/impulse-windows-arm64` platform package for Snapdragon X and other Windows ARM64 devices; CI cross-compiles with Bun `bun-windows-arm64` and bundles `@vscode/ripgrep-win32-arm64`
+  - **Windows on ARM npm install** — `@spenceriam/impulse-win32-arm64` platform package for Snapdragon X and other Windows ARM64 devices; CI cross-compiles with Bun `bun-windows-arm64` and bundles `@vscode/ripgrep-win32-arm64`
 
   ### Fixed
   - **Release CI** — Windows ARM64 build downloads `ripgrep-win32-arm64` from npm when cross-compiling on Linux (optional dep is not installed for the host OS)
+  - **Windows ARM64 npm name** — publish as `@spenceriam/impulse-win32-arm64` (`impulse-windows-arm64` was unpublished on npm and cannot be reclaimed; 409 on publish)
 
 ## [1.6.0] - 2026-06-11
 

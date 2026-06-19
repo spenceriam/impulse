@@ -5,6 +5,7 @@ import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
+import { platformPackageName } from "../platform-package.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -44,7 +45,7 @@ function detectPlatformAndArch() {
 
 function findBinary() {
   const { platform, arch } = detectPlatformAndArch();
-  const packageName = `@spenceriam/impulse-${platform}-${arch}`;
+  const packageName = platformPackageName(platform, arch);
   const binaryName = platform === "windows" ? "impulse.exe" : "impulse";
 
   // Check for unsupported platform/arch combinations

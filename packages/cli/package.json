@@ -30,7 +30,8 @@
   "author": "Spencer Francisco",
   "files": [
     "bin/*",
-    "postinstall.mjs"
+    "postinstall.mjs",
+    "platform-package.mjs"
   ],
   "publishConfig": {
     "access": "public"
@@ -41,6 +42,6 @@
     "@spenceriam/impulse-darwin-x64": "1.6.1",
     "@spenceriam/impulse-darwin-arm64": "1.6.1",
     "@spenceriam/impulse-windows-x64": "1.6.1",
-    "@spenceriam/impulse-windows-arm64": "1.6.1"
+    "@spenceriam/impulse-win32-arm64": "1.6.1"
   }
 }
