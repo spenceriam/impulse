@@ -132,9 +132,14 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          if [ "${{ matrix.platform }}" = "windows" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
+            NPM_NAME="@spenceriam/impulse-win32-arm64"
+          else
+            NPM_NAME="@spenceriam/impulse-${{ matrix.platform }}-${{ matrix.arch }}"
+          fi
           cat > packages/${{ matrix.platform }}-${{ matrix.arch }}/package.json << EOF
           {
-            "name": "@spenceriam/impulse-${{ matrix.platform }}-${{ matrix.arch }}",
+            "name": "$NPM_NAME",
             "version": "$VERSION",
             "description": "IMPULSE binary for ${{ matrix.platform }}-${{ matrix.arch }}",
             "license": "MIT",
@@ -247,9 +252,9 @@ jobs:
           # later step so npm CDN propagation for early packages overlaps with
           # publishing the rest (avoids racing a per-package 404 right after publish).
           for platform_dir in artifacts/impulse-*/; do
-            platform_name=$(basename "$platform_dir")
-            pkg="@spenceriam/${platform_name}"
             cd "$platform_dir"
+            pkg=$(node -p "require('./package.json').name")
+            pkg_slug="${pkg#@spenceriam/}"
 
             if npm view "${pkg}@${VERSION}" version >/dev/null 2>&1; then
               echo "${pkg}@${VERSION} already on npm — skipping publish"
@@ -271,9 +276,10 @@ jobs:
           # only a genuine ghost publish (permanent 404) fails the job.
           fail=0
           for platform_dir in artifacts/impulse-*/; do
-            platform_name=$(basename "$platform_dir")
-            pkg="@spenceriam/${platform_name}"
-            tarball_url="https://registry.npmjs.org/@spenceriam/${platform_name}/-/${platform_name}-${VERSION}.tgz"
+            cd "$platform_dir"
+            pkg=$(node -p "require('./package.json').name")
+            pkg_slug="${pkg#@spenceriam/}"
+            tarball_url="https://registry.npmjs.org/@spenceriam/${pkg_slug}/-/${pkg_slug}-${VERSION}.tgz"
 
             echo "Verifying tarball: ${tarball_url}"
             ok=false
@@ -291,6 +297,7 @@ jobs:
             else
               echo "Tarball verified for ${pkg}@${VERSION}"
             fi
+            cd - >/dev/null
           done
 
           if [ "${fail}" != "0" ]; then
@@ -323,7 +330,7 @@ jobs:
             "homepage": "https://github.com/spenceriam/impulse#readme",
             "keywords": ["ai", "cli", "impulse", "terminal", "coding", "agent"],
             "author": "Spencer Francisco",
-            "files": ["bin/*", "postinstall.mjs"],
+            "files": ["bin/*", "postinstall.mjs", "platform-package.mjs"],
             "publishConfig": {
               "access": "public"
             },
@@ -333,7 +340,7 @@ jobs:
               "@spenceriam/impulse-darwin-x64": "$VERSION",
               "@spenceriam/impulse-darwin-arm64": "$VERSION",
               "@spenceriam/impulse-windows-x64": "$VERSION",
-              "@spenceriam/impulse-windows-arm64": "$VERSION"
+              "@spenceriam/impulse-win32-arm64": "$VERSION"
             }
           }
           EOF
