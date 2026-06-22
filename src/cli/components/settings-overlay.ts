@@ -19,7 +19,7 @@ import {
   OVERLAY_SELECT_FG,
 } from "./overlay-theme.js";
 
-const COMM_STYLES = ["concise", "detailed", "casual", "technical"] as const;
+const COMM_STYLES = ["balanced", "concise", "detailed", "casual", "technical"] as const;
 const THINKING_CYCLE: ThinkingDisplay[] = ["off", "summary", "full"];
 const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
 const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
@@ -125,7 +125,7 @@ export class SettingsOverlay implements Component {
     {
       key: "responsePreference",
       label: "Communication style",
-      hint: "concise / detailed / casual / technical",
+      hint: "balanced / concise / detailed / casual / technical",
       kind: "cycle",
     },
     {
@@ -314,7 +314,7 @@ export class SettingsOverlay implements Component {
       case "responsePreference": {
         const styles = COMM_STYLES as readonly string[];
         const idx = styles.indexOf(this.values.responsePreference);
-        const next = styles[(idx + 1) % styles.length] ?? "concise";
+        const next = styles[(idx + 1) % styles.length] ?? "balanced";
         this.values.responsePreference = next;
         break;
       }

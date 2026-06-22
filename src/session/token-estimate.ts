@@ -49,8 +49,17 @@ export function resolveFooterContextTokens(opts: {
   promptTokens: number | undefined;
   estimatedTokens: number;
 }): number {
+  return resolveFooterContextUsage(opts).tokens;
+}
+
+export type FooterContextTokenSource = "provider" | "estimate";
+
+export function resolveFooterContextUsage(opts: {
+  promptTokens: number | undefined;
+  estimatedTokens: number;
+}): { tokens: number; source: FooterContextTokenSource } {
   if (opts.promptTokens !== undefined && opts.promptTokens > 0) {
-    return opts.promptTokens;
+    return { tokens: opts.promptTokens, source: "provider" };
   }
-  return opts.estimatedTokens;
+  return { tokens: opts.estimatedTokens, source: "estimate" };
 }

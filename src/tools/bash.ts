@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { resolve, relative, isAbsolute } from "path";
+import path from "path";
 import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { Bus } from "../bus";
@@ -24,7 +25,7 @@ const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
 On Windows this uses PowerShell. On macOS/Linux this uses bash.
-Required: command, description. Optional: workdir, timeout, interactive.
+Required: command, description. Optional: workdir, timeout, interactive, session.
 See docs/tools/bash.md for safety rules and usage details.`;
 
 const BashSchema = z.object({
@@ -33,6 +34,8 @@ const BashSchema = z.object({
   workdir: zFilePath().optional(),
   timeout: z.number().optional(),
   interactive: z.boolean().optional(),
+  session: z.string().optional().describe("Optional named shell session; preserves cwd between bash calls"),
+  resetSession: z.boolean().optional().describe("Reset the named shell session before running"),
 });
 
 type BashInput = z.infer<typeof BashSchema>;
@@ -41,6 +44,39 @@ interface SpawnOptions {
   cmd: string[];
   cwd?: string;
   env?: Record<string, string | undefined>;
+}
+
+interface ShellSessionState {
+  cwd: string;
+}
+
+const shellSessions = new Map<string, ShellSessionState>();
+
+function normalizeSessionName(name?: string): string | null {
+  const trimmed = name?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/[^\w.-]/g, "_").slice(0, 60);
+}
+
+function resolveSessionCwd(sessionName: string | null, fallbackCwd: string, reset?: boolean): string {
+  if (!sessionName) return fallbackCwd;
+  if (reset) shellSessions.delete(sessionName);
+  const existing = shellSessions.get(sessionName);
+  if (existing) return existing.cwd;
+  shellSessions.set(sessionName, { cwd: fallbackCwd });
+  return fallbackCwd;
+}
+
+function updateSessionCwd(sessionName: string | null, cwd: string, command: string, success: boolean): void {
+  if (!sessionName || !success) return;
+  const trimmed = command.trim();
+  const match =
+    trimmed.match(/^(?:cd|Set-Location)\s+(.+)$/i) ??
+    trimmed.match(/^Push-Location\s+(.+)$/i);
+  if (!match?.[1]) return;
+  const rawTarget = match[1].trim().replace(/^['"]|['"]$/g, "");
+  const next = path.resolve(cwd, rawTarget);
+  shellSessions.set(sessionName, { cwd: next });
 }
 
 const WINDOWS_COMMAND_ENV_VAR = "IMPULSE_COMMAND";
@@ -725,9 +761,11 @@ export const bashTool: Tool<BashInput> = Tool.define(
       // Determine if we should use interactive mode
       const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
       
-      const cwd = input.workdir
+      const baseCwd = input.workdir
         ? await resolveToolPath(input.workdir, "bash")
         : process.cwd();
+      const sessionName = normalizeSessionName(input.session);
+      const cwd = resolveSessionCwd(sessionName, baseCwd, input.resetSession);
       let result: ToolResult;
 
       // Use PTY if interactive mode is requested AND PTY is available
@@ -746,7 +784,15 @@ export const bashTool: Tool<BashInput> = Tool.define(
       }
 
       if (result.success) {
+        updateSessionCwd(sessionName, cwd, input.command, true);
         detectAndPublishBranchChange(input.command, cwd);
+      }
+      if (sessionName) {
+        result.metadata = {
+          ...(result.metadata ?? {}),
+          session: sessionName,
+          sessionCwd: shellSessions.get(sessionName)?.cwd ?? cwd,
+        };
       }
       return result;
       

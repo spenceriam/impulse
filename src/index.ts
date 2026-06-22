@@ -513,11 +513,12 @@ export async function runOnboarding(): Promise<void> {
   console.log(`
   How should Impulse respond to you?
 
-    1. Concise    \x1b[90m(short, direct answers)\x1b[0m
-    2. Detailed   \x1b[90m(thorough explanations)\x1b[0m
-    3. Casual     \x1b[90m(relaxed, friendly tone)\x1b[0m
-    4. Technical   \x1b[90m(precise, code-focused)\x1b[0m
-    5. Other       \x1b[90m(describe your preference)\x1b[0m
+    1. Balanced   \x1b[90m(practical default; brief reasoning)\x1b[0m
+    2. Concise    \x1b[90m(short, direct answers)\x1b[0m
+    3. Detailed   \x1b[90m(thorough explanations)\x1b[0m
+    4. Casual     \x1b[90m(relaxed, friendly tone)\x1b[0m
+    5. Technical  \x1b[90m(precise, code-focused)\x1b[0m
+    6. Other      \x1b[90m(describe your preference)\x1b[0m
 `);
 
   const prefChoice = await ask("  Choice [1]: ");
@@ -525,21 +526,25 @@ export async function runOnboarding(): Promise<void> {
 
   switch (prefChoice) {
     case "2":
-      responsePreference = "detailed";
+      responsePreference = "concise";
       break;
     case "3":
-      responsePreference = "casual";
+      responsePreference = "detailed";
       break;
     case "4":
-      responsePreference = "technical";
+      responsePreference = "casual";
       break;
     case "5": {
+      responsePreference = "technical";
+      break;
+    }
+    case "6": {
       const custom = await ask("  Describe your preferred style: ");
-      responsePreference = custom || "concise";
+      responsePreference = custom || "balanced";
       break;
     }
     default:
-      responsePreference = "concise";
+      responsePreference = "balanced";
   }
 
   console.log(`
@@ -556,7 +561,7 @@ export async function runOnboarding(): Promise<void> {
       hasSeenWelcome: true,
       userProfile: {
         name: "",
-        responsePreference: "concise",
+        responsePreference: "balanced",
         customInstructions: "",
       },
     })

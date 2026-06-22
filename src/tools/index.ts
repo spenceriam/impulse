@@ -13,3 +13,6 @@ export type { Question, QuestionOption, QuestionToolInput, QuestionToolOutput } 
 export { setHeader } from "./set-header";
 export { setMode } from "./set-mode";
 export { toolDocsTool } from "./tool-docs";
+export { doctorTool } from "./doctor";
+export { projectValidateTool } from "./project-validate";
+export { semanticSearchTool } from "./semantic-search";

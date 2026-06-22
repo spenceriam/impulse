@@ -64,7 +64,8 @@ import {
 import {
   applySafetyMargin,
   estimateRequestTokens,
-  resolveFooterContextTokens,
+  resolveFooterContextUsage,
+  type FooterContextTokenSource,
 } from "../session/token-estimate.js";
 import { setAgentTurnActive } from "../session/turn-active.js";
 import {
@@ -167,6 +168,7 @@ export interface LoopEvents {
     contextPct: number;
     tokensPerSecond: number;
     durationMs: number;
+    contextTokenSource: FooterContextTokenSource;
     /** Prompt tokens served from provider cache this turn (when reported). */
     cacheReadTokens?: number;
     /** DEBUG mode: leftover [IMPULSE_DEBUG] markers in edited files. */
@@ -1325,10 +1327,11 @@ export class AgentLoop {
         buildChatMessages(finalMessages, lastSystemPrompt),
         toolDefs
       );
-      const contextTokens = resolveFooterContextTokens({
+      const contextUsage = resolveFooterContextUsage({
         promptTokens: latestPromptTokens,
         estimatedTokens: estimatedContextTokens,
       });
+      const contextTokens = contextUsage.tokens;
       const debugInstrumentationNudge =
         mode === "DEBUG"
           ? buildDebugInstrumentationNudge([...debugEditedFiles])
@@ -1340,6 +1343,7 @@ export class AgentLoop {
         contextPct: Math.min(1, contextTokens / getContextWindow()),
         tokensPerSecond,
         durationMs,
+        contextTokenSource: contextUsage.source,
         ...(latestCacheReadTokens > 0 ? { cacheReadTokens: latestCacheReadTokens } : {}),
         ...(debugInstrumentationNudge
           ? { debugInstrumentationNudge }
