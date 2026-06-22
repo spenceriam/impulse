@@ -1,5 +1,5 @@
 import path from "path";
-import { sanitizePath, SecurityError } from "../util/path.js";
+import { isWithinBase, sanitizePath, SecurityError } from "../util/path.js";
 import { isAllowAllBypass, ask as askPermission } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
 
@@ -14,10 +14,7 @@ export class OutsideCwdError extends Error {
 }
 
 function isOutsideCwd(targetPath: string, cwd: string): boolean {
-  const absoluteTarget = path.resolve(targetPath);
-  const absoluteCwd = path.resolve(cwd);
-  const relativePath = path.relative(absoluteCwd, absoluteTarget);
-  return relativePath.startsWith("..") || path.isAbsolute(relativePath);
+  return !isWithinBase(cwd, targetPath);
 }
 
 /**

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { resolve, relative, isAbsolute } from "path";
 import path from "path";
 import { statSync } from "fs";
 import { resolveToolPath } from "./resolve-tool-path.js";
@@ -14,18 +13,19 @@ import {
   type PtyHandle,
 } from "../pty";
 import { zCommandString, zFilePath } from "./schemas/branded";
-import { detectPowerShellVersion, translatePosixToPowerShell } from "./posix-translation";
-import { detectShellEnvironment } from "../util/shell-env";
+import { analyzePowerShellChaining, translatePosixToPowerShell } from "./posix-translation";
 import { detectAndPublishBranchChange } from "../git/branch-detect";
 import { SessionManager } from "../session/manager";
 import { capBashOutputLines } from "../util/tool-output-cap.js";
+import { isWithinBase } from "../util/path.js";
+import { detectWindowsCommandShell } from "../util/windows-shell.js";
 
 /** Default bash/PTY timeout per docs/tools/bash.md */
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
-On Windows this uses PowerShell. On macOS/Linux this uses bash.
+On Windows this auto-detects PowerShell, cmd.exe, or Git Bash. On macOS/Linux this uses bash.
 Required: command, description. Optional: workdir, timeout, interactive, session.
 See docs/tools/bash.md for safety rules and usage details.`;
 
@@ -45,6 +45,7 @@ interface SpawnOptions {
   cmd: string[];
   cwd?: string;
   env?: Record<string, string | undefined>;
+  shellKind?: "powershell" | "cmd" | "bash";
 }
 
 interface ShellSessionState {
@@ -349,7 +350,61 @@ export function needsInteractiveMode(command: string): boolean {
 /**
  * Classify a command as safe, high-risk, or unknown.
  */
-export function classifyCommand(command: string): "safe" | "high_risk" | "unknown" {
+function splitCommandForPermission(command: string): {
+  segments: string[];
+  hasRedirect: boolean;
+} {
+  const segments: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let hasRedirect = false;
+
+  const pushSegment = () => {
+    const trimmed = current.trim();
+    if (trimmed) segments.push(trimmed);
+    current = "";
+  };
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
+    if (ch === ">" || ch === "<") {
+      hasRedirect = true;
+      current += ch;
+      continue;
+    }
+
+    if (ch === ";" || ch === "\n" || ch === "\r") {
+      pushSegment();
+      continue;
+    }
+
+    if (ch === "&" || ch === "|") {
+      pushSegment();
+      if (command[i + 1] === ch) i++;
+      continue;
+    }
+
+    current += ch;
+  }
+
+  pushSegment();
+  return { segments: segments.length > 0 ? segments : [command.trim()].filter(Boolean), hasRedirect };
+}
+
+function classifySingleCommand(command: string): "safe" | "high_risk" | "unknown" {
   const trimmed = command.trim();
 
   for (const pattern of HIGH_RISK_PATTERNS) {
@@ -367,17 +422,28 @@ export function classifyCommand(command: string): "safe" | "high_risk" | "unknow
   return "unknown";
 }
 
+export function classifyCommand(command: string): "safe" | "high_risk" | "unknown" {
+  const { segments, hasRedirect } = splitCommandForPermission(command);
+  if (hasRedirect) return "unknown";
+
+  let sawUnknown = false;
+  for (const segment of segments) {
+    const classification = classifySingleCommand(segment);
+    if (classification === "high_risk") return "high_risk";
+    if (classification === "unknown") sawUnknown = true;
+  }
+
+  return sawUnknown ? "unknown" : "safe";
+}
+
 /**
  * Check if a path is within the current working directory
  */
 function isWithinCwd(targetPath: string, cwd: string): boolean {
-  const absoluteTarget = isAbsolute(targetPath)
-    ? targetPath
-    : resolve(cwd, targetPath);
-  const relativePath = relative(cwd, absoluteTarget);
-
-  // If relative path starts with "..", it's outside cwd
-  return relativePath !== ".." && !relativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`);
+  const absoluteTarget = path.isAbsolute(targetPath)
+    ? path.resolve(targetPath)
+    : path.resolve(cwd, targetPath);
+  return isWithinBase(cwd, absoluteTarget);
 }
 
 function tokenizeCommand(command: string): string[] {
@@ -446,9 +512,9 @@ function quotePowerShellString(value: string): string {
 
 function normalizeWindowsCommand(command: string, shellType: "powershell5" | "powershell7"): string {
   const trimmed = command.trim();
-  const chaining = detectPowerShellVersion(trimmed);
+  const chaining = analyzePowerShellChaining(trimmed, shellType);
 
-  if (shellType === "powershell5" && chaining.hasChainingOperator && chaining.recommendation) {
+  if (!chaining.isSupported && chaining.recommendation) {
     return `Write-Error ${quotePowerShellString(chaining.recommendation)}; exit 1`;
   }
 
@@ -474,19 +540,35 @@ async function getSpawnOptions(
   };
 
   if (process.platform === "win32") {
-    const shellEnv = await detectShellEnvironment();
-    const commandShellType = shellEnv.commandShellType === "powershell7" ? "powershell7" : "powershell5";
-    const executable = commandShellType === "powershell7" ? "pwsh" : "powershell.exe";
+    const shell = await detectWindowsCommandShell();
+
+    if (shell.type === "cmd") {
+      return {
+        ...common,
+        shellKind: "cmd",
+        cmd: [shell.executable, "/d", "/s", "/c", input.command],
+      };
+    }
+
+    if (shell.type === "git-bash") {
+      return {
+        ...common,
+        shellKind: "bash",
+        cmd: [shell.executable, "-lc", input.command],
+      };
+    }
+
     const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
 
     return {
       ...common,
+      shellKind: "powershell",
       env: {
         ...process.env,
-        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, commandShellType),
+        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, shell.type),
       },
       cmd: [
-        executable,
+        shell.executable,
         "-NoLogo",
         "-NoProfile",
         ...interactiveArgs,
@@ -500,6 +582,7 @@ async function getSpawnOptions(
 
   return {
     ...common,
+    shellKind: "bash",
     cmd: ["bash", "-lc", input.command],
   };
 }
@@ -728,9 +811,9 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
   
   // Cross-platform output handling
-  // - Windows: Merge captured stdout and stderr after PowerShell execution
-  // - macOS/Linux: Merge stdout and stderr, preserve both streams
-  const shell = process.platform === "win32" ? "powershell" : "bash";
+  // - Windows PowerShell wrapper merges streams before output
+  // - bash/cmd: Merge stdout and stderr, preserve both streams
+  const shell = spawnOptions.shellKind ?? (process.platform === "win32" ? "powershell" : "bash");
   let combinedOutput: string;
   
   if (shell === "powershell") {

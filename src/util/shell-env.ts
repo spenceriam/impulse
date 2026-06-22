@@ -15,10 +15,10 @@ export interface ShellEnvironment {
   /** User's configured login shell, detected from the host environment. */
   shell: string;
   shellVersion?: string;
-  shellType: "powershell5" | "powershell7" | "bash" | "zsh" | "fish" | "sh" | "unknown";
+  shellType: WindowsCommandShellType | "bash" | "zsh" | "fish" | "sh" | "unknown";
   /** Shell actually used by the bash tool for command execution. */
   commandShell: string;
-  commandShellType: "powershell5" | "powershell7" | "bash";
+  commandShellType: WindowsCommandShellType | "bash";
   supportsChainedCommands: boolean;
   commandSeparator: string; // ; or && depending on shell
   recommendations: string[];
@@ -66,62 +66,6 @@ async function readStdoutAndDrainStderr(
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
-}
-
-/**
- * Detect PowerShell version on Windows
- */
-async function detectPowerShellVersion(): Promise<{ version: string; isPwsh7: boolean }> {
-  if (process.platform !== "win32") {
-    return { version: "N/A", isPwsh7: false };
-  }
-
-  try {
-    // Try to detect PowerShell 7 (pwsh)
-    const pwsh7Check = Bun.spawn({
-      cmd: ["pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    const pwsh7Result = await readStdoutAndDrainStderr(pwsh7Check);
-    const pwsh7Output = pwsh7Result.stdout;
-
-    if (pwsh7Check.exitCode === 0 && pwsh7Output.trim()) {
-      return { version: pwsh7Output.trim(), isPwsh7: true };
-    }
-  } catch {
-    // pwsh not available, fall back to Windows PowerShell
-  }
-
-  try {
-    // Fall back to Windows PowerShell 5.x
-    const ps5Check = Bun.spawn({
-      cmd: [
-        "powershell.exe",
-        "-NoProfile",
-        "-Command",
-        "$PSVersionTable.PSVersion.ToString()",
-      ],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    const ps5Result = await readStdoutAndDrainStderr(ps5Check);
-    const ps5Output = ps5Result.stdout;
-
-    if (ps5Result.timedOut) {
-      return { version: "Unknown", isPwsh7: false };
-    }
-
-    if (ps5Check.exitCode === 0 && ps5Output.trim()) {
-      return { version: ps5Output.trim(), isPwsh7: false };
-    }
-  } catch {
-    // Could not detect
-  }
-
-  return { version: "Unknown", isPwsh7: false };
 }
 
 /**
@@ -242,11 +186,11 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
 
   // ===== Windows Platform =====
   if (process.platform === "win32") {
-    const { version, isPwsh7 } = await detectPowerShellVersion();
-    const shellType = isPwsh7 ? "powershell7" : "powershell5";
-    const shell = isPwsh7 ? "PowerShell 7.x (pwsh)" : "Windows PowerShell 5.x";
+    const detected = await detectWindowsCommandShell();
+    const shellType = detected.type;
+    const shell = detected.displayName;
 
-    if (!isPwsh7) {
+    if (shellType === "powershell5") {
       recommendations.push(
         "PowerShell 5.x detected: Use ; instead of && to chain commands"
       );
@@ -255,20 +199,26 @@ async function detectShellEnvironmentUncached(): Promise<ShellEnvironment> {
       );
       tips.push("Commands return objects by default - pipe through | Out-String for text");
       tips.push("Use *>&1 to merge all output streams");
-    } else {
+    } else if (shellType === "powershell7") {
       tips.push("PowerShell 7+ supports && and || operators");
       tips.push("Commands still return objects - use | Out-String when needed");
+    } else if (shellType === "cmd") {
+      tips.push("cmd.exe supports && and || operators");
+      tips.push("Use Windows command syntax for shell commands");
+    } else {
+      tips.push("Git Bash supports POSIX shell syntax with && and || operators");
+      tips.push("Use bash/POSIX syntax for shell commands");
     }
 
     return {
       platform,
       shell,
-      shellVersion: version,
+      ...(detected.version ? { shellVersion: detected.version } : {}),
       shellType,
       commandShell: shell,
       commandShellType: shellType,
-      supportsChainedCommands: isPwsh7,
-      commandSeparator: isPwsh7 ? "&&" : ";",
+      supportsChainedCommands: detected.supportsChainedCommands,
+      commandSeparator: detected.commandSeparator,
       recommendations,
       tips,
     };
@@ -426,6 +376,18 @@ export function generateShellContext(env: ShellEnvironment): string {
       parts.push("- POSIX commands are auto-translated to PowerShell equivalents");
       break;
 
+    case "cmd":
+      parts.push("- Use Windows cmd.exe syntax");
+      parts.push("- Supports && (and), || (or), and & (unconditional) operators");
+      parts.push("- POSIX-to-PowerShell translation is not applied in cmd.exe");
+      break;
+
+    case "git-bash":
+      parts.push("- Use bash/POSIX syntax");
+      parts.push("- Supports && (and), || (or), and ; (unconditional) operators");
+      parts.push("- POSIX-to-PowerShell translation is not applied in Git Bash");
+      break;
+
     case "bash":
       parts.push("- Use && to chain commands (runs next only if previous succeeds)");
       parts.push("- Use || for OR logic (runs next only if previous fails)");
@@ -442,3 +404,4 @@ export function generateShellContext(env: ShellEnvironment): string {
 
   return parts.join("\n");
 }
+import { detectWindowsCommandShell, type WindowsCommandShellType } from "./windows-shell.js";

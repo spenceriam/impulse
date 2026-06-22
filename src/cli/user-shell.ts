@@ -3,9 +3,16 @@
  */
 
 import { sanitizePath } from "../util/path.js";
-import { executePty, isPtyAvailable, initPty, type PtyHandle } from "../pty/index.js";
+import {
+  executePty,
+  isPtyAvailable,
+  initPty,
+  type PtyHandle,
+  type PtySpawnOptions,
+} from "../pty/index.js";
 import { needsInteractiveMode } from "../tools/bash.js";
 import { detectAndPublishBranchChange } from "../git/branch-detect.js";
+import { detectWindowsCommandShell } from "../util/windows-shell.js";
 
 export interface ShellRunResult {
   command: string;
@@ -20,20 +27,39 @@ export interface ShellRunResult {
 
 export type ShellDataHandler = (chunk: string) => void;
 
-function buildCmd(command: string): string[] {
+interface BuiltShellCommand {
+  cmd: string[];
+  ptyOptions?: PtySpawnOptions;
+}
+
+async function buildCmd(command: string, interactive = false): Promise<BuiltShellCommand> {
   if (process.platform === "win32") {
-    return [
-      "powershell.exe",
+    const shell = await detectWindowsCommandShell();
+
+    if (shell.type === "cmd") {
+      const args = ["/d", "/s", "/c", command];
+      return { cmd: [shell.executable, ...args], ptyOptions: { shell: shell.executable, args } };
+    }
+
+    if (shell.type === "git-bash") {
+      const args = ["-lc", command];
+      return { cmd: [shell.executable, ...args], ptyOptions: { shell: shell.executable, args } };
+    }
+
+    const args = [
       "-NoLogo",
       "-NoProfile",
-      "-NonInteractive",
+      ...(interactive ? [] : ["-NonInteractive"]),
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
       command,
     ];
+    return { cmd: [shell.executable, ...args], ptyOptions: { shell: shell.executable, args } };
   }
-  return ["bash", "-lc", command];
+
+  const args = ["-lc", command];
+  return { cmd: ["bash", ...args], ptyOptions: { shell: "bash", args } };
 }
 
 let activeAbort: AbortController | null = null;
@@ -84,6 +110,7 @@ export async function runUserShellCommand(options: {
   const cwd = options.cwd ? sanitizePath(options.cwd) : process.cwd();
   const start = Date.now();
   const interactive = options.forceInteractive ?? needsInteractiveMode(command);
+  const builtCommand = await buildCmd(command, interactive);
 
   abortUserShell();
   activeAbort = new AbortController();
@@ -109,7 +136,8 @@ export async function runUserShellCommand(options: {
       },
       signal,
       cols,
-      rows
+      rows,
+      builtCommand.ptyOptions
     );
     activePty = handle;
     let result: ShellRunResult;
@@ -152,7 +180,7 @@ export async function runUserShellCommand(options: {
 
   const usePipedInteractive = interactive && !isPtyAvailable();
   const proc = Bun.spawn({
-    cmd: buildCmd(command),
+    cmd: builtCommand.cmd,
     cwd,
     env: process.env,
     stdin: usePipedInteractive ? "pipe" : "ignore",

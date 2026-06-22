@@ -25,10 +25,23 @@ function executableCandidates(name: string, env: NodeJS.ProcessEnv = process.env
     .map((e) => `${name}${e.toLowerCase()}`);
 }
 
+function isExecutableFile(filePath: string): boolean {
+  try {
+    const stats = fs.statSync(filePath);
+    if (!stats.isFile()) return false;
+    if (process.platform !== "win32") {
+      fs.accessSync(filePath, fs.constants.X_OK);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveGhCliPath(env: NodeJS.ProcessEnv = process.env): string | null {
   const override = env["GH_CLI_PATH"]?.trim();
   if (override) {
-    return fs.existsSync(override) ? override : null;
+    return isExecutableFile(override) ? override : null;
   }
 
   const pathValue = env["PATH"] ?? "";
@@ -36,7 +49,7 @@ export function resolveGhCliPath(env: NodeJS.ProcessEnv = process.env): string |
   for (const dir of dirs) {
     for (const candidate of executableCandidates("gh", env)) {
       const fullPath = path.join(dir, candidate);
-      if (fs.existsSync(fullPath)) {
+      if (isExecutableFile(fullPath)) {
         return fullPath;
       }
     }

@@ -2,9 +2,9 @@ import { Storage } from "../storage";
 import { Bus, SessionEvents } from "../bus";
 import { Global } from "../global";
 import crypto from "crypto";
-import fs from "fs/promises";
 import path from "path";
 import type { OptionalPatch } from "../util/omit-undefined.js";
+import { writeJsonAtomic } from "../util/atomic-write.js";
 
 /**
  * Generate a project ID from a directory path.
@@ -158,12 +158,7 @@ class SessionStoreImpl {
   /** Write temp file then rename — avoids torn reads on crash mid-write. */
   private async atomicWriteSession(session: Session): Promise<void> {
     const target = this.sessionFilePath(session.id, session.projectID);
-    const dir = path.dirname(target);
-    const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(tmp, JSON.stringify(session, null, 2), "utf-8");
-    await fs.rename(tmp, target);
+    await writeJsonAtomic(target, session);
   }
 
   async create(session: Omit<Session, "created_at" | "updated_at">): Promise<Session> {

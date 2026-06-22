@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { detectPowerShellVersion, translatePosixToPowerShell } from "../src/tools/posix-translation.js";
+import { analyzePowerShellChaining, translatePosixToPowerShell } from "../src/tools/posix-translation.js";
 
 describe("translatePosixToPowerShell", () => {
   test("leaves ls unchanged because PowerShell already has an ls alias", () => {
@@ -94,8 +94,15 @@ describe("translatePosixToPowerShell", () => {
   });
 
   test("detects only unquoted PowerShell chaining operators", () => {
-    expect(detectPowerShellVersion("echo a && echo b").hasChainingOperator).toBe(true);
-    expect(detectPowerShellVersion('git commit -m "fix: a && b"').hasChainingOperator).toBe(false);
-    expect(detectPowerShellVersion("Select-String 'a || b' file.txt").hasChainingOperator).toBe(false);
+    expect(analyzePowerShellChaining("echo a && echo b", "powershell5")).toMatchObject({
+      hasChainingOperator: true,
+      isSupported: false,
+    });
+    expect(analyzePowerShellChaining("echo a && echo b", "powershell7")).toMatchObject({
+      hasChainingOperator: true,
+      isSupported: true,
+    });
+    expect(analyzePowerShellChaining('git commit -m "fix: a && b"', "powershell5").hasChainingOperator).toBe(false);
+    expect(analyzePowerShellChaining("Select-String 'a || b' file.txt", "powershell5").hasChainingOperator).toBe(false);
   });
 });

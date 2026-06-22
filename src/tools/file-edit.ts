@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { readFile, writeFile } from "fs/promises";
-import { resolve, relative, isAbsolute } from "path";
+import { basename } from "path";
 import { createPatch } from "diff";
 import {
   capCompactDiffResult,
@@ -16,6 +16,7 @@ import { SessionManager } from "../session/manager";
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
 import { zCodeEdit, zFilePath } from "./schemas/branded";
+import { isWithinBase } from "../util/path.js";
 import {
   applyReplacement,
   buildOldStringNotFoundError,
@@ -43,14 +44,7 @@ type EditInput = z.infer<typeof EditSchema>;
  * Check if a path is within the current working directory
  */
 function isWithinCwd(targetPath: string): boolean {
-  const cwd = process.cwd();
-  const absoluteTarget = isAbsolute(targetPath) 
-    ? targetPath 
-    : resolve(cwd, targetPath);
-  const relativePath = relative(cwd, absoluteTarget);
-  
-  // If relative path starts with "..", it's outside cwd
-  return !relativePath.startsWith("..");
+  return isWithinBase(process.cwd(), targetPath);
 }
 
 export const fileEdit: Tool<EditInput> = Tool.define(
@@ -71,7 +65,7 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       }
       
       const outsideCwd = !isWithinCwd(safePath);
-      const fileName = safePath.split(/[/\\]/).pop() ?? safePath;
+      const fileName = basename(safePath);
       await askPermission({
         sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
         permission: "edit",
