@@ -1,6 +1,6 @@
 {
   "name": "@spenceriam/impulse",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "description": "Provider-flexible terminal AI co-partner agent",
   "license": "MIT",
   "bin": {
@@ -37,11 +37,11 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@spenceriam/impulse-linux-x64": "1.6.3",
-    "@spenceriam/impulse-linux-arm64": "1.6.3",
-    "@spenceriam/impulse-darwin-x64": "1.6.3",
-    "@spenceriam/impulse-darwin-arm64": "1.6.3",
-    "@spenceriam/impulse-windows-x64": "1.6.3",
-    "@spenceriam/impulse-win32-arm64": "1.6.3"
+    "@spenceriam/impulse-linux-x64": "1.7.0",
+    "@spenceriam/impulse-linux-arm64": "1.7.0",
+    "@spenceriam/impulse-darwin-x64": "1.7.0",
+    "@spenceriam/impulse-darwin-arm64": "1.7.0",
+    "@spenceriam/impulse-windows-x64": "1.7.0",
+    "@spenceriam/impulse-win32-arm64": "1.7.0"
   }
 }

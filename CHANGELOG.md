@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-22
+
+  **Type:** minor
+  **Title:** Co-partner preferences, diagnostics, validation, and workflow foundations
+
+  ### Added
+  - **#101** — profile communication preferences now compile into explicit co-partner behavior instructions in the system prompt
+  - **#94** — `doctor` tool for lightweight provider/model configuration diagnostics
+  - **#98** — `project_validate` tool detects likely project validation commands
+  - **#96** — `semantic_search` tool provides local-first concept search over project files
+  - **#99** — `bash` supports opt-in named shell sessions that preserve cwd between calls
+  - **#97** — `task` accepts explicit bounded parent context for subagents
+  - **#100** — session sync protocol foundation for future GUI/runtime boundaries
+  - **#85** — fallback global installer script under `scripts/install.mjs`
+
 ## [1.6.3] - 2026-06-22
 
   **Type:** patch

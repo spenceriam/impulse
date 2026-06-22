@@ -34,6 +34,9 @@ const TOOL_DOCS_MAP: Record<string, string> = {
   install_skill: "install-skill.md",
   github_issue: "github-issue.md",
   tool_docs: "tool-docs.md",
+  doctor: "doctor.md",
+  project_validate: "project-validate.md",
+  semantic_search: "semantic-search.md",
 };
 
 function getToolDocsDir(): string {

@@ -42,6 +42,9 @@ import "./install-skill";
 
 // GitHub
 import "./github-issue";
+import "./doctor";
+import "./project-validate";
+import "./semantic-search";
 
 // Re-export registry for convenience
 export { Tool } from "./registry";

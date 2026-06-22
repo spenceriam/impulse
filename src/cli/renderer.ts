@@ -3757,7 +3757,7 @@ export class ImpulseRenderer {
 
   private syncDisplaySettingsFromConfig(config: Config): void {
     this.thinkingDisplay = config.thinkingDisplay ?? "summary";
-    this.responsePreference = config.userProfile?.responsePreference?.trim() || "concise";
+    this.responsePreference = config.userProfile?.responsePreference?.trim() || "balanced";
     this.compactToolOutputEnabled = config.compactToolOutput ?? true;
     this.contextBar?.update({ bottomBarVisual: config.bottomBarVisual ?? "full" });
     this.applyThinkingDisplayMode();
@@ -4510,7 +4510,7 @@ export class ImpulseRenderer {
     const initialValues: SettingsValues = {
       thinkingDisplay: config.thinkingDisplay ?? "summary",
       reasoningLevel: config.reasoningLevel ?? "medium",
-      responsePreference: config.userProfile?.responsePreference?.trim() || "concise",
+      responsePreference: config.userProfile?.responsePreference?.trim() || "balanced",
       statsOnExit: config.statsOnExit ?? false,
       showSubagentThinking: config.showSubagentThinking,
       useSubagentModel: config.useSubagentModel,
@@ -4543,7 +4543,7 @@ export class ImpulseRenderer {
         config.subagentModel = values.subagentModel;
       }
       if (!config.userProfile) {
-        config.userProfile = { name: "", responsePreference: "concise", customInstructions: "" };
+        config.userProfile = { name: "", responsePreference: "balanced", customInstructions: "" };
       }
       config.userProfile.responsePreference = values.responsePreference;
       await saveConfig(config);

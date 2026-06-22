@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { resolve, relative, isAbsolute } from "path";
+import path from "path";
+import { statSync } from "fs";
 import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { Bus } from "../bus";
@@ -24,7 +26,7 @@ const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
 On Windows this uses PowerShell. On macOS/Linux this uses bash.
-Required: command, description. Optional: workdir, timeout, interactive.
+Required: command, description. Optional: workdir, timeout, interactive, session.
 See docs/tools/bash.md for safety rules and usage details.`;
 
 const BashSchema = z.object({
@@ -33,6 +35,8 @@ const BashSchema = z.object({
   workdir: zFilePath().optional(),
   timeout: z.number().optional(),
   interactive: z.boolean().optional(),
+  session: z.string().optional().describe("Optional named shell session; preserves cwd between bash calls"),
+  resetSession: z.boolean().optional().describe("Reset the named shell session before running"),
 });
 
 type BashInput = z.infer<typeof BashSchema>;
@@ -41,6 +45,107 @@ interface SpawnOptions {
   cmd: string[];
   cwd?: string;
   env?: Record<string, string | undefined>;
+}
+
+interface ShellSessionState {
+  cwd: string;
+}
+
+const shellSessions = new Map<string, ShellSessionState>();
+const sessionChains = new Map<string, Promise<unknown>>();
+
+function isValidSessionCwd(cwd: string): boolean {
+  try {
+    return statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function withSessionLock<T>(
+  sessionName: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const previous = sessionChains.get(sessionName) ?? Promise.resolve();
+  const run = previous
+    .catch(() => {
+      /* keep chain alive after prior failure */
+    })
+    .then(() => fn());
+  sessionChains.set(sessionName, run);
+  try {
+    return await run;
+  } finally {
+    if (sessionChains.get(sessionName) === run) {
+      sessionChains.delete(sessionName);
+    }
+  }
+}
+
+function normalizeSessionName(name?: string): string | null {
+  const trimmed = name?.trim();
+  if (!trimmed) return null;
+  // Hex-encode disallowed chars so distinct names (e.g. foo@bar vs foo_bar) stay unique.
+  const encoded = trimmed.replace(/[^\w.-]/g, (ch) =>
+    `_x${ch.charCodeAt(0).toString(16).padStart(2, "0")}_`
+  );
+  return encoded.slice(0, 60);
+}
+
+function resolveSessionCwd(
+  sessionName: string | null,
+  fallbackCwd: string,
+  options?: { reset?: boolean; workdirProvided?: boolean }
+): string {
+  if (!sessionName) return fallbackCwd;
+  if (options?.reset) shellSessions.delete(sessionName);
+  const existing = shellSessions.get(sessionName);
+  if (existing) {
+    if (options?.workdirProvided) {
+      shellSessions.set(sessionName, { cwd: fallbackCwd });
+      return fallbackCwd;
+    }
+    if (isValidSessionCwd(existing.cwd)) {
+      return existing.cwd;
+    }
+    shellSessions.set(sessionName, { cwd: fallbackCwd });
+    return fallbackCwd;
+  }
+  shellSessions.set(sessionName, { cwd: fallbackCwd });
+  return fallbackCwd;
+}
+
+function parseCdTarget(command: string): string | null {
+  const trimmed = command.trim();
+  const cleanTarget = (raw: string): string => raw.trim().replace(/^['"]|['"]$/g, "");
+
+  // Leading cd before a chain operator (e.g. `cd dir && npm test`).
+  // Check chained forms before lone forms so the target does not greedily
+  // capture the rest of the command.
+  const chainedMatch =
+    trimmed.match(/^(?:cd|Set-Location)\s+(.+?)\s*(?:&&|\|\||;)\s*/i) ??
+    trimmed.match(/^Push-Location\s+(.+?)\s*(?:&&|\|\||;)\s*/i);
+  if (chainedMatch?.[1]) return cleanTarget(chainedMatch[1]);
+
+  const loneMatch =
+    trimmed.match(/^(?:cd|Set-Location)\s+(.+)$/i) ??
+    trimmed.match(/^Push-Location\s+(.+)$/i);
+  if (loneMatch?.[1]) return cleanTarget(loneMatch[1]);
+
+  return null;
+}
+
+function updateSessionCwd(sessionName: string | null, cwd: string, command: string): void {
+  if (!sessionName) return;
+  const rawTarget = parseCdTarget(command);
+  if (!rawTarget) return;
+  const next = path.resolve(cwd, rawTarget);
+  try {
+    if (!statSync(next).isDirectory()) return;
+  } catch {
+    return;
+  }
+  shellSessions.set(sessionName, { cwd: next });
 }
 
 const WINDOWS_COMMAND_ENV_VAR = "IMPULSE_COMMAND";
@@ -700,10 +805,20 @@ export const bashTool: Tool<BashInput> = Tool.define(
   DESCRIPTION,
   BashSchema,
   async (input: BashInput): Promise<ToolResult> => {
-    try {
+    const sessionName = normalizeSessionName(input.session);
+
+    const runBash = async (): Promise<ToolResult> => {
+      const baseCwd = input.workdir
+        ? await resolveToolPath(input.workdir, "bash")
+        : process.cwd();
+      const cwd = resolveSessionCwd(sessionName, baseCwd, {
+        workdirProvided: !!input.workdir,
+        ...(input.resetSession ? { reset: true } : {}),
+      });
+
       // Check if permission is needed
-      const permCheck = needsPermission(input.command, input.workdir);
-      
+      const permCheck = needsPermission(input.command, cwd);
+
       if (permCheck.needed) {
         await askPermission({
           sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
@@ -721,13 +836,9 @@ export const bashTool: Tool<BashInput> = Tool.define(
           },
         });
       }
-      
+
       // Determine if we should use interactive mode
       const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
-      
-      const cwd = input.workdir
-        ? await resolveToolPath(input.workdir, "bash")
-        : process.cwd();
       let result: ToolResult;
 
       // Use PTY if interactive mode is requested AND PTY is available
@@ -745,11 +856,24 @@ export const bashTool: Tool<BashInput> = Tool.define(
         result = await executeWithSpawn(input, cwd);
       }
 
+      updateSessionCwd(sessionName, cwd, input.command);
       if (result.success) {
         detectAndPublishBranchChange(input.command, cwd);
       }
+      if (sessionName) {
+        result.metadata = {
+          ...(result.metadata ?? {}),
+          session: sessionName,
+          sessionCwd: shellSessions.get(sessionName)?.cwd ?? cwd,
+        };
+      }
       return result;
-      
+    };
+
+    try {
+      return sessionName
+        ? await withSessionLock(sessionName, runBash)
+        : await runBash();
     } catch (error) {
       if (error instanceof Error) {
         let output = error.message;

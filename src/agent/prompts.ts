@@ -9,7 +9,12 @@ import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { isAllowAllBypass } from "../permission/index.js";
-import { isExperimentalAdvisorEnabled, load as loadConfig, type Config } from "../util/config.js";
+import {
+  isExperimentalAdvisorEnabled,
+  load as loadConfig,
+  type Config,
+  type UserProfile,
+} from "../util/config.js";
 import { detectShellEnvironment, generateShellContext } from "../util/shell-env.js";
 import { loadInstructions } from "../util/instructions.js";
 
@@ -30,6 +35,65 @@ export function invalidatePromptCache(): void {
   lastTurnPromptKey = undefined;
   lastTurnPrompt = undefined;
   void import("../harness/session-cache.js").then((m) => m.clearPinnedSystemPrompt());
+}
+
+export function formatUserCollaborationProfile(profile?: UserProfile): string | null {
+  if (!profile) return null;
+
+  const lines: string[] = ["## User collaboration profile", ""];
+  if (profile.name?.trim()) {
+    lines.push(`Name: ${profile.name.trim()}`);
+  }
+
+  const preference = profile.responsePreference?.trim() || "balanced";
+  const normalized = preference.toLowerCase();
+  const presets: Record<string, string[]> = {
+    balanced: [
+      "Style: balanced",
+      "- Be concise, but include important reasoning and tradeoffs.",
+      "- Proceed with safe implementation work when the request is clear.",
+      "- Ask before broad, destructive, or ambiguous changes.",
+      "- After meaningful code changes, run standard validation when practical.",
+    ],
+    concise: [
+      "Style: fast + concise",
+      "- Lead with the answer or action taken.",
+      "- Avoid long explanations unless the user asks for detail.",
+      "- Keep summaries short after tool-heavy work.",
+    ],
+    detailed: [
+      "Style: thorough",
+      "- Explain reasoning, assumptions, and tradeoffs.",
+      "- Prefer explicit verification steps for code changes.",
+      "- Summarize what changed and what remains.",
+    ],
+    casual: [
+      "Style: casual",
+      "- Use a natural, relaxed tone.",
+      "- Stay precise about code, commands, and risks.",
+      "- Avoid unnecessary formality.",
+    ],
+    technical: [
+      "Style: technical",
+      "- Use precise implementation language.",
+      "- Mention relevant files, functions, and tradeoffs when useful.",
+      "- Avoid oversimplifying engineering details.",
+    ],
+  };
+
+  const preset = presets[normalized];
+  if (preset) {
+    lines.push(...preset);
+  } else {
+    lines.push("Style: custom");
+    lines.push(`- User-described preference: ${preference}`);
+  }
+
+  if (profile.customInstructions?.trim()) {
+    lines.push("", "Custom instructions:", profile.customInstructions.trim());
+  }
+
+  return lines.join("\n");
 }
 
 function getPromptsDir(): string {
@@ -440,14 +504,9 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     );
   }
 
-  // Add user profile context if available
-  if (cfg.userProfile?.name) {
-    parts.push(`## User Profile\n\nThe user's name is ${cfg.userProfile.name}.`);
-  }
-  if (cfg.userProfile?.customInstructions?.trim()) {
-    parts.push(
-      `## User preferences\n\n${cfg.userProfile.customInstructions.trim()}`
-    );
+  const collaborationProfile = formatUserCollaborationProfile(cfg.userProfile);
+  if (collaborationProfile) {
+    parts.push(collaborationProfile);
   }
 
   // Add advisor mode directive if experimental advisor is enabled

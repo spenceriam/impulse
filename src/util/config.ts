@@ -102,7 +102,7 @@ const ConfigSchema = z.object({
     /** User's display name */
     name: z.string().default(""),
     /** Response style preference */
-    responsePreference: z.string().default("concise"),
+    responsePreference: z.string().default("balanced"),
     /** Custom instructions injected into every system prompt */
     customInstructions: z.string().default(""),
   }).optional(),

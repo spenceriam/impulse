@@ -6,7 +6,7 @@ import { getCurrentMode } from "./mode-state";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
 
-Required: prompt, description, subagent_type. Optional: thoroughness (explore only).
+Required: prompt, description, subagent_type. Optional: thoroughness (explore only), context.
 Multiple task calls in one turn run in parallel (up to 8 concurrent; additional tasks queue).
 See docs/tools/task.md for guidance and examples.`;
 
@@ -15,6 +15,7 @@ const TaskSchema = z.object({
   description: z.string(),
   subagent_type: z.enum(["explore", "general"]),
   thoroughness: z.enum(["quick", "medium", "thorough"]).optional(),
+  context: z.string().optional().describe("Bounded parent-session context to pass to the subagent"),
 });
 
 type TaskInput = z.infer<typeof TaskSchema>;
@@ -43,9 +44,13 @@ export const taskTool: Tool<TaskInput> = Tool.define(
         };
       }
 
+      const prompt = input.context?.trim()
+        ? `Parent context:\n${input.context.trim()}\n\nTask:\n${input.prompt}`
+        : input.prompt;
+
       const run = await executeSubagent(
         input.subagent_type,
-        input.prompt,
+        prompt,
         input.description,
         input.thoroughness,
         { parentToolCallId: "standalone-task" }
@@ -53,7 +58,7 @@ export const taskTool: Tool<TaskInput> = Tool.define(
 
       const spec: Pick<TaskCallSpec, "subagentType" | "prompt" | "description" | "thoroughness"> = {
         subagentType: input.subagent_type,
-        prompt: input.prompt,
+        prompt,
         description: input.description,
       };
       if (input.thoroughness !== undefined) {
