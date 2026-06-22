@@ -9,9 +9,20 @@ class SecurityError extends Error {
   }
 }
 
-function isWithinBase(baseDir: string, targetPath: string): boolean {
-  const relative = path.relative(baseDir, targetPath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+type PathModule = Pick<typeof path, "isAbsolute" | "relative" | "resolve" | "sep">;
+
+function isParentRelativePath(relativePath: string, pathModule: PathModule = path): boolean {
+  return relativePath === ".." || relativePath.startsWith(`..${pathModule.sep}`);
+}
+
+function isWithinBase(baseDir: string, targetPath: string, pathModule: PathModule = path): boolean {
+  const normalizedBase = pathModule.resolve(baseDir);
+  const normalizedTarget = pathModule.resolve(targetPath);
+  const relative = pathModule.relative(normalizedBase, normalizedTarget);
+  return (
+    relative === "" ||
+    (!isParentRelativePath(relative, pathModule) && !pathModule.isAbsolute(relative))
+  );
 }
 
 function realpathOrResolved(targetPath: string): string {

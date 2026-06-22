@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-22
+
+  **Type:** minor
+  **Title:** Windows shell auto-detection and cross-platform hardening
+
+  ### Added
+  - **#104** — Windows command execution now auto-detects PowerShell, cmd.exe, and Git Bash so Impulse can follow the user's active shell where possible
+
+  ### Fixed
+  - **#104** — compound shell command permission checks now classify each unquoted command segment instead of allowing risky commands through safe-looking prefixes
+  - **#104** — PowerShell chaining checks are capability-aware, so PowerShell 5 still blocks `&&` / `||` while PowerShell 7 allows them
+  - **#105** — path containment checks now handle Windows different-drive paths and valid names like `..foo` consistently
+  - **#105** — GitHub CLI lookup now rejects directories named `gh` / `gh.exe`
+  - **#105** — `file_write` permission metadata uses the active session ID and basename handling uses Node path utilities
+  - **#105** — session and generic storage JSON writes now use crash-safe atomic writes with Windows rename retries
+
 ## [1.7.0] - 2026-06-22
 
   **Type:** minor

@@ -16,6 +16,8 @@ impulse is designed to **"just work"** across all major operating systems withou
 ### Windows
 - **PowerShell 5.x** (Windows PowerShell) - Built into Windows 10/11
 - **PowerShell 7.x** (pwsh) - Cross-platform PowerShell
+- **cmd.exe** - Windows Command Prompt
+- **Git Bash** - POSIX shell installed with Git for Windows
 
 ### macOS
 - **bash** - Legacy default shell (macOS 10.14 and earlier)
@@ -36,7 +38,7 @@ On startup or when generating system prompts, impulse:
 
 1. Detects the operating system (`process.platform`)
 2. Queries the shell version:
-   - **Windows**: Attempts `pwsh --version`, falls back to `powershell.exe`
+   - **Windows**: Detects the active shell when possible (`pwsh`, `powershell.exe`, `cmd.exe`, Git Bash); falls back to `pwsh` if installed, then `powershell.exe`
    - **macOS/Linux**: Reads `$SHELL` for login-shell context and uses `bash -lc` for command execution
 3. Returns a `ShellEnvironment` object with:
    - Platform name
@@ -47,7 +49,7 @@ On startup or when generating system prompts, impulse:
 
 ### 2. POSIX-to-PowerShell Translation (`src/tools/posix-translation.ts`)
 
-When running commands on Windows, common POSIX patterns are automatically translated:
+When running commands on Windows through PowerShell, common POSIX patterns are automatically translated:
 
 | POSIX Command | PowerShell Equivalent |
 |---------------|----------------------|
@@ -63,7 +65,7 @@ When running commands on Windows, common POSIX patterns are automatically transl
 | `env` | `Get-ChildItem Env:` |
 | `touch file` | `New-Item -ItemType File -Force -Path file` |
 
-**Translation happens automatically for simple single commands** - AI models can write common POSIX commands and they'll work on Windows. Compound commands, pipelines, and redirects are left untouched because partial regex rewrites can change command behavior.
+**Translation happens automatically for simple single commands in PowerShell** - AI models can write common POSIX commands and they'll work in Windows PowerShell. Compound commands, pipelines, and redirects are left untouched because partial regex rewrites can change command behavior. Translation is not applied when the active Windows shell is cmd.exe or Git Bash.
 
 ### 3. Output Stream Handling (`src/tools/bash.ts`)
 
@@ -120,6 +122,8 @@ Different execution shells support different chaining operators:
 |-------|-----------------|----------------|---------------|
 | PowerShell 5.x | ❌ (use `;`) | ❌ (use `;`) | `;` |
 | PowerShell 7.x | `&&` | `\|\|` | `;` |
+| cmd.exe | `&&` | `\|\|` | `&` |
+| Git Bash | `&&` | `\|\|` | `;` |
 | macOS/Linux bash (`bash -lc`) | `&&` | `\|\|` | `;` |
 
 impulse provides `supportsChainedCommands` and `commandSeparator` in `ShellEnvironment` to guide command construction.

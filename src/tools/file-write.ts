@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { mkdir, stat, writeFile, readFile, chmod, access } from "fs/promises";
-import { resolve, relative, isAbsolute, basename, dirname } from "path";
+import { basename, dirname } from "path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
 import { resolveToolPath } from "./resolve-tool-path.js";
@@ -16,6 +16,8 @@ import {
 import { Bus } from "../bus";
 import { FileEvents } from "../format/events";
 import { zFilePath } from "./schemas/branded";
+import { isWithinBase } from "../util/path.js";
+import { SessionManager } from "../session/manager";
 
 const DESCRIPTION = `Write a file to disk (create or overwrite).
 
@@ -42,14 +44,7 @@ async function fileExists(filePath: string): Promise<boolean> {
  * Check if a path is within the current working directory
  */
 function isWithinCwd(targetPath: string): boolean {
-  const cwd = process.cwd();
-  const absoluteTarget = isAbsolute(targetPath) 
-    ? targetPath 
-    : resolve(cwd, targetPath);
-  const relativePath = relative(cwd, absoluteTarget);
-  
-  // If relative path starts with "..", it's outside cwd
-  return !relativePath.startsWith("..");
+  return isWithinBase(process.cwd(), targetPath);
 }
 
 export const fileWrite: Tool<WriteInput> = Tool.define(
@@ -86,9 +81,9 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           : outsideCwd
             ? `Overwrite file outside cwd: ${safePath}`
             : `Overwrite file: ${safePath}`;
-        const fileName = safePath.split(/[/\\]/).pop() ?? safePath;
+        const fileName = basename(safePath);
         await askPermission({
-          sessionID: "current",
+          sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
           permission: permissionType,
           patterns: [safePath],
           message,

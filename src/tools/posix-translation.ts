@@ -235,21 +235,44 @@ export function translatePosixToPowerShell(command: string): {
  * 
  * PowerShell 7+ supports these, but Windows PowerShell 5.x does not.
  */
-export function detectPowerShellVersion(command: string): {
+export function analyzePowerShellChaining(
+  command: string,
+  shellType: "powershell5" | "powershell7"
+): {
   hasChainingOperator: boolean;
+  isSupported: boolean;
   recommendation?: string;
 } {
   if (hasUnquotedChainingOperator(command)) {
+    const isSupported = shellType === "powershell7";
     return {
       hasChainingOperator: true,
-      recommendation:
-        "Command uses && or || operators which require PowerShell 7+. " +
-        "On Windows PowerShell 5.x, use ; to chain commands unconditionally.",
+      isSupported,
+      ...(isSupported
+        ? {}
+        : {
+            recommendation:
+              "Command uses && or || operators which require PowerShell 7+. " +
+              "On Windows PowerShell 5.x, use ; to chain commands unconditionally.",
+          }),
     };
   }
 
   return {
     hasChainingOperator: false,
+    isSupported: true,
+  };
+}
+
+/** @deprecated Use analyzePowerShellChaining(command, shellType). */
+export function detectPowerShellVersion(command: string): {
+  hasChainingOperator: boolean;
+  recommendation?: string;
+} {
+  const analysis = analyzePowerShellChaining(command, "powershell5");
+  return {
+    hasChainingOperator: analysis.hasChainingOperator,
+    ...(analysis.recommendation ? { recommendation: analysis.recommendation } : {}),
   };
 }
 

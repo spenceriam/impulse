@@ -1,6 +1,7 @@
 import { Global } from "../global";
 import fs from "fs/promises";
 import path from "path";
+import { writeJsonAtomic } from "../util/atomic-write.js";
 
 class NotFoundErrorImpl extends Error {
   constructor(message: string) {
@@ -62,10 +63,7 @@ export namespace Storage {
 
   export async function write<T>(key: string[], content: T): Promise<void> {
     const target = keyToPath(key);
-    const dir = path.dirname(target);
-
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(target, JSON.stringify(content, null, 2), "utf-8");
+    await writeJsonAtomic(target, content);
   }
 
   export async function update<T>(
