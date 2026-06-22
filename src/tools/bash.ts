@@ -62,11 +62,21 @@ function normalizeSessionName(name?: string): string | null {
   return encoded.slice(0, 60);
 }
 
-function resolveSessionCwd(sessionName: string | null, fallbackCwd: string, reset?: boolean): string {
+function resolveSessionCwd(
+  sessionName: string | null,
+  fallbackCwd: string,
+  options?: { reset?: boolean; workdirProvided?: boolean }
+): string {
   if (!sessionName) return fallbackCwd;
-  if (reset) shellSessions.delete(sessionName);
+  if (options?.reset) shellSessions.delete(sessionName);
   const existing = shellSessions.get(sessionName);
-  if (existing) return existing.cwd;
+  if (existing) {
+    if (options?.workdirProvided) {
+      shellSessions.set(sessionName, { cwd: fallbackCwd });
+      return fallbackCwd;
+    }
+    return existing.cwd;
+  }
   shellSessions.set(sessionName, { cwd: fallbackCwd });
   return fallbackCwd;
 }
@@ -755,9 +765,18 @@ export const bashTool: Tool<BashInput> = Tool.define(
   BashSchema,
   async (input: BashInput): Promise<ToolResult> => {
     try {
+      const baseCwd = input.workdir
+        ? await resolveToolPath(input.workdir, "bash")
+        : process.cwd();
+      const sessionName = normalizeSessionName(input.session);
+      const cwd = resolveSessionCwd(sessionName, baseCwd, {
+        workdirProvided: !!input.workdir,
+        ...(input.resetSession ? { reset: true } : {}),
+      });
+
       // Check if permission is needed
-      const permCheck = needsPermission(input.command, input.workdir);
-      
+      const permCheck = needsPermission(input.command, cwd);
+
       if (permCheck.needed) {
         await askPermission({
           sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
@@ -775,15 +794,9 @@ export const bashTool: Tool<BashInput> = Tool.define(
           },
         });
       }
-      
+
       // Determine if we should use interactive mode
       const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
-      
-      const baseCwd = input.workdir
-        ? await resolveToolPath(input.workdir, "bash")
-        : process.cwd();
-      const sessionName = normalizeSessionName(input.session);
-      const cwd = resolveSessionCwd(sessionName, baseCwd, input.resetSession);
       let result: ToolResult;
 
       // Use PTY if interactive mode is requested AND PTY is available
