@@ -55,7 +55,11 @@ const shellSessions = new Map<string, ShellSessionState>();
 function normalizeSessionName(name?: string): string | null {
   const trimmed = name?.trim();
   if (!trimmed) return null;
-  return trimmed.replace(/[^\w.-]/g, "_").slice(0, 60);
+  // Hex-encode disallowed chars so distinct names (e.g. foo@bar vs foo_bar) stay unique.
+  const encoded = trimmed.replace(/[^\w.-]/g, (ch) =>
+    `_x${ch.charCodeAt(0).toString(16).padStart(2, "0")}_`
+  );
+  return encoded.slice(0, 60);
 }
 
 function resolveSessionCwd(sessionName: string | null, fallbackCwd: string, reset?: boolean): string {
@@ -67,14 +71,28 @@ function resolveSessionCwd(sessionName: string | null, fallbackCwd: string, rese
   return fallbackCwd;
 }
 
-function updateSessionCwd(sessionName: string | null, cwd: string, command: string, success: boolean): void {
-  if (!sessionName || !success) return;
+function parseCdTarget(command: string): string | null {
   const trimmed = command.trim();
-  const match =
+  const cleanTarget = (raw: string): string => raw.trim().replace(/^['"]|['"]$/g, "");
+
+  const loneMatch =
     trimmed.match(/^(?:cd|Set-Location)\s+(.+)$/i) ??
     trimmed.match(/^Push-Location\s+(.+)$/i);
-  if (!match?.[1]) return;
-  const rawTarget = match[1].trim().replace(/^['"]|['"]$/g, "");
+  if (loneMatch?.[1]) return cleanTarget(loneMatch[1]);
+
+  // Leading cd before a chain operator (e.g. `cd dir && npm test`).
+  const chainedMatch =
+    trimmed.match(/^(?:cd|Set-Location)\s+(.+?)\s*(?:&&|\|\||;|\|)\s+/i) ??
+    trimmed.match(/^Push-Location\s+(.+?)\s*(?:&&|\|\||;|\|)\s+/i);
+  if (chainedMatch?.[1]) return cleanTarget(chainedMatch[1]);
+
+  return null;
+}
+
+function updateSessionCwd(sessionName: string | null, cwd: string, command: string, success: boolean): void {
+  if (!sessionName || !success) return;
+  const rawTarget = parseCdTarget(command);
+  if (!rawTarget) return;
   const next = path.resolve(cwd, rawTarget);
   shellSessions.set(sessionName, { cwd: next });
 }

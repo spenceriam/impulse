@@ -67,7 +67,13 @@ export const doctorTool: Tool<DoctorInput> = Tool.define(
     if (!isModelConfigured(config)) {
       warnings.push("Run /model or --setup to choose a provider and model.");
     }
-    if (!providers[config.defaultProvider]?.apiKey && !providers[config.defaultProvider]?.baseUrl) {
+    const defaultProviderCfg = providers[config.defaultProvider];
+    const defaultProviderConfigured =
+      Boolean(defaultProviderCfg?.apiKey || defaultProviderCfg?.baseUrl) ||
+      (config.defaultProvider === "ollama" &&
+        (isModelConfigured(config) ||
+          Boolean(process.env["OLLAMA_API_KEY"] || process.env["OLLAMA_BASE_URL"])));
+    if (!defaultProviderConfigured) {
       warnings.push(`Default provider "${config.defaultProvider}" is not configured in config providers.`);
     }
     if (warnings.length > 0) {
