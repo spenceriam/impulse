@@ -865,10 +865,16 @@ export class AgentLoop {
           }
 
           const specs: TaskCallSpec[] = toRun.map((item) => {
+            const rawPrompt = String(item.args["prompt"] ?? "");
+            const parentContext =
+              typeof item.args["context"] === "string" ? item.args["context"].trim() : "";
+            const prompt = parentContext
+              ? `Parent context:\n${parentContext}\n\nTask:\n${rawPrompt}`
+              : rawPrompt;
             const spec: TaskCallSpec = {
               toolCallId: item.tc.id,
               subagentType: item.args["subagent_type"] as TaskCallSpec["subagentType"],
-              prompt: String(item.args["prompt"] ?? ""),
+              prompt,
               description: String(item.args["description"] ?? ""),
             };
             const thoroughness = item.args["thoroughness"] as
