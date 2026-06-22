@@ -2648,6 +2648,7 @@ export class ImpulseRenderer {
         this.lastBandWasTool = false;
         this.turnShowsImpulseHeader = false;
         this.isRunning = false;
+        this.releaseTurnAnchor();
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         if (this.goalLoopActive()) {
@@ -2662,6 +2663,7 @@ export class ImpulseRenderer {
         this.syncContextBar({ isRunning: false });
         this.addChatLine(`${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
+        this.releaseTurnAnchor();
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         this.drainTurnQueue();
@@ -2680,6 +2682,7 @@ export class ImpulseRenderer {
           `Context limit reached: ${tokens} / ${this.contextWindow} tokens (${pct}%). Use /compact or /new to continue.`
         );
         this.isRunning = false;
+        this.releaseTurnAnchor();
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         this.drainTurnQueue();

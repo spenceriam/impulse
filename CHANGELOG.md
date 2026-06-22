@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-06-22
+
+  **Type:** patch
+  **Title:** Windows reliability and render stability
+
+  ### Fixed
+  - **#91** — `file_write` now uses the same outside-cwd path policy as `file_edit`, so Windows absolute paths can be granted instead of rejected before permission handling
+  - **#92** — `github_issue` detects GitHub CLI through explicit binary lookup and argument-based execution instead of shell-specific `gh ... 2>&1` commands
+  - **#93** — active-turn bottom anchoring is released on normal turn completion, error, and context cutoff so long tool-heavy turns do not leave stale frozen spacer state
+
 ## [1.6.2] - 2026-06-19
 
   **Type:** patch

@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { mkdir, stat, writeFile, readFile, chmod, access } from "fs/promises";
-import { resolve, relative, isAbsolute, basename } from "path";
-import { sanitizePath } from "../util/path";
+import { resolve, relative, isAbsolute, basename, dirname } from "path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
+import { resolveToolPath } from "./resolve-tool-path.js";
 import { createPatch } from "diff";
 import {
   capCompactDiffResult,
@@ -58,7 +58,7 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
   WriteSchema,
   async (input: WriteInput): Promise<ToolResult> => {
     try {
-      const safePath = sanitizePath(input.filePath);
+      const safePath = await resolveToolPath(input.filePath, "file_write");
       
       // Check mode-based path restrictions (PLAN -> docs/ or PRD.md)
       const modeError = validateWritePath(safePath);
@@ -69,7 +69,7 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
         };
       }
       
-      const dir = safePath.substring(0, safePath.lastIndexOf("/"));
+      const dir = dirname(safePath);
       
       // Determine if this is a new file or overwrite
       const isNewFile = !(await fileExists(safePath));
@@ -107,7 +107,7 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
         });
       }
 
-      if (dir && dir.length > 0) {
+      if (dir && dir !== safePath) {
         await mkdir(dir, { recursive: true });
       }
 
