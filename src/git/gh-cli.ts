@@ -17,7 +17,7 @@ function executableCandidates(name: string, env: NodeJS.ProcessEnv = process.env
   if (process.platform !== "win32") return [name];
   const ext = path.extname(name);
   if (ext) return [name];
-  const pathext = env["PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD";
+  const pathext = env["PATHEXT"]?.trim() || ".COM;.EXE;.BAT;.CMD";
   return pathext
     .split(";")
     .map((e) => e.trim())

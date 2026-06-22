@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { probeGhCli } from "../git/gh-cli.js";
+import { probeGhCli, resolveGhCliPath } from "../git/gh-cli.js";
 import {
   issueUrlForNumber,
   parseGitHubOwnerRepo,
@@ -199,9 +199,21 @@ export const githubIssueTool: Tool<GithubIssueInput> = Tool.define(
       };
     }
 
+    const ghPath = resolveGhCliPath();
+    if (!ghPath) {
+      return {
+        success: false,
+        output: [
+          "GitHub CLI (gh) is not installed.",
+          `Canonical issue URL: ${canonicalUrl}`,
+          "Install gh (https://cli.github.com/) or use web_fetch on that URL.",
+        ].join("\n"),
+      };
+    }
+
     const fields = "title,body,state,url,labels,comments";
     const proc = Bun.spawn(
-      ["gh", "issue", "view", String(number), "-R", fullName, "--json", fields],
+      [ghPath, "issue", "view", String(number), "-R", fullName, "--json", fields],
       { stdout: "pipe", stderr: "pipe", cwd: process.cwd() }
     );
 
