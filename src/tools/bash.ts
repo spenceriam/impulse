@@ -150,13 +150,16 @@ function updateSessionCwd(sessionName: string | null, cwd: string, command: stri
 }
 
 const WINDOWS_COMMAND_ENV_VAR = "IMPULSE_COMMAND";
-const WINDOWS_POWERSHELL_WRAPPER = `
+export const WINDOWS_POWERSHELL_WRAPPER = `
 $ErrorActionPreference = 'Continue'
+$ProgressPreference = 'SilentlyContinue'
 $impulseCommand = [Environment]::GetEnvironmentVariable('${WINDOWS_COMMAND_ENV_VAR}', 'Process')
 $impulseExitCode = 0
 
 try {
-  $global:LASTEXITCODE = 0
+  # Start with no native exit code so we can tell whether a native executable ran.
+  # A native process sets LASTEXITCODE to an int (even 0); pure PowerShell leaves it $null.
+  $global:LASTEXITCODE = $null
   $impulseErrorCount = $Error.Count
   $impulseOutput = & ([scriptblock]::Create($impulseCommand)) *>&1
   $impulseSuccess = $?
@@ -166,9 +169,12 @@ try {
     $impulseOutput | Out-String -Width 4096 | Write-Output
   }
 
-  if ($impulseNativeExit -is [int] -and $impulseNativeExit -ne 0) {
+  if ($impulseNativeExit -is [int]) {
+    # A native executable ran: trust its exit code exactly. Native stderr (e.g. tool
+    # banners on PowerShell 5.x) inflates \$Error but must not be treated as failure.
     $impulseExitCode = [int]$impulseNativeExit
   } elseif (-not $impulseSuccess -or $Error.Count -gt $impulseErrorCount) {
+    # Pure PowerShell command: fall back to success/error-record signals.
     $impulseExitCode = 1
   }
 } catch {
