@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { resolve, relative, isAbsolute } from "path";
 import path from "path";
+import { statSync } from "fs";
 import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { Bus } from "../bus";
@@ -85,25 +86,32 @@ function parseCdTarget(command: string): string | null {
   const trimmed = command.trim();
   const cleanTarget = (raw: string): string => raw.trim().replace(/^['"]|['"]$/g, "");
 
+  // Leading cd before a chain operator (e.g. `cd dir && npm test`).
+  // Check chained forms before lone forms so the target does not greedily
+  // capture the rest of the command.
+  const chainedMatch =
+    trimmed.match(/^(?:cd|Set-Location)\s+(.+?)\s*(?:&&|\|\||;|\|)\s*/i) ??
+    trimmed.match(/^Push-Location\s+(.+?)\s*(?:&&|\|\||;|\|)\s*/i);
+  if (chainedMatch?.[1]) return cleanTarget(chainedMatch[1]);
+
   const loneMatch =
     trimmed.match(/^(?:cd|Set-Location)\s+(.+)$/i) ??
     trimmed.match(/^Push-Location\s+(.+)$/i);
   if (loneMatch?.[1]) return cleanTarget(loneMatch[1]);
 
-  // Leading cd before a chain operator (e.g. `cd dir && npm test`).
-  const chainedMatch =
-    trimmed.match(/^(?:cd|Set-Location)\s+(.+?)\s*(?:&&|\|\||;|\|)\s+/i) ??
-    trimmed.match(/^Push-Location\s+(.+?)\s*(?:&&|\|\||;|\|)\s+/i);
-  if (chainedMatch?.[1]) return cleanTarget(chainedMatch[1]);
-
   return null;
 }
 
-function updateSessionCwd(sessionName: string | null, cwd: string, command: string, success: boolean): void {
-  if (!sessionName || !success) return;
+function updateSessionCwd(sessionName: string | null, cwd: string, command: string): void {
+  if (!sessionName) return;
   const rawTarget = parseCdTarget(command);
   if (!rawTarget) return;
   const next = path.resolve(cwd, rawTarget);
+  try {
+    if (!statSync(next).isDirectory()) return;
+  } catch {
+    return;
+  }
   shellSessions.set(sessionName, { cwd: next });
 }
 
@@ -814,8 +822,8 @@ export const bashTool: Tool<BashInput> = Tool.define(
         result = await executeWithSpawn(input, cwd);
       }
 
+      updateSessionCwd(sessionName, cwd, input.command);
       if (result.success) {
-        updateSessionCwd(sessionName, cwd, input.command, true);
         detectAndPublishBranchChange(input.command, cwd);
       }
       if (sessionName) {
