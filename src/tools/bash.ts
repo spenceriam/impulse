@@ -52,6 +52,35 @@ interface ShellSessionState {
 }
 
 const shellSessions = new Map<string, ShellSessionState>();
+const sessionChains = new Map<string, Promise<unknown>>();
+
+function isValidSessionCwd(cwd: string): boolean {
+  try {
+    return statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function withSessionLock<T>(
+  sessionName: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const previous = sessionChains.get(sessionName) ?? Promise.resolve();
+  const run = previous
+    .catch(() => {
+      /* keep chain alive after prior failure */
+    })
+    .then(() => fn());
+  sessionChains.set(sessionName, run);
+  try {
+    return await run;
+  } finally {
+    if (sessionChains.get(sessionName) === run) {
+      sessionChains.delete(sessionName);
+    }
+  }
+}
 
 function normalizeSessionName(name?: string): string | null {
   const trimmed = name?.trim();
@@ -76,7 +105,11 @@ function resolveSessionCwd(
       shellSessions.set(sessionName, { cwd: fallbackCwd });
       return fallbackCwd;
     }
-    return existing.cwd;
+    if (isValidSessionCwd(existing.cwd)) {
+      return existing.cwd;
+    }
+    shellSessions.set(sessionName, { cwd: fallbackCwd });
+    return fallbackCwd;
   }
   shellSessions.set(sessionName, { cwd: fallbackCwd });
   return fallbackCwd;
@@ -772,11 +805,12 @@ export const bashTool: Tool<BashInput> = Tool.define(
   DESCRIPTION,
   BashSchema,
   async (input: BashInput): Promise<ToolResult> => {
-    try {
+    const sessionName = normalizeSessionName(input.session);
+
+    const runBash = async (): Promise<ToolResult> => {
       const baseCwd = input.workdir
         ? await resolveToolPath(input.workdir, "bash")
         : process.cwd();
-      const sessionName = normalizeSessionName(input.session);
       const cwd = resolveSessionCwd(sessionName, baseCwd, {
         workdirProvided: !!input.workdir,
         ...(input.resetSession ? { reset: true } : {}),
@@ -834,7 +868,12 @@ export const bashTool: Tool<BashInput> = Tool.define(
         };
       }
       return result;
-      
+    };
+
+    try {
+      return sessionName
+        ? await withSessionLock(sessionName, runBash)
+        : await runBash();
     } catch (error) {
       if (error instanceof Error) {
         let output = error.message;
