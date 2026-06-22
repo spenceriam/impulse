@@ -23,6 +23,7 @@ import {
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import type { EditorTheme } from "@mariozechner/pi-tui";
+import { spawn } from "child_process";
 import {
   PromptInput,
   resolveSubmitPayloadAfterPathAttach,
@@ -152,7 +153,12 @@ import {
   type ReasoningLevel,
   type ThinkingDisplay,
 } from "../util/config.js";
-import { checkForUpdate, performUpdate, getCurrentVersion } from "../util/update-check.js";
+import {
+  checkForUpdate,
+  getCurrentVersion,
+  impulseCommand,
+  INTERNAL_AUTO_UPDATE_ENV,
+} from "../util/update-check.js";
 import {
   PROVIDER_REASONING_STYLE,
   getLevelsForStyle,
@@ -3745,7 +3751,14 @@ export class ImpulseRenderer {
       writeUpdateResumeHint(session.id);
     }
     this.tui.stop();
-    performUpdate(update.latestVersion);
+    spawn(impulseCommand(), ["--auto-update"], {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+      env: {
+        ...process.env,
+        [INTERNAL_AUTO_UPDATE_ENV]: "1",
+      },
+    });
     process.exit(0);
   }
 

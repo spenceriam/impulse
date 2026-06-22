@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { spawn, spawnSync } from "child_process";
+import { existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -10,6 +10,8 @@ import os from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+const PACKAGE_NAME = "@spenceriam/impulse";
+const INTERNAL_AUTO_UPDATE_ENV = "IMPULSE_INTERNAL_AUTO_UPDATE";
 
 function detectPlatformAndArch() {
   let platform;
@@ -71,6 +73,112 @@ function findBinary() {
       `Package ${packageName} may not be installed.\n` +
       `Try reinstalling: npm install -g @spenceriam/impulse`
     );
+  }
+}
+
+function npmCommand() {
+  return os.platform() === "win32" ? "npm.cmd" : "npm";
+}
+
+function useShellForCommandShims() {
+  return os.platform() === "win32";
+}
+
+function currentWrapperVersion() {
+  const packageJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
+  return packageJson.version;
+}
+
+function compareSemver(a, b) {
+  const left = String(a).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = String(b).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((left[i] ?? 0) > (right[i] ?? 0)) return 1;
+    if ((left[i] ?? 0) < (right[i] ?? 0)) return -1;
+  }
+  return 0;
+}
+
+function latestNpmVersion() {
+  const result = spawnSync(npmCommand(), ["view", PACKAGE_NAME, "version", "--silent"], {
+    encoding: "utf8",
+    shell: useShellForCommandShims(),
+  });
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || "").trim();
+    throw new Error(detail || `npm view failed with exit code ${result.status}`);
+  }
+  return result.stdout.trim();
+}
+
+function relaunchImpulse() {
+  const env = { ...process.env };
+  delete env[INTERNAL_AUTO_UPDATE_ENV];
+  const child = spawn(process.platform === "win32" ? "impulse.cmd" : "impulse", [], {
+    detached: true,
+    stdio: "ignore",
+    shell: useShellForCommandShims(),
+    env,
+  });
+  child.unref();
+}
+
+function runUpdate({ relaunch }) {
+  const current = currentWrapperVersion();
+  const latest = latestNpmVersion();
+  if (compareSemver(latest, current) <= 0) {
+    console.log(`Already on latest (v${current}).`);
+    return 0;
+  }
+
+  console.log(`Updating ${current} -> ${latest}...`);
+  console.log(`\nUpdating impulse to v${latest}...`);
+  console.log(`Running: npm install -g ${PACKAGE_NAME}\n`);
+
+  const result = spawnSync(npmCommand(), ["install", "-g", PACKAGE_NAME], {
+    stdio: "inherit",
+    shell: useShellForCommandShims(),
+  });
+  if (result.status !== 0) {
+    console.log("\n--------------------------------------------------------");
+    console.log(`  Update failed (exit code ${result.status ?? "unknown"})`);
+    console.log(`  Try running manually: npm install -g ${PACKAGE_NAME}`);
+    console.log("--------------------------------------------------------\n");
+    return result.status ?? 1;
+  }
+
+  console.log("\n--------------------------------------------------------");
+  console.log(`  Update successful! impulse is now v${latest}`);
+  if (relaunch) {
+    console.log("  Relaunching impulse...");
+  } else {
+    console.log("  Run `impulse` to start.");
+  }
+  console.log("--------------------------------------------------------\n");
+
+  if (relaunch) {
+    relaunchImpulse();
+  }
+  return 0;
+}
+
+function hasStartupFlag(flag) {
+  for (const arg of process.argv.slice(2)) {
+    if (arg === "--") return false;
+    if (!arg.startsWith("-")) return false;
+    if (arg === flag) return true;
+  }
+  return false;
+}
+
+if (hasStartupFlag("--update") || hasStartupFlag("--auto-update")) {
+  try {
+    const relaunch =
+      hasStartupFlag("--auto-update") && process.env[INTERNAL_AUTO_UPDATE_ENV] === "1";
+    process.exit(runUpdate({ relaunch }));
+  } catch (error) {
+    console.error(`Update failed: ${error.message}`);
+    process.exit(1);
   }
 }
 

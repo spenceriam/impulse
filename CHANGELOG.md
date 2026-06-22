@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-06-22
+
+  **Type:** patch
+  **Title:** Standalone update exits after install
+
+  ### Fixed
+  - **#106** -- `impulse --update` now installs the latest version and exits instead of relaunching Impulse
+  - **#106** -- in-app `/update` keeps the relaunch-and-resume flow through hidden internal auto-update handling
+
 ## [1.8.0] - 2026-06-22
 
   **Type:** minor

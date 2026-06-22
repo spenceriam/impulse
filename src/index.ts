@@ -49,8 +49,8 @@ if (args.includes("--version") || args.includes("-v")) {
 }
 
 // ─── --update ────────────────────────────────────────────────────────────────
-if (args.includes("--update")) {
-  const { checkForUpdate, performUpdate, getCurrentVersion } = await import(
+if (args.includes("--update") || args.includes("--auto-update")) {
+  const { checkForUpdate, performUpdate, getCurrentVersion, isInternalAutoUpdate } = await import(
     "./util/update-check.js"
   );
   const update = await checkForUpdate();
@@ -59,8 +59,7 @@ if (args.includes("--update")) {
     process.exit(0);
   }
   console.log(`Updating ${update.currentVersion} -> ${update.latestVersion}...`);
-  performUpdate(update.latestVersion);
-  process.exit(0);
+  process.exit(performUpdate(update.latestVersion, { relaunch: isInternalAutoUpdate(args) }));
 }
 
 // ─── --help ──────────────────────────────────────────────────────────────────
