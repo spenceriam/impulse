@@ -123,8 +123,8 @@ function parseCdTarget(command: string): string | null {
   // Check chained forms before lone forms so the target does not greedily
   // capture the rest of the command.
   const chainedMatch =
-    trimmed.match(/^(?:cd|Set-Location)\s+(.+?)\s*(?:&&|\|\||;|\|)\s*/i) ??
-    trimmed.match(/^Push-Location\s+(.+?)\s*(?:&&|\|\||;|\|)\s*/i);
+    trimmed.match(/^(?:cd|Set-Location)\s+(.+?)\s*(?:&&|\|\||;)\s*/i) ??
+    trimmed.match(/^Push-Location\s+(.+?)\s*(?:&&|\|\||;)\s*/i);
   if (chainedMatch?.[1]) return cleanTarget(chainedMatch[1]);
 
   const loneMatch =
