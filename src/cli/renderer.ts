@@ -128,7 +128,6 @@ import {
 } from "../agent/side-chat.js";
 import type { SideExchange } from "../session/store.js";
 import crypto from "crypto";
-import { SHIMMER_FRAME_MS, shimmerText } from "./shimmer-text.js";
 import { pickUniqueShipName } from "./starfleet-ship-names.js";
 import { ThinkingBlock } from "./components/thinking-block.js";
 import { filterThinkingForDisplay } from "../util/thinking-filter.js";
@@ -383,14 +382,9 @@ export class ImpulseRenderer {
   private autocompleteText!: Text; // slash command suggestions
   private modelSetupText!: Text;
 
-  // Manual turn-status spinner + render ticker
-  private spinnerInterval: ReturnType<typeof setInterval> | null = null;
+  // Manual turn-status line. Keep static to avoid offscreen full redraws.
   private currentStatusPhrase = "";
   private compactStartMs = 0;
-
-  private shimmerBusyText(message: string, dimBase = false): string {
-    return shimmerText(message, dimBase);
-  }
 
   private renderBusyLine(): void {
     if (!this.currentStatusPhrase) {
@@ -398,31 +392,18 @@ export class ImpulseRenderer {
       return;
     }
     this.spinnerText.setText(
-      gutterContent(this.shimmerBusyText(this.currentStatusPhrase, this.busyDimBase), this.terminalCols())
+      gutterContent(this.busyDimBase ? clr.dim(this.currentStatusPhrase) : this.currentStatusPhrase, this.terminalCols())
     );
   }
 
   private spinStop(): void {
-    if (this.spinnerInterval) {
-      clearInterval(this.spinnerInterval);
-      this.spinnerInterval = null;
-    }
     this.currentStatusPhrase = "";
     this.spinnerText.setText("");
-    this.freezeTodoBlink();
     this.requestRenderForPhase("spin_stop");
   }
 
-  private freezeTodoBlink(): void {
-    this.latestTodoBlock?.setTodoBlinkEnabled(false);
-  }
-
   private markLatestTodoBlock(block: ToolBlock): void {
-    if (this.latestTodoBlock && this.latestTodoBlock !== block) {
-      this.latestTodoBlock.setTodoBlinkEnabled(false);
-    }
     this.latestTodoBlock = block;
-    block.setTodoBlinkEnabled(this.isRunning);
   }
 
   private logRenderDebug(phase: string, before: number, rows: number, cols: number): void {
@@ -574,7 +555,6 @@ export class ImpulseRenderer {
   private setBusyStatus(msg: string, fixedPhrase?: string): void {
     if (
       !busyStatusOverridesFixedPhrase(msg, fixedPhrase) &&
-      this.spinnerInterval &&
       this.currentStatusPhrase &&
       FIXED_BUSY_PHRASES.has(this.currentStatusPhrase)
     ) {
@@ -585,13 +565,6 @@ export class ImpulseRenderer {
     this.busyDimBase = busyPhraseUsesDimBase(this.currentStatusPhrase, msg);
     this.renderBusyLine();
     this.requestRenderForPhase("status");
-
-    if (!this.spinnerInterval) {
-      this.spinnerInterval = setInterval(() => {
-        this.renderBusyLine();
-        this.requestRenderForPhase("status_tick");
-      }, SHIMMER_FRAME_MS);
-    }
   }
 
   private enqueuePermissionRequest(request: PermissionRequest): void {

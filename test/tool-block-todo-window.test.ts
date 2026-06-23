@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   ToolBlock,
-  activeTodoBlinkGlyph,
   formatTodoLine,
   selectTodoWindow,
-  TODO_BLINK_PHASE_MS,
 } from "../src/cli/components/tool-block.js";
 
 function makeTodo(
@@ -75,7 +73,7 @@ describe("selectTodoWindow", () => {
   });
 });
 
-describe("todo glyphs and blink", () => {
+describe("todo glyphs", () => {
   test("formatTodoLine uses circle glyphs without color on active", () => {
     const line = formatTodoLine(makeTodo("1", "Active", "in_progress"));
     expect(line).toContain("◉ Active");
@@ -95,12 +93,6 @@ describe("todo glyphs and blink", () => {
     expect(line).not.toContain("●");
   });
 
-  test("activeTodoBlinkGlyph alternates across phase boundary", () => {
-    const t0 = 1_000_000;
-    expect(activeTodoBlinkGlyph(t0, true)).toBe("◉");
-    expect(activeTodoBlinkGlyph(t0 + TODO_BLINK_PHASE_MS, true)).toBe("○");
-    expect(activeTodoBlinkGlyph(t0, false)).toBe("◉");
-  });
 });
 
 describe("silent unchanged todo_write", () => {
