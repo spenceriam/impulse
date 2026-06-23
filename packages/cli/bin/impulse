@@ -185,7 +185,7 @@ function runUpdate({ relaunch }) {
 function hasStartupFlag(flag) {
   for (const arg of process.argv.slice(2)) {
     if (arg === "--") return false;
-    if (!arg.startsWith("-")) return false;
+    if (!arg.startsWith("-")) continue;
     if (arg === flag) return true;
   }
   return false;
