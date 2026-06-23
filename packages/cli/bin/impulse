@@ -12,6 +12,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const PACKAGE_NAME = "@spenceriam/impulse";
 const INTERNAL_AUTO_UPDATE_ENV = "IMPULSE_INTERNAL_AUTO_UPDATE";
+const UPDATE_PARENT_PID_ENV = "IMPULSE_UPDATE_PARENT_PID";
 
 function detectPlatformAndArch() {
   let platform;
@@ -127,6 +128,56 @@ function latestNpmVersion() {
   return result.stdout.trim();
 }
 
+function syncDelay(ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    // busy-wait for short parent-exit polling
+  }
+}
+
+function waitForParentExit() {
+  const raw = process.env[UPDATE_PARENT_PID_ENV];
+  if (!raw) return;
+  const parentPid = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parentPid) || parentPid <= 1) return;
+
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      return;
+    }
+    syncDelay(100);
+  }
+}
+
+function installedVersionViaCommand() {
+  const result = spawnSync(process.platform === "win32" ? "impulse.cmd" : "impulse", ["--version"], {
+    encoding: "utf8",
+    shell: useShellForCommandShims(),
+  });
+  return result.stdout?.trim().match(/(\d+\.\d+\.\d+)/)?.[1];
+}
+
+function formatUpdateSuccessLines(latestVersion, installedVersion, relaunch) {
+  const lines = [];
+  if (installedVersion === latestVersion) {
+    lines.push(`  Update successful! impulse is now v${latestVersion}`);
+  } else if (installedVersion) {
+    lines.push(`  Update completed. Installed version: v${installedVersion}`);
+    lines.push(`  (Expected v${latestVersion} - you may need to restart your shell)`);
+  } else {
+    lines.push(`  Update completed! impulse should now be v${latestVersion}`);
+  }
+  if (relaunch) {
+    lines.push("  Relaunching impulse...");
+  } else {
+    lines.push("  Run `impulse` to start.");
+  }
+  return lines;
+}
+
 function relaunchImpulse() {
   const env = { ...process.env };
   delete env[INTERNAL_AUTO_UPDATE_ENV];
@@ -167,12 +218,10 @@ function runUpdate({ relaunch }) {
     return result.status ?? 1;
   }
 
+  const installedVersion = installedVersionViaCommand();
   console.log("\n--------------------------------------------------------");
-  console.log(`  Update successful! impulse is now v${latest}`);
-  if (relaunch) {
-    console.log("  Relaunching impulse...");
-  } else {
-    console.log("  Run `impulse` to start.");
+  for (const line of formatUpdateSuccessLines(latest, installedVersion, relaunch)) {
+    console.log(line);
   }
   console.log("--------------------------------------------------------\n");
 
@@ -195,6 +244,9 @@ if (hasStartupFlag("--update") || hasStartupFlag("--auto-update")) {
   try {
     const relaunch =
       hasStartupFlag("--auto-update") && process.env[INTERNAL_AUTO_UPDATE_ENV] === "1";
+    if (relaunch) {
+      waitForParentExit();
+    }
     process.exit(runUpdate({ relaunch }));
   } catch (error) {
     console.error(`Update failed: ${error.message}`);

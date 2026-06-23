@@ -158,6 +158,7 @@ import {
   getCurrentVersion,
   impulseCommand,
   INTERNAL_AUTO_UPDATE_ENV,
+  UPDATE_PARENT_PID_ENV,
 } from "../util/update-check.js";
 import {
   PROVIDER_REASONING_STYLE,
@@ -3753,6 +3754,7 @@ export class ImpulseRenderer {
       env: {
         ...process.env,
         [INTERNAL_AUTO_UPDATE_ENV]: "1",
+        [UPDATE_PARENT_PID_ENV]: String(process.pid),
       },
     });
     try {

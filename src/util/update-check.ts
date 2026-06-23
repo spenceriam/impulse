@@ -16,6 +16,7 @@ const CURRENT_VERSION = packageJson.version;
 const REGISTRY_URL = "https://registry.npmjs.org";
 
 export const INTERNAL_AUTO_UPDATE_ENV = "IMPULSE_INTERNAL_AUTO_UPDATE";
+export const UPDATE_PARENT_PID_ENV = "IMPULSE_UPDATE_PARENT_PID";
 
 export interface PerformUpdateOptions {
   /** Relaunch impulse after a successful update. Defaults to false. */
