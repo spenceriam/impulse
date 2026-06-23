@@ -13,6 +13,7 @@ describe("findUnknownFlag", () => {
   test("accepts known boolean flags", () => {
     expect(findUnknownFlag(["--version"])).toBeUndefined();
     expect(findUnknownFlag(["--update"])).toBeUndefined();
+    expect(findUnknownFlag(["--auto-update"])).toBeUndefined();
     expect(findUnknownFlag(["--aa"])).toBeUndefined();
     expect(findUnknownFlag(["--allow-all"])).toBeUndefined();
     expect(findUnknownFlag(["--resume"])).toBeUndefined();

@@ -23,6 +23,7 @@ import {
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import type { EditorTheme } from "@mariozechner/pi-tui";
+import { spawn } from "child_process";
 import {
   PromptInput,
   resolveSubmitPayloadAfterPathAttach,
@@ -152,7 +153,13 @@ import {
   type ReasoningLevel,
   type ThinkingDisplay,
 } from "../util/config.js";
-import { checkForUpdate, performUpdate, getCurrentVersion } from "../util/update-check.js";
+import {
+  checkForUpdate,
+  getCurrentVersion,
+  impulseCommand,
+  INTERNAL_AUTO_UPDATE_ENV,
+  UPDATE_PARENT_PID_ENV,
+} from "../util/update-check.js";
 import {
   PROVIDER_REASONING_STYLE,
   getLevelsForStyle,
@@ -3739,13 +3746,34 @@ export class ImpulseRenderer {
     this.addChatLine(clr.dim("Installing update and relaunching..."));
     this.tui.requestRender();
     await SessionManager.flushCurrent();
-    clearActiveSessionMarker();
     const session = SessionManager.getCurrentSession();
+    const child = spawn(impulseCommand(), ["--auto-update"], {
+      detached: true,
+      stdio: "inherit",
+      shell: process.platform === "win32",
+      env: {
+        ...process.env,
+        [INTERNAL_AUTO_UPDATE_ENV]: "1",
+        [UPDATE_PARENT_PID_ENV]: String(process.pid),
+      },
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("spawn", () => resolve());
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.addChatLine(clr.error(`Failed to start update: ${message}`));
+      this.tui.requestRender();
+      return;
+    }
     if (session?.id) {
       writeUpdateResumeHint(session.id);
     }
+    clearActiveSessionMarker();
     this.tui.stop();
-    performUpdate(update.latestVersion);
+    child.unref();
     process.exit(0);
   }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { spawn, spawnSync } from "child_process";
+import { existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -10,6 +10,9 @@ import os from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+const PACKAGE_NAME = "@spenceriam/impulse";
+const INTERNAL_AUTO_UPDATE_ENV = "IMPULSE_INTERNAL_AUTO_UPDATE";
+const UPDATE_PARENT_PID_ENV = "IMPULSE_UPDATE_PARENT_PID";
 
 function detectPlatformAndArch() {
   let platform;
@@ -71,6 +74,183 @@ function findBinary() {
       `Package ${packageName} may not be installed.\n` +
       `Try reinstalling: npm install -g @spenceriam/impulse`
     );
+  }
+}
+
+function npmCommand() {
+  return os.platform() === "win32" ? "npm.cmd" : "npm";
+}
+
+function useShellForCommandShims() {
+  return os.platform() === "win32";
+}
+
+function currentWrapperVersion() {
+  const packageJson = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
+  return packageJson.version;
+}
+
+function currentInstalledVersion() {
+  try {
+    const binaryPath = findBinary();
+    const result = spawnSync(binaryPath, ["--version"], {
+      encoding: "utf8",
+    });
+    const version = result.stdout?.trim().match(/(\d+\.\d+\.\d+)/)?.[1];
+    if (version) {
+      return version;
+    }
+  } catch {
+    // fall back to wrapper package version
+  }
+  return currentWrapperVersion();
+}
+
+function compareSemver(a, b) {
+  const left = String(a).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = String(b).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((left[i] ?? 0) > (right[i] ?? 0)) return 1;
+    if ((left[i] ?? 0) < (right[i] ?? 0)) return -1;
+  }
+  return 0;
+}
+
+function latestNpmVersion() {
+  const result = spawnSync(npmCommand(), ["view", PACKAGE_NAME, "version", "--silent"], {
+    encoding: "utf8",
+    shell: useShellForCommandShims(),
+  });
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || "").trim();
+    throw new Error(detail || `npm view failed with exit code ${result.status}`);
+  }
+  return result.stdout.trim();
+}
+
+function syncDelay(ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    // busy-wait for short parent-exit polling
+  }
+}
+
+function waitForParentExit() {
+  const raw = process.env[UPDATE_PARENT_PID_ENV];
+  if (!raw) return;
+  const parentPid = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parentPid) || parentPid <= 1) return;
+
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      return;
+    }
+    syncDelay(100);
+  }
+}
+
+function installedVersionViaCommand() {
+  const result = spawnSync(process.platform === "win32" ? "impulse.cmd" : "impulse", ["--version"], {
+    encoding: "utf8",
+    shell: useShellForCommandShims(),
+  });
+  return result.stdout?.trim().match(/(\d+\.\d+\.\d+)/)?.[1];
+}
+
+function formatUpdateSuccessLines(latestVersion, installedVersion, relaunch) {
+  const lines = [];
+  if (installedVersion === latestVersion) {
+    lines.push(`  Update successful! impulse is now v${latestVersion}`);
+  } else if (installedVersion) {
+    lines.push(`  Update completed. Installed version: v${installedVersion}`);
+    lines.push(`  (Expected v${latestVersion} - you may need to restart your shell)`);
+  } else {
+    lines.push(`  Update completed! impulse should now be v${latestVersion}`);
+  }
+  if (relaunch) {
+    lines.push("  Relaunching impulse...");
+  } else {
+    lines.push("  Run `impulse` to start.");
+  }
+  return lines;
+}
+
+function relaunchImpulse() {
+  const env = { ...process.env };
+  delete env[INTERNAL_AUTO_UPDATE_ENV];
+  const child = spawn(process.platform === "win32" ? "impulse.cmd" : "impulse", [], {
+    detached: true,
+    stdio: "ignore",
+    shell: useShellForCommandShims(),
+    env,
+  });
+  child.unref();
+}
+
+function runUpdate({ relaunch }) {
+  const current = currentInstalledVersion();
+  const latest = latestNpmVersion();
+  if (compareSemver(latest, current) <= 0) {
+    console.log(`Already on latest (v${current}).`);
+    if (relaunch) {
+      console.log("  Relaunching impulse...");
+      relaunchImpulse();
+    }
+    return 0;
+  }
+
+  console.log(`Updating ${current} -> ${latest}...`);
+  console.log(`\nUpdating impulse to v${latest}...`);
+  console.log(`Running: npm install -g ${PACKAGE_NAME}\n`);
+
+  const result = spawnSync(npmCommand(), ["install", "-g", PACKAGE_NAME], {
+    stdio: "inherit",
+    shell: useShellForCommandShims(),
+  });
+  if (result.status !== 0) {
+    console.log("\n--------------------------------------------------------");
+    console.log(`  Update failed (exit code ${result.status ?? "unknown"})`);
+    console.log(`  Try running manually: npm install -g ${PACKAGE_NAME}`);
+    console.log("--------------------------------------------------------\n");
+    return result.status ?? 1;
+  }
+
+  const installedVersion = installedVersionViaCommand();
+  console.log("\n--------------------------------------------------------");
+  for (const line of formatUpdateSuccessLines(latest, installedVersion, relaunch)) {
+    console.log(line);
+  }
+  console.log("--------------------------------------------------------\n");
+
+  if (relaunch) {
+    relaunchImpulse();
+  }
+  return 0;
+}
+
+function hasStartupFlag(flag) {
+  for (const arg of process.argv.slice(2)) {
+    if (arg === "--") return false;
+    if (!arg.startsWith("-")) continue;
+    if (arg === flag) return true;
+  }
+  return false;
+}
+
+if (hasStartupFlag("--update") || hasStartupFlag("--auto-update")) {
+  try {
+    const relaunch =
+      hasStartupFlag("--auto-update") && process.env[INTERNAL_AUTO_UPDATE_ENV] === "1";
+    if (relaunch) {
+      waitForParentExit();
+    }
+    process.exit(runUpdate({ relaunch }));
+  } catch (error) {
+    console.error(`Update failed: ${error.message}`);
+    process.exit(1);
   }
 }
 

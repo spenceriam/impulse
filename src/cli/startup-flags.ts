@@ -11,6 +11,7 @@ export const KNOWN_BOOLEAN_FLAGS = new Set([
   "--version",
   "-v",
   "--update",
+  "--auto-update",
   "--help",
   "-h",
   "--setup",
