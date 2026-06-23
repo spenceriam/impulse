@@ -154,6 +154,18 @@ export function isInternalAutoUpdate(argv: string[] = process.argv.slice(2), env
   return argv.includes("--auto-update") && env[INTERNAL_AUTO_UPDATE_ENV] === "1";
 }
 
+export function relaunchImpulse(): void {
+  const env = { ...process.env };
+  delete env[INTERNAL_AUTO_UPDATE_ENV];
+  const child = spawn(impulseCommand(), [], {
+    detached: true,
+    stdio: "ignore",
+    shell: useShellForCommandShims(),
+    env,
+  });
+  child.unref();
+}
+
 export function formatUpdateSuccessLines(latestVersion: string, installedVersion: string | undefined, relaunch: boolean): string[] {
   const lines: string[] = [];
   if (installedVersion === latestVersion) {
@@ -210,12 +222,7 @@ export function performUpdate(latestVersion: string, options: PerformUpdateOptio
     rawPrint("--------------------------------------------------------\n");
 
     if (relaunch) {
-      const child = spawn(impulseCommand(), [], {
-        detached: true,
-        stdio: "ignore",
-        shell: useShellForCommandShims(),
-      });
-      child.unref();
+      relaunchImpulse();
     }
     return 0;
   } else {

@@ -3745,13 +3745,11 @@ export class ImpulseRenderer {
     this.addChatLine(clr.dim("Installing update and relaunching..."));
     this.tui.requestRender();
     await SessionManager.flushCurrent();
-    clearActiveSessionMarker();
     const session = SessionManager.getCurrentSession();
     if (session?.id) {
       writeUpdateResumeHint(session.id);
     }
-    this.tui.stop();
-    spawn(impulseCommand(), ["--auto-update"], {
+    const child = spawn(impulseCommand(), ["--auto-update"], {
       stdio: "inherit",
       shell: process.platform === "win32",
       env: {
@@ -3759,6 +3757,20 @@ export class ImpulseRenderer {
         [INTERNAL_AUTO_UPDATE_ENV]: "1",
       },
     });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("spawn", () => resolve());
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.addChatLine(clr.error(`Failed to start update: ${message}`));
+      this.tui.requestRender();
+      return;
+    }
+    clearActiveSessionMarker();
+    this.tui.stop();
+    child.unref();
     process.exit(0);
   }
 
