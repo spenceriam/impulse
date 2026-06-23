@@ -242,7 +242,10 @@ import { dispatchSlashCommand, type SlashDispatchHost } from "./slash-dispatch.j
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
 import { buildQueuePreviewText } from "./queue-preview.js";
 import { copy as copyToClipboard } from "../util/clipboard.js";
-import { clearTerminalForTuiStart } from "./terminal-clear.js";
+import {
+  clearTerminalForTuiStart,
+  ensurePiTuiDebugRedrawDir,
+} from "./terminal-clear.js";
 import type { ContextBarState } from "./components/context-bar.js";
 import type { OptionalPatch } from "../util/omit-undefined.js";
 import { GitBranchWatcher } from "../git/branch-watcher.js";
@@ -1842,6 +1845,7 @@ export class ImpulseRenderer {
       return undefined;
     });
 
+    ensurePiTuiDebugRedrawDir();
     clearTerminalForTuiStart(this.terminal);
     this.tui.start();
     if (this.allowAllOnStartup) {
@@ -4903,6 +4907,7 @@ export class ImpulseRenderer {
       await runOnboarding();
       const newConfig = await loadConfig();
       this.userName = newConfig.userProfile?.name || "you";
+      ensurePiTuiDebugRedrawDir();
       clearTerminalForTuiStart(this.terminal);
       this.tui.start();
       this.tui.setFocus(this.promptInput);
