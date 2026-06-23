@@ -3746,9 +3746,6 @@ export class ImpulseRenderer {
     this.tui.requestRender();
     await SessionManager.flushCurrent();
     const session = SessionManager.getCurrentSession();
-    if (session?.id) {
-      writeUpdateResumeHint(session.id);
-    }
     const child = spawn(impulseCommand(), ["--auto-update"], {
       detached: true,
       stdio: "inherit",
@@ -3768,6 +3765,9 @@ export class ImpulseRenderer {
       this.addChatLine(clr.error(`Failed to start update: ${message}`));
       this.tui.requestRender();
       return;
+    }
+    if (session?.id) {
+      writeUpdateResumeHint(session.id);
     }
     clearActiveSessionMarker();
     this.tui.stop();
