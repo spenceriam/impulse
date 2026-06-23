@@ -142,7 +142,7 @@ function relaunchImpulse() {
 function runUpdate({ relaunch }) {
   const current = currentInstalledVersion();
   const latest = latestNpmVersion();
-  if (!relaunch && compareSemver(latest, current) <= 0) {
+  if (compareSemver(latest, current) <= 0) {
     console.log(`Already on latest (v${current}).`);
     if (relaunch) {
       console.log("  Relaunching impulse...");

@@ -3750,6 +3750,7 @@ export class ImpulseRenderer {
       writeUpdateResumeHint(session.id);
     }
     const child = spawn(impulseCommand(), ["--auto-update"], {
+      detached: true,
       stdio: "inherit",
       shell: process.platform === "win32",
       env: {
