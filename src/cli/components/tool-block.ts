@@ -53,6 +53,7 @@ const QUESTION_FRAME_MS = 160;
 const MAX_OUTPUT_ROWS = 30;
 const BASH_MAX_OUTPUT_ROWS = 100;
 const MAX_TODO_ROWS = 20;
+export const TODO_BLINK_PHASE_MS = 800;
 
 const TODO_GLYPH_ACTIVE = "◉";
 const TODO_GLYPH_PENDING = "○";
@@ -72,6 +73,8 @@ export type ToolBlockOptions = {
 };
 
 export type TodoRenderOptions = {
+  blinkActive?: boolean;
+  nowMs?: number;
 };
 
 export type ToolBlockDoneOptions = {
@@ -423,13 +426,23 @@ function renderTrimmedOutput(output: string, width: number, maxRows: number): st
   ];
 }
 
+/** Blink phase for the active todo glyph (◉ ↔ ○). */
+export function activeTodoBlinkGlyph(nowMs: number, enabled: boolean): string {
+  if (!enabled) return TODO_GLYPH_ACTIVE;
+  const phase = Math.floor(nowMs / TODO_BLINK_PHASE_MS) % 2;
+  return phase === 0 ? TODO_GLYPH_ACTIVE : TODO_GLYPH_PENDING;
+}
+
 export function formatTodoLine(
   todo: TodoMetadata["todos"][number],
-  _opts?: TodoRenderOptions
+  opts?: TodoRenderOptions
 ): string {
+  const nowMs = opts?.nowMs ?? Date.now();
   switch (todo.status) {
-    case "in_progress":
-      return `${TODO_GLYPH_ACTIVE} ${todo.content}`;
+    case "in_progress": {
+      const glyph = activeTodoBlinkGlyph(nowMs, opts?.blinkActive === true);
+      return `${glyph} ${todo.content}`;
+    }
     case "completed":
       return `${clr.dim(TODO_GLYPH_DONE)} ${c.dim}${c.strike}${todo.content}${c.reset}`;
     case "cancelled":
@@ -512,10 +525,11 @@ function renderTodoListFromTodos(
   }
 
   for (const todo of visible) {
+    const blinkActive = todo.status === "in_progress" && opts?.blinkActive === true;
     lines.push(
       ...wrapPrefixed(
         SUB_INDENT,
-        formatTodoLine(todo, opts),
+        formatTodoLine(todo, { ...opts, blinkActive }),
         width
       )
     );
@@ -884,6 +898,7 @@ function renderMetadata(
 export class ToolBlock implements Component {
   private state: ToolBlockState;
   private subagentLines: SubagentProgressLine[] = [];
+  private todoBlinkEnabled = false;
 
   constructor(name: string, args: Record<string, unknown>, opts?: ToolBlockOptions) {
     const previewTodos = name === "todo_write" ? parseTodosFromArgs(args) : undefined;
@@ -965,8 +980,15 @@ export class ToolBlock implements Component {
     return this.state.name === "todo_write" || this.state.name === "todo_read";
   }
 
+  setTodoBlinkEnabled(enabled: boolean): void {
+    this.todoBlinkEnabled = enabled;
+  }
+
   private getTodoRenderOpts(): TodoRenderOptions {
-    return {};
+    return {
+      blinkActive: this.todoBlinkEnabled,
+      nowMs: Date.now(),
+    };
   }
 
   isSilentUnchangedTodo(): boolean {
