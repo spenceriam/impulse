@@ -42,6 +42,7 @@ import {
 } from "./slash-autocomplete.js";
 import { buildSlashCommandList } from "./slash-commands.js";
 import { setAtAutocomplete } from "./at-autocomplete.js";
+import { canonicalizeSlashAliasInput } from "./slash-aliases.js";
 import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
 import {
   GUTTER,
@@ -241,6 +242,7 @@ import { dispatchSlashCommand, type SlashDispatchHost } from "./slash-dispatch.j
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
 import { buildQueuePreviewText } from "./queue-preview.js";
 import { copy as copyToClipboard } from "../util/clipboard.js";
+import { clearTerminalForTuiStart } from "./terminal-clear.js";
 import type { ContextBarState } from "./components/context-bar.js";
 import type { OptionalPatch } from "../util/omit-undefined.js";
 import { GitBranchWatcher } from "../git/branch-watcher.js";
@@ -361,6 +363,7 @@ export class ImpulseRenderer {
   private spinnerText!: Text;
   private queuePreviewText!: Text;
   private static readonly MAX_TURN_QUEUE = DEFAULT_MAX_TURN_QUEUE;
+  private static readonly MAX_MUTABLE_STREAM_LINES = 12;
   private turnQueue = new TurnQueueManager(
     ImpulseRenderer.MAX_TURN_QUEUE,
     (payload) => this.isNonemptySubmitPayload(payload)
@@ -404,7 +407,7 @@ export class ImpulseRenderer {
     this.currentStatusPhrase = "";
     this.spinnerText.setText("");
     this.freezeTodoBlink();
-    this.tui.requestRender();
+    this.requestRenderForPhase("spin_stop");
   }
 
   private freezeTodoBlink(): void {
@@ -417,6 +420,33 @@ export class ImpulseRenderer {
     }
     this.latestTodoBlock = block;
     block.setTodoBlinkEnabled(this.isRunning);
+  }
+
+  private logRenderDebug(phase: string, before: number, rows: number, cols: number): void {
+    if (process.env["IMPULSE_RENDER_DEBUG"] !== "1" || !this.tui) return;
+    const after = this.tui.fullRedraws;
+    if (after <= before) return;
+    const timestamp = new Date().toISOString();
+    const sessionID = SessionManager.getCurrentSessionID() ?? "no-session";
+    fs.mkdirSync(path.dirname(debugLogPath), { recursive: true });
+    fs.appendFileSync(
+      debugLogPath,
+      `[${timestamp}] [${sessionID}] render full-redraw phase=${phase} count=${after - before} rows=${rows}->${this.terminal.rows} cols=${cols}->${this.terminal.columns}\n`
+    );
+  }
+
+  private requestRenderForPhase(phase: string): void {
+    if (!this.tui) return;
+    if (process.env["IMPULSE_RENDER_DEBUG"] !== "1") {
+      this.tui.requestRender();
+      return;
+    }
+
+    const before = this.tui.fullRedraws;
+    const rows = this.terminal.rows;
+    const cols = this.terminal.columns;
+    this.tui.requestRender();
+    setTimeout(() => this.logRenderDebug(phase, before, rows, cols), 25);
   }
 
   private findLatestVisibleTodoBlock(): ToolBlock | null {
@@ -551,12 +581,12 @@ export class ImpulseRenderer {
     this.currentStatusPhrase = resolveBusyPhrase(msg, fixedPhrase);
     this.busyDimBase = busyPhraseUsesDimBase(this.currentStatusPhrase, msg);
     this.renderBusyLine();
-    this.tui.requestRender();
+    this.requestRenderForPhase("status");
 
     if (!this.spinnerInterval) {
       this.spinnerInterval = setInterval(() => {
         this.renderBusyLine();
-        this.tui.requestRender();
+        this.requestRenderForPhase("status_tick");
       }, SHIMMER_FRAME_MS);
     }
   }
@@ -1355,6 +1385,7 @@ export class ImpulseRenderer {
   // Streaming state: current assistant text block (updated in-place)
   private streamingText: MarkdownTextBlock | null = null;
   private streamingRaw = "";
+  private currentStreamWasRotated = false;
   private thinkingText: ThinkingBlock | null = null;
   private thinkingRaw = "";
   private thinkingOpen = false;
@@ -1559,7 +1590,7 @@ export class ImpulseRenderer {
             content: payload.content,
             ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
           });
-          this.tui.requestRender();
+          this.requestRenderForPhase("subagent_progress");
         }
       }
 
@@ -1811,6 +1842,7 @@ export class ImpulseRenderer {
       return undefined;
     });
 
+    clearTerminalForTuiStart(this.terminal);
     this.tui.start();
     if (this.allowAllOnStartup) {
       const agreed = await this.showAllowAllDisclaimer();
@@ -2232,8 +2264,9 @@ export class ImpulseRenderer {
     }
 
     if (shouldTreatAsSlashCommand(input)) {
-      this.recordSubmittedPrompt(payload.apiText.trim());
-      await this.handleSlash(payload.apiText.trim());
+      const canonicalSlash = canonicalizeSlashAliasInput(payload.apiText).trim();
+      this.recordSubmittedPrompt(canonicalSlash);
+      await this.handleSlash(canonicalSlash);
       this.tui.requestRender();
       return;
     }
@@ -2330,6 +2363,7 @@ export class ImpulseRenderer {
 
     this.streamingRaw = "";
     this.streamingText = null;
+    this.currentStreamWasRotated = false;
     this.thinkingRaw = "";
     this.thinkingText = null;
     this.thinkingOpen = false;
@@ -2388,6 +2422,9 @@ export class ImpulseRenderer {
           this.streamBusyPhraseSet = true;
         }
         this.closeThinking();
+        if (this.shouldRotateStreamingSegment()) {
+          this.rotateStreamingSegment();
+        }
         if (!this.streamingText) {
           if (this.lastBandWasTool) {
             this.addSectionGap();
@@ -2428,7 +2465,7 @@ export class ImpulseRenderer {
         const block = this.toolBlocks.get(id);
         if (block) {
           block.setSubagentTaskStatus(status);
-          this.tui.requestRender();
+          this.requestRenderForPhase("subagent_status");
         }
       },
       onToolStart: (id, name, args) => {
@@ -2478,7 +2515,7 @@ export class ImpulseRenderer {
           name === "vision_translate" ? BUSY_PROCESSING : BUSY_WORKING;
         this.setBusyStatus(this.toolBusyStatus(name), toolPhrase);
         this.updateLiveMetrics(0, true);
-        this.tui.requestRender();
+        this.requestRenderForPhase("tool_start");
       },
       onToolEnd: (id, _name, result, durationMs) => {
         if (SILENT_TOOLS.has(_name)) {
@@ -2499,7 +2536,7 @@ export class ImpulseRenderer {
             }
             this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
             this.updateLiveMetrics(result.output.length, true);
-            this.tui.requestRender();
+            this.requestRenderForPhase("tool_end_todo_noop");
             return;
           }
 
@@ -2517,7 +2554,7 @@ export class ImpulseRenderer {
             }
             this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
             this.updateLiveMetrics(result.output.length, true);
-            this.tui.requestRender();
+            this.requestRenderForPhase("tool_end_todo_cosmetic");
             return;
           }
 
@@ -2541,7 +2578,7 @@ export class ImpulseRenderer {
 
           this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
         this.updateLiveMetrics(result.output.length, true);
-        this.tui.requestRender();
+        this.requestRenderForPhase("tool_end");
       },
       onCompacting: () => {
         this.compactStartMs = Date.now();
@@ -2574,11 +2611,15 @@ export class ImpulseRenderer {
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
-        this.appendAssistantTurnSegment(this.streamingRaw);
+        this.appendAssistantTurnSegment(
+          this.streamingRaw,
+          this.currentStreamWasRotated ? "" : "\n\n"
+        );
         const turnText = this.currentTurnAssistantText;
         this.currentTurnAssistantText = "";
         if (this.streamingRaw) { this.addSectionGap(); }
         this.streamingRaw = ""; this.streamingText = null;
+        this.currentStreamWasRotated = false;
         this.thinkingRaw = "";  this.thinkingText = null;
         this.thinkingElapsedMs = 0;
 
@@ -2664,7 +2705,7 @@ export class ImpulseRenderer {
     this.streamRenderScheduled = true;
     setTimeout(() => {
       this.streamRenderScheduled = false;
-      this.tui?.requestRender();
+      this.requestRenderForPhase("stream");
     }, 16);
   }
 
@@ -2783,7 +2824,7 @@ export class ImpulseRenderer {
 
   /** Request a layout refresh after content above the prompt changes. */
   private requestLayoutRefresh(): void {
-    this.tui?.requestRender();
+    this.requestRenderForPhase("layout");
   }
 
   // ?? Slash autocomplete ????????????????????????????????????????????????????
@@ -2857,22 +2898,47 @@ export class ImpulseRenderer {
    * Without this, silent tools (set_header) leave streamingRaw open and glue the next
    * continuation chunk onto the same paragraph.
    */
-  private appendAssistantTurnSegment(segment: string): void {
+  private appendAssistantTurnSegment(segment: string, separator = "\n\n"): void {
     const trimmed = segment.trim();
     if (!trimmed) return;
     this.currentTurnAssistantText = this.currentTurnAssistantText
-      ? `${this.currentTurnAssistantText}\n\n${trimmed}`
+      ? `${this.currentTurnAssistantText}${separator}${trimmed}`
       : trimmed;
+  }
+
+  private shouldRotateStreamingSegment(): boolean {
+    if (!this.streamingText || !this.tui) return false;
+    const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
+    const threshold = Math.max(
+      8,
+      Math.min(ImpulseRenderer.MAX_MUTABLE_STREAM_LINES, Math.floor(rows / 3))
+    );
+    return this.streamingText.render(this.terminalCols()).length >= threshold;
+  }
+
+  private rotateStreamingSegment(): void {
+    if (!this.streamingRaw.trim()) return;
+    this.appendAssistantTurnSegment(
+      this.streamingRaw,
+      this.currentStreamWasRotated ? "" : "\n\n"
+    );
+    this.streamingRaw = "";
+    this.streamingText = null;
+    this.currentStreamWasRotated = true;
   }
 
   private finalizeAssistantStreamingSegment(gapAfter = true): void {
     if (!this.streamingRaw && !this.streamingText) return;
     const hadContent = this.streamingRaw.trim().length > 0;
     if (hadContent) {
-      this.appendAssistantTurnSegment(this.streamingRaw);
+      this.appendAssistantTurnSegment(
+        this.streamingRaw,
+        this.currentStreamWasRotated ? "" : "\n\n"
+      );
     }
     this.streamingRaw = "";
     this.streamingText = null;
+    this.currentStreamWasRotated = false;
     if (gapAfter && hadContent) {
       this.addSectionGap();
     }
@@ -4837,6 +4903,7 @@ export class ImpulseRenderer {
       await runOnboarding();
       const newConfig = await loadConfig();
       this.userName = newConfig.userProfile?.name || "you";
+      clearTerminalForTuiStart(this.terminal);
       this.tui.start();
       this.tui.setFocus(this.promptInput);
       this.addChatLine(clr.dim("Profile updated"));

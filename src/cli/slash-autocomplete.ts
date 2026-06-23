@@ -2,7 +2,7 @@
  * Slash-command autocomplete visibility (prefix match vs exact command token).
  */
 
-import { slashAliasTarget } from "./slash-aliases.js";
+import { canonicalizeSlashAliasInput, slashAliasTarget } from "./slash-aliases.js";
 
 export type SlashCommandEntry = { cmd: string; hint?: string };
 
@@ -32,6 +32,15 @@ export function shouldShowSlashAutocomplete(
   }
 
   const matches = commands.filter((c) => c.cmd.toLowerCase().startsWith(token));
+  const aliasTarget = slashAliasTarget(token.slice(1));
+  if (aliasTarget) {
+    const canonical = `/${aliasTarget}`;
+    const canonicalEntry = commands.find((c) => c.cmd.toLowerCase() === canonical);
+    if (canonicalEntry) {
+      return { show: true, matches: [canonicalEntry] };
+    }
+  }
+
   if (matches.length === 0) {
     return { show: false, matches: [] };
   }
@@ -100,13 +109,9 @@ export function completeSlashCommandTab(
   if (token === null) return { text: null, nextCycle: null };
 
   const tokenLower = token.toLowerCase();
-  const aliasTarget = slashAliasTarget(tokenLower.slice(1));
-  if (aliasTarget) {
-    const canonical = `/${aliasTarget}`;
-    const canonicalEntry = commands.find((c) => c.cmd.toLowerCase() === canonical);
-    if (canonicalEntry && canonicalEntry.cmd.toLowerCase() !== tokenLower) {
-      return { text: replaceSlashToken(input, canonicalEntry.cmd), nextCycle: null };
-    }
+  const canonicalizedAlias = canonicalizeSlashAliasInput(input);
+  if (canonicalizedAlias !== input) {
+    return { text: canonicalizedAlias, nextCycle: null };
   }
 
   if (cycle && tokenLower.startsWith(cycle.prefix)) {
