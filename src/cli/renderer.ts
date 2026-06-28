@@ -1388,7 +1388,6 @@ export class ImpulseRenderer {
   // Streaming state: current assistant text block (updated in-place)
   private streamingText: MarkdownTextBlock | null = null;
   private streamingRaw = "";
-  private currentStreamWasRotated = false;
   private thinkingText: ThinkingBlock | null = null;
   private thinkingRaw = "";
   private thinkingOpen = false;
@@ -2367,7 +2366,6 @@ export class ImpulseRenderer {
 
     this.streamingRaw = "";
     this.streamingText = null;
-    this.currentStreamWasRotated = false;
     this.thinkingRaw = "";
     this.thinkingText = null;
     this.thinkingOpen = false;
@@ -2615,15 +2613,11 @@ export class ImpulseRenderer {
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
-        this.appendAssistantTurnSegment(
-          this.streamingRaw,
-          this.currentStreamWasRotated ? "" : "\n\n"
-        );
+        this.appendAssistantTurnSegment(this.streamingRaw);
         const turnText = this.currentTurnAssistantText;
         this.currentTurnAssistantText = "";
         if (this.streamingRaw) { this.addSectionGap(); }
         this.streamingRaw = ""; this.streamingText = null;
-        this.currentStreamWasRotated = false;
         this.thinkingRaw = "";  this.thinkingText = null;
         this.thinkingElapsedMs = 0;
 
@@ -2922,28 +2916,20 @@ export class ImpulseRenderer {
 
   private rotateStreamingSegment(): void {
     if (this.streamingRaw.trim()) {
-      this.appendAssistantTurnSegment(
-        this.streamingRaw,
-        this.currentStreamWasRotated ? "" : "\n\n"
-      );
+      this.appendAssistantTurnSegment(this.streamingRaw);
     }
     this.streamingRaw = "";
     this.streamingText = null;
-    this.currentStreamWasRotated = true;
   }
 
   private finalizeAssistantStreamingSegment(gapAfter = true): void {
     if (!this.streamingRaw && !this.streamingText) return;
     const hadContent = this.streamingRaw.trim().length > 0;
     if (hadContent) {
-      this.appendAssistantTurnSegment(
-        this.streamingRaw,
-        this.currentStreamWasRotated ? "" : "\n\n"
-      );
+      this.appendAssistantTurnSegment(this.streamingRaw);
     }
     this.streamingRaw = "";
     this.streamingText = null;
-    this.currentStreamWasRotated = false;
     if (gapAfter && hadContent) {
       this.addSectionGap();
     }
