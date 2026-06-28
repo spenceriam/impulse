@@ -1,15 +1,17 @@
 /**
  * ImpulseRenderer ? full TUI using @mariozechner/pi-tui
  *
- * Layout (top ? bottom, viewport shows bottom when content overflows):
- *   chatContainer     ? conversation history (grows upward as turns add content)
- *   loaderLine        ? Braille spinner while agent works (Loader component)
- *   ?? separator ??   ? always visible divider
- *   contextBar        ? model ? tokens ? dir ? branch ? mode ? stats
- *   promptInput       ? [MODE] ? _   (Input component, Tab cycles modes)
+ * Layout (top to bottom):
+ *   chatContainer     - conversation history (grows downward as turns add content)
+ *   loaderLine        - spinner/status while agent works
+ *   separator         - divider above input
+ *   promptInput       - user prompt
+ *   separator         - divider above context bar
+ *   contextBar        - model, tokens, dir, branch, mode, stats
  *
- * Sticky bar: pi-tui renders all children top?bottom and shows the last N
- * lines when content exceeds terminal height, so the bar is always visible.
+ * The layout intentionally stays top-anchored. Recomputing top padding to pin
+ * the prompt to the viewport bottom shifts all chat line indexes during
+ * streaming/tool settlement and can force full-screen redraws.
  */
 
 import {
@@ -40,6 +42,7 @@ import {
 } from "./slash-autocomplete.js";
 import { buildSlashCommandList } from "./slash-commands.js";
 import { setAtAutocomplete } from "./at-autocomplete.js";
+import { canonicalizeSlashAliasInput } from "./slash-aliases.js";
 import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
 import {
   GUTTER,
@@ -81,10 +84,7 @@ import {
 } from "../permission/index.js";
 import { ContextBarComponent } from "./components/context-bar.js";
 import { clearActiveSessionMarker } from "../util/active-session-marker.js";
-import { BottomAnchorSpacer } from "./components/bottom-anchor-spacer.js";
 import {
-  DIFF_REVEAL_TICK_MS,
-  extractDiffLinesFromMetadata,
   isCosmeticTodoRewrite,
   isSilentUnchangedTodoWrite,
   ToolBlock,
@@ -242,6 +242,10 @@ import { dispatchSlashCommand, type SlashDispatchHost } from "./slash-dispatch.j
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
 import { buildQueuePreviewText } from "./queue-preview.js";
 import { copy as copyToClipboard } from "../util/clipboard.js";
+import {
+  clearTerminalForTuiStart,
+  ensurePiTuiDebugRedrawDir,
+} from "./terminal-clear.js";
 import type { ContextBarState } from "./components/context-bar.js";
 import type { OptionalPatch } from "../util/omit-undefined.js";
 import { GitBranchWatcher } from "../git/branch-watcher.js";
@@ -362,6 +366,7 @@ export class ImpulseRenderer {
   private spinnerText!: Text;
   private queuePreviewText!: Text;
   private static readonly MAX_TURN_QUEUE = DEFAULT_MAX_TURN_QUEUE;
+  private static readonly MAX_MUTABLE_STREAM_LINES = 12;
   private turnQueue = new TurnQueueManager(
     ImpulseRenderer.MAX_TURN_QUEUE,
     (payload) => this.isNonemptySubmitPayload(payload)
@@ -377,9 +382,6 @@ export class ImpulseRenderer {
   private promptHistory = new PromptHistory();
   private autocompleteText!: Text; // slash command suggestions
   private modelSetupText!: Text;
-  private bottomSpacer!: BottomAnchorSpacer;
-  /** Frozen top spacer line count during an active turn (prevents welcome-header flash). */
-  private turnAnchorEmptyLines: number | null = null;
 
   // Manual turn-status spinner + render ticker
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
@@ -408,7 +410,7 @@ export class ImpulseRenderer {
     this.currentStatusPhrase = "";
     this.spinnerText.setText("");
     this.freezeTodoBlink();
-    this.tui.requestRender();
+    this.requestRenderForPhase("spin_stop");
   }
 
   private freezeTodoBlink(): void {
@@ -421,6 +423,33 @@ export class ImpulseRenderer {
     }
     this.latestTodoBlock = block;
     block.setTodoBlinkEnabled(this.isRunning);
+  }
+
+  private logRenderDebug(phase: string, before: number, rows: number, cols: number): void {
+    if (process.env["IMPULSE_RENDER_DEBUG"] !== "1" || !this.tui) return;
+    const after = this.tui.fullRedraws;
+    if (after <= before) return;
+    const timestamp = new Date().toISOString();
+    const sessionID = SessionManager.getCurrentSessionID() ?? "no-session";
+    fs.mkdirSync(path.dirname(debugLogPath), { recursive: true });
+    fs.appendFileSync(
+      debugLogPath,
+      `[${timestamp}] [${sessionID}] render full-redraw phase=${phase} count=${after - before} rows=${rows}->${this.terminal.rows} cols=${cols}->${this.terminal.columns}\n`
+    );
+  }
+
+  private requestRenderForPhase(phase: string): void {
+    if (!this.tui) return;
+    if (process.env["IMPULSE_RENDER_DEBUG"] !== "1") {
+      this.tui.requestRender();
+      return;
+    }
+
+    const before = this.tui.fullRedraws;
+    const rows = this.terminal.rows;
+    const cols = this.terminal.columns;
+    this.tui.requestRender();
+    setTimeout(() => this.logRenderDebug(phase, before, rows, cols), 25);
   }
 
   private findLatestVisibleTodoBlock(): ToolBlock | null {
@@ -555,12 +584,12 @@ export class ImpulseRenderer {
     this.currentStatusPhrase = resolveBusyPhrase(msg, fixedPhrase);
     this.busyDimBase = busyPhraseUsesDimBase(this.currentStatusPhrase, msg);
     this.renderBusyLine();
-    this.tui.requestRender();
+    this.requestRenderForPhase("status");
 
     if (!this.spinnerInterval) {
       this.spinnerInterval = setInterval(() => {
         this.renderBusyLine();
-        this.tui.requestRender();
+        this.requestRenderForPhase("status_tick");
       }, SHIMMER_FRAME_MS);
     }
   }
@@ -682,31 +711,6 @@ export class ImpulseRenderer {
       });
       this.tui.requestRender();
     });
-  }
-
-  private ensureDiffRevealLoop(): void {
-    if (this.diffRevealInterval || !this.tui) return;
-
-    this.diffRevealInterval = setInterval(() => {
-      let anyRevealing = false;
-      for (const [id, block] of this.toolBlocks) {
-        if (!block.isRevealing()) continue;
-        anyRevealing = true;
-        if (block.tickDiffReveal()) {
-          this.lastBandToolHadBody = true;
-          this.toolBlocks.delete(id);
-        }
-      }
-
-      if (!anyRevealing) {
-        if (this.diffRevealInterval) {
-          clearInterval(this.diffRevealInterval);
-          this.diffRevealInterval = null;
-        }
-      }
-
-      this.tui?.requestRender();
-    }, DIFF_REVEAL_TICK_MS);
   }
 
   private dismissPermissionOverlay(resumeStatus?: string): void {
@@ -1103,7 +1107,6 @@ export class ImpulseRenderer {
     this.loop.abort();
     this.spinStop();
     this.isRunning = false;
-    this.releaseTurnAnchor();
     if (this.speedoEnabled && this.liveTurnStartedAt > 0) {
       this.syncContextBar({
         isRunning: false,
@@ -1168,7 +1171,7 @@ export class ImpulseRenderer {
       return;
     }
     this.updateQueuePreview();
-    this.requestBottomAnchorRefresh();
+    this.requestLayoutRefresh();
     this.tui.requestRender();
   }
 
@@ -1354,7 +1357,7 @@ export class ImpulseRenderer {
     this.hasTrailingGap = false;
     this.shellCommandRunning = true;
     this.shellTakeoverActive = false;
-    this.requestBottomAnchorRefresh();
+    this.requestLayoutRefresh();
 
     const interactive = /\bsudo\b/.test(command) || command.includes("ssh");
     if (interactive) {
@@ -1367,7 +1370,7 @@ export class ImpulseRenderer {
       rows: Math.max(8, (this.tui.terminal?.rows ?? 24) - 12),
       onData: (chunk) => {
         block.appendOutput(chunk);
-        this.requestBottomAnchorRefresh();
+        this.requestLayoutRefresh();
       },
       forceInteractive: interactive,
     });
@@ -1379,7 +1382,7 @@ export class ImpulseRenderer {
     block.setDone(result.exitCode, result.durationMs);
     this.lastShellOutput = result;
     this.activeShellBlock = null;
-    this.requestBottomAnchorRefresh();
+    this.requestLayoutRefresh();
   }
 
   // Streaming state: current assistant text block (updated in-place)
@@ -1409,7 +1412,6 @@ export class ImpulseRenderer {
   /** Todo block shown before the current in-flight todo_write (for cosmetic rewrites). */
   private todoBlockBeforeRewrite: ToolBlock | null = null;
   private taskCodenames = new Map<string, string>();
-  private diffRevealInterval: ReturnType<typeof setInterval> | null = null;
   private taskBatchOverlayHandle: OverlayHandle | null = null;
   private ctrlCPending: "cancel" | "exit" | null = null;
   private ctrlCPendingAt = 0;
@@ -1546,6 +1548,7 @@ export class ImpulseRenderer {
 
     // ?? Build TUI layout ??????????????????????????????????????????????????
     this.tui = new TUI(this.terminal);
+    this.tui.setClearOnShrink(false);
 
     this.busUnsubscribe?.();
     this.busUnsubscribe = Bus.subscribe((event) => {
@@ -1589,7 +1592,7 @@ export class ImpulseRenderer {
             content: payload.content,
             ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
           });
-          this.tui.requestRender();
+          this.requestRenderForPhase("subagent_progress");
         }
       }
 
@@ -1603,15 +1606,9 @@ export class ImpulseRenderer {
       }
     });
 
-    // 0. Bottom anchor spacer ? pushes content down so contextBar stays at terminal bottom
-    this.bottomSpacer = new BottomAnchorSpacer(
-      this.tui,
-      () => this.getContentHeight(),
-      () => this.turnAnchorEmptyLines
-    );
-    this.tui.addChild(this.bottomSpacer);
-
-    // 1. Chat history ? grows as turns are added
+    // 1. Chat history ? grows top-down as turns are added.
+    // Do not bottom-anchor with top padding: changing that padding during
+    // streaming/tool settlement shifts line indexes and can force full redraws.
     this.chat = new Container();
     this.tui.addChild(this.chat);
 
@@ -1795,7 +1792,7 @@ export class ImpulseRenderer {
     // 5. Separator BELOW input
     this.tui.addChild(new SeparatorLine());
 
-    // 6. Context bar ? sticky absolute bottom
+    // 6. Context bar
     this.contextBar = new ContextBarComponent({
       workerModel: config.defaultModel,
       impulseVersion: (packageJson as { version: string }).version,
@@ -1841,12 +1838,14 @@ export class ImpulseRenderer {
       ) {
         this.shellTakeoverActive = true;
         this.activeShellBlock?.setTakeoverActive(true);
-        this.requestBottomAnchorRefresh();
+        this.requestLayoutRefresh();
         return { consume: true };
       }
       return undefined;
     });
 
+    ensurePiTuiDebugRedrawDir();
+    clearTerminalForTuiStart(this.terminal);
     this.tui.start();
     if (this.allowAllOnStartup) {
       const agreed = await this.showAllowAllDisclaimer();
@@ -2268,8 +2267,9 @@ export class ImpulseRenderer {
     }
 
     if (shouldTreatAsSlashCommand(input)) {
-      this.recordSubmittedPrompt(payload.apiText.trim());
-      await this.handleSlash(payload.apiText.trim());
+      const canonicalSlash = canonicalizeSlashAliasInput(payload.apiText).trim();
+      this.recordSubmittedPrompt(canonicalSlash);
+      await this.handleSlash(canonicalSlash);
       this.tui.requestRender();
       return;
     }
@@ -2417,7 +2417,6 @@ export class ImpulseRenderer {
         });
         this.updateLiveMetrics(0, true);
         this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
-        this.freezeTurnAnchor();
       },
       onToken: (text) => {
         if (!this.streamBusyPhraseSet) {
@@ -2425,6 +2424,9 @@ export class ImpulseRenderer {
           this.streamBusyPhraseSet = true;
         }
         this.closeThinking();
+        if (this.shouldRotateStreamingSegment()) {
+          this.rotateStreamingSegment();
+        }
         if (!this.streamingText) {
           if (this.lastBandWasTool) {
             this.addSectionGap();
@@ -2465,7 +2467,7 @@ export class ImpulseRenderer {
         const block = this.toolBlocks.get(id);
         if (block) {
           block.setSubagentTaskStatus(status);
-          this.tui.requestRender();
+          this.requestRenderForPhase("subagent_status");
         }
       },
       onToolStart: (id, name, args) => {
@@ -2515,7 +2517,7 @@ export class ImpulseRenderer {
           name === "vision_translate" ? BUSY_PROCESSING : BUSY_WORKING;
         this.setBusyStatus(this.toolBusyStatus(name), toolPhrase);
         this.updateLiveMetrics(0, true);
-        this.tui.requestRender();
+        this.requestRenderForPhase("tool_start");
       },
       onToolEnd: (id, _name, result, durationMs) => {
         if (SILENT_TOOLS.has(_name)) {
@@ -2536,7 +2538,7 @@ export class ImpulseRenderer {
             }
             this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
             this.updateLiveMetrics(result.output.length, true);
-            this.tui.requestRender();
+            this.requestRenderForPhase("tool_end_todo_noop");
             return;
           }
 
@@ -2554,7 +2556,7 @@ export class ImpulseRenderer {
             }
             this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
             this.updateLiveMetrics(result.output.length, true);
-            this.tui.requestRender();
+            this.requestRenderForPhase("tool_end_todo_cosmetic");
             return;
           }
 
@@ -2564,21 +2566,12 @@ export class ImpulseRenderer {
           const collapsed =
             _name === "task" || compact || (_name === "question" && result.success);
           if (compact) this.lastExpandableTool = block;
-          const shouldReveal =
-            (_name === "file_write" || _name === "file_edit") &&
-            result.success &&
-            extractDiffLinesFromMetadata(result.metadata).length > 0;
-
-          if (shouldReveal && block.beginDiffReveal(result, durationMs)) {
-            this.ensureDiffRevealLoop();
-          } else {
-            block.setDone(result, durationMs, { collapsed, compact });
-            this.lastBandToolHadBody = block.hasExpandedBody();
-            if (_name === "todo_write" || _name === "todo_read") {
-              this.markLatestTodoBlock(block);
-            }
-            this.toolBlocks.delete(id);
+          block.setDone(result, durationMs, { collapsed, compact });
+          this.lastBandToolHadBody = block.hasExpandedBody();
+          if (_name === "todo_write" || _name === "todo_read") {
+            this.markLatestTodoBlock(block);
           }
+          this.toolBlocks.delete(id);
         }
         if (!this.isRunning) {
           this.tui.requestRender();
@@ -2587,7 +2580,7 @@ export class ImpulseRenderer {
 
           this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
         this.updateLiveMetrics(result.output.length, true);
-        this.tui.requestRender();
+        this.requestRenderForPhase("tool_end");
       },
       onCompacting: () => {
         this.compactStartMs = Date.now();
@@ -2655,7 +2648,6 @@ export class ImpulseRenderer {
         this.lastBandWasTool = false;
         this.turnShowsImpulseHeader = false;
         this.isRunning = false;
-        this.releaseTurnAnchor();
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         if (this.goalLoopActive()) {
@@ -2670,7 +2662,6 @@ export class ImpulseRenderer {
         this.syncContextBar({ isRunning: false });
         this.addChatLine(`${clr.error("Error:")} ${err.message}`);
         this.isRunning = false;
-        this.releaseTurnAnchor();
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         this.drainTurnQueue();
@@ -2689,7 +2680,6 @@ export class ImpulseRenderer {
           `Context limit reached: ${tokens} / ${this.contextWindow} tokens (${pct}%). Use /compact or /new to continue.`
         );
         this.isRunning = false;
-        this.releaseTurnAnchor();
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         this.drainTurnQueue();
@@ -2713,7 +2703,7 @@ export class ImpulseRenderer {
     this.streamRenderScheduled = true;
     setTimeout(() => {
       this.streamRenderScheduled = false;
-      this.tui?.requestRender();
+      this.requestRenderForPhase("stream");
     }, 16);
   }
 
@@ -2830,52 +2820,9 @@ export class ImpulseRenderer {
     this.planApprovalOverlayHandle = null;
   }
 
-  /**
-   * Calculate total content height for bottom-anchor positioning.
-   * Returns the number of lines occupied by all TUI children except the BottomAnchorSpacer.
-   */
-  private measureComponentLines(component: Component | undefined, width: number): number {
-    if (!component || !("render" in component) || typeof component.render !== "function") {
-      return 0;
-    }
-    return component.render(width).length;
-  }
-
-  private getContentHeight(): number {
-    let chatLines = 0;
-    const width = Math.max(20, this.tui?.terminal?.columns ?? 80);
-    for (const child of this.chat.children) {
-      chatLines += this.measureComponentLines(child as Component, width);
-    }
-
-    // Spacer above spinner (1) + separator + prompt + separator + context bar
-    const contextBarLines = this.contextBar
-      ? this.measureComponentLines(this.contextBar, width)
-      : 3;
-    let otherLines = 1 + 1 + 1 + 1 + contextBarLines;
-    otherLines += this.measureComponentLines(this.spinnerText, width);
-    otherLines += this.measureComponentLines(this.modelSetupText, width);
-    otherLines += this.measureComponentLines(this.autocompleteText, width);
-    otherLines += this.measureComponentLines(this.promptInput as unknown as Component, width);
-
-    return chatLines + otherLines;
-  }
-
-  private requestBottomAnchorRefresh(): void {
-    this.bottomSpacer?.invalidate();
-    this.tui?.requestRender();
-  }
-
-  private freezeTurnAnchor(): void {
-    const rows = this.tui?.terminal?.rows ?? 24;
-    this.turnAnchorEmptyLines = Math.max(0, rows - this.getContentHeight());
-    this.requestBottomAnchorRefresh();
-  }
-
-  private releaseTurnAnchor(): void {
-    if (this.turnAnchorEmptyLines === null) return;
-    this.turnAnchorEmptyLines = null;
-    this.requestBottomAnchorRefresh();
+  /** Request a layout refresh after content above the prompt changes. */
+  private requestLayoutRefresh(): void {
+    this.requestRenderForPhase("layout");
   }
 
   // ?? Slash autocomplete ????????????????????????????????????????????????????
@@ -2914,7 +2861,7 @@ export class ImpulseRenderer {
       });
       this.autocompleteText.setText(lines.join("\n"));
     }
-    this.requestBottomAnchorRefresh();
+    this.requestLayoutRefresh();
   }
 
   // ?? Exit ??????????????????????????????????????????????????????????????????
@@ -2949,12 +2896,30 @@ export class ImpulseRenderer {
    * Without this, silent tools (set_header) leave streamingRaw open and glue the next
    * continuation chunk onto the same paragraph.
    */
-  private appendAssistantTurnSegment(segment: string): void {
+  private appendAssistantTurnSegment(segment: string, separator = "\n\n"): void {
     const trimmed = segment.trim();
     if (!trimmed) return;
     this.currentTurnAssistantText = this.currentTurnAssistantText
-      ? `${this.currentTurnAssistantText}\n\n${trimmed}`
+      ? `${this.currentTurnAssistantText}${separator}${trimmed}`
       : trimmed;
+  }
+
+  private shouldRotateStreamingSegment(): boolean {
+    if (!this.streamingText || !this.tui) return false;
+    const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
+    const threshold = Math.max(
+      8,
+      Math.min(ImpulseRenderer.MAX_MUTABLE_STREAM_LINES, Math.floor(rows / 3))
+    );
+    return this.streamingText.render(this.terminalCols()).length >= threshold;
+  }
+
+  private rotateStreamingSegment(): void {
+    if (this.streamingRaw.trim()) {
+      this.appendAssistantTurnSegment(this.streamingRaw);
+    }
+    this.streamingRaw = "";
+    this.streamingText = null;
   }
 
   private finalizeAssistantStreamingSegment(gapAfter = true): void {
@@ -3330,7 +3295,7 @@ export class ImpulseRenderer {
     }
 
     this.modelSetupText.setText(lines.map(l => GUTTER + l).join("\n"));
-    this.requestBottomAnchorRefresh();
+    this.requestLayoutRefresh();
   }
 
   private async selectModelSetupProvider(
@@ -3581,7 +3546,7 @@ export class ImpulseRenderer {
       this.addChatLine(
         clr.dim(`Vision ON  --  ${selectedModel.split("/").pop() ?? selectedModel}`)
       );
-      this.requestBottomAnchorRefresh();
+      this.requestLayoutRefresh();
       return;
     }
 
@@ -3609,7 +3574,7 @@ export class ImpulseRenderer {
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
       this.addChatLine(modelStatusLine(`Subagent model: ${selectedModel}`));
-      this.requestBottomAnchorRefresh();
+      this.requestLayoutRefresh();
       return;
     }
 
@@ -3644,7 +3609,7 @@ export class ImpulseRenderer {
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
       this.addChatLine(advisorStatusLine(`Advisor: ${selectedModel}`));
-      this.requestBottomAnchorRefresh();
+      this.requestLayoutRefresh();
       return;
     }
 
@@ -4513,7 +4478,7 @@ export class ImpulseRenderer {
             this.addChatLine(clr.dim("Configure advisor model via /advisor"));
           }
           finish();
-          this.requestBottomAnchorRefresh();
+          this.requestLayoutRefresh();
         })();
       };
     });
@@ -4929,6 +4894,8 @@ export class ImpulseRenderer {
       await runOnboarding();
       const newConfig = await loadConfig();
       this.userName = newConfig.userProfile?.name || "you";
+      ensurePiTuiDebugRedrawDir();
+      clearTerminalForTuiStart(this.terminal);
       this.tui.start();
       this.tui.setFocus(this.promptInput);
       this.addChatLine(clr.dim("Profile updated"));
@@ -4967,10 +4934,6 @@ export class ImpulseRenderer {
   private resetTurnUiState(): void {
     this.toolBlocks.clear();
     this.taskCodenames.clear();
-    if (this.diffRevealInterval) {
-      clearInterval(this.diffRevealInterval);
-      this.diffRevealInterval = null;
-    }
     this.dismissTaskBatchPermissionOverlay();
     this.clearCtrlCPending();
     this.streamingRaw = "";
@@ -5520,11 +5483,11 @@ export class ImpulseRenderer {
         }
         this.streamingRaw += text;
         this.streamingText.setText(this.streamingRaw);
-        this.requestBottomAnchorRefresh();
+        this.requestLayoutRefresh();
       },
       onThinking: (text) => {
         this.appendWorkerThinking(text);
-        this.requestBottomAnchorRefresh();
+        this.requestLayoutRefresh();
       },
       onAdvisorStart: () => {},
       onAdvisorToken: () => {},

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-06-23
+
+  **Type:** patch
+  **Title:** Flicker-free tool updates and slash aliases
+
+  ### Added
+  - **#109** -- Short slash-command aliases now work when typed and Tab-expand to their full commands
+
+  ### Fixed
+  - **#110** -- Active turns now use top-anchored rendering to reduce flicker during streaming, tool settlement, and diff output
+  - **#110** -- File write/edit diffs now render in one stable update instead of rapidly revealing line-by-line
+
 ## [1.8.1] - 2026-06-22
 
   **Type:** patch

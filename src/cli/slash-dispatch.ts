@@ -2,6 +2,8 @@
  * Slash command dispatch table — extracted from ImpulseRenderer.handleSlash.
  */
 
+import { resolveSlashAlias } from "./slash-aliases.js";
+
 export interface SlashDispatchHost {
   readonly isRunning: boolean;
   cmdAdvisor(arg: string): Promise<void>;
@@ -79,6 +81,10 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   exit: (h) => h.gracefulExit(),
 };
 
+export function slashDispatchKeys(): string[] {
+  return Object.keys(SLASH_DISPATCH).sort((a, b) => a.localeCompare(b));
+}
+
 /** Parse `/command args` into command slug and remainder. */
 export function parseSlashInput(input: string): { cmd: string; arg: string } {
   const parts = input.slice(1).trim().split(/\s+/);
@@ -91,7 +97,8 @@ export async function dispatchSlashCommand(
   input: string,
   host: SlashDispatchHost
 ): Promise<void> {
-  const { cmd, arg } = parseSlashInput(input);
+  const { cmd: parsedCmd, arg } = parseSlashInput(input);
+  const cmd = resolveSlashAlias(parsedCmd);
   const handler = SLASH_DISPATCH[cmd];
   if (handler) {
     await handler(host, arg);
