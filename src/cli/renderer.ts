@@ -2921,11 +2921,12 @@ export class ImpulseRenderer {
   }
 
   private rotateStreamingSegment(): void {
-    if (!this.streamingRaw.trim()) return;
-    this.appendAssistantTurnSegment(
-      this.streamingRaw,
-      this.currentStreamWasRotated ? "" : "\n\n"
-    );
+    if (this.streamingRaw.trim()) {
+      this.appendAssistantTurnSegment(
+        this.streamingRaw,
+        this.currentStreamWasRotated ? "" : "\n\n"
+      );
+    }
     this.streamingRaw = "";
     this.streamingText = null;
     this.currentStreamWasRotated = true;
