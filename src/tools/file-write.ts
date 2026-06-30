@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { mkdir, stat, writeFile, readFile, chmod, access } from "fs/promises";
+import { mkdir, stat, readFile, access } from "fs/promises";
+import { writeFileAtomic } from "../util/atomic-write.js";
 import { basename, dirname } from "path";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
@@ -128,11 +129,11 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
         }
       }
 
-      await writeFile(safePath, input.content, "utf-8");
-
-      if (existingPermissions !== undefined) {
-        await chmod(safePath, existingPermissions);
-      }
+      await writeFileAtomic(
+        safePath,
+        input.content,
+        existingPermissions !== undefined ? { mode: existingPermissions } : undefined
+      );
 
       // Count logical content lines written. Empty files have 0 lines.
       const linesWritten = input.content.length === 0 ? 0 : input.content.split("\n").length;

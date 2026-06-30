@@ -4,7 +4,7 @@
 
 export interface GoalState {
   text: string;
-  status: "active" | "paused" | "done";
+  status: "active" | "paused" | "paused_judge_unavailable" | "done";
   turnsUsed: number;
   maxTurns: number;
   lastJudgeReason?: string;
@@ -26,7 +26,12 @@ export function parseGoalState(raw: unknown): GoalState | undefined {
   const g = raw as Record<string, unknown>;
   if (typeof g["text"] !== "string" || !g["text"].trim()) return undefined;
   const status = g["status"];
-  if (status !== "active" && status !== "paused" && status !== "done") return undefined;
+  if (
+    status !== "active" &&
+    status !== "paused" &&
+    status !== "paused_judge_unavailable" &&
+    status !== "done"
+  ) return undefined;
   return {
     text: g["text"].trim(),
     status,

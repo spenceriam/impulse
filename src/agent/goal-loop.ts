@@ -5,7 +5,7 @@
 import { getProviderManager } from "../api/manager.js";
 import type { GoalState } from "../session/goal-state.js";
 
-export type GoalJudgeVerdict = "done" | "continue";
+export type GoalJudgeVerdict = "done" | "continue" | "judge_unavailable";
 
 export interface GoalJudgeResult {
   verdict: GoalJudgeVerdict;
@@ -18,7 +18,6 @@ DONE: <brief reason>
 or
 CONTINUE: <brief reason>`;
 
-/** Fail-open: continue on any judge error. */
 export async function judgeGoal(
   goal: GoalState,
   lastAssistantText: string,
@@ -26,7 +25,7 @@ export async function judgeGoal(
 ): Promise<GoalJudgeResult> {
   const model = judgeModel?.trim();
   if (!model) {
-    return { verdict: "continue", reason: "no judge model configured" };
+    return { verdict: "judge_unavailable", reason: "no judge model configured" };
   }
 
   try {
@@ -58,7 +57,7 @@ export async function judgeGoal(
     return { verdict: "continue", reason: "judge inconclusive" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { verdict: "continue", reason: `judge error (fail-open): ${msg}` };
+    return { verdict: "judge_unavailable", reason: `judge error: ${msg}` };
   }
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { readFile, writeFile } from "fs/promises";
+import { readFile, stat } from "fs/promises";
+import { writeFileAtomic } from "../util/atomic-write.js";
 import { basename } from "path";
 import { createPatch } from "diff";
 import {
@@ -82,6 +83,10 @@ export const fileEdit: Tool<EditInput> = Tool.define(
       });
 
       const content = await readFile(safePath, "utf-8");
+      let existingMode: number | undefined;
+      try {
+        existingMode = (await stat(safePath)).mode;
+      } catch { /* preserve no mode if stat fails */ }
 
       const resolved = resolveEditMatch(
         content,
@@ -156,7 +161,11 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         }
       }
 
-      await writeFile(safePath, newContent, "utf-8");
+      await writeFileAtomic(
+        safePath,
+        newContent,
+        existingMode !== undefined ? { mode: existingMode } : undefined
+      );
 
       // Emit file edited event for formatters
       Bus.publish(FileEvents.Edited, { 

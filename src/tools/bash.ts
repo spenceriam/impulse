@@ -27,6 +27,8 @@ const DESCRIPTION = `Run a shell command in the host platform shell.
 
 On Windows this auto-detects PowerShell, cmd.exe, or Git Bash. On macOS/Linux this uses bash.
 Required: command, description. Optional: workdir, timeout, interactive, session.
+Default timeout is 120s. Pass a higher value for known long-running operations (builds, installs).
+Pass timeout: 0 to run without a time limit (e.g. dev servers meant to stay alive).
 See docs/tools/bash.md for safety rules and usage details.`;
 
 const BashSchema = z.object({
@@ -54,6 +56,11 @@ interface ShellSessionState {
 
 const shellSessions = new Map<string, ShellSessionState>();
 const sessionChains = new Map<string, Promise<unknown>>();
+
+export function clearShellSessions(): void {
+  shellSessions.clear();
+  sessionChains.clear();
+}
 
 function isValidSessionCwd(cwd: string): boolean {
   try {
@@ -796,7 +803,8 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
   const stderrPromise = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutMs = input.timeout;
+  // timeout:0 means no limit; undefined falls back to the 120s default (matching PTY path)
+  const timeoutMs = input.timeout === 0 ? undefined : (input.timeout ?? DEFAULT_BASH_TIMEOUT_MS);
   const timeoutPromise = new Promise<number>((resolve) => {
     if (timeoutMs === undefined) {
       return;

@@ -219,7 +219,7 @@ import {
   formatSessionStatsBlock,
 } from "../session/session-stats.js";
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
-import { abortCurrentBashExecution } from "../tools/bash.js";
+import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import {
@@ -1253,6 +1253,21 @@ export class ImpulseRenderer {
       };
       await this.persistGoalState();
       void this.emitStatusEvent(`Goal achieved: ${result.reason}`);
+      this.drainTurnQueue();
+      return;
+    }
+
+    if (result.verdict === "judge_unavailable") {
+      this.goalState = {
+        ...activeGoal,
+        status: "paused_judge_unavailable",
+        lastJudgeReason: result.reason,
+      };
+      await this.persistGoalState();
+      this.syncGoalContextBar();
+      void this.emitStatusEvent(
+        "Goal paused — judge model unavailable. Run /goal resume after restoring it."
+      );
       this.drainTurnQueue();
       return;
     }
@@ -2723,7 +2738,9 @@ export class ImpulseRenderer {
     const label =
       this.goalState?.status === "active"
         ? this.goalState.text
-        : undefined;
+        : this.goalState?.status === "paused_judge_unavailable"
+          ? "[goal paused — judge unavailable]"
+          : undefined;
     this.syncContextBar({ goalLabel: label });
   }
 
@@ -3053,6 +3070,7 @@ export class ImpulseRenderer {
     if (arg) {
       this.addChatLine(clr.dim("Optional session name is not documented; starting a new session."));
     }
+    clearShellSessions();
     await SessionManager.createNew(arg || undefined);
     const newCfg = await loadConfig();
     if (newCfg.defaultModel?.trim()) {
@@ -4394,14 +4412,18 @@ export class ImpulseRenderer {
     }
     if (sub === "resume") {
       if (this.goalState) {
+        const wasJudgePause = this.goalState.status === "paused_judge_unavailable";
         this.goalState = {
           ...this.goalState,
           status: "active",
-          turnsUsed: 0,
+          // Preserve turnsUsed for judge pauses — no work-turn was consumed
+          ...(wasJudgePause ? {} : { turnsUsed: 0 }),
         };
         await this.persistGoalState();
         this.syncGoalContextBar();
-        void this.emitStatusEvent("Goal resumed — turn counter reset");
+        void this.emitStatusEvent(
+          wasJudgePause ? "Goal resumed" : "Goal resumed — turn counter reset"
+        );
       }
       this.tui.requestRender();
       return;
