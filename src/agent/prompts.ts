@@ -555,6 +555,18 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     parts.push(buildPlanModeContextBlock(options.sessionId, workingDir));
   }
 
+  // Active-goal context: inject when a goal is set so it survives /compact
+  if (options?.sessionId) {
+    const { readGoalArtifact } = await import("../goal/artifact.js");
+    const activeGoal = readGoalArtifact(options.sessionId, workingDir);
+    if (activeGoal && activeGoal.status !== "done") {
+      const statusLine = activeGoal.status === "active"
+        ? `Status: active (turn ${activeGoal.turnsUsed}/${activeGoal.maxTurns})`
+        : `Status: ${activeGoal.status}`;
+      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}\n\nContinue working toward this goal unless the user redirects you.`);
+    }
+  }
+
   const allowAllBlock = buildAllowAllBypassPromptBlock();
   if (allowAllBlock) {
     parts.push(allowAllBlock);

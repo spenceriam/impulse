@@ -212,6 +212,10 @@ import {
   type GoalState,
 } from "../session/goal-state.js";
 import { buildGoalContinuationMessage, judgeGoal } from "../agent/goal-loop.js";
+import {
+  writeGoalArtifact,
+  readGoalArtifact,
+} from "../goal/artifact.js";
 import { invalidatePromptCache } from "../agent/prompts.js";
 import { getRepairTelemetrySummary } from "../harness/repair-telemetry.js";
 import {
@@ -1204,12 +1208,27 @@ export class ImpulseRenderer {
   private async persistGoalState(): Promise<void> {
     const session = SessionManager.getCurrentSession();
     if (!session) return;
+    // Write to .impulse/goals/ artifact (primary) and keep metadata key for
+    // backward compat with older sessions that only have the metadata path.
+    if (this.goalState) {
+      try {
+        await writeGoalArtifact(session.id, this.goalState);
+      } catch {
+        // Non-fatal: fall back to metadata-only path
+      }
+    }
     const metadata = { ...(session.metadata ?? {}), goal: this.goalState };
     await SessionManager.update({ metadata });
   }
 
   private loadGoalFromSession(session: Session): void {
-    this.goalState = parseGoalState(session.metadata?.["goal"]);
+    // Prefer artifact if available; fall back to legacy session.metadata['goal'].
+    const fromArtifact = readGoalArtifact(session.id);
+    this.goalState = fromArtifact ?? parseGoalState(session.metadata?.["goal"]);
+    // One-time migration: if we loaded from metadata but have no artifact yet, write the artifact.
+    if (!fromArtifact && this.goalState) {
+      void writeGoalArtifact(session.id, this.goalState).catch(() => { /* non-fatal */ });
+    }
   }
 
   private goalLoopActive(): boolean {

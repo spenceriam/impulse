@@ -9,7 +9,7 @@ You should recognize when the conversation is shifting toward a different mode's
 | EXPLORE | PLAN | "I want to build...", "Let's create...", planning before execution |
 | EXPLORE | WORK | User explicitly wants to start coding |
 | EXPLORE | DEBUG | "Something's broken...", "This error...", "Why isn't..." |
-| PLAN | WORK | Plan is clear and user says "let's do it" |
+| PLAN | WORK | Plan artifacts complete; user approves via the completion overlay (execute/proceed) |
 | WORK | PLAN | Scope is unclear, cross-cutting, or requires architecture decisions |
 | Any | EXPLORE | "Wait, explain...", "I don't understand...", "Back up..." |
 
