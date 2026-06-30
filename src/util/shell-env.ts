@@ -405,3 +405,72 @@ export function generateShellContext(env: ShellEnvironment): string {
   return parts.join("\n");
 }
 import { detectWindowsCommandShell, type WindowsCommandShellType } from "./windows-shell.js";
+
+// ---------------------------------------------------------------------------
+// Tool-availability probe (#118 item 3 / #115 shared)
+// ---------------------------------------------------------------------------
+
+export interface ToolAvailability {
+  available: string[];   // "git 2.41.0" style (version when probed, name-only as fallback)
+  unavailable: string[];
+}
+
+let cachedToolAvailability: Promise<ToolAvailability> | undefined;
+
+const COMMON_TOOLS = ["git", "node", "npm", "bun", "python", "docker", "rg", "jq", "curl"];
+const WINDOWS_EXTRA = ["wsl"];
+
+async function probeOneTool(name: string): Promise<string | null> {
+  try {
+    const found = Bun.which(name);
+    if (!found) return null;
+    // Probe version with a quick, per-check 1.5s timeout
+    const proc = Bun.spawn({
+      cmd: [name, "--version"],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = new Promise<"timeout">((r) => setTimeout(() => { try { proc.kill(); } catch { /* */ } r("timeout"); }, 1500));
+    const result = await Promise.race([
+      new Response(proc.stdout).text().then((t) => t.trim().split("\n")[0] ?? ""),
+      timer,
+    ]);
+    if (result === "timeout" || !result) return name;
+    // Keep only the first 60 chars to avoid huge version strings
+    return `${name} (${result.slice(0, 60)})`;
+  } catch {
+    return null;
+  }
+}
+
+export async function probeToolAvailability(): Promise<ToolAvailability> {
+  cachedToolAvailability ??= probeToolAvailabilityUncached();
+  return cachedToolAvailability;
+}
+
+async function probeToolAvailabilityUncached(): Promise<ToolAvailability> {
+  const tools = process.platform === "win32"
+    ? [...COMMON_TOOLS, ...WINDOWS_EXTRA]
+    : COMMON_TOOLS;
+
+  const results = await Promise.all(tools.map(probeOneTool));
+
+  const available: string[] = [];
+  const unavailable: string[] = [];
+  for (let i = 0; i < tools.length; i++) {
+    if (results[i] !== null) available.push(results[i]!);
+    else unavailable.push(tools[i]!);
+  }
+  return { available, unavailable };
+}
+
+export function formatToolAvailabilityBlock(avail: ToolAvailability): string {
+  const lines: string[] = ["## Available CLI tools"];
+  if (avail.available.length > 0) {
+    lines.push(`Available: ${avail.available.join(", ")}`);
+  }
+  if (avail.unavailable.length > 0) {
+    lines.push(`Not found: ${avail.unavailable.join(", ")}`);
+  }
+  return lines.join("\n");
+}

@@ -23,6 +23,43 @@ import { detectWindowsCommandShell } from "../util/windows-shell.js";
 /** Default bash/PTY timeout per docs/tools/bash.md */
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 
+/**
+ * Classify a failed command's output to give actionable guidance when a
+ * tool or command is not found on the target shell.
+ * Returns a hint string to append, or null when output is already clear.
+ */
+function classifyCommandError(
+  command: string,
+  output: string,
+  exitCode: number,
+  shellKind: "powershell" | "cmd" | "bash"
+): string | null {
+  if (exitCode === 0) return null;
+  const cmd = command.trim().split(/\s+/)[0] ?? command;
+  if (shellKind === "powershell") {
+    if (
+      output.includes("is not recognized as the name of a cmdlet") ||
+      output.includes("is not recognized as an internal or external command") ||
+      output.includes("CommandNotFoundException")
+    ) {
+      return `[Hint: '${cmd}' is not a recognised PowerShell cmdlet or program. Check spelling, confirm it is installed, or run 'Get-Command ${cmd}' to locate it.]`;
+    }
+  } else if (shellKind === "cmd") {
+    if (output.includes("is not recognized as an internal or external command")) {
+      return `[Hint: '${cmd}' was not found. Check spelling or confirm it is on PATH.]`;
+    }
+  } else {
+    // bash / POSIX
+    if (output.includes("command not found") || exitCode === 127) {
+      return `[Hint: '${cmd}' was not found on PATH. Confirm it is installed (e.g. 'which ${cmd}').]`;
+    }
+    if ((output.includes("Permission denied") || output.includes("EACCES")) && exitCode === 126) {
+      return `[Hint: Permission denied executing '${cmd}'. Check file permissions (ls -l).]`;
+    }
+  }
+  return null;
+}
+
 const DESCRIPTION = `Run a shell command in the host platform shell.
 
 On Windows this auto-detects PowerShell, cmd.exe, or Git Bash. On macOS/Linux this uses bash.
@@ -39,6 +76,8 @@ const BashSchema = z.object({
   interactive: z.boolean().optional(),
   session: z.string().optional().describe("Optional named shell session; preserves cwd between bash calls"),
   resetSession: z.boolean().optional().describe("Reset the named shell session before running"),
+  offset: z.number().optional().describe("Line offset into captured output (0-based). Use to page through large results."),
+  limit: z.number().optional().describe("Max output lines to return (default 2000). Combine with offset for pagination."),
 });
 
 type BashInput = z.infer<typeof BashSchema>;
@@ -52,10 +91,28 @@ interface SpawnOptions {
 
 interface ShellSessionState {
   cwd: string;
+  lastUsed: number;
 }
+
+const MAX_SHELL_SESSIONS = 20;
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 const shellSessions = new Map<string, ShellSessionState>();
 const sessionChains = new Map<string, Promise<unknown>>();
+
+function evictStaleSessions(): void {
+  const now = Date.now();
+  // First remove TTL-expired sessions
+  for (const [name, state] of shellSessions) {
+    if (now - state.lastUsed > SESSION_TTL_MS) shellSessions.delete(name);
+  }
+  // Then LRU-evict if still over cap
+  if (shellSessions.size > MAX_SHELL_SESSIONS) {
+    const sorted = [...shellSessions.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    const toRemove = sorted.slice(0, shellSessions.size - MAX_SHELL_SESSIONS);
+    for (const [name] of toRemove) shellSessions.delete(name);
+  }
+}
 
 export function clearShellSessions(): void {
   shellSessions.clear();
@@ -106,20 +163,23 @@ function resolveSessionCwd(
   options?: { reset?: boolean; workdirProvided?: boolean }
 ): string {
   if (!sessionName) return fallbackCwd;
+  evictStaleSessions();
   if (options?.reset) shellSessions.delete(sessionName);
   const existing = shellSessions.get(sessionName);
+  const now = Date.now();
   if (existing) {
     if (options?.workdirProvided) {
-      shellSessions.set(sessionName, { cwd: fallbackCwd });
+      shellSessions.set(sessionName, { cwd: fallbackCwd, lastUsed: now });
       return fallbackCwd;
     }
     if (isValidSessionCwd(existing.cwd)) {
+      existing.lastUsed = now;
       return existing.cwd;
     }
-    shellSessions.set(sessionName, { cwd: fallbackCwd });
+    shellSessions.set(sessionName, { cwd: fallbackCwd, lastUsed: now });
     return fallbackCwd;
   }
-  shellSessions.set(sessionName, { cwd: fallbackCwd });
+  shellSessions.set(sessionName, { cwd: fallbackCwd, lastUsed: now });
   return fallbackCwd;
 }
 
@@ -153,7 +213,7 @@ function updateSessionCwd(sessionName: string | null, cwd: string, command: stri
   } catch {
     return;
   }
-  shellSessions.set(sessionName, { cwd: next });
+  shellSessions.set(sessionName, { cwd: next, lastUsed: Date.now() });
 }
 
 const WINDOWS_COMMAND_ENV_VAR = "IMPULSE_COMMAND";
@@ -850,12 +910,39 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
   }
   
-  const capped = capBashOutputLines(combinedOutput, maxLines);
+  // Pagination: slice output lines before byte-capping
+  const outputOffset = input.offset ?? 0;
+  const outputLimit = input.limit ?? maxLines;
+  let paginationNote = "";
+  let paginatedOutput = combinedOutput;
+  if (outputOffset > 0 || input.limit !== undefined) {
+    const allLines = combinedOutput.split("\n");
+    const totalOutputLines = allLines.length;
+    const sliced = allLines.slice(outputOffset, outputOffset + outputLimit);
+    paginatedOutput = sliced.join("\n");
+    const nextOffset = outputOffset + sliced.length;
+    if (nextOffset < totalOutputLines) {
+      paginationNote = `\n[Output paginated: lines ${outputOffset + 1}–${nextOffset} of ${totalOutputLines}. Re-run with offset: ${nextOffset} for more.]`;
+    }
+  }
+
+  const capped = capBashOutputLines(paginatedOutput, maxLines);
   let output = capped.output;
-  let wasTruncated = capped.truncated;
+  let wasTruncated = capped.truncated || paginationNote.length > 0;
+
+  if (paginationNote) {
+    output = `${output}${paginationNote}`;
+  }
 
   if (exitCode === -1) {
     output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
+  }
+
+  // Append command-not-found hint on failures when output doesn't already explain the error
+  const shellForClassify = spawnOptions.shellKind ?? (process.platform === "win32" ? "powershell" : "bash");
+  const hint = classifyCommandError(input.command, output, exitCode ?? -1, shellForClassify);
+  if (hint) {
+    output = `${output}${output ? "\n" : ""}${hint}`;
   }
 
   const elapsed = Date.now() - startTime;

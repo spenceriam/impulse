@@ -483,15 +483,20 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     "../git/repo-context.js"
   );
   const { probeGhCli, formatGhCliPromptBlock } = await import("../git/gh-cli.js");
+  const { probeToolAvailability, formatToolAvailabilityBlock } = await import(
+    "../util/shell-env.js"
+  );
 
   const repoContext = resolveRepoContext(workingDir);
   const ghStatus = probeGhCli();
+  const toolAvailability = await probeToolAvailability();
 
   const parts: string[] = [
     getPrompt("core", "base", BASE_PROMPT),
     cwdContext,
     formatRepoContextPromptBlock(repoContext),
     formatGhCliPromptBlock(ghStatus),
+    formatToolAvailabilityBlock(toolAvailability),
   ];
 
   const projectInstructions = await loadInstructions(workingDir);
