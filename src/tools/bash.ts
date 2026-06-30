@@ -18,7 +18,8 @@ import { detectAndPublishBranchChange } from "../git/branch-detect";
 import { SessionManager } from "../session/manager";
 import { capBashOutputLines } from "../util/tool-output-cap.js";
 import { isWithinBase } from "../util/path.js";
-import { detectWindowsCommandShell } from "../util/windows-shell.js";
+import { detectWindowsCommandShell, detectWslShell } from "../util/windows-shell.js";
+import { load as loadConfig } from "../util/config.js";
 
 /** Default bash/PTY timeout per docs/tools/bash.md */
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -583,6 +584,21 @@ function quotePowerShellString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+/**
+ * Translate a Windows path to a WSL mount path.
+ * C:\Users\foo\bar → /mnt/c/Users/foo/bar
+ * Already-POSIX paths are returned unchanged.
+ */
+function translateToWslPath(winPath: string): string {
+  const driveMatch = winPath.match(/^([A-Za-z]):[\\\/](.*)/);
+  if (driveMatch) {
+    const drive = driveMatch[1]!.toLowerCase();
+    const rest = (driveMatch[2] ?? "").replaceAll("\\", "/");
+    return `/mnt/${drive}/${rest}`;
+  }
+  return winPath.replaceAll("\\", "/");
+}
+
 function normalizeWindowsCommand(command: string, shellType: "powershell5" | "powershell7"): string {
   const trimmed = command.trim();
   const chaining = analyzePowerShellChaining(trimmed, shellType);
@@ -613,7 +629,34 @@ async function getSpawnOptions(
   };
 
   if (process.platform === "win32") {
-    const shell = await detectWindowsCommandShell();
+    const cfg = await loadConfig();
+    const preferred = cfg.preferredShell;
+
+    // WSL: either forced by preferredShell config or auto-detected
+    if (preferred === "wsl") {
+      const wslShell = await detectWslShell();
+      const wslExe = wslShell?.executable ?? "wsl.exe";
+      const wslCwd = translateToWslPath(cwd);
+      // cwd is set via --cd inside wsl.exe; don't pass a Windows cwd to Bun.spawn
+      return {
+        env: process.env,
+        shellKind: "bash",
+        cmd: [wslExe, "--cd", wslCwd, "--", "bash", "-lc", input.command],
+      };
+    }
+
+    const shell = preferred === "auto"
+      ? await detectWindowsCommandShell()
+      : await resolvePreferredShell(preferred);
+
+    if (shell.type === "wsl") {
+      const wslCwd = translateToWslPath(cwd);
+      return {
+        env: process.env,
+        shellKind: "bash",
+        cmd: [shell.executable, "--cd", wslCwd, "--", "bash", "-lc", input.command],
+      };
+    }
 
     if (shell.type === "cmd") {
       return {
@@ -632,13 +675,14 @@ async function getSpawnOptions(
     }
 
     const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
+    const psType = shell.type as "powershell5" | "powershell7";
 
     return {
       ...common,
       shellKind: "powershell",
       env: {
         ...process.env,
-        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, shell.type),
+        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, psType),
       },
       cmd: [
         shell.executable,
@@ -658,6 +702,31 @@ async function getSpawnOptions(
     shellKind: "bash",
     cmd: ["bash", "-lc", input.command],
   };
+}
+
+/**
+ * Resolve a specific shell from a user preference string (non-"auto" + non-"wsl" values).
+ * Falls back to auto-detection when the requested shell is not found.
+ */
+async function resolvePreferredShell(preferred: string) {
+  if (preferred === "pwsh") {
+    const pwshPath = Bun.which("pwsh.exe") ?? Bun.which("pwsh");
+    if (pwshPath) return { type: "powershell7" as const, executable: pwshPath, displayName: "PowerShell 7.x (pwsh)", supportsChainedCommands: true, commandSeparator: "&&" as const };
+  }
+  if (preferred === "powershell") {
+    const psPath = Bun.which("powershell.exe") ?? Bun.which("powershell") ?? "powershell.exe";
+    return { type: "powershell5" as const, executable: psPath, displayName: "Windows PowerShell 5.x", supportsChainedCommands: false, commandSeparator: ";" as const };
+  }
+  if (preferred === "cmd") {
+    const cmdPath = process.env["COMSPEC"] ?? "cmd.exe";
+    return { type: "cmd" as const, executable: cmdPath, displayName: "Windows Command Prompt (cmd.exe)", supportsChainedCommands: true, commandSeparator: "&&" as const };
+  }
+  if (preferred === "git-bash") {
+    const bashPath = Bun.which("bash.exe") ?? Bun.which("bash") ?? "bash.exe";
+    return { type: "git-bash" as const, executable: bashPath, displayName: "Git Bash", supportsChainedCommands: true, commandSeparator: "&&" as const };
+  }
+  // Fallback to auto
+  return detectWindowsCommandShell();
 }
 
 /**

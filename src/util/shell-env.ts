@@ -18,7 +18,7 @@ export interface ShellEnvironment {
   shellType: WindowsCommandShellType | "bash" | "zsh" | "fish" | "sh" | "unknown";
   /** Shell actually used by the bash tool for command execution. */
   commandShell: string;
-  commandShellType: WindowsCommandShellType | "bash";
+  commandShellType: WindowsCommandShellType | "bash" | "wsl";
   supportsChainedCommands: boolean;
   commandSeparator: string; // ; or && depending on shell
   recommendations: string[];
@@ -386,6 +386,14 @@ export function generateShellContext(env: ShellEnvironment): string {
       parts.push("- Use bash/POSIX syntax");
       parts.push("- Supports && (and), || (or), and ; (unconditional) operators");
       parts.push("- POSIX-to-PowerShell translation is not applied in Git Bash");
+      break;
+
+    case "wsl":
+      parts.push("- Commands run inside WSL (Windows Subsystem for Linux) — use POSIX/bash syntax");
+      parts.push("- Supports && (and), || (or), and ; (unconditional) operators");
+      parts.push("- Windows paths are accessible under /mnt/ (e.g. C:\\Users → /mnt/c/Users)");
+      parts.push("- Linux-native package managers (apt, etc.) are available inside WSL");
+      parts.push("- Working directory is auto-translated from Windows path to /mnt/... form");
       break;
 
     case "bash":

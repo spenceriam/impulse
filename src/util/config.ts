@@ -3,6 +3,7 @@ import { SessionManager } from "../session/manager";
 import fs from "fs/promises";
 import path from "path";
 import z from "zod";
+import { clearWindowsShellCache, clearWslCache } from "./windows-shell.js";
 
 // ============================================================
 // Multi-Provider Config Schema
@@ -141,7 +142,16 @@ const ConfigSchema = z.object({
 
   // Legacy — kept for smooth migration; prefer providers[].apiKey
   apiKey: z.string().optional().describe("Legacy: use providers[defaultProvider].apiKey instead"),
+
+  /**
+   * Preferred shell for bash tool execution on Windows.
+   * "auto" (default) = detect from parent process.
+   * Other values force a specific shell regardless of detection.
+   */
+  preferredShell: z.enum(["auto", "powershell", "pwsh", "git-bash", "wsl", "cmd"]).default("auto"),
 });
+
+export type PreferredShell = z.infer<typeof ConfigSchema.shape.preferredShell>;
 
 export type Config = z.infer<typeof ConfigSchema>;
 export type UserProfile = NonNullable<Config["userProfile"]>;
@@ -323,7 +333,7 @@ export function resolveSubagentModel(config: Config, mainModel: string): string 
 export async function save(config: Config): Promise<void> {
   const parsed = applyDefaults(config);
   await fs.mkdir(Global.Path.config, { recursive: true });
-  
+
   // Write config and explicitly sync to disk to ensure it's persisted
   // This is especially important on Windows where filesystem operations
   // may be cached and not immediately visible to subsequent reads
@@ -334,6 +344,12 @@ export async function save(config: Config): Promise<void> {
   } finally {
     await fd.close();
   }
-  
+
+  // Clear shell detection caches when preferredShell changes so next command picks up the new setting
+  if (cachedConfig?.preferredShell !== parsed.preferredShell) {
+    clearWindowsShellCache();
+    clearWslCache();
+  }
+
   cachedConfig = parsed;
 }
