@@ -35,6 +35,7 @@ export function hydrateDynamicSkillCommands(cwd: string): void {
 
 export interface SlashDispatchHost {
   readonly isRunning: boolean;
+  cmdBa(arg: string): Promise<void>;
   cmdSkills(arg: string): Promise<void>;
   cmdSkill(arg: string): Promise<void>;
   cmdRunSkillCommand(slug: string, arg: string): Promise<void>;
@@ -74,6 +75,7 @@ export interface SlashDispatchHost {
 type SlashHandler = (host: SlashDispatchHost, arg: string) => void | Promise<void>;
 
 const SLASH_DISPATCH: Record<string, SlashHandler> = {
+  ba: (h, arg) => h.cmdBa(arg),
   skills: (h, arg) => h.cmdSkills(arg),
   skill: (h, arg) => h.cmdSkill(arg),
   advisor: (h, arg) => h.cmdAdvisor(arg),

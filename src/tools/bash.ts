@@ -20,6 +20,11 @@ import { capBashOutputLines } from "../util/tool-output-cap.js";
 import { isWithinBase } from "../util/path.js";
 import { detectWindowsCommandShell, detectWslShell } from "../util/windows-shell.js";
 import { load as loadConfig } from "../util/config.js";
+import {
+  registerBgJob,
+  appendBgOutput,
+  markBgJobDone,
+} from "./bg-process-registry.js";
 
 /** Default bash/PTY timeout per docs/tools/bash.md */
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -79,6 +84,7 @@ const BashSchema = z.object({
   resetSession: z.boolean().optional().describe("Reset the named shell session before running"),
   offset: z.number().optional().describe("Line offset into captured output (0-based). Use to page through large results."),
   limit: z.number().optional().describe("Max output lines to return (default 2000). Combine with offset for pagination."),
+  background: z.boolean().optional().describe("Run without waiting for completion. Returns immediately with a job ID. Use bg_output(id) to read output, bg_kill(id) to stop. Ideal for dev servers, watchers, long-running builds."),
 });
 
 type BashInput = z.infer<typeof BashSchema>;
@@ -1034,6 +1040,63 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
   };
 }
 
+/**
+ * Execute a command without waiting for it to finish.
+ * Registers it in the background job registry, wires up streaming output and
+ * exit notification, then returns immediately.
+ */
+async function executeInBackground(input: BashInput, cwd: string): Promise<ToolResult> {
+  const spawnOptions = await getSpawnOptions(input, cwd);
+
+  const proc = Bun.spawn({
+    cmd: spawnOptions.cmd,
+    ...(spawnOptions.cwd ? { cwd: spawnOptions.cwd } : {}),
+    ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const job = registerBgJob({
+    command: input.command,
+    cwd,
+    pid: proc.pid,
+    kill: () => proc.kill(),
+  });
+
+  // Drain stdout and stderr asynchronously into the ring buffer
+  async function drainStream(stream: ReadableStream<Uint8Array> | null): Promise<void> {
+    if (!stream) return;
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        appendBgOutput(job.id, decoder.decode(value, { stream: true }));
+      }
+    } catch { /* ignore early close */ } finally {
+      reader.releaseLock();
+    }
+  }
+
+  void Promise.all([
+    drainStream(proc.stdout as ReadableStream<Uint8Array> | null),
+    drainStream(proc.stderr as ReadableStream<Uint8Array> | null),
+  ]).then(async () => {
+    const exitCode = await proc.exited;
+    markBgJobDone(job.id, exitCode ?? -1);
+  }).catch(() => {
+    markBgJobDone(job.id, -1);
+  });
+
+  const pidNote = proc.pid ? ` (pid ${proc.pid})` : "";
+  return {
+    success: true,
+    output: `Started ${job.id}${pidNote}: ${input.command.slice(0, 80)}`,
+    metadata: { type: "bash_bg", bgJobId: job.id, pid: proc.pid, command: input.command },
+  };
+}
+
 // Global tool call ID counter (will be replaced with actual tool call ID from agent)
 let toolCallCounter = 0;
 function generateToolCallId(): string {
@@ -1090,6 +1153,12 @@ export const bashTool: Tool<BashInput> = Tool.define(
         });
       }
 
+      // Background mode — non-blocking spawn, returns immediately with job ID
+      if (input.background) {
+        const result = await executeInBackground(input, cwd);
+        return result;
+      }
+
       // Determine if we should use interactive mode
       const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
       let result: ToolResult;
@@ -1098,7 +1167,7 @@ export const bashTool: Tool<BashInput> = Tool.define(
       if (shouldUseInteractive && isPtyAvailable()) {
         const toolCallId = generateToolCallId();
         currentAbortController = new AbortController();
-        
+
         try {
           result = await executeWithPty(input, toolCallId, currentAbortController.signal, cwd);
         } finally {

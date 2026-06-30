@@ -229,6 +229,12 @@ export class AgentLoop {
       this.pendingSteer = null;
       notes.push(formatSteeringNote(note));
     }
+    // Drain any background-job completion notifications queued while idle
+    try {
+      const { drainBgNotifications } = await import("../tools/bg-process-registry.js");
+      const bgNotes = drainBgNotifications();
+      notes.push(...bgNotes);
+    } catch { /* non-fatal — bg registry not loaded */ }
     await this.injectUserNotes(notes);
   }
 

@@ -581,6 +581,15 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     }
   }
 
+  // Background jobs guidance (always shown — small, high-value)
+  parts.push(`## Background jobs
+
+Use \`bash(background: true)\` for dev servers, watchers, or long-running processes that should not block the conversation.
+- Returns immediately with a job ID (e.g. \`bg-1\`).
+- Use \`bg_output(id)\` to read buffered output.
+- Use \`bg_kill(id)\` to stop a job.
+- For commands that finish in <30s, prefer normal blocking \`bash\`.`);
+
   const allowAllBlock = buildAllowAllBypassPromptBlock();
   if (allowAllBlock) {
     parts.push(allowAllBlock);

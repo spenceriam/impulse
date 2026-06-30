@@ -16,6 +16,7 @@ import "./grep";
 
 // Shell
 import "./bash";
+import "./bg-output";
 
 // Task management
 import "./todo-write";

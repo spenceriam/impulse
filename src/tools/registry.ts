@@ -51,6 +51,9 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   project_validate: "read_only",
   semantic_search: "read_only",
   
+  bg_output: "read_only",
+  bg_kill: "write",
+
   // Write tools (restricted in PLAN)
   file_write: "write",
   file_edit: "write",

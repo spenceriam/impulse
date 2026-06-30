@@ -270,6 +270,7 @@ export interface ContextBarState {
   showTurnSpeed?: boolean;
   queueDepth?: number;
   goalLabel?: string;
+  backgroundCount?: number;
   showAdvisorInBar?: boolean;
   bottomBarVisual?: BottomBarVisual;
 }
@@ -345,11 +346,17 @@ export class ContextBarComponent implements Component {
       visual === "full" && s.goalLabel
         ? clr.sep(` Goal: ${truncateToWidth(s.goalLabel, 24)}`)
         : "";
+    const BG_SPINNER = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+    const baSeg =
+      visual === "full" && s.backgroundCount && s.backgroundCount > 0
+        ? clr.sep(` ba ${s.backgroundCount} ${BG_SPINNER[Math.floor(Date.now() / 150) % BG_SPINNER.length]}`)
+        : "";
     const modeFull =
       visual === "full"
         ? (s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode)) +
           queueSeg +
           goalSeg +
+          baSeg +
           (s.autoCompactOff ? clr.sep(" compact:OFF") : "")
         : "";
 

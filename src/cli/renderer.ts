@@ -225,6 +225,7 @@ import {
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
 import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
 import { listInstalledSkills } from "../tools/install-skill-source.js";
+import { countRunningBgJobs } from "../tools/bg-process-registry.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import {
@@ -392,6 +393,9 @@ export class ImpulseRenderer {
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
   private currentStatusPhrase = "";
   private compactStartMs = 0;
+
+  // Background job bar animation interval (only runs while bg jobs are active)
+  private bgBarInterval: ReturnType<typeof setInterval> | null = null;
 
   private shimmerBusyText(message: string, dimBase = false): string {
     return shimmerText(message, dimBase);
@@ -2559,6 +2563,11 @@ export class ImpulseRenderer {
           return;
         }
 
+        // Update background job bar when a bash_bg job starts
+        if (result.metadata?.["type"] === "bash_bg") {
+          this.syncBgContextBar();
+        }
+
         this.thinkingElapsedMs = 0;
 
         this.taskCodenames.delete(id);
@@ -2762,6 +2771,21 @@ export class ImpulseRenderer {
           ? "[goal paused — judge unavailable]"
           : undefined;
     this.syncContextBar({ goalLabel: label });
+  }
+
+  private syncBgContextBar(): void {
+    const count = countRunningBgJobs();
+    this.syncContextBar({ backgroundCount: count > 0 ? count : undefined });
+    if (count > 0 && !this.bgBarInterval) {
+      this.bgBarInterval = setInterval(() => {
+        this.syncBgContextBar();
+        this.tui.requestRender();
+      }, 150);
+    } else if (count === 0 && this.bgBarInterval) {
+      clearInterval(this.bgBarInterval);
+      this.bgBarInterval = null;
+      this.tui.requestRender();
+    }
   }
 
   private async emitStatusEvent(text: string, opts?: { live?: boolean }): Promise<void> {
@@ -3001,6 +3025,7 @@ export class ImpulseRenderer {
       get isRunning() {
         return r.isRunning;
       },
+      cmdBa: (arg) => r.cmdBa(arg),
       cmdSkills: (arg) => r.cmdSkills(arg),
       cmdSkill: (arg) => r.cmdSkill(arg),
       cmdRunSkillCommand: (slug, arg) => r.cmdRunSkillCommand(slug, arg),
@@ -5487,6 +5512,47 @@ export class ImpulseRenderer {
     };
 
     this.sessionPickerHandle = this.showSessionPickerOverlay(overlay);
+    this.tui.requestRender();
+  }
+
+  private async cmdBa(arg: string): Promise<void> {
+    const { listBgJobs, killBgJob } = await import("../tools/bg-process-registry.js");
+    const parts = arg.trim().split(/\s+/);
+    const sub = parts[0]?.toLowerCase() ?? "";
+
+    if (!sub || sub === "list") {
+      const jobs = listBgJobs();
+      if (jobs.length === 0) {
+        this.addChatLine(clr.dim("No background jobs."));
+      } else {
+        this.addChatLine(clr.dim(`Background jobs (${jobs.length}):`));
+        for (const j of jobs) {
+          const dur = j.endedAt
+            ? `${Math.round((j.endedAt - j.startedAt) / 1000)}s`
+            : `${Math.round((Date.now() - j.startedAt) / 1000)}s running`;
+          this.addChatLine(clr.dim(`  ${j.id} [${j.status}] ${dur}  ${j.command.slice(0, 60)}`));
+        }
+      }
+      this.tui.requestRender();
+      return;
+    }
+
+    const id = parts[1] ?? "";
+    if (!id) {
+      this.addChatLine(clr.dim(`Usage: /ba ${sub} <id>`));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (sub === "kill") {
+      const ok = killBgJob(id);
+      this.addChatLine(ok ? clr.dim(`Job '${id}' killed.`) : clr.warn(`No running job '${id}'.`));
+      this.syncBgContextBar();
+      this.tui.requestRender();
+      return;
+    }
+
+    this.addChatLine(clr.dim("Usage: /ba [list] | kill <id>"));
     this.tui.requestRender();
   }
 
