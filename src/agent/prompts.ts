@@ -567,6 +567,20 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     }
   }
 
+  // Skills context: only shown when skills are installed, keeps context lean
+  {
+    const { listInstalledSkills } = await import("../tools/install-skill-source.js");
+    const installedSkills = listInstalledSkills(workingDir);
+    if (installedSkills.length > 0) {
+      const list = installedSkills
+        .map((s) => `  - ${s.slug}${s.command ? ` (/${s.command})` : ""}${s.description ? `: ${s.description}` : ""}`)
+        .join("\n");
+      parts.push(
+        `## Installed skills\n\n${list}\n\nSkills live in \`.agents/skills/<slug>/SKILL.md\`. Use \`skill_write\` to author or update (keep under 50 lines, one clear purpose), \`skill_remove\` to delete.`
+      );
+    }
+  }
+
   const allowAllBlock = buildAllowAllBypassPromptBlock();
   if (allowAllBlock) {
     parts.push(allowAllBlock);

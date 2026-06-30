@@ -4,8 +4,40 @@
 
 import { resolveSlashAlias } from "./slash-aliases.js";
 
+// ---------------------------------------------------------------------------
+// Dynamic skill command registry (#117)
+// Skills with a `command:` frontmatter field register here at install time.
+// ---------------------------------------------------------------------------
+
+/** slug of the skill that registered this command */
+const dynamicSkillCommands = new Map<string, string>();
+
+export function registerSkillCommand(cmd: string, slug: string): void {
+  dynamicSkillCommands.set(cmd.toLowerCase(), slug);
+}
+
+export function unregisterSkillCommand(cmd: string): void {
+  dynamicSkillCommands.delete(cmd.toLowerCase());
+}
+
+export function listDynamicSkillCommands(): Array<{ cmd: string; slug: string }> {
+  return [...dynamicSkillCommands.entries()].map(([cmd, slug]) => ({ cmd, slug }));
+}
+
+/** Load dynamic commands from installed skills on startup. */
+export function hydrateDynamicSkillCommands(cwd: string): void {
+  import("../tools/install-skill-source.js").then(({ listInstalledSkills }) => {
+    for (const skill of listInstalledSkills(cwd)) {
+      if (skill.command) registerSkillCommand(skill.command, skill.slug);
+    }
+  }).catch(() => { /* non-fatal */ });
+}
+
 export interface SlashDispatchHost {
   readonly isRunning: boolean;
+  cmdSkills(arg: string): Promise<void>;
+  cmdSkill(arg: string): Promise<void>;
+  cmdRunSkillCommand(slug: string, arg: string): Promise<void>;
   cmdAdvisor(arg: string): Promise<void>;
   cmdExperimental(): Promise<void>;
   cmdSettings(): Promise<void>;
@@ -42,6 +74,8 @@ export interface SlashDispatchHost {
 type SlashHandler = (host: SlashDispatchHost, arg: string) => void | Promise<void>;
 
 const SLASH_DISPATCH: Record<string, SlashHandler> = {
+  skills: (h, arg) => h.cmdSkills(arg),
+  skill: (h, arg) => h.cmdSkill(arg),
   advisor: (h, arg) => h.cmdAdvisor(arg),
   experimental: (h) => h.cmdExperimental(),
   settings: (h) => h.cmdSettings(),
@@ -102,6 +136,12 @@ export async function dispatchSlashCommand(
   const handler = SLASH_DISPATCH[cmd];
   if (handler) {
     await handler(host, arg);
+    return;
+  }
+  // Fall through to dynamic skill commands
+  const skillSlug = dynamicSkillCommands.get(cmd);
+  if (skillSlug) {
+    await host.cmdRunSkillCommand(skillSlug, arg);
     return;
   }
   host.showUnknownSlash(cmd);

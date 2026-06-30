@@ -28,8 +28,17 @@ export function buildSlashCommandDefs(
 ): SlashCommandDef[] {
   const defs: SlashCommandDef[] = [
     {
-      cmd: "/allow-all",
-      hint: "toggle bypass all permission prompts",
+      cmd: "/skills",
+      hint: "list installed skills",
+      helpDetail: "List all installed agent skills in this project",
+    },
+    {
+      cmd: "/skill",
+      hint: "new | remove | modify <slug>",
+      helpDetail: "Create a new skill, remove an existing one, or modify it",
+    },
+    {
+      cmd: "/allow-all",      hint: "toggle bypass all permission prompts",
       helpDetail: "Toggle bypassing all tool permission prompts (session-only)",
     },
     {

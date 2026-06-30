@@ -224,6 +224,7 @@ import {
 } from "../session/session-stats.js";
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
 import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
+import { listInstalledSkills } from "../tools/install-skill-source.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import {
@@ -3000,6 +3001,9 @@ export class ImpulseRenderer {
       get isRunning() {
         return r.isRunning;
       },
+      cmdSkills: (arg) => r.cmdSkills(arg),
+      cmdSkill: (arg) => r.cmdSkill(arg),
+      cmdRunSkillCommand: (slug, arg) => r.cmdRunSkillCommand(slug, arg),
       cmdAdvisor: (arg) => r.cmdAdvisor(arg),
       cmdExperimental: () => r.cmdExperimental(),
       cmdSettings: () => r.cmdSettings(),
@@ -5484,6 +5488,163 @@ export class ImpulseRenderer {
 
     this.sessionPickerHandle = this.showSessionPickerOverlay(overlay);
     this.tui.requestRender();
+  }
+
+  private async cmdSkills(_arg: string): Promise<void> {
+    const skills = listInstalledSkills(process.cwd());
+    if (skills.length === 0) {
+      this.addChatLine(clr.dim("No skills installed. Use /skill new to create one."));
+    } else {
+      this.addChatLine(clr.dim(`Installed skills (${skills.length}):`));
+      for (const s of skills) {
+        const alias = s.command ? ` [/${s.command}]` : "";
+        const desc = s.description ? ` — ${s.description}` : "";
+        this.addChatLine(clr.dim(`  ${s.slug}${alias}${desc}`));
+      }
+    }
+    this.tui.requestRender();
+  }
+
+  private async cmdSkill(arg: string): Promise<void> {
+    const parts = arg.trim().split(/\s+/);
+    const sub = parts[0]?.toLowerCase() ?? "";
+    const slug = parts.slice(1).join(" ");
+
+    if (sub === "new") {
+      if (this.isRunning) {
+        this.addChatLine(clr.warn("Wait for the current turn to finish."));
+        this.tui.requestRender();
+        return;
+      }
+      await this.runSkillAgentTurn(
+        "Create a new agent skill using the skill_write tool. Ask me what the skill should do, its name, and purpose before writing it.",
+        "New skill"
+      );
+      return;
+    }
+
+    if (sub === "remove" || sub === "modify") {
+      if (!slug) {
+        this.addChatLine(clr.dim(`Usage: /skill ${sub} <slug>`));
+        this.tui.requestRender();
+        return;
+      }
+      if (this.isRunning) {
+        this.addChatLine(clr.warn("Wait for the current turn to finish."));
+        this.tui.requestRender();
+        return;
+      }
+      const skillDir = path.join(process.cwd(), ".agents", "skills", slug);
+      if (!fs.existsSync(skillDir)) {
+        this.addChatLine(clr.warn(`Skill '${slug}' not found.`));
+        this.tui.requestRender();
+        return;
+      }
+      if (sub === "remove") {
+        await this.runSkillAgentTurn(
+          `Remove the skill '${slug}' using the skill_remove tool.`,
+          `Remove skill: ${slug}`
+        );
+      } else {
+        await this.runSkillAgentTurn(
+          `Modify the existing skill '${slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
+          `Modify skill: ${slug}`
+        );
+      }
+      return;
+    }
+
+    this.addChatLine(clr.dim("Usage: /skill new | remove <slug> | modify <slug>"));
+    this.tui.requestRender();
+  }
+
+  private async cmdRunSkillCommand(slug: string, arg: string): Promise<void> {
+    if (this.isRunning) {
+      this.addChatLine(clr.warn("Wait for the current turn to finish."));
+      this.tui.requestRender();
+      return;
+    }
+    const skillPath = path.join(process.cwd(), ".agents", "skills", slug, "SKILL.md");
+    if (!fs.existsSync(skillPath)) {
+      this.addChatLine(clr.warn(`Skill '${slug}' not found.`));
+      this.tui.requestRender();
+      return;
+    }
+    const skillContent = fs.readFileSync(skillPath, "utf-8");
+    const userMessage = arg
+      ? `Execute the following skill:\n\n${skillContent}\n\nUser input: ${arg}`
+      : `Execute the following skill:\n\n${skillContent}`;
+    await this.runSkillAgentTurn(userMessage, `Skill: ${slug}`);
+  }
+
+  private async runSkillAgentTurn(userMessage: string, displayLabel: string): Promise<void> {
+    this.isRunning = true;
+    this.loop.setImages([]);
+    this.addSectionGap();
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(displayLabel);
+    this.addSectionGap();
+
+    this.streamingRaw = "";
+    this.streamingText = null;
+
+    const events: LoopEvents = {
+      onTurnStart: () => {
+        this.setBusyStatus("", "Working on skill..");
+      },
+      onToken: (text) => {
+        if (!this.streamingText) {
+          this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
+          this.streamingText = new MarkdownTextBlock(GUTTER);
+          this.chat.addChild(this.streamingText);
+          this.hasTrailingGap = false;
+        }
+        this.streamingRaw += text;
+        this.streamingText.setText(this.streamingRaw);
+        this.requestLayoutRefresh();
+      },
+      onThinking: (text) => {
+        this.appendWorkerThinking(text);
+        this.requestLayoutRefresh();
+      },
+      onAdvisorStart: () => {},
+      onAdvisorToken: () => {},
+      onAdvisorEnd: () => {},
+      onToolStart: () => {},
+      onToolEnd: () => {},
+      onCompacting: () => {},
+      onCompacted: () => {},
+      onTurnEnd: () => {
+        this.spinStop();
+        if (this.streamingRaw) this.addSectionGap();
+        this.streamingRaw = "";
+        this.streamingText = null;
+        this.thinkingRaw = "";
+        this.thinkingText = null;
+        this.isRunning = false;
+        this.addSectionGap();
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+      onHardCutoff: () => {},
+      onError: (err) => {
+        this.spinStop();
+        this.addChatLine(`${clr.error("Error:")} ${err.message}`);
+        this.isRunning = false;
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+    };
+
+    try {
+      await this.loop.run(userMessage, this.mode, events, {
+        displayMessage: displayLabel,
+        segments: [{ kind: "text", value: userMessage }],
+      });
+    } catch {
+      this.isRunning = false;
+      this.drainTurnQueue();
+    }
   }
 
   private async runShellReview(

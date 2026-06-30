@@ -39,6 +39,8 @@ import "./web-search";
 // Plan mode
 import "./plan-revision";
 import "./install-skill";
+import "./skill-write";
+import "./skill-remove";
 
 // GitHub
 import "./github-issue";

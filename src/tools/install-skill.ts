@@ -5,6 +5,7 @@ import { SessionManager } from "../session/manager.js";
 import {
   formatSkillReadyMessage,
   isSkillInstalled,
+  listInstalledSkills,
   normalizeSkillSource,
   skillInstructionsPath,
 } from "./install-skill-source.js";
@@ -48,6 +49,14 @@ export const installSkillTool: Tool<InstallSkillInput> = Tool.define(
     const instructionsPath = skillInstructionsPath(cwd, skillSlug);
 
     if (isSkillInstalled(cwd, skillSlug)) {
+      // If the skill was edited by the user, do not overwrite it
+      const existing = listInstalledSkills(cwd).find((s) => s.slug === skillSlug);
+      if (existing?.edited) {
+        return {
+          success: true,
+          output: `${formatSkillReadyMessage(skillSlug, instructionsPath)}\nNote: skill has local edits — not overwritten.`,
+        };
+      }
       return {
         success: true,
         output: formatSkillReadyMessage(skillSlug, instructionsPath),
