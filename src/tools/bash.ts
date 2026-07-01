@@ -36,7 +36,7 @@ export function resolveBashTimeoutMs(timeout?: number): number | undefined {
  * tool or command is not found on the target shell.
  * Returns a hint string to append, or null when output is already clear.
  */
-function classifyCommandError(
+export function classifyCommandError(
   command: string,
   output: string,
   exitCode: number,
@@ -921,28 +921,35 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
   }
   
-  // Pagination: slice output lines before byte-capping
+  // Pagination: slice output lines, then byte-cap; the note is built AFTER
+  // capping so it reflects what was actually delivered (the byte/line cap
+  // can still trim a paginated slice, and the note must not overstate it).
   const outputOffset = input.offset ?? 0;
   const outputLimit = input.limit ?? maxLines;
-  let paginationNote = "";
+  const paginationRequested = outputOffset > 0 || input.limit !== undefined;
   let paginatedOutput = combinedOutput;
-  if (outputOffset > 0 || input.limit !== undefined) {
+  let totalOutputLines = 0;
+  let slicedLineCount = 0;
+  if (paginationRequested) {
     const allLines = combinedOutput.split("\n");
-    const totalOutputLines = allLines.length;
+    totalOutputLines = allLines.length;
     const sliced = allLines.slice(outputOffset, outputOffset + outputLimit);
+    slicedLineCount = sliced.length;
     paginatedOutput = sliced.join("\n");
-    const nextOffset = outputOffset + sliced.length;
-    if (nextOffset < totalOutputLines) {
-      paginationNote = `\n[Output paginated: lines ${outputOffset + 1}–${nextOffset} of ${totalOutputLines}. Re-run with offset: ${nextOffset} for more.]`;
-    }
   }
 
   const capped = capBashOutputLines(paginatedOutput, maxLines);
   let output = capped.output;
-  let wasTruncated = capped.truncated || paginationNote.length > 0;
+  let wasTruncated = capped.truncated;
 
-  if (paginationNote) {
-    output = `${output}${paginationNote}`;
+  if (paginationRequested) {
+    const delivered = capped.keptLines;
+    const nextOffset = outputOffset + delivered;
+    if (nextOffset < totalOutputLines) {
+      const cappedFurther = delivered < slicedLineCount ? ", further capped by output size limits" : "";
+      output = `${output}\n[Output paginated: lines ${outputOffset + 1}-${nextOffset} of ${totalOutputLines}${cappedFurther}. Re-run with offset: ${nextOffset} for more.]`;
+      wasTruncated = true;
+    }
   }
 
   if (exitCode === -1) {
