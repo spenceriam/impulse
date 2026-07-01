@@ -602,7 +602,11 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
         .map((s) => `  - ${s.slug}${s.command ? ` (/${s.command})` : ""}${s.description ? `: ${s.description}` : ""}`)
         .join("\n");
       parts.push(
-        `## Installed skills\n\n${list}\n\nSkills live in \`.agents/skills/<slug>/SKILL.md\`. Use \`skill_write\` to author or update (keep under 50 lines, one clear purpose), \`skill_remove\` to delete.`
+        `## Installed skills\n\n${list}\n\nSkills live in \`.agents/skills/<slug>/SKILL.md\`. Use \`skill_write\` to author or update (keep under 50 lines, one clear purpose), \`skill_remove\` to delete.\n\nIf the user repeats a multi-step workflow worth reusing (release steps, scaffolds, test rituals), offer to capture it as a skill — ask permission via the \`question\` tool first, then use \`skill_write\`. Never create a skill unasked.`
+      );
+    } else {
+      parts.push(
+        `## Skills\n\nNone installed. If the user repeats a workflow worth reusing, offer to save it as a skill (ask via the \`question\` tool first, then \`skill_write\`).`
       );
     }
   }

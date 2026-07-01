@@ -14,6 +14,11 @@ if (existsSync("./prompts")) {
   cpSync("./prompts", join(distDir, "prompts"), { recursive: true });
 }
 
+// Copy bundled default skills
+if (existsSync("./skills/defaults")) {
+  cpSync("./skills/defaults", join(distDir, "skills-defaults"), { recursive: true });
+}
+
 // Copy tool documentation library
 if (existsSync("./docs/tools")) {
   cpSync("./docs/tools", join(distDir, "docs", "tools"), { recursive: true });
