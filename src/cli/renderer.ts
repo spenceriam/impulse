@@ -109,7 +109,10 @@ import type { LoopCheckinChoice } from "./components/loop-checkin-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
-import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
+import {
+  SelectableListOverlay,
+  type SelectableListRow,
+} from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
 import {
   PlanCompletionOverlay,
@@ -234,7 +237,9 @@ import {
 } from "../session/session-stats.js";
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
 import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
-import { listInstalledSkills } from "../tools/install-skill-source.js";
+import { listInstalledSkills, type InstalledSkillMeta } from "../tools/install-skill-source.js";
+import { removeSkill } from "../tools/skill-remove.js";
+import { ensureDefaultSkills } from "../skills/default-skills.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import {
@@ -253,7 +258,12 @@ import {
   MODE_COLORS,
   modelStatusLine,
 } from "./ansi-theme.js";
-import { dispatchSlashCommand, type SlashDispatchHost } from "./slash-dispatch.js";
+import {
+  dispatchSlashCommand,
+  hydrateDynamicSkillCommands,
+  listDynamicSkillCommands,
+  type SlashDispatchHost,
+} from "./slash-dispatch.js";
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
 import { buildQueuePreviewText } from "./queue-preview.js";
 import { copy as copyToClipboard } from "../util/clipboard.js";
@@ -351,6 +361,16 @@ interface ModelSetupState {
 }
 
 // ?? ImpulseRenderer ???????????????????????????????????????????????????????????
+
+/** Map installed-skill metadata to selectable-list rows for the /skills overlay. */
+export function buildSkillRows(skills: InstalledSkillMeta[]): SelectableListRow[] {
+  return skills.map((s) => ({
+    id: s.slug,
+    label: s.slug,
+    ...(s.command ? { metaRight: `/${s.command}` } : {}),
+    ...(s.description ? { secondary: s.description } : {}),
+  }));
+}
 
 export type ResumeStartup = "picker" | { sessionId: string };
 
@@ -1519,6 +1539,7 @@ export class ImpulseRenderer {
   private planApprovalInputCleanup: (() => void) | null = null;
   private planCompletionOverlayHandle: OverlayHandle | null = null;
   private planCompletionInputCleanup: (() => void) | null = null;
+  private skillsOverlayHandle: OverlayHandle | null = null;
   private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
   private settingsOverlayHandle: OverlayHandle | null = null;
@@ -1612,6 +1633,13 @@ export class ImpulseRenderer {
     debugLog(`Session started`);
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
     debugLog(`provider: ${config.defaultProvider}, model: ${config.defaultModel}`);
+
+    // Scaffold bundled default skills on first run, then re-register dynamic
+    // /command aliases from whatever's on disk. cwd is fixed for the process
+    // lifetime (no process.chdir anywhere in src/**), so this only needs to
+    // run once at startup.
+    await ensureDefaultSkills(process.cwd());
+    void hydrateDynamicSkillCommands(process.cwd());
 
     // ?? Build TUI layout ??????????????????????????????????????????????????
     this.tui = new TUI(this.terminal);
@@ -2960,11 +2988,16 @@ export class ImpulseRenderer {
   // ?? Slash autocomplete ????????????????????????????????????????????????????
 
   private slashCommands(): SlashCommandEntry[] {
-    return buildSlashCommandList({
+    const commands = buildSlashCommandList({
       experimentalAdvisor: this.experimentalAdvisorEnabled,
       experimentalUndo: this.experimentalUndoEnabled,
       experimentalGoal: this.experimentalGoalEnabled,
     });
+    const dynamicSkillEntries = listDynamicSkillCommands().map(({ cmd, slug }) => ({
+      cmd: `/${cmd}`,
+      hint: `run the "${slug}" skill`,
+    }));
+    return [...commands, ...dynamicSkillEntries];
   }
 
   private resetSlashTabCycleIfNeeded(input: string): void {
@@ -5671,19 +5704,128 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
+  private dismissSkillsOverlay(): void {
+    this.skillsOverlayHandle?.hide();
+    this.skillsOverlayHandle = null;
+  }
+
   private async cmdSkills(_arg: string): Promise<void> {
     const skills = listInstalledSkills(process.cwd());
     if (skills.length === 0) {
       this.addChatLine(clr.dim("No skills installed. Use /skill new to create one."));
-    } else {
+      this.tui.requestRender();
+      return;
+    }
+    // Overlays are input-modal; keep the plain-text listing while a turn is running.
+    if (this.isRunning) {
       this.addChatLine(clr.dim(`Installed skills (${skills.length}):`));
       for (const s of skills) {
         const alias = s.command ? ` [/${s.command}]` : "";
         const desc = s.description ? ` — ${s.description}` : "";
         this.addChatLine(clr.dim(`  ${s.slug}${alias}${desc}`));
       }
+      this.tui.requestRender();
+      return;
     }
+    this.showSkillsListOverlay(skills);
+  }
+
+  private showSkillsListOverlay(skills: InstalledSkillMeta[]): void {
+    this.dismissSkillsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: `Skills (${skills.length})`,
+      rows: buildSkillRows(skills),
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter choose action   Esc close"],
+    });
+    overlay.onSelect = (slug) => {
+      this.dismissSkillsOverlay();
+      const skill = skills.find((s) => s.slug === slug);
+      if (skill) this.showSkillActionOverlay(skill);
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private showSkillActionOverlay(skill: InstalledSkillMeta): void {
+    const rows: SelectableListRow[] = [
+      { id: "view", label: "View SKILL.md" },
+      ...(skill.command ? [{ id: "run", label: `Run (/${skill.command})` }] : []),
+      { id: "modify", label: "Modify" },
+      { id: "remove", label: "Remove" },
+    ];
+    const overlay = new SelectableListOverlay({
+      title: `Skill: ${skill.slug}`,
+      rows,
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter select   Esc back"],
+    });
+    overlay.onSelect = (id) => {
+      this.dismissSkillsOverlay();
+      if (id === "view") {
+        this.viewSkill(skill);
+      } else if (id === "run" && skill.command) {
+        void this.cmdRunSkillCommand(skill.slug, "");
+      } else if (id === "modify") {
+        void this.runSkillAgentTurn(
+          `Modify the existing skill '${skill.slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
+          `Modify skill: ${skill.slug}`
+        );
+      } else if (id === "remove") {
+        this.showSkillRemoveConfirmOverlay(skill);
+      }
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.showSkillsListOverlay(listInstalledSkills(process.cwd()));
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private viewSkill(skill: InstalledSkillMeta): void {
+    try {
+      const content = fs.readFileSync(skill.path, "utf-8");
+      const lines = content.split("\n").slice(0, 20);
+      this.addChatLine(clr.dim(`${skill.path}:`));
+      for (const line of lines) this.addChatLine(clr.dim(`  ${line}`));
+    } catch {
+      this.addChatLine(clr.warn(`Could not read ${skill.path}`));
+    }
+    this.tui.setFocus(this.promptInput);
     this.tui.requestRender();
+  }
+
+  private showSkillRemoveConfirmOverlay(skill: InstalledSkillMeta): void {
+    const rows: SelectableListRow[] = [
+      { id: "cancel", label: "Cancel" },
+      { id: "remove", label: "Remove" },
+    ];
+    const overlay = new SelectableListOverlay({
+      title: `Remove skill: ${skill.slug}`,
+      rows,
+      boxSizing: "content",
+      maxHeight: 10,
+      helpLines: [`Deletes .agents/skills/${skill.slug}/`],
+    });
+    overlay.onSelect = (id) => {
+      this.dismissSkillsOverlay();
+      if (id === "remove") {
+        const result = removeSkill(process.cwd(), skill.slug);
+        this.addChatLine(result.success ? clr.dim(result.message) : clr.warn(result.message));
+      }
+      this.tui.setFocus(this.promptInput);
+      this.tui.requestRender();
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
   }
 
   private async cmdSkill(arg: string): Promise<void> {
@@ -5706,8 +5848,22 @@ export class ImpulseRenderer {
 
     if (sub === "remove" || sub === "modify") {
       if (!slug) {
-        this.addChatLine(clr.dim(`Usage: /skill ${sub} <slug>`));
-        this.tui.requestRender();
+        if (this.isRunning) {
+          this.addChatLine(clr.warn("Wait for the current turn to finish."));
+          this.tui.requestRender();
+          return;
+        }
+        const skills = listInstalledSkills(process.cwd());
+        if (skills.length === 0) {
+          this.addChatLine(clr.dim("No skills installed."));
+          this.tui.requestRender();
+          return;
+        }
+        if (sub === "remove") {
+          this.showSkillsRemovePicker(skills);
+        } else {
+          this.showSkillsModifyPicker(skills);
+        }
         return;
       }
       if (this.isRunning) {
@@ -5737,6 +5893,50 @@ export class ImpulseRenderer {
 
     this.addChatLine(clr.dim("Usage: /skill new | remove <slug> | modify <slug>"));
     this.tui.requestRender();
+  }
+
+  private showSkillsRemovePicker(skills: InstalledSkillMeta[]): void {
+    this.dismissSkillsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: `Remove which skill? (${skills.length})`,
+      rows: buildSkillRows(skills),
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter select   Esc cancel"],
+    });
+    overlay.onSelect = (slug) => {
+      this.dismissSkillsOverlay();
+      const skill = skills.find((s) => s.slug === slug);
+      if (skill) this.showSkillRemoveConfirmOverlay(skill);
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private showSkillsModifyPicker(skills: InstalledSkillMeta[]): void {
+    this.dismissSkillsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: `Modify which skill? (${skills.length})`,
+      rows: buildSkillRows(skills),
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter select   Esc cancel"],
+    });
+    overlay.onSelect = (slug) => {
+      this.dismissSkillsOverlay();
+      void this.runSkillAgentTurn(
+        `Modify the existing skill '${slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
+        `Modify skill: ${slug}`
+      );
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
   }
 
   private async cmdRunSkillCommand(slug: string, arg: string): Promise<void> {
