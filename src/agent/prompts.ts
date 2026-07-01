@@ -374,9 +374,17 @@ This helps you understand where the conversation is heading.
   PLAN: `
 ## Mode: PLAN
 
-Planning mode — research first, then write spec-driven plan artifacts. Latest plan revision is always current context.
+Act as a sharp product-manager / architect who surfaces hidden assumptions before writing a single spec line. Research first, then write spec-driven plan artifacts. Latest plan revision is always current context.
 
 See injected "Active plan" block below for revision paths. Use \`plan_revision\` when the user reworks the plan.
+
+### Interrogation (scale to complexity)
+
+Before writing artifacts, use the \`question\` tool to surface unknowns — one topic per call, never plain-text "Question N:" in chat: trivial changes skip interrogation; moderate features get 1-3 targeted questions; complex/cross-cutting work gets 3-7 covering scope creep, affected systems, constraints, testing, phasing.
+
+### Artifact-first flow
+
+Once interrogation is complete, write the plan artifacts. Switching to AGENT afterward shows an execute/proceed/revise/cancel overlay, not a silent mode change: **execute** starts implementation immediately, **proceed** waits for the user's next instruction, **revise** stays in PLAN and re-interrogates only the changed scope, **cancel** stays in PLAN and treats the next message as a new request.
 
 ### Capabilities
 
@@ -486,10 +494,14 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   const { probeToolAvailability, formatToolAvailabilityBlock } = await import(
     "../util/shell-env.js"
   );
+  const { probeProjectStructure, formatProjectStructureBlock } = await import(
+    "./project-structure.js"
+  );
 
   const repoContext = resolveRepoContext(workingDir);
   const ghStatus = probeGhCli();
   const toolAvailability = await probeToolAvailability();
+  const projectStructure = await probeProjectStructure(workingDir);
 
   const parts: string[] = [
     getPrompt("core", "base", BASE_PROMPT),
@@ -498,6 +510,11 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     formatGhCliPromptBlock(ghStatus),
     formatToolAvailabilityBlock(toolAvailability),
   ];
+
+  const projectStructureBlock = formatProjectStructureBlock(projectStructure);
+  if (projectStructureBlock) {
+    parts.push(projectStructureBlock);
+  }
 
   const projectInstructions = await loadInstructions(workingDir);
   if (projectInstructions) {
@@ -563,7 +580,16 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
       const statusLine = activeGoal.status === "active"
         ? `Status: active (turn ${activeGoal.turnsUsed}/${activeGoal.maxTurns})`
         : `Status: ${activeGoal.status}`;
-      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}\n\nContinue working toward this goal unless the user redirects you.`);
+      let planNote = "";
+      if (activeGoal.planRevisionId) {
+        const { getRevisionDir, toRelativePlanPath } = await import("../plan/paths.js");
+        const tasksPathRel = toRelativePlanPath(
+          `${getRevisionDir(options.sessionId, activeGoal.planRevisionId, workingDir)}/tasks.md`,
+          workingDir
+        );
+        planNote = `\n\nThis goal tracks plan revision \`${activeGoal.planRevisionId}\`. Execute the tasks in \`${tasksPathRel}\` and check each off (\`- [x]\`) as you complete it.`;
+      }
+      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}${planNote}\n\nContinue working toward this goal unless the user redirects you.`);
     }
   }
 

@@ -111,6 +111,10 @@ import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
 import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
+import {
+  PlanCompletionOverlay,
+  type PlanCompletionDecision,
+} from "./components/plan-completion-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
 import {
@@ -212,6 +216,12 @@ import {
   type GoalState,
 } from "../session/goal-state.js";
 import { buildGoalContinuationMessage, judgeGoal } from "../agent/goal-loop.js";
+import {
+  getActivePlanRevision,
+  listRevisionIds,
+  readPlanTasksMarkdown,
+} from "../plan/revisions.js";
+import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
 import {
   writeGoalArtifact,
   readGoalArtifact,
@@ -1259,10 +1269,27 @@ export class ImpulseRenderer {
 
     const cfg = await loadConfig();
     const judgeModel = cfg.subagentModel?.trim() || cfg.defaultModel?.trim();
+
+    let planTasksMarkdown: string | undefined;
+    let planTasksPath: string | undefined;
+    if (activeGoal.planRevisionId) {
+      const sessionId = SessionManager.getCurrentSessionID() ?? "";
+      const tasks = readPlanTasksMarkdown(sessionId, activeGoal.planRevisionId);
+      if (tasks) {
+        planTasksMarkdown = tasks;
+        planTasksPath = toRelativePlanPath(getRevisionDir(sessionId, activeGoal.planRevisionId));
+      } else {
+        void this.emitStatusEvent(
+          `Plan revision ${activeGoal.planRevisionId} not found — judging against goal text only.`
+        );
+      }
+    }
+
     const result = await judgeGoal(
       activeGoal,
       this.lastAssistantTurnText,
-      judgeModel
+      judgeModel,
+      planTasksMarkdown ? { planTasksMarkdown } : undefined
     );
 
     if (result.verdict === "done") {
@@ -1311,7 +1338,10 @@ export class ImpulseRenderer {
     }
 
     await this.persistGoalState();
-    const continuation = buildGoalContinuationMessage(updatedGoal);
+    const continuation = buildGoalContinuationMessage(
+      updatedGoal,
+      planTasksPath ? { planTasksPath } : undefined
+    );
     void this.runTurn({
       apiText: continuation,
       displayMessage: continuation,
@@ -1487,6 +1517,8 @@ export class ImpulseRenderer {
   private modelSetup: ModelSetupState | null = null;
   private planApprovalOverlayHandle: OverlayHandle | null = null;
   private planApprovalInputCleanup: (() => void) | null = null;
+  private planCompletionOverlayHandle: OverlayHandle | null = null;
+  private planCompletionInputCleanup: (() => void) | null = null;
   private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
   private settingsOverlayHandle: OverlayHandle | null = null;
@@ -2496,6 +2528,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
+      onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
       onLoopCheckin: (input) => this.showLoopCheckin(input),
       onSubagentTaskStatus: (id, status) => {
@@ -2855,6 +2888,68 @@ export class ImpulseRenderer {
     this.planApprovalInputCleanup = null;
     this.planApprovalOverlayHandle?.hide();
     this.planApprovalOverlayHandle = null;
+  }
+
+  /** Block agent loop until user picks execute/proceed/revise/cancel for a completed plan. */
+  private async showPlanCompletionOverlay(input: {
+    planPath: string;
+    summary: string;
+  }): Promise<PlanCompletionDecision> {
+    if (!this.tui) return "cancel";
+
+    const shortPath = input.planPath.replace(
+      new RegExp(`^${os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+      "~"
+    );
+
+    const overlay = new PlanCompletionOverlay({
+      planPath: shortPath,
+      summary: input.summary,
+    });
+
+    return new Promise<PlanCompletionDecision>((resolve) => {
+      this.dismissPlanCompletionOverlay();
+
+      const handle = this.tui.showOverlay(overlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: "100%",
+        minWidth: this.overlayMin(),
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+        margin: this.listOverlayMargin(),
+      });
+      this.planCompletionOverlayHandle = handle;
+      this.setBusyStatus("Waiting for plan decision ...", "Plan ready...");
+      handle.focus();
+
+      const decisionLines: Record<PlanCompletionDecision, string> = {
+        execute: "Plan approved — executing tasks now",
+        proceed: "Plan approved — mode switched to AGENT",
+        revise: "Revising plan — staying in PLAN mode",
+        cancel: "Plan handoff cancelled — staying in PLAN mode",
+      };
+
+      overlay.onDecision = (decision) => {
+        this.dismissPlanCompletionOverlay();
+        this.addChatLine(advisorStatusLine(decisionLines[decision]));
+        this.tui.setFocus(this.promptInput);
+        this.tui.requestRender();
+        resolve(decision);
+      };
+
+      this.planCompletionInputCleanup = this.tui.addInputListener((data: string) => {
+        overlay.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      });
+    });
+  }
+
+  private dismissPlanCompletionOverlay(): void {
+    this.planCompletionInputCleanup?.();
+    this.planCompletionInputCleanup = null;
+    this.planCompletionOverlayHandle?.hide();
+    this.planCompletionOverlayHandle = null;
   }
 
   /** Request a layout refresh after content above the prompt changes. */
@@ -4396,26 +4491,34 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    const sub = arg.trim().toLowerCase();
-    if (!sub) {
-      this.addChatLine(clr.dim("Usage: /goal <text> | status | pause | resume | clear"));
+    const trimmedArg = arg.trim();
+    const tokens = trimmedArg.split(/\s+/).filter(Boolean);
+    const firstToken = (tokens[0] ?? "").toLowerCase();
+
+    if (!trimmedArg) {
+      this.addChatLine(
+        clr.dim("Usage: /goal <text> | set [--plan[=revisionId]] <text> | status | pause | resume | clear")
+      );
       this.tui.requestRender();
       return;
     }
-    if (sub === "status") {
+    if (firstToken === "status") {
       if (!this.goalState) {
         this.addChatLine(clr.dim("No active goal"));
       } else {
+        const planSuffix = this.goalState.planRevisionId
+          ? `, plan: ${this.goalState.planRevisionId}`
+          : "";
         this.addChatLine(
           clr.dim(
-            `${this.goalState.status} — ${this.goalState.turnsUsed}/${this.goalState.maxTurns} turns: ${this.goalState.text}`
+            `${this.goalState.status} — ${this.goalState.turnsUsed}/${this.goalState.maxTurns} turns${planSuffix}: ${this.goalState.text}`
           )
         );
       }
       this.tui.requestRender();
       return;
     }
-    if (sub === "clear") {
+    if (firstToken === "clear") {
       this.goalState = undefined;
       await this.persistGoalState();
       this.syncGoalContextBar();
@@ -4423,7 +4526,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    if (sub === "pause") {
+    if (firstToken === "pause") {
       if (this.goalState) {
         this.goalState = { ...this.goalState, status: "paused" };
         await this.persistGoalState();
@@ -4433,7 +4536,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    if (sub === "resume") {
+    if (firstToken === "resume") {
       if (this.goalState) {
         const wasJudgePause = this.goalState.status === "paused_judge_unavailable";
         this.goalState = {
@@ -4444,6 +4547,16 @@ export class ImpulseRenderer {
         };
         await this.persistGoalState();
         this.syncGoalContextBar();
+        if (this.goalState.planRevisionId) {
+          const sessionId = SessionManager.getCurrentSessionID() ?? "";
+          if (!readPlanTasksMarkdown(sessionId, this.goalState.planRevisionId)) {
+            this.addChatLine(
+              clr.warn(
+                `Plan revision ${this.goalState.planRevisionId} not found — judging against goal text only.`
+              )
+            );
+          }
+        }
         void this.emitStatusEvent(
           wasJudgePause ? "Goal resumed" : "Goal resumed — turn counter reset"
         );
@@ -4456,7 +4569,75 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    this.goalState = createGoalState(arg.trim());
+
+    if (firstToken === "set") {
+      const sessionId = SessionManager.getCurrentSessionID() ?? "";
+      let planRevisionId: string | undefined;
+      let planRequested = false;
+      const textTokens: string[] = [];
+
+      for (const token of tokens.slice(1)) {
+        if (token === "--plan") {
+          planRequested = true;
+          continue;
+        }
+        if (token.startsWith("--plan=")) {
+          planRequested = true;
+          planRevisionId = token.slice("--plan=".length);
+          continue;
+        }
+        textTokens.push(token);
+      }
+
+      if (planRequested) {
+        if (planRevisionId) {
+          if (!readPlanTasksMarkdown(sessionId, planRevisionId)) {
+            const ids = listRevisionIds(sessionId);
+            this.addChatLine(
+              clr.warn(
+                ids.length > 0
+                  ? `Plan revision '${planRevisionId}' not found (or has no tasks.md). Available revisions: ${ids.join(", ")}.`
+                  : `Plan revision '${planRevisionId}' not found and no plan revisions exist for this session.`
+              )
+            );
+            this.tui.requestRender();
+            return;
+          }
+        } else {
+          const active = getActivePlanRevision(sessionId);
+          if (!active) {
+            this.addChatLine(
+              clr.warn("No active plan revision. Run PLAN mode first, or specify /goal set --plan=<revisionId>.")
+            );
+            this.tui.requestRender();
+            return;
+          }
+          planRevisionId = active.meta.revisionId;
+        }
+      }
+
+      let text = textTokens.join(" ").trim();
+      if (!text && planRevisionId) {
+        text = `Complete all tasks in plan revision ${planRevisionId} (tasks.md)`;
+      }
+      if (!text) {
+        this.addChatLine(clr.warn("Usage: /goal set [--plan[=revisionId]] <text>"));
+        this.tui.requestRender();
+        return;
+      }
+
+      this.goalState = createGoalState(text, planRevisionId ? { planRevisionId } : undefined);
+      await this.persistGoalState();
+      this.syncGoalContextBar();
+      void this.emitStatusEvent(
+        `Goal set: ${this.goalState.text}${planRevisionId ? ` (plan: ${planRevisionId})` : ""}`
+      );
+      this.tui.requestRender();
+      return;
+    }
+
+    // Legacy /goal <text>
+    this.goalState = createGoalState(trimmedArg);
     await this.persistGoalState();
     this.syncGoalContextBar();
     void this.emitStatusEvent(`Goal set: ${this.goalState.text}`);
