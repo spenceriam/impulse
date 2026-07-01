@@ -21,7 +21,7 @@ export function capBashOutputLines(
   maxLines: number,
   maxLineChars = MAX_BASH_LINE_CHARS,
   maxBytes = MAX_BASH_OUTPUT_BYTES
-): { output: string; truncated: boolean } {
+): { output: string; truncated: boolean; keptLines: number } {
   const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const rawLines = normalized.length > 0 ? normalized.split("\n") : [];
   const cappedLines: string[] = [];
@@ -58,7 +58,7 @@ export function capBashOutputLines(
     output += `\n[Output truncated: ${reason}]`;
   }
 
-  return { output, truncated };
+  return { output, truncated, keptLines: cappedLines.length };
 }
 
 export function stubOversizedMessageContent(

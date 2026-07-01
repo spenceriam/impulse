@@ -30,11 +30,19 @@ import {
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 
 /**
+ * Resolve the effective timeout for a bash/PTY invocation.
+ * `timeout: 0` means no limit (undefined); omitted falls back to the 120s default.
+ */
+export function resolveBashTimeoutMs(timeout?: number): number | undefined {
+  return timeout === 0 ? undefined : (timeout ?? DEFAULT_BASH_TIMEOUT_MS);
+}
+
+/**
  * Classify a failed command's output to give actionable guidance when a
  * tool or command is not found on the target shell.
  * Returns a hint string to append, or null when output is already clear.
  */
-function classifyCommandError(
+export function classifyCommandError(
   command: string,
   output: string,
   exitCode: number,
@@ -94,6 +102,8 @@ interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
   shellKind?: "powershell" | "cmd" | "bash";
+  /** One-time notice to prepend to the tool output (e.g. a shell-selection fallback). */
+  notice?: string;
 }
 
 interface ShellSessionState {
@@ -594,8 +604,15 @@ function quotePowerShellString(value: string): string {
  * Translate a Windows path to a WSL mount path.
  * C:\Users\foo\bar → /mnt/c/Users/foo/bar
  * Already-POSIX paths are returned unchanged.
+ * UNC paths (\\server\share\...) aren't representable this way — throws instead
+ * of producing a broken /mnt path.
  */
-function translateToWslPath(winPath: string): string {
+export function translateToWslPath(winPath: string): string {
+  if (winPath.startsWith("\\\\") || winPath.startsWith("//")) {
+    throw new Error(
+      `Cannot translate UNC path to a WSL path: ${winPath}. Run this command from a local-drive working directory, or address the share via WSL's own /mnt/wsl/ network-mount conventions.`
+    );
+  }
   const driveMatch = winPath.match(/^([A-Za-z]):[\\\/](.*)/);
   if (driveMatch) {
     const drive = driveMatch[1]!.toLowerCase();
@@ -623,6 +640,69 @@ function encodePowerShellCommand(command: string): string {
   return Buffer.from(command, "utf16le").toString("base64");
 }
 
+function buildWslSpawnOptions(executable: string, cwd: string, command: string): SpawnOptions {
+  const wslCwd = translateToWslPath(cwd);
+  // cwd is set via --cd inside wsl.exe; don't pass a Windows cwd to Bun.spawn
+  return {
+    env: process.env,
+    shellKind: "bash",
+    cmd: [executable, "--cd", wslCwd, "--", "bash", "-lc", command],
+  };
+}
+
+function buildSpawnOptionsForShell(
+  shell: Awaited<ReturnType<typeof detectWindowsCommandShell>>,
+  input: BashInput,
+  cwd: string,
+  options: { interactive?: boolean },
+  common: SpawnOptions
+): SpawnOptions {
+  if (shell.type === "wsl") {
+    return buildWslSpawnOptions(shell.executable, cwd, input.command);
+  }
+
+  if (shell.type === "cmd") {
+    return {
+      ...common,
+      shellKind: "cmd",
+      cmd: [shell.executable, "/d", "/s", "/c", input.command],
+    };
+  }
+
+  if (shell.type === "git-bash") {
+    return {
+      ...common,
+      shellKind: "bash",
+      cmd: [shell.executable, "-lc", input.command],
+    };
+  }
+
+  const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
+  const psType = shell.type as "powershell5" | "powershell7";
+
+  return {
+    ...common,
+    shellKind: "powershell",
+    env: {
+      ...process.env,
+      [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, psType),
+    },
+    cmd: [
+      shell.executable,
+      "-NoLogo",
+      "-NoProfile",
+      ...interactiveArgs,
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodePowerShellCommand(WINDOWS_POWERSHELL_WRAPPER),
+    ],
+  };
+}
+
+/** Shown once per process when preferredShell is "wsl" but no WSL distro is available. */
+let warnedWslUnavailable = false;
+
 async function getSpawnOptions(
   input: BashInput,
   cwd: string,
@@ -641,66 +721,27 @@ async function getSpawnOptions(
     // WSL: either forced by preferredShell config or auto-detected
     if (preferred === "wsl") {
       const wslShell = await detectWslShell();
-      const wslExe = wslShell?.executable ?? "wsl.exe";
-      const wslCwd = translateToWslPath(cwd);
-      // cwd is set via --cd inside wsl.exe; don't pass a Windows cwd to Bun.spawn
-      return {
-        env: process.env,
-        shellKind: "bash",
-        cmd: [wslExe, "--cd", wslCwd, "--", "bash", "-lc", input.command],
-      };
+      if (wslShell) {
+        return buildWslSpawnOptions(wslShell.executable, cwd, input.command);
+      }
+
+      // preferredShell is explicitly "wsl" but no distro was detected — don't
+      // spawn a nonexistent wsl.exe; fall back to the auto-detected shell and
+      // surface a one-time notice instead of an opaque spawn failure.
+      const fallbackShell = await detectWindowsCommandShell();
+      const spawnOptions = buildSpawnOptionsForShell(fallbackShell, input, cwd, options, common);
+      if (!warnedWslUnavailable) {
+        warnedWslUnavailable = true;
+        spawnOptions.notice = `[Note: preferredShell is set to "wsl" but no WSL distro was detected. Falling back to ${fallbackShell.displayName}. Run 'wsl --install' or check 'wsl -l -v', or change preferredShell in config.]`;
+      }
+      return spawnOptions;
     }
 
     const shell = preferred === "auto"
       ? await detectWindowsCommandShell()
       : await resolvePreferredShell(preferred);
 
-    if (shell.type === "wsl") {
-      const wslCwd = translateToWslPath(cwd);
-      return {
-        env: process.env,
-        shellKind: "bash",
-        cmd: [shell.executable, "--cd", wslCwd, "--", "bash", "-lc", input.command],
-      };
-    }
-
-    if (shell.type === "cmd") {
-      return {
-        ...common,
-        shellKind: "cmd",
-        cmd: [shell.executable, "/d", "/s", "/c", input.command],
-      };
-    }
-
-    if (shell.type === "git-bash") {
-      return {
-        ...common,
-        shellKind: "bash",
-        cmd: [shell.executable, "-lc", input.command],
-      };
-    }
-
-    const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
-    const psType = shell.type as "powershell5" | "powershell7";
-
-    return {
-      ...common,
-      shellKind: "powershell",
-      env: {
-        ...process.env,
-        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, psType),
-      },
-      cmd: [
-        shell.executable,
-        "-NoLogo",
-        "-NoProfile",
-        ...interactiveArgs,
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        encodePowerShellCommand(WINDOWS_POWERSHELL_WRAPPER),
-      ],
-    };
+    return buildSpawnOptionsForShell(shell, input, cwd, options, common);
   }
 
   return {
@@ -714,7 +755,7 @@ async function getSpawnOptions(
  * Resolve a specific shell from a user preference string (non-"auto" + non-"wsl" values).
  * Falls back to auto-detection when the requested shell is not found.
  */
-async function resolvePreferredShell(preferred: string) {
+export async function resolvePreferredShell(preferred: string) {
   if (preferred === "pwsh") {
     const pwshPath = Bun.which("pwsh.exe") ?? Bun.which("pwsh");
     if (pwshPath) return { type: "powershell7" as const, executable: pwshPath, displayName: "PowerShell 7.x (pwsh)", supportsChainedCommands: true, commandSeparator: "&&" as const };
@@ -847,25 +888,28 @@ async function executeWithPty(
     activePtyHandles.set(toolCallId, handle);
     Bus.emit(PtyEvents.Started, { toolCallId, pid: handle.pid });
     
-    const timeoutMs = input.timeout ?? DEFAULT_BASH_TIMEOUT_MS;
+    const timeoutMs = resolveBashTimeoutMs(input.timeout);
     let timedOut = false;
     const result = await new Promise<{ output: string; exitCode: number; pid?: number }>((resolve) => {
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          handle.kill();
-        } catch {
-          /* ignore */
-        }
-        resolve({
-          output: lastOutput,
-          exitCode: -1,
-          pid: handle.pid,
-        });
-      }, timeoutMs);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            handle.kill();
+          } catch {
+            /* ignore */
+          }
+          resolve({
+            output: lastOutput,
+            exitCode: -1,
+            pid: handle.pid,
+          });
+        }, timeoutMs);
+      }
 
       void handle.result.then((ptyResult) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         if (!timedOut) resolve(ptyResult);
       });
     });
@@ -877,6 +921,10 @@ async function executeWithPty(
     const maxLines = 2000;
     const capped = capBashOutputLines(result.output, maxLines);
     let output = capped.output;
+
+    if (spawnOptions?.notice) {
+      output = `${spawnOptions.notice}${output ? "\n" : ""}${output}`;
+    }
 
     if (timedOut) {
       output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
@@ -939,7 +987,7 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   // timeout:0 means no limit; undefined falls back to the 120s default (matching PTY path)
-  const timeoutMs = input.timeout === 0 ? undefined : (input.timeout ?? DEFAULT_BASH_TIMEOUT_MS);
+  const timeoutMs = resolveBashTimeoutMs(input.timeout);
   const timeoutPromise = new Promise<number>((resolve) => {
     if (timeoutMs === undefined) {
       return;
@@ -985,28 +1033,35 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
   }
   
-  // Pagination: slice output lines before byte-capping
+  // Pagination: slice output lines, then byte-cap; the note is built AFTER
+  // capping so it reflects what was actually delivered (the byte/line cap
+  // can still trim a paginated slice, and the note must not overstate it).
   const outputOffset = input.offset ?? 0;
   const outputLimit = input.limit ?? maxLines;
-  let paginationNote = "";
+  const paginationRequested = outputOffset > 0 || input.limit !== undefined;
   let paginatedOutput = combinedOutput;
-  if (outputOffset > 0 || input.limit !== undefined) {
+  let totalOutputLines = 0;
+  let slicedLineCount = 0;
+  if (paginationRequested) {
     const allLines = combinedOutput.split("\n");
-    const totalOutputLines = allLines.length;
+    totalOutputLines = allLines.length;
     const sliced = allLines.slice(outputOffset, outputOffset + outputLimit);
+    slicedLineCount = sliced.length;
     paginatedOutput = sliced.join("\n");
-    const nextOffset = outputOffset + sliced.length;
-    if (nextOffset < totalOutputLines) {
-      paginationNote = `\n[Output paginated: lines ${outputOffset + 1}–${nextOffset} of ${totalOutputLines}. Re-run with offset: ${nextOffset} for more.]`;
-    }
   }
 
   const capped = capBashOutputLines(paginatedOutput, maxLines);
   let output = capped.output;
-  let wasTruncated = capped.truncated || paginationNote.length > 0;
+  let wasTruncated = capped.truncated;
 
-  if (paginationNote) {
-    output = `${output}${paginationNote}`;
+  if (paginationRequested) {
+    const delivered = capped.keptLines;
+    const nextOffset = outputOffset + delivered;
+    if (nextOffset < totalOutputLines) {
+      const cappedFurther = delivered < slicedLineCount ? ", further capped by output size limits" : "";
+      output = `${output}\n[Output paginated: lines ${outputOffset + 1}-${nextOffset} of ${totalOutputLines}${cappedFurther}. Re-run with offset: ${nextOffset} for more.]`;
+      wasTruncated = true;
+    }
   }
 
   if (exitCode === -1) {
@@ -1018,6 +1073,10 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
   const hint = classifyCommandError(input.command, output, exitCode ?? -1, shellForClassify);
   if (hint) {
     output = `${output}${output ? "\n" : ""}${hint}`;
+  }
+
+  if (spawnOptions.notice) {
+    output = `${spawnOptions.notice}${output ? "\n" : ""}${output}`;
   }
 
   const elapsed = Date.now() - startTime;

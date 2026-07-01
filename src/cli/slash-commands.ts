@@ -43,7 +43,8 @@ export function buildSlashCommandDefs(
       helpDetail: "List background jobs (/ba), kill one (/ba kill <id>), or restart (/ba restart <id>)",
     },
     {
-      cmd: "/allow-all",      hint: "toggle bypass all permission prompts",
+      cmd: "/allow-all",
+      hint: "toggle bypass all permission prompts",
       helpDetail: "Toggle bypassing all tool permission prompts (session-only)",
     },
     {

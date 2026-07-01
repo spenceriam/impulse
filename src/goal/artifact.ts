@@ -12,6 +12,29 @@ import fs from "fs";
 import { getGoalDir } from "./paths.js";
 import type { GoalState } from "../session/goal-state.js";
 import { writeJsonAtomic } from "../util/atomic-write.js";
+import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
+
+function renderGoalMarkdown(state: GoalState, sessionId: string, cwd: string): string {
+  const lines = ["# Goal", "", state.text, ""];
+
+  if (state.planRevisionId) {
+    const revisionDir = getRevisionDir(sessionId, state.planRevisionId, cwd);
+    const tasksPathRel = toRelativePlanPath(`${revisionDir}/tasks.md`, cwd);
+    lines.push(
+      "## Plan reference",
+      "",
+      `- Revision: ${state.planRevisionId}`,
+      `- Tasks: ${tasksPathRel}`,
+      "",
+      "## Acceptance criteria",
+      "",
+      "Complete when every task in the referenced tasks.md is checked off (judged each turn).",
+      ""
+    );
+  }
+
+  return lines.join("\n");
+}
 
 function statePath(goalDir: string): string {
   return `${goalDir}/state.json`;
@@ -39,8 +62,8 @@ export async function writeGoalArtifact(
 
   await writeJsonAtomic(statePath(dir), state);
 
-  // goal.md — overwrite each time (tracks current goal text)
-  fs.writeFileSync(goalMdPath(dir), `# Goal\n\n${state.text}\n`, { mode: 0o600 });
+  // goal.md — overwrite each time (tracks current goal text + plan reference)
+  fs.writeFileSync(goalMdPath(dir), renderGoalMarkdown(state, sessionId, cwd), { mode: 0o600 });
 }
 
 /**

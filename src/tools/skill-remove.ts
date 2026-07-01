@@ -18,6 +18,32 @@ const SkillRemoveSchema = z.object({
 
 type SkillRemoveInput = z.infer<typeof SkillRemoveSchema>;
 
+export type RemoveSkillResult =
+  | { success: true; message: string }
+  | { success: false; message: string };
+
+/**
+ * Delete a skill's directory and deregister its slash command alias.
+ * Shared by the skill_remove tool (permission-gated above this call) and the
+ * /skills removal overlay (a direct user action — no permission prompt).
+ */
+export function removeSkill(cwd: string, slug: string): RemoveSkillResult {
+  const skillDir = join(cwd, ".agents", "skills", slug);
+  if (!existsSync(skillDir)) {
+    return { success: false, message: `Skill '${slug}' is not installed.` };
+  }
+
+  const skills = listInstalledSkills(cwd);
+  const meta = skills.find((s) => s.slug === slug);
+  if (meta?.command) {
+    unregisterSkillCommand(meta.command);
+  }
+
+  rmSync(skillDir, { recursive: true, force: true });
+
+  return { success: true, message: `Skill '${slug}' removed.` };
+}
+
 export const skillRemoveTool: Tool<SkillRemoveInput> = Tool.define(
   "skill_remove",
   DESCRIPTION,
@@ -38,19 +64,11 @@ export const skillRemoveTool: Tool<SkillRemoveInput> = Tool.define(
       metadata: { path: skillDir, slug: input.slug, reason: `Delete skill '${input.slug}'` },
     });
 
-    // Deregister slash command alias if the skill declared one
-    const skills = listInstalledSkills(cwd);
-    const meta = skills.find((s) => s.slug === input.slug);
-    if (meta?.command) {
-      unregisterSkillCommand(meta.command);
-    }
-
-    rmSync(skillDir, { recursive: true, force: true });
-
+    const result = removeSkill(cwd, input.slug);
     return {
-      success: true,
-      output: `Skill '${input.slug}' removed.`,
-      metadata: { type: "skill_remove", slug: input.slug },
+      success: result.success,
+      output: result.message,
+      ...(result.success ? { metadata: { type: "skill_remove", slug: input.slug } } : {}),
     };
   }
 );
