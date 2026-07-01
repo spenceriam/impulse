@@ -486,10 +486,14 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   const { probeToolAvailability, formatToolAvailabilityBlock } = await import(
     "../util/shell-env.js"
   );
+  const { probeProjectStructure, formatProjectStructureBlock } = await import(
+    "./project-structure.js"
+  );
 
   const repoContext = resolveRepoContext(workingDir);
   const ghStatus = probeGhCli();
   const toolAvailability = await probeToolAvailability();
+  const projectStructure = await probeProjectStructure(workingDir);
 
   const parts: string[] = [
     getPrompt("core", "base", BASE_PROMPT),
@@ -498,6 +502,11 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     formatGhCliPromptBlock(ghStatus),
     formatToolAvailabilityBlock(toolAvailability),
   ];
+
+  const projectStructureBlock = formatProjectStructureBlock(projectStructure);
+  if (projectStructureBlock) {
+    parts.push(projectStructureBlock);
+  }
 
   const projectInstructions = await loadInstructions(workingDir);
   if (projectInstructions) {
