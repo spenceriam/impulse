@@ -103,24 +103,56 @@ function levenshtein(a: string, b: string): number {
   return dp[n]!;
 }
 
-async function fuzzyMatchSuggestion(filePath: string): Promise<string | null> {
+const NOT_FOUND_LISTING_MAX_ENTRIES = 15;
+const NOT_FOUND_LISTING_MAX_CHARS = 300;
+
+/**
+ * On ENOENT, build a "Did you mean" fuzzy suggestion plus a compact listing
+ * of the parent directory, reusing a single readdir() call for both.
+ */
+async function buildNotFoundHint(filePath: string): Promise<string | null> {
   const dir = path.dirname(filePath);
   const base = path.basename(filePath);
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
   try {
-    const entries = await readdir(dir);
-    // Hyphen/underscore swap OR Levenshtein ≤ 2
-    const swapped = base.replace(/[-_]/g, (c) => (c === "-" ? "_" : "-"));
-    const candidates = entries.filter((e) => {
-      if (e === base) return false;
-      if (e === swapped) return true;
-      return levenshtein(base.toLowerCase(), e.toLowerCase()) <= 2;
-    });
-    if (candidates.length === 0) return null;
-    const suggestions = candidates.slice(0, 3).join(", ");
-    return `Did you mean: ${suggestions}?`;
+    entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return null;
   }
+
+  const parts: string[] = [];
+
+  // Hyphen/underscore swap OR Levenshtein ≤ 2
+  const swapped = base.replace(/[-_]/g, (c) => (c === "-" ? "_" : "-"));
+  const candidates = entries
+    .map((e) => e.name)
+    .filter((name) => {
+      if (name === base) return false;
+      if (name === swapped) return true;
+      return levenshtein(base.toLowerCase(), name.toLowerCase()) <= 2;
+    });
+  if (candidates.length > 0) {
+    parts.push(`Did you mean: ${candidates.slice(0, 3).join(", ")}?`);
+  }
+
+  const displayNames = [...entries]
+    .sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+
+  if (displayNames.length > 0) {
+    const shown = displayNames.slice(0, NOT_FOUND_LISTING_MAX_ENTRIES);
+    const more = displayNames.length > shown.length ? ` (+${displayNames.length - shown.length} more)` : "";
+    let listing = `Directory ${dir}${path.sep} (${displayNames.length} entries): ${shown.join(", ")}${more}`;
+    if (listing.length > NOT_FOUND_LISTING_MAX_CHARS) {
+      listing = `${listing.slice(0, NOT_FOUND_LISTING_MAX_CHARS - 1)}…`;
+    }
+    parts.push(listing);
+  }
+
+  return parts.length > 0 ? parts.join("\n") : null;
 }
 
 export { buildFileReadRangeNote } from "./tool-notes";
@@ -229,11 +261,11 @@ export const fileRead: Tool<ReadInput> = Tool.define(
           error instanceof Error &&
           ("code" in error ? (error as NodeJS.ErrnoException).code === "ENOENT" : error.message.includes("ENOENT"));
         if (isNotFound) {
-          const suggestion = await fuzzyMatchSuggestion(safePath);
+          const hint = await buildNotFoundHint(safePath);
           const base = `File not found: ${input.filePath}`;
           return {
             success: false,
-            output: suggestion ? `${base}\n${suggestion}` : base,
+            output: hint ? `${base}\n${hint}` : base,
           };
         }
         return {
