@@ -25,11 +25,19 @@ import { load as loadConfig } from "../util/config.js";
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 
 /**
+ * Resolve the effective timeout for a bash/PTY invocation.
+ * `timeout: 0` means no limit (undefined); omitted falls back to the 120s default.
+ */
+export function resolveBashTimeoutMs(timeout?: number): number | undefined {
+  return timeout === 0 ? undefined : (timeout ?? DEFAULT_BASH_TIMEOUT_MS);
+}
+
+/**
  * Classify a failed command's output to give actionable guidance when a
  * tool or command is not found on the target shell.
  * Returns a hint string to append, or null when output is already clear.
  */
-function classifyCommandError(
+export function classifyCommandError(
   command: string,
   output: string,
   exitCode: number,
@@ -841,25 +849,28 @@ async function executeWithPty(
     activePtyHandles.set(toolCallId, handle);
     Bus.emit(PtyEvents.Started, { toolCallId, pid: handle.pid });
     
-    const timeoutMs = input.timeout ?? DEFAULT_BASH_TIMEOUT_MS;
+    const timeoutMs = resolveBashTimeoutMs(input.timeout);
     let timedOut = false;
     const result = await new Promise<{ output: string; exitCode: number; pid?: number }>((resolve) => {
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          handle.kill();
-        } catch {
-          /* ignore */
-        }
-        resolve({
-          output: lastOutput,
-          exitCode: -1,
-          pid: handle.pid,
-        });
-      }, timeoutMs);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            handle.kill();
+          } catch {
+            /* ignore */
+          }
+          resolve({
+            output: lastOutput,
+            exitCode: -1,
+            pid: handle.pid,
+          });
+        }, timeoutMs);
+      }
 
       void handle.result.then((ptyResult) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         if (!timedOut) resolve(ptyResult);
       });
     });
@@ -933,7 +944,7 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   // timeout:0 means no limit; undefined falls back to the 120s default (matching PTY path)
-  const timeoutMs = input.timeout === 0 ? undefined : (input.timeout ?? DEFAULT_BASH_TIMEOUT_MS);
+  const timeoutMs = resolveBashTimeoutMs(input.timeout);
   const timeoutPromise = new Promise<number>((resolve) => {
     if (timeoutMs === undefined) {
       return;
@@ -979,28 +990,35 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
   }
   
-  // Pagination: slice output lines before byte-capping
+  // Pagination: slice output lines, then byte-cap; the note is built AFTER
+  // capping so it reflects what was actually delivered (the byte/line cap
+  // can still trim a paginated slice, and the note must not overstate it).
   const outputOffset = input.offset ?? 0;
   const outputLimit = input.limit ?? maxLines;
-  let paginationNote = "";
+  const paginationRequested = outputOffset > 0 || input.limit !== undefined;
   let paginatedOutput = combinedOutput;
-  if (outputOffset > 0 || input.limit !== undefined) {
+  let totalOutputLines = 0;
+  let slicedLineCount = 0;
+  if (paginationRequested) {
     const allLines = combinedOutput.split("\n");
-    const totalOutputLines = allLines.length;
+    totalOutputLines = allLines.length;
     const sliced = allLines.slice(outputOffset, outputOffset + outputLimit);
+    slicedLineCount = sliced.length;
     paginatedOutput = sliced.join("\n");
-    const nextOffset = outputOffset + sliced.length;
-    if (nextOffset < totalOutputLines) {
-      paginationNote = `\n[Output paginated: lines ${outputOffset + 1}–${nextOffset} of ${totalOutputLines}. Re-run with offset: ${nextOffset} for more.]`;
-    }
   }
 
   const capped = capBashOutputLines(paginatedOutput, maxLines);
   let output = capped.output;
-  let wasTruncated = capped.truncated || paginationNote.length > 0;
+  let wasTruncated = capped.truncated;
 
-  if (paginationNote) {
-    output = `${output}${paginationNote}`;
+  if (paginationRequested) {
+    const delivered = capped.keptLines;
+    const nextOffset = outputOffset + delivered;
+    if (nextOffset < totalOutputLines) {
+      const cappedFurther = delivered < slicedLineCount ? ", further capped by output size limits" : "";
+      output = `${output}\n[Output paginated: lines ${outputOffset + 1}-${nextOffset} of ${totalOutputLines}${cappedFurther}. Re-run with offset: ${nextOffset} for more.]`;
+      wasTruncated = true;
+    }
   }
 
   if (exitCode === -1) {

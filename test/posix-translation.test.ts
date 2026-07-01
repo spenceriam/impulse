@@ -29,22 +29,56 @@ describe("translatePosixToPowerShell", () => {
   });
 
   test("leaves complex command families unchanged", () => {
+    // -r isn't in grep's supported single-command flag set (recursive grep needs
+    // full pipeline/shell semantics), so it's intentionally left untranslated.
     expect(translatePosixToPowerShell("grep -r my pattern src")).toEqual({
       translated: "grep -r my pattern src",
       wasTranslated: false,
     });
+    // which only translates a single bare command name, not multiple arguments.
     expect(translatePosixToPowerShell("which git node")).toEqual({
       translated: "which git node",
       wasTranslated: false,
     });
-    expect(translatePosixToPowerShell("cp -R src dst")).toEqual({
-      translated: "cp -R src dst",
-      wasTranslated: false,
-    });
-    expect(translatePosixToPowerShell("mv src dst")).toEqual({
-      translated: "mv src dst",
-      wasTranslated: false,
-    });
+  });
+
+  test("translates cp -> Copy-Item, including recursive/force flags", () => {
+    expect(translatePosixToPowerShell("cp -R src dst").translated).toBe(
+      "Copy-Item -Recurse -Path 'src' -Destination 'dst'"
+    );
+    expect(translatePosixToPowerShell("cp -rf src dst").translated).toBe(
+      "Copy-Item -Recurse -Force -Path 'src' -Destination 'dst'"
+    );
+    expect(translatePosixToPowerShell("cp src.txt dst.txt").translated).toBe(
+      "Copy-Item -Path 'src.txt' -Destination 'dst.txt'"
+    );
+  });
+
+  test("translates mv -> Move-Item, including the force flag", () => {
+    expect(translatePosixToPowerShell("mv src dst").translated).toBe(
+      "Move-Item -Path 'src' -Destination 'dst'"
+    );
+    expect(translatePosixToPowerShell("mv -f old.txt new.txt").translated).toBe(
+      "Move-Item -Force -Path 'old.txt' -Destination 'new.txt'"
+    );
+  });
+
+  test("translates a simple grep -> Select-String", () => {
+    expect(translatePosixToPowerShell("grep pattern file.txt").translated).toBe(
+      "Select-String -CaseSensitive -Pattern 'pattern' -Path 'file.txt'"
+    );
+    expect(translatePosixToPowerShell("grep -i pattern file.txt").translated).toBe(
+      "Select-String -CaseSensitive:$false -Pattern 'pattern' -Path 'file.txt'"
+    );
+    expect(translatePosixToPowerShell("grep -v pattern file.txt").translated).toBe(
+      "Select-String -CaseSensitive -NotMatch -Pattern 'pattern' -Path 'file.txt'"
+    );
+  });
+
+  test("translates which for a single command name", () => {
+    expect(translatePosixToPowerShell("which git").translated).toBe(
+      "(Get-Command git -ErrorAction SilentlyContinue).Source"
+    );
   });
 
   test("quotes translated path arguments", () => {
