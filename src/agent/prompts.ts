@@ -580,7 +580,16 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
       const statusLine = activeGoal.status === "active"
         ? `Status: active (turn ${activeGoal.turnsUsed}/${activeGoal.maxTurns})`
         : `Status: ${activeGoal.status}`;
-      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}\n\nContinue working toward this goal unless the user redirects you.`);
+      let planNote = "";
+      if (activeGoal.planRevisionId) {
+        const { getRevisionDir, toRelativePlanPath } = await import("../plan/paths.js");
+        const tasksPathRel = toRelativePlanPath(
+          `${getRevisionDir(options.sessionId, activeGoal.planRevisionId, workingDir)}/tasks.md`,
+          workingDir
+        );
+        planNote = `\n\nThis goal tracks plan revision \`${activeGoal.planRevisionId}\`. Execute the tasks in \`${tasksPathRel}\` and check each off (\`- [x]\`) as you complete it.`;
+      }
+      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}${planNote}\n\nContinue working toward this goal unless the user redirects you.`);
     }
   }
 

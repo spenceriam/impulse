@@ -217,6 +217,12 @@ import {
 } from "../session/goal-state.js";
 import { buildGoalContinuationMessage, judgeGoal } from "../agent/goal-loop.js";
 import {
+  getActivePlanRevision,
+  listRevisionIds,
+  readPlanTasksMarkdown,
+} from "../plan/revisions.js";
+import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
+import {
   writeGoalArtifact,
   readGoalArtifact,
 } from "../goal/artifact.js";
@@ -1262,10 +1268,27 @@ export class ImpulseRenderer {
 
     const cfg = await loadConfig();
     const judgeModel = cfg.subagentModel?.trim() || cfg.defaultModel?.trim();
+
+    let planTasksMarkdown: string | undefined;
+    let planTasksPath: string | undefined;
+    if (activeGoal.planRevisionId) {
+      const sessionId = SessionManager.getCurrentSessionID() ?? "";
+      const tasks = readPlanTasksMarkdown(sessionId, activeGoal.planRevisionId);
+      if (tasks) {
+        planTasksMarkdown = tasks;
+        planTasksPath = toRelativePlanPath(getRevisionDir(sessionId, activeGoal.planRevisionId));
+      } else {
+        void this.emitStatusEvent(
+          `Plan revision ${activeGoal.planRevisionId} not found — judging against goal text only.`
+        );
+      }
+    }
+
     const result = await judgeGoal(
       activeGoal,
       this.lastAssistantTurnText,
-      judgeModel
+      judgeModel,
+      planTasksMarkdown ? { planTasksMarkdown } : undefined
     );
 
     if (result.verdict === "done") {
@@ -1314,7 +1337,10 @@ export class ImpulseRenderer {
     }
 
     await this.persistGoalState();
-    const continuation = buildGoalContinuationMessage(updatedGoal);
+    const continuation = buildGoalContinuationMessage(
+      updatedGoal,
+      planTasksPath ? { planTasksPath } : undefined
+    );
     void this.runTurn({
       apiText: continuation,
       displayMessage: continuation,
@@ -4461,26 +4487,34 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    const sub = arg.trim().toLowerCase();
-    if (!sub) {
-      this.addChatLine(clr.dim("Usage: /goal <text> | status | pause | resume | clear"));
+    const trimmedArg = arg.trim();
+    const tokens = trimmedArg.split(/\s+/).filter(Boolean);
+    const firstToken = (tokens[0] ?? "").toLowerCase();
+
+    if (!trimmedArg) {
+      this.addChatLine(
+        clr.dim("Usage: /goal <text> | set [--plan[=revisionId]] <text> | status | pause | resume | clear")
+      );
       this.tui.requestRender();
       return;
     }
-    if (sub === "status") {
+    if (firstToken === "status") {
       if (!this.goalState) {
         this.addChatLine(clr.dim("No active goal"));
       } else {
+        const planSuffix = this.goalState.planRevisionId
+          ? `, plan: ${this.goalState.planRevisionId}`
+          : "";
         this.addChatLine(
           clr.dim(
-            `${this.goalState.status} — ${this.goalState.turnsUsed}/${this.goalState.maxTurns} turns: ${this.goalState.text}`
+            `${this.goalState.status} — ${this.goalState.turnsUsed}/${this.goalState.maxTurns} turns${planSuffix}: ${this.goalState.text}`
           )
         );
       }
       this.tui.requestRender();
       return;
     }
-    if (sub === "clear") {
+    if (firstToken === "clear") {
       this.goalState = undefined;
       await this.persistGoalState();
       this.syncGoalContextBar();
@@ -4488,7 +4522,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    if (sub === "pause") {
+    if (firstToken === "pause") {
       if (this.goalState) {
         this.goalState = { ...this.goalState, status: "paused" };
         await this.persistGoalState();
@@ -4498,7 +4532,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    if (sub === "resume") {
+    if (firstToken === "resume") {
       if (this.goalState) {
         const wasJudgePause = this.goalState.status === "paused_judge_unavailable";
         this.goalState = {
@@ -4509,6 +4543,16 @@ export class ImpulseRenderer {
         };
         await this.persistGoalState();
         this.syncGoalContextBar();
+        if (this.goalState.planRevisionId) {
+          const sessionId = SessionManager.getCurrentSessionID() ?? "";
+          if (!readPlanTasksMarkdown(sessionId, this.goalState.planRevisionId)) {
+            this.addChatLine(
+              clr.warn(
+                `Plan revision ${this.goalState.planRevisionId} not found — judging against goal text only.`
+              )
+            );
+          }
+        }
         void this.emitStatusEvent(
           wasJudgePause ? "Goal resumed" : "Goal resumed — turn counter reset"
         );
@@ -4521,7 +4565,75 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    this.goalState = createGoalState(arg.trim());
+
+    if (firstToken === "set") {
+      const sessionId = SessionManager.getCurrentSessionID() ?? "";
+      let planRevisionId: string | undefined;
+      let planRequested = false;
+      const textTokens: string[] = [];
+
+      for (const token of tokens.slice(1)) {
+        if (token === "--plan") {
+          planRequested = true;
+          continue;
+        }
+        if (token.startsWith("--plan=")) {
+          planRequested = true;
+          planRevisionId = token.slice("--plan=".length);
+          continue;
+        }
+        textTokens.push(token);
+      }
+
+      if (planRequested) {
+        if (planRevisionId) {
+          if (!readPlanTasksMarkdown(sessionId, planRevisionId)) {
+            const ids = listRevisionIds(sessionId);
+            this.addChatLine(
+              clr.warn(
+                ids.length > 0
+                  ? `Plan revision '${planRevisionId}' not found (or has no tasks.md). Available revisions: ${ids.join(", ")}.`
+                  : `Plan revision '${planRevisionId}' not found and no plan revisions exist for this session.`
+              )
+            );
+            this.tui.requestRender();
+            return;
+          }
+        } else {
+          const active = getActivePlanRevision(sessionId);
+          if (!active) {
+            this.addChatLine(
+              clr.warn("No active plan revision. Run PLAN mode first, or specify /goal set --plan=<revisionId>.")
+            );
+            this.tui.requestRender();
+            return;
+          }
+          planRevisionId = active.meta.revisionId;
+        }
+      }
+
+      let text = textTokens.join(" ").trim();
+      if (!text && planRevisionId) {
+        text = `Complete all tasks in plan revision ${planRevisionId} (tasks.md)`;
+      }
+      if (!text) {
+        this.addChatLine(clr.warn("Usage: /goal set [--plan[=revisionId]] <text>"));
+        this.tui.requestRender();
+        return;
+      }
+
+      this.goalState = createGoalState(text, planRevisionId ? { planRevisionId } : undefined);
+      await this.persistGoalState();
+      this.syncGoalContextBar();
+      void this.emitStatusEvent(
+        `Goal set: ${this.goalState.text}${planRevisionId ? ` (plan: ${planRevisionId})` : ""}`
+      );
+      this.tui.requestRender();
+      return;
+    }
+
+    // Legacy /goal <text>
+    this.goalState = createGoalState(trimmedArg);
     await this.persistGoalState();
     this.syncGoalContextBar();
     void this.emitStatusEvent(`Goal set: ${this.goalState.text}`);

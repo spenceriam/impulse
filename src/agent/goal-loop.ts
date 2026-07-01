@@ -18,10 +18,48 @@ DONE: <brief reason>
 or
 CONTINUE: <brief reason>`;
 
+const CHECKLIST_JUDGE_PROMPT = `You judge whether a coding agent has completed a plan's task checklist.
+The goal is complete ONLY when every task in tasks.md is done (checked off or explicitly reported complete).
+Reply with exactly one line:
+DONE: <brief reason>
+or
+CONTINUE: <which tasks remain>`;
+
+export interface JudgeMessage {
+  role: "system" | "user";
+  content: string;
+}
+
+/** Build the judge's [system, user] message pair, pure and unit-testable. */
+export function buildJudgeMessages(
+  goal: GoalState,
+  lastAssistantText: string,
+  planTasksMarkdown?: string
+): [JudgeMessage, JudgeMessage] {
+  if (planTasksMarkdown) {
+    return [
+      { role: "system", content: CHECKLIST_JUDGE_PROMPT },
+      {
+        role: "user",
+        content: `Goal: ${goal.text}\n\nPlan tasks.md (revision ${goal.planRevisionId ?? "unknown"}):\n${planTasksMarkdown.slice(0, 6000)}\n\nLast assistant message:\n${lastAssistantText.slice(0, 4000)}`,
+      },
+    ];
+  }
+
+  return [
+    { role: "system", content: JUDGE_PROMPT },
+    {
+      role: "user",
+      content: `Goal: ${goal.text}\n\nLast assistant message:\n${lastAssistantText.slice(0, 4000)}`,
+    },
+  ];
+}
+
 export async function judgeGoal(
   goal: GoalState,
   lastAssistantText: string,
-  judgeModel?: string
+  judgeModel?: string,
+  opts?: { planTasksMarkdown?: string }
 ): Promise<GoalJudgeResult> {
   const model = judgeModel?.trim();
   if (!model) {
@@ -31,17 +69,12 @@ export async function judgeGoal(
   try {
     const manager = await getProviderManager();
     const provider = manager.getProvider(model);
+    const messages = buildJudgeMessages(goal, lastAssistantText, opts?.planTasksMarkdown);
     const response = await provider.complete({
       model,
-      messages: [
-        { role: "system", content: JUDGE_PROMPT },
-        {
-          role: "user",
-          content: `Goal: ${goal.text}\n\nLast assistant message:\n${lastAssistantText.slice(0, 4000)}`,
-        },
-      ],
+      messages,
       stream: false,
-      max_tokens: 120,
+      max_tokens: 200,
       reasoningLevel: "off",
     });
 
@@ -61,6 +94,10 @@ export async function judgeGoal(
   }
 }
 
-export function buildGoalContinuationMessage(goal: GoalState): string {
-  return `Goal continuation (turn ${goal.turnsUsed + 1}/${goal.maxTurns}): ${goal.text}\nContinue working toward this goal. Finish concisely if context is tight.`;
+export function buildGoalContinuationMessage(goal: GoalState, opts?: { planTasksPath?: string }): string {
+  const base = `Goal continuation (turn ${goal.turnsUsed + 1}/${goal.maxTurns}): ${goal.text}\nContinue working toward this goal. Finish concisely if context is tight.`;
+  if (opts?.planTasksPath) {
+    return `${base}\nWork from the plan checklist at \`${opts.planTasksPath}\`; complete unchecked tasks in order and check them off.`;
+  }
+  return base;
 }
