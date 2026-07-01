@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-01
+
+  **Type:** minor
+  **Title:** Cross-platform shell + WSL routing, tuned PLAN mode, goal↔plan bridge, skills management, background commands
+
+  ### Added
+  - **#115** -- WSL2 command routing: detects an installed distro, routes commands through `wsl.exe`, and translates Windows paths to `/mnt/` paths; new `preferredShell` config (`auto | powershell | pwsh | git-bash | wsl | cmd`)
+  - **#118** -- Runtime tool-availability probe (git/node/npm/bun/python/docker/rg/jq/curl, +wsl) and a shell-specific hint on command-not-found failures
+  - **#118** -- Bash output pagination (`offset`/`limit`), binary/encoding detection on `file_read` (magic-byte sniff, BOM handling), and an ENOENT fuzzy "Did you mean" suggestion with a compact directory listing
+  - **#118** -- A shallow, gitignore-respecting project-structure block injected into the system prompt at session start
+  - **#113** -- PLAN mode now interrogates via the question tool (scaled by request complexity) before writing plan artifacts, and hands off to execution through an explicit execute/proceed/revise/cancel overlay instead of an informal "let's do it" trigger
+  - **#114** -- Goals are now persisted as first-class artifacts under `.impulse/goals/<sessionId>/`, decoupled from session metadata so they survive `/compact`; the goal loop fails closed (pauses, doesn't silently continue) when its judge model is unavailable
+  - **#114** -- `/goal set [--plan[=revisionId]] <text>` links a goal to a PLAN-mode revision so the judge evaluates against that revision's `tasks.md` checklist instead of free-text
+  - **#117** -- Native skills management: `/skills` and `/skill new|remove|modify` with interactive picker overlays, self-authored skills via the question tool, and 13 vendored out-of-box skills (code review, TDD, diagnosing bugs, and more)
+  - **#116** -- Background/long-running commands: `bash(background: true)` returns immediately with a job id; `bg_output`/`bg_kill` tools, a `ba` bottom-bar segment, and `/ba [list] | kill <id> | restart <id>`
+
+  ### Fixed
+  - **#116** -- Killing a background job now reaps its entire process tree (not just the immediate shell wrapper), preventing orphaned child processes (e.g. `node` left running after killing an `npm run dev` job)
+  - **#116** -- Background jobs are now cleaned up on `/new` and on every exit path, instead of leaking until the process fully terminates
+  - **#118** -- The default 120s bash/PTY timeout now honors `timeout: 0` (unbounded) consistently on both the interactive and non-interactive execution paths
+  - **#115** -- `preferredShell: "wsl"` with no WSL distro installed now falls back to the detected Windows shell with a clear notice instead of failing opaquely
+
 ## [1.8.2] - 2026-06-23
 
   **Type:** patch
