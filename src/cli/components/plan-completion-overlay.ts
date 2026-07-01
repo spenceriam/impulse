@@ -11,16 +11,9 @@ import {
   OVERLAY_SELECT_FG,
   OVERLAY_MUTED_FG,
 } from "./overlay-theme.js";
+import type { PlanCompletionDecision } from "../../agent/plan-completion.js";
 
-/**
- * Decision values for PLAN mode completion.
- *
- * execute — switch to AGENT and immediately run tasks.md
- * proceed — switch to AGENT and await the next user turn
- * revise  — stay in PLAN, end agent turn, prompt "what to revise?"
- * cancel  — stay in PLAN, discard the handoff
- */
-export type PlanCompletionDecision = "execute" | "proceed" | "revise" | "cancel";
+export type { PlanCompletionDecision } from "../../agent/plan-completion.js";
 
 export interface PlanCompletionOverlayInput {
   planPath: string;
@@ -53,7 +46,11 @@ export class PlanCompletionOverlay implements Component {
       this.onDecision?.("cancel");
       return;
     }
-    if (data === "1" || data === "\r") {
+    if (data === "1") {
+      this.onDecision?.("execute");
+      return;
+    }
+    if (data === "\r") {
       this.onDecision?.(OPTIONS[this.selectedIndex]?.value ?? "proceed");
       return;
     }
@@ -94,7 +91,6 @@ export class PlanCompletionOverlay implements Component {
     }).join("  ");
 
     const hint = overlayAnsi.fg(OVERLAY_MUTED_FG, "← → navigate  Enter select  Esc cancel");
-    overlaySideLine(buttons, innerWidth, boxWidth);
     lines.push(overlaySideLine(buttons, innerWidth, boxWidth));
     lines.push(overlayEmptyLine(boxWidth));
     lines.push(overlaySideLine(hint, innerWidth, boxWidth));

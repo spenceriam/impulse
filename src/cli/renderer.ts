@@ -111,6 +111,10 @@ import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
 import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
+import {
+  PlanCompletionOverlay,
+  type PlanCompletionDecision,
+} from "./components/plan-completion-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
 import {
@@ -1486,6 +1490,8 @@ export class ImpulseRenderer {
   private modelSetup: ModelSetupState | null = null;
   private planApprovalOverlayHandle: OverlayHandle | null = null;
   private planApprovalInputCleanup: (() => void) | null = null;
+  private planCompletionOverlayHandle: OverlayHandle | null = null;
+  private planCompletionInputCleanup: (() => void) | null = null;
   private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
   private settingsOverlayHandle: OverlayHandle | null = null;
@@ -2495,6 +2501,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
+      onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
       onLoopCheckin: (input) => this.showLoopCheckin(input),
       onSubagentTaskStatus: (id, status) => {
@@ -2854,6 +2861,68 @@ export class ImpulseRenderer {
     this.planApprovalInputCleanup = null;
     this.planApprovalOverlayHandle?.hide();
     this.planApprovalOverlayHandle = null;
+  }
+
+  /** Block agent loop until user picks execute/proceed/revise/cancel for a completed plan. */
+  private async showPlanCompletionOverlay(input: {
+    planPath: string;
+    summary: string;
+  }): Promise<PlanCompletionDecision> {
+    if (!this.tui) return "cancel";
+
+    const shortPath = input.planPath.replace(
+      new RegExp(`^${os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+      "~"
+    );
+
+    const overlay = new PlanCompletionOverlay({
+      planPath: shortPath,
+      summary: input.summary,
+    });
+
+    return new Promise<PlanCompletionDecision>((resolve) => {
+      this.dismissPlanCompletionOverlay();
+
+      const handle = this.tui.showOverlay(overlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: "100%",
+        minWidth: this.overlayMin(),
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+        margin: this.listOverlayMargin(),
+      });
+      this.planCompletionOverlayHandle = handle;
+      this.setBusyStatus("Waiting for plan decision ...", "Plan ready...");
+      handle.focus();
+
+      const decisionLines: Record<PlanCompletionDecision, string> = {
+        execute: "Plan approved — executing tasks now",
+        proceed: "Plan approved — mode switched to AGENT",
+        revise: "Revising plan — staying in PLAN mode",
+        cancel: "Plan handoff cancelled — staying in PLAN mode",
+      };
+
+      overlay.onDecision = (decision) => {
+        this.dismissPlanCompletionOverlay();
+        this.addChatLine(advisorStatusLine(decisionLines[decision]));
+        this.tui.setFocus(this.promptInput);
+        this.tui.requestRender();
+        resolve(decision);
+      };
+
+      this.planCompletionInputCleanup = this.tui.addInputListener((data: string) => {
+        overlay.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      });
+    });
+  }
+
+  private dismissPlanCompletionOverlay(): void {
+    this.planCompletionInputCleanup?.();
+    this.planCompletionInputCleanup = null;
+    this.planCompletionOverlayHandle?.hide();
+    this.planCompletionOverlayHandle = null;
   }
 
   /** Request a layout refresh after content above the prompt changes. */

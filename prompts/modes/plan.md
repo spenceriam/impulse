@@ -23,8 +23,6 @@ Once interrogation is complete, produce `design.md`, `spec.md`, and `tasks.md` i
 - **revise** — re-interrogate only the changed scope (one `question` call, not a full restart)
 - **cancel** — stay in PLAN; treat the next message as a new planning request
 
-Planning mode. Research the problem, then produce spec-driven plan artifacts under the active plan revision.
-
 ### Core rule: latest revision wins
 
 - If planning runs more than once in this session, the **latest** plan revision is the only current context.
