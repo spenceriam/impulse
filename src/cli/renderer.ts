@@ -238,7 +238,7 @@ import {
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
 import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
 import { listInstalledSkills, type InstalledSkillMeta } from "../tools/install-skill-source.js";
-import { countRunningBgJobs } from "../tools/bg-process-registry.js";
+import { countRunningBgJobs, cleanupAllBgJobs, BgJobEvents } from "../tools/bg-process-registry.js";
 import { removeSkill } from "../tools/skill-remove.js";
 import { ensureDefaultSkills } from "../skills/default-skills.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
@@ -423,9 +423,6 @@ export class ImpulseRenderer {
   private spinnerInterval: ReturnType<typeof setInterval> | null = null;
   private currentStatusPhrase = "";
   private compactStartMs = 0;
-
-  // Background job bar animation interval (only runs while bg jobs are active)
-  private bgBarInterval: ReturnType<typeof setInterval> | null = null;
 
   private shimmerBusyText(message: string, dimBase = false): string {
     return shimmerText(message, dimBase);
@@ -1677,6 +1674,13 @@ export class ImpulseRenderer {
         return;
       }
 
+      if (event.type === BgJobEvents.Changed.name) {
+        // Event-driven redraw for the ba segment — covers a job finishing
+        // while no turn is active, without a dedicated polling interval.
+        this.syncBgContextBar();
+        return;
+      }
+
       if (event.type === SubagentEvents.Progress.name) {
         const payload = event.properties as {
           type: "text" | "tool" | "thinking" | "status";
@@ -2834,19 +2838,15 @@ export class ImpulseRenderer {
     this.syncContextBar({ goalLabel: label });
   }
 
+  // No dedicated interval here: while a turn is active the existing
+  // spinnerInterval (setBusyStatus, 80ms) already redraws the frame the ba
+  // segment derives from Date.now(); while idle the segment renders as a
+  // static "ba N" (no glyph), and BgJobEvents.Changed triggers the one-off
+  // redraw needed when a job's count changes with no turn active.
   private syncBgContextBar(): void {
     const count = countRunningBgJobs();
     this.syncContextBar({ backgroundCount: count > 0 ? count : undefined });
-    if (count > 0 && !this.bgBarInterval) {
-      this.bgBarInterval = setInterval(() => {
-        this.syncBgContextBar();
-        this.tui.requestRender();
-      }, 150);
-    } else if (count === 0 && this.bgBarInterval) {
-      clearInterval(this.bgBarInterval);
-      this.bgBarInterval = null;
-      this.tui.requestRender();
-    }
+    this.tui.requestRender();
   }
 
   private async emitStatusEvent(text: string, opts?: { live?: boolean }): Promise<void> {
@@ -3058,6 +3058,7 @@ export class ImpulseRenderer {
   private async gracefulExit(): Promise<void> {
     await SessionManager.flushCurrent();
     clearActiveSessionMarker();
+    cleanupAllBgJobs();
     const session = SessionManager.getCurrentSession();
     const config = await loadConfig();
     this.branchWatcher?.dispose();
@@ -3247,6 +3248,8 @@ export class ImpulseRenderer {
       this.addChatLine(clr.dim("Optional session name is not documented; starting a new session."));
     }
     clearShellSessions();
+    cleanupAllBgJobs();
+    this.syncBgContextBar();
     await SessionManager.createNew(arg || undefined);
     const newCfg = await loadConfig();
     if (newCfg.defaultModel?.trim()) {
@@ -3931,6 +3934,7 @@ export class ImpulseRenderer {
       writeUpdateResumeHint(session.id);
     }
     clearActiveSessionMarker();
+    cleanupAllBgJobs();
     this.tui.stop();
     child.unref();
     process.exit(0);
@@ -5766,7 +5770,21 @@ export class ImpulseRenderer {
       return;
     }
 
-    this.addChatLine(clr.dim("Usage: /ba [list] | kill <id>"));
+    if (sub === "restart") {
+      const { restartBgJob } = await import("../tools/bash.js");
+      const result = await restartBgJob(id);
+      if (result.ok) {
+        const pidNote = result.pid ? ` (pid ${result.pid})` : "";
+        this.addChatLine(clr.dim(`Job '${id}' restarted as '${result.newJobId}'${pidNote}.`));
+      } else {
+        this.addChatLine(clr.warn(result.error));
+      }
+      this.syncBgContextBar();
+      this.tui.requestRender();
+      return;
+    }
+
+    this.addChatLine(clr.dim("Usage: /ba [list] | kill <id> | restart <id>"));
     this.tui.requestRender();
   }
 

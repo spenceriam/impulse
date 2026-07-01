@@ -349,7 +349,12 @@ export class ContextBarComponent implements Component {
     const BG_SPINNER = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
     const baSeg =
       visual === "full" && s.backgroundCount && s.backgroundCount > 0
-        ? clr.sep(` ba ${s.backgroundCount} ${BG_SPINNER[Math.floor(Date.now() / 150) % BG_SPINNER.length]}`)
+        ? clr.sep(
+            ` ba ${s.backgroundCount}` +
+              (s.isRunning
+                ? ` ${BG_SPINNER[Math.floor(Date.now() / 150) % BG_SPINNER.length]}`
+                : "")
+          )
         : "";
     const modeFull =
       visual === "full"
