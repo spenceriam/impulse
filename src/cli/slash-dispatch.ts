@@ -6,7 +6,9 @@ import { resolveSlashAlias } from "./slash-aliases.js";
 
 // ---------------------------------------------------------------------------
 // Dynamic skill command registry (#117)
-// Skills with a `command:` frontmatter field register here at install time.
+// Skills with a `command:` frontmatter field register here: hydrated from
+// .agents/skills at startup (hydrateDynamicSkillCommands), and kept in sync
+// afterward by skill_write / skill_remove / install_skill as skills change.
 // ---------------------------------------------------------------------------
 
 /** slug of the skill that registered this command */
@@ -25,12 +27,15 @@ export function listDynamicSkillCommands(): Array<{ cmd: string; slug: string }>
 }
 
 /** Load dynamic commands from installed skills on startup. */
-export function hydrateDynamicSkillCommands(cwd: string): void {
-  import("../tools/install-skill-source.js").then(({ listInstalledSkills }) => {
+export async function hydrateDynamicSkillCommands(cwd: string): Promise<void> {
+  try {
+    const { listInstalledSkills } = await import("../tools/install-skill-source.js");
     for (const skill of listInstalledSkills(cwd)) {
       if (skill.command) registerSkillCommand(skill.command, skill.slug);
     }
-  }).catch(() => { /* non-fatal */ });
+  } catch {
+    /* non-fatal */
+  }
 }
 
 export interface SlashDispatchHost {

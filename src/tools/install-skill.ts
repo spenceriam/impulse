@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { ask as askPermission } from "../permission";
 import { SessionManager } from "../session/manager.js";
+import { registerSkillCommand } from "../cli/slash-dispatch.js";
 import {
   formatSkillReadyMessage,
   isSkillInstalled,
@@ -9,6 +10,14 @@ import {
   normalizeSkillSource,
   skillInstructionsPath,
 } from "./install-skill-source.js";
+
+/** Register the skill's `command:` frontmatter alias, if any, so it's usable this session. */
+function registerCommandsForSkill(cwd: string, skillSlug: string): void {
+  const meta = listInstalledSkills(cwd).find((s) => s.slug === skillSlug);
+  if (meta?.command) {
+    registerSkillCommand(meta.command, skillSlug);
+  }
+}
 
 const DESCRIPTION = `Install a single agent skill via \`npx skills@latest add\` (non-interactive).
 
@@ -49,6 +58,7 @@ export const installSkillTool: Tool<InstallSkillInput> = Tool.define(
     const instructionsPath = skillInstructionsPath(cwd, skillSlug);
 
     if (isSkillInstalled(cwd, skillSlug)) {
+      registerCommandsForSkill(cwd, skillSlug);
       // If the skill was edited by the user, do not overwrite it
       const existing = listInstalledSkills(cwd).find((s) => s.slug === skillSlug);
       if (existing?.edited) {
@@ -133,6 +143,7 @@ export const installSkillTool: Tool<InstallSkillInput> = Tool.define(
       };
     }
 
+    registerCommandsForSkill(cwd, skillSlug);
     const cliOutput = [stdout, stderr].filter((s) => s.trim()).join("\n");
     const ready = formatSkillReadyMessage(skillSlug, instructionsPath);
     return {

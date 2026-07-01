@@ -38,7 +38,8 @@ export function buildSlashCommandDefs(
       helpDetail: "Create a new skill, remove an existing one, or modify it",
     },
     {
-      cmd: "/allow-all",      hint: "toggle bypass all permission prompts",
+      cmd: "/allow-all",
+      hint: "toggle bypass all permission prompts",
       helpDetail: "Toggle bypassing all tool permission prompts (session-only)",
     },
     {
