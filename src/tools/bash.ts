@@ -20,10 +20,14 @@ import { capBashOutputLines } from "../util/tool-output-cap.js";
 import { isWithinBase } from "../util/path.js";
 import { detectWindowsCommandShell, detectWslShell } from "../util/windows-shell.js";
 import { load as loadConfig } from "../util/config.js";
+import { killProcessTree } from "../util/process-tree.js";
 import {
   registerBgJob,
   appendBgOutput,
   markBgJobDone,
+  getBgJob,
+  killBgJob,
+  type BgJob,
 } from "./bg-process-registry.js";
 
 /** Default bash/PTY timeout per docs/tools/bash.md */
@@ -1104,8 +1108,9 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
  * Registers it in the background job registry, wires up streaming output and
  * exit notification, then returns immediately.
  */
-async function executeInBackground(input: BashInput, cwd: string): Promise<ToolResult> {
-  const spawnOptions = await getSpawnOptions(input, cwd);
+/** Spawn a command as a tracked background job. Shared by executeInBackground and restartBgJob. */
+async function spawnBackgroundJob(command: string, cwd: string): Promise<BgJob> {
+  const spawnOptions = await getSpawnOptions({ command, description: "" } as BashInput, cwd);
 
   const proc = Bun.spawn({
     cmd: spawnOptions.cmd,
@@ -1116,10 +1121,16 @@ async function executeInBackground(input: BashInput, cwd: string): Promise<ToolR
   });
 
   const job = registerBgJob({
-    command: input.command,
+    command,
     cwd,
     pid: proc.pid,
-    kill: () => proc.kill(),
+    kill: () => {
+      if (proc.pid) {
+        void killProcessTree(proc.pid);
+      } else {
+        proc.kill();
+      }
+    },
   });
 
   // Drain stdout and stderr asynchronously into the ring buffer
@@ -1148,12 +1159,38 @@ async function executeInBackground(input: BashInput, cwd: string): Promise<ToolR
     markBgJobDone(job.id, -1);
   });
 
-  const pidNote = proc.pid ? ` (pid ${proc.pid})` : "";
+  return job;
+}
+
+async function executeInBackground(input: BashInput, cwd: string): Promise<ToolResult> {
+  const job = await spawnBackgroundJob(input.command, cwd);
+  const pidNote = job.pid ? ` (pid ${job.pid})` : "";
   return {
     success: true,
     output: `Started ${job.id}${pidNote}: ${input.command.slice(0, 80)}`,
-    metadata: { type: "bash_bg", bgJobId: job.id, pid: proc.pid, command: input.command },
+    metadata: { type: "bash_bg", bgJobId: job.id, pid: job.pid, command: input.command },
   };
+}
+
+export type RestartBgJobResult =
+  | { ok: true; newJobId: string; pid?: number }
+  | { ok: false; error: string };
+
+/** Kill (if running) and re-spawn a background job from its stored command + cwd, under a new id. */
+export async function restartBgJob(id: string): Promise<RestartBgJobResult> {
+  const entry = getBgJob(id);
+  if (!entry) {
+    return { ok: false, error: `No job '${id}'.` };
+  }
+  if (entry.status === "running") {
+    killBgJob(id);
+  }
+  try {
+    const job = await spawnBackgroundJob(entry.command, entry.cwd);
+    return { ok: true, newJobId: job.id, ...(job.pid !== undefined ? { pid: job.pid } : {}) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 // Global tool call ID counter (will be replaced with actual tool call ID from agent)

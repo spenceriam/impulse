@@ -7,7 +7,16 @@
  * and drained into the conversation at the next turn start via flushTurnInjections.
  */
 
+import { z } from "zod";
+import { Bus } from "../bus";
+import { BusEvent } from "../bus/bus";
 import { isAgentTurnActive } from "../session/turn-active.js";
+import { killProcessTreeSync } from "../util/process-tree.js";
+
+/** Fires whenever a job's status changes — lets the UI redraw the `ba` count on demand, no polling. */
+export const BgJobEvents = {
+  Changed: BusEvent.define("bg-job.changed", z.object({ id: z.string(), status: z.string() })),
+};
 
 export type BgJobStatus = "running" | "done" | "killed" | "failed";
 
@@ -68,6 +77,7 @@ export function registerBgJob(opts: {
     kill: opts.kill,
   };
   registry.set(id, entry);
+  Bus.publish(BgJobEvents.Changed, { id, status: entry.status });
   return entry;
 }
 
@@ -86,6 +96,10 @@ export function appendBgOutput(id: string, text: string): void {
 export function markBgJobDone(id: string, exitCode: number): void {
   const entry = registry.get(id);
   if (!entry) return;
+  // killBgJob() already finalized this job; the exit/drain chain racing in
+  // afterward must not overwrite "killed" with "done"/"failed" or queue a
+  // spurious completion notification.
+  if (entry.status === "killed") return;
   entry.status = exitCode === 0 ? "done" : "failed";
   entry.exitCode = exitCode;
   entry.endedAt = Date.now();
@@ -97,6 +111,7 @@ export function markBgJobDone(id: string, exitCode: number): void {
   if (!isAgentTurnActive()) {
     pendingBgNotifications.push(note);
   }
+  Bus.publish(BgJobEvents.Changed, { id, status: entry.status });
 }
 
 export function getBgJob(id: string): BgJobEntry | undefined {
@@ -121,6 +136,7 @@ export function killBgJob(id: string): boolean {
   } catch { /* ignore */ }
   entry.status = "killed";
   entry.endedAt = Date.now();
+  Bus.publish(BgJobEvents.Changed, { id, status: entry.status });
   return true;
 }
 
@@ -136,4 +152,21 @@ export function cleanupAllBgJobs(): void {
     }
   }
   registry.clear();
+  pendingBgNotifications.length = 0;
+}
+
+/**
+ * Synchronous variant for a `process.on("exit")` handler, where async work
+ * cannot complete. Bypasses each entry's (async) kill callback and reaps the
+ * process tree directly. Best-effort; must never throw.
+ */
+export function cleanupAllBgJobsSync(): void {
+  for (const [, entry] of registry) {
+    if (entry.status !== "running") continue;
+    try {
+      if (entry.pid) killProcessTreeSync(entry.pid);
+    } catch {
+      /* best-effort, process is exiting anyway */
+    }
+  }
 }
