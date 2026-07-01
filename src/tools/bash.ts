@@ -24,6 +24,14 @@ import { detectWindowsCommandShell } from "../util/windows-shell.js";
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 
 /**
+ * Resolve the effective timeout for a bash/PTY invocation.
+ * `timeout: 0` means no limit (undefined); omitted falls back to the 120s default.
+ */
+export function resolveBashTimeoutMs(timeout?: number): number | undefined {
+  return timeout === 0 ? undefined : (timeout ?? DEFAULT_BASH_TIMEOUT_MS);
+}
+
+/**
  * Classify a failed command's output to give actionable guidance when a
  * tool or command is not found on the target shell.
  * Returns a hint string to append, or null when output is already clear.
@@ -772,25 +780,28 @@ async function executeWithPty(
     activePtyHandles.set(toolCallId, handle);
     Bus.emit(PtyEvents.Started, { toolCallId, pid: handle.pid });
     
-    const timeoutMs = input.timeout ?? DEFAULT_BASH_TIMEOUT_MS;
+    const timeoutMs = resolveBashTimeoutMs(input.timeout);
     let timedOut = false;
     const result = await new Promise<{ output: string; exitCode: number; pid?: number }>((resolve) => {
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          handle.kill();
-        } catch {
-          /* ignore */
-        }
-        resolve({
-          output: lastOutput,
-          exitCode: -1,
-          pid: handle.pid,
-        });
-      }, timeoutMs);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            handle.kill();
+          } catch {
+            /* ignore */
+          }
+          resolve({
+            output: lastOutput,
+            exitCode: -1,
+            pid: handle.pid,
+          });
+        }, timeoutMs);
+      }
 
       void handle.result.then((ptyResult) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         if (!timedOut) resolve(ptyResult);
       });
     });
@@ -864,7 +875,7 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   // timeout:0 means no limit; undefined falls back to the 120s default (matching PTY path)
-  const timeoutMs = input.timeout === 0 ? undefined : (input.timeout ?? DEFAULT_BASH_TIMEOUT_MS);
+  const timeoutMs = resolveBashTimeoutMs(input.timeout);
   const timeoutPromise = new Promise<number>((resolve) => {
     if (timeoutMs === undefined) {
       return;
