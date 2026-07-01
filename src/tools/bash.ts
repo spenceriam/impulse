@@ -96,6 +96,8 @@ interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
   shellKind?: "powershell" | "cmd" | "bash";
+  /** One-time notice to prepend to the tool output (e.g. a shell-selection fallback). */
+  notice?: string;
 }
 
 interface ShellSessionState {
@@ -596,8 +598,15 @@ function quotePowerShellString(value: string): string {
  * Translate a Windows path to a WSL mount path.
  * C:\Users\foo\bar → /mnt/c/Users/foo/bar
  * Already-POSIX paths are returned unchanged.
+ * UNC paths (\\server\share\...) aren't representable this way — throws instead
+ * of producing a broken /mnt path.
  */
-function translateToWslPath(winPath: string): string {
+export function translateToWslPath(winPath: string): string {
+  if (winPath.startsWith("\\\\") || winPath.startsWith("//")) {
+    throw new Error(
+      `Cannot translate UNC path to a WSL path: ${winPath}. Run this command from a local-drive working directory, or address the share via WSL's own /mnt/wsl/ network-mount conventions.`
+    );
+  }
   const driveMatch = winPath.match(/^([A-Za-z]):[\\\/](.*)/);
   if (driveMatch) {
     const drive = driveMatch[1]!.toLowerCase();
@@ -625,6 +634,69 @@ function encodePowerShellCommand(command: string): string {
   return Buffer.from(command, "utf16le").toString("base64");
 }
 
+function buildWslSpawnOptions(executable: string, cwd: string, command: string): SpawnOptions {
+  const wslCwd = translateToWslPath(cwd);
+  // cwd is set via --cd inside wsl.exe; don't pass a Windows cwd to Bun.spawn
+  return {
+    env: process.env,
+    shellKind: "bash",
+    cmd: [executable, "--cd", wslCwd, "--", "bash", "-lc", command],
+  };
+}
+
+function buildSpawnOptionsForShell(
+  shell: Awaited<ReturnType<typeof detectWindowsCommandShell>>,
+  input: BashInput,
+  cwd: string,
+  options: { interactive?: boolean },
+  common: SpawnOptions
+): SpawnOptions {
+  if (shell.type === "wsl") {
+    return buildWslSpawnOptions(shell.executable, cwd, input.command);
+  }
+
+  if (shell.type === "cmd") {
+    return {
+      ...common,
+      shellKind: "cmd",
+      cmd: [shell.executable, "/d", "/s", "/c", input.command],
+    };
+  }
+
+  if (shell.type === "git-bash") {
+    return {
+      ...common,
+      shellKind: "bash",
+      cmd: [shell.executable, "-lc", input.command],
+    };
+  }
+
+  const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
+  const psType = shell.type as "powershell5" | "powershell7";
+
+  return {
+    ...common,
+    shellKind: "powershell",
+    env: {
+      ...process.env,
+      [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, psType),
+    },
+    cmd: [
+      shell.executable,
+      "-NoLogo",
+      "-NoProfile",
+      ...interactiveArgs,
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodePowerShellCommand(WINDOWS_POWERSHELL_WRAPPER),
+    ],
+  };
+}
+
+/** Shown once per process when preferredShell is "wsl" but no WSL distro is available. */
+let warnedWslUnavailable = false;
+
 async function getSpawnOptions(
   input: BashInput,
   cwd: string,
@@ -643,66 +715,27 @@ async function getSpawnOptions(
     // WSL: either forced by preferredShell config or auto-detected
     if (preferred === "wsl") {
       const wslShell = await detectWslShell();
-      const wslExe = wslShell?.executable ?? "wsl.exe";
-      const wslCwd = translateToWslPath(cwd);
-      // cwd is set via --cd inside wsl.exe; don't pass a Windows cwd to Bun.spawn
-      return {
-        env: process.env,
-        shellKind: "bash",
-        cmd: [wslExe, "--cd", wslCwd, "--", "bash", "-lc", input.command],
-      };
+      if (wslShell) {
+        return buildWslSpawnOptions(wslShell.executable, cwd, input.command);
+      }
+
+      // preferredShell is explicitly "wsl" but no distro was detected — don't
+      // spawn a nonexistent wsl.exe; fall back to the auto-detected shell and
+      // surface a one-time notice instead of an opaque spawn failure.
+      const fallbackShell = await detectWindowsCommandShell();
+      const spawnOptions = buildSpawnOptionsForShell(fallbackShell, input, cwd, options, common);
+      if (!warnedWslUnavailable) {
+        warnedWslUnavailable = true;
+        spawnOptions.notice = `[Note: preferredShell is set to "wsl" but no WSL distro was detected. Falling back to ${fallbackShell.displayName}. Run 'wsl --install' or check 'wsl -l -v', or change preferredShell in config.]`;
+      }
+      return spawnOptions;
     }
 
     const shell = preferred === "auto"
       ? await detectWindowsCommandShell()
       : await resolvePreferredShell(preferred);
 
-    if (shell.type === "wsl") {
-      const wslCwd = translateToWslPath(cwd);
-      return {
-        env: process.env,
-        shellKind: "bash",
-        cmd: [shell.executable, "--cd", wslCwd, "--", "bash", "-lc", input.command],
-      };
-    }
-
-    if (shell.type === "cmd") {
-      return {
-        ...common,
-        shellKind: "cmd",
-        cmd: [shell.executable, "/d", "/s", "/c", input.command],
-      };
-    }
-
-    if (shell.type === "git-bash") {
-      return {
-        ...common,
-        shellKind: "bash",
-        cmd: [shell.executable, "-lc", input.command],
-      };
-    }
-
-    const interactiveArgs = options.interactive ? [] : ["-NonInteractive"];
-    const psType = shell.type as "powershell5" | "powershell7";
-
-    return {
-      ...common,
-      shellKind: "powershell",
-      env: {
-        ...process.env,
-        [WINDOWS_COMMAND_ENV_VAR]: normalizeWindowsCommand(input.command, psType),
-      },
-      cmd: [
-        shell.executable,
-        "-NoLogo",
-        "-NoProfile",
-        ...interactiveArgs,
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        encodePowerShellCommand(WINDOWS_POWERSHELL_WRAPPER),
-      ],
-    };
+    return buildSpawnOptionsForShell(shell, input, cwd, options, common);
   }
 
   return {
@@ -716,7 +749,7 @@ async function getSpawnOptions(
  * Resolve a specific shell from a user preference string (non-"auto" + non-"wsl" values).
  * Falls back to auto-detection when the requested shell is not found.
  */
-async function resolvePreferredShell(preferred: string) {
+export async function resolvePreferredShell(preferred: string) {
   if (preferred === "pwsh") {
     const pwshPath = Bun.which("pwsh.exe") ?? Bun.which("pwsh");
     if (pwshPath) return { type: "powershell7" as const, executable: pwshPath, displayName: "PowerShell 7.x (pwsh)", supportsChainedCommands: true, commandSeparator: "&&" as const };
@@ -883,6 +916,10 @@ async function executeWithPty(
     const capped = capBashOutputLines(result.output, maxLines);
     let output = capped.output;
 
+    if (spawnOptions?.notice) {
+      output = `${spawnOptions.notice}${output ? "\n" : ""}${output}`;
+    }
+
     if (timedOut) {
       output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
     }
@@ -1030,6 +1067,10 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
   const hint = classifyCommandError(input.command, output, exitCode ?? -1, shellForClassify);
   if (hint) {
     output = `${output}${output ? "\n" : ""}${hint}`;
+  }
+
+  if (spawnOptions.notice) {
+    output = `${spawnOptions.notice}${output ? "\n" : ""}${output}`;
   }
 
   const elapsed = Date.now() - startTime;
