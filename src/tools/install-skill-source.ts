@@ -1,5 +1,68 @@
-import { existsSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
+
+export interface InstalledSkillMeta {
+  slug: string;
+  name: string;
+  description?: string;
+  /** Slash command this skill registers (without leading /), e.g. "grill" */
+  command?: string;
+  /** True when the file was edited by the user; prevents npm reinstall clobber */
+  edited?: boolean;
+  path: string;
+}
+
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+
+function parseSimpleYaml(block: string): Record<string, string | boolean> {
+  const out: Record<string, string | boolean> = {};
+  for (const line of block.split(/\r?\n/)) {
+    const m = line.match(/^(\w[\w-]*):\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1]!;
+    const raw = m[2]!.trim().replace(/^["']|["']$/g, "");
+    if (raw === "true") out[key] = true;
+    else if (raw === "false") out[key] = false;
+    else out[key] = raw;
+  }
+  return out;
+}
+
+/**
+ * List all skills installed in this project's .agents/skills/ directory.
+ */
+export function listInstalledSkills(cwd: string): InstalledSkillMeta[] {
+  const skillsDir = join(cwd, ".agents", "skills");
+  if (!existsSync(skillsDir)) return [];
+  let entries: string[];
+  try {
+    entries = readdirSync(skillsDir);
+  } catch {
+    return [];
+  }
+  const result: InstalledSkillMeta[] = [];
+  for (const slug of entries) {
+    const skillMdPath = join(skillsDir, slug, "SKILL.md");
+    if (!existsSync(skillMdPath)) continue;
+    let content = "";
+    try {
+      content = readFileSync(skillMdPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm = content.match(FRONTMATTER_RE)?.[1];
+    const parsed = fm ? parseSimpleYaml(fm) : {};
+    result.push({
+      slug,
+      name: (parsed["name"] as string | undefined) ?? slug,
+      ...(parsed["description"] ? { description: parsed["description"] as string } : {}),
+      ...(parsed["command"] ? { command: parsed["command"] as string } : {}),
+      ...(parsed["edited"] ? { edited: true } : {}),
+      path: skillMdPath,
+    });
+  }
+  return result;
+}
 
 /** owner/repo only — `skills add` with -y installs every skill in the repo. */
 const REPO_ONLY_PATTERN = /^[\w.-]+\/[\w.-]+$/;

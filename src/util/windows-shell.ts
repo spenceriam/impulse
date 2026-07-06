@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-export type WindowsCommandShellType = "powershell5" | "powershell7" | "cmd" | "git-bash";
+export type WindowsCommandShellType = "powershell5" | "powershell7" | "cmd" | "git-bash" | "wsl";
 
 export interface WindowsCommandShell {
   type: WindowsCommandShellType;
@@ -95,6 +95,8 @@ function shellDisplayName(type: WindowsCommandShellType, version?: string): stri
       return "Windows Command Prompt (cmd.exe)";
     case "git-bash":
       return "Git Bash";
+    case "wsl":
+      return version ? `WSL (${version})` : "WSL (Windows Subsystem for Linux)";
   }
 }
 
@@ -103,6 +105,7 @@ function makeShell(
   executable: string,
   version?: string
 ): WindowsCommandShell {
+  // powershell5 uses ; for chaining; all other types (including wsl) support &&
   const supportsChainedCommands = type !== "powershell5";
   return {
     type,
@@ -132,6 +135,7 @@ export function classifyWindowsShellExecutable(
       return "git-bash";
     }
   }
+  if (base === "wsl.exe" || base === "wsl") return "wsl";
 
   return null;
 }
@@ -289,4 +293,45 @@ export async function detectWindowsCommandShell(
 
 export function clearWindowsShellCache(): void {
   cachedWindowsShell = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// WSL detection (#115)
+// ---------------------------------------------------------------------------
+
+let cachedWslAvailable: Promise<WindowsCommandShell | null> | undefined;
+
+/**
+ * Probe whether WSL is installed and return a shell descriptor for it.
+ * Returns null when wsl.exe is not found or the WSL service is not running.
+ * Result is cached for the process lifetime.
+ */
+export async function detectWslShell(): Promise<WindowsCommandShell | null> {
+  cachedWslAvailable ??= detectWslShellUncached();
+  return cachedWslAvailable;
+}
+
+async function detectWslShellUncached(): Promise<WindowsCommandShell | null> {
+  const wslPath = findOnPath("wsl.exe") ?? findOnPath("wsl");
+  if (!wslPath) return null;
+  try {
+    const proc = Bun.spawn({
+      cmd: [wslPath, "-l", "--quiet"],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const { stdout, timedOut } = await readStdoutAndDrainStderr(proc, 3000);
+    if (timedOut || proc.exitCode !== 0) return null;
+    // stdout lists distro names; any output means WSL has ≥1 distro
+    const distros = stdout.split(/\r?\n/).map((l) => l.replace(/\0/g, "").trim()).filter(Boolean);
+    if (distros.length === 0) return null;
+    const version = distros[0]; // use first distro name as display label
+    return makeShell("wsl", wslPath, version);
+  } catch {
+    return null;
+  }
+}
+
+export function clearWslCache(): void {
+  cachedWslAvailable = undefined;
 }

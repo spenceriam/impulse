@@ -109,8 +109,15 @@ import type { LoopCheckinChoice } from "./components/loop-checkin-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
-import { SelectableListOverlay } from "./components/selectable-list-overlay.js";
+import {
+  SelectableListOverlay,
+  type SelectableListRow,
+} from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
+import {
+  PlanCompletionOverlay,
+  type PlanCompletionDecision,
+} from "./components/plan-completion-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
 import {
@@ -212,6 +219,16 @@ import {
   type GoalState,
 } from "../session/goal-state.js";
 import { buildGoalContinuationMessage, judgeGoal } from "../agent/goal-loop.js";
+import {
+  getActivePlanRevision,
+  listRevisionIds,
+  readPlanTasksMarkdown,
+} from "../plan/revisions.js";
+import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
+import {
+  writeGoalArtifact,
+  readGoalArtifact,
+} from "../goal/artifact.js";
 import { invalidatePromptCache } from "../agent/prompts.js";
 import { getRepairTelemetrySummary } from "../harness/repair-telemetry.js";
 import {
@@ -219,7 +236,11 @@ import {
   formatSessionStatsBlock,
 } from "../session/session-stats.js";
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
-import { abortCurrentBashExecution } from "../tools/bash.js";
+import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
+import { listInstalledSkills, type InstalledSkillMeta } from "../tools/install-skill-source.js";
+import { countRunningBgJobs, cleanupAllBgJobs, BgJobEvents } from "../tools/bg-process-registry.js";
+import { removeSkill } from "../tools/skill-remove.js";
+import { ensureDefaultSkills } from "../skills/default-skills.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import {
@@ -238,7 +259,12 @@ import {
   MODE_COLORS,
   modelStatusLine,
 } from "./ansi-theme.js";
-import { dispatchSlashCommand, type SlashDispatchHost } from "./slash-dispatch.js";
+import {
+  dispatchSlashCommand,
+  hydrateDynamicSkillCommands,
+  listDynamicSkillCommands,
+  type SlashDispatchHost,
+} from "./slash-dispatch.js";
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
 import { buildQueuePreviewText } from "./queue-preview.js";
 import { copy as copyToClipboard } from "../util/clipboard.js";
@@ -336,6 +362,16 @@ interface ModelSetupState {
 }
 
 // ?? ImpulseRenderer ???????????????????????????????????????????????????????????
+
+/** Map installed-skill metadata to selectable-list rows for the /skills overlay. */
+export function buildSkillRows(skills: InstalledSkillMeta[]): SelectableListRow[] {
+  return skills.map((s) => ({
+    id: s.slug,
+    label: s.slug,
+    ...(s.command ? { metaRight: `/${s.command}` } : {}),
+    ...(s.description ? { secondary: s.description } : {}),
+  }));
+}
 
 export type ResumeStartup = "picker" | { sessionId: string };
 
@@ -1204,12 +1240,27 @@ export class ImpulseRenderer {
   private async persistGoalState(): Promise<void> {
     const session = SessionManager.getCurrentSession();
     if (!session) return;
+    // Write to .impulse/goals/ artifact (primary) and keep metadata key for
+    // backward compat with older sessions that only have the metadata path.
+    if (this.goalState) {
+      try {
+        await writeGoalArtifact(session.id, this.goalState);
+      } catch {
+        // Non-fatal: fall back to metadata-only path
+      }
+    }
     const metadata = { ...(session.metadata ?? {}), goal: this.goalState };
     await SessionManager.update({ metadata });
   }
 
   private loadGoalFromSession(session: Session): void {
-    this.goalState = parseGoalState(session.metadata?.["goal"]);
+    // Prefer artifact if available; fall back to legacy session.metadata['goal'].
+    const fromArtifact = readGoalArtifact(session.id);
+    this.goalState = fromArtifact ?? parseGoalState(session.metadata?.["goal"]);
+    // One-time migration: if we loaded from metadata but have no artifact yet, write the artifact.
+    if (!fromArtifact && this.goalState) {
+      void writeGoalArtifact(session.id, this.goalState).catch(() => { /* non-fatal */ });
+    }
   }
 
   private goalLoopActive(): boolean {
@@ -1239,10 +1290,27 @@ export class ImpulseRenderer {
 
     const cfg = await loadConfig();
     const judgeModel = cfg.subagentModel?.trim() || cfg.defaultModel?.trim();
+
+    let planTasksMarkdown: string | undefined;
+    let planTasksPath: string | undefined;
+    if (activeGoal.planRevisionId) {
+      const sessionId = SessionManager.getCurrentSessionID() ?? "";
+      const tasks = readPlanTasksMarkdown(sessionId, activeGoal.planRevisionId);
+      if (tasks) {
+        planTasksMarkdown = tasks;
+        planTasksPath = toRelativePlanPath(getRevisionDir(sessionId, activeGoal.planRevisionId));
+      } else {
+        void this.emitStatusEvent(
+          `Plan revision ${activeGoal.planRevisionId} not found — judging against goal text only.`
+        );
+      }
+    }
+
     const result = await judgeGoal(
       activeGoal,
       this.lastAssistantTurnText,
-      judgeModel
+      judgeModel,
+      planTasksMarkdown ? { planTasksMarkdown } : undefined
     );
 
     if (result.verdict === "done") {
@@ -1253,6 +1321,21 @@ export class ImpulseRenderer {
       };
       await this.persistGoalState();
       void this.emitStatusEvent(`Goal achieved: ${result.reason}`);
+      this.drainTurnQueue();
+      return;
+    }
+
+    if (result.verdict === "judge_unavailable") {
+      this.goalState = {
+        ...activeGoal,
+        status: "paused_judge_unavailable",
+        lastJudgeReason: result.reason,
+      };
+      await this.persistGoalState();
+      this.syncGoalContextBar();
+      void this.emitStatusEvent(
+        "Goal paused — judge model unavailable. Run /goal resume after restoring it."
+      );
       this.drainTurnQueue();
       return;
     }
@@ -1276,7 +1359,10 @@ export class ImpulseRenderer {
     }
 
     await this.persistGoalState();
-    const continuation = buildGoalContinuationMessage(updatedGoal);
+    const continuation = buildGoalContinuationMessage(
+      updatedGoal,
+      planTasksPath ? { planTasksPath } : undefined
+    );
     void this.runTurn({
       apiText: continuation,
       displayMessage: continuation,
@@ -1452,6 +1538,9 @@ export class ImpulseRenderer {
   private modelSetup: ModelSetupState | null = null;
   private planApprovalOverlayHandle: OverlayHandle | null = null;
   private planApprovalInputCleanup: (() => void) | null = null;
+  private planCompletionOverlayHandle: OverlayHandle | null = null;
+  private planCompletionInputCleanup: (() => void) | null = null;
+  private skillsOverlayHandle: OverlayHandle | null = null;
   private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
   private settingsOverlayHandle: OverlayHandle | null = null;
@@ -1546,6 +1635,13 @@ export class ImpulseRenderer {
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
     debugLog(`provider: ${config.defaultProvider}, model: ${config.defaultModel}`);
 
+    // Scaffold bundled default skills on first run, then re-register dynamic
+    // /command aliases from whatever's on disk. cwd is fixed for the process
+    // lifetime (no process.chdir anywhere in src/**), so this only needs to
+    // run once at startup.
+    await ensureDefaultSkills(process.cwd());
+    void hydrateDynamicSkillCommands(process.cwd());
+
     // ?? Build TUI layout ??????????????????????????????????????????????????
     this.tui = new TUI(this.terminal);
     this.tui.setClearOnShrink(false);
@@ -1575,6 +1671,13 @@ export class ImpulseRenderer {
         const prev = this.mode;
         this.applyModeChange(next, { prev, transition: "chat" });
         this.tui.requestRender();
+        return;
+      }
+
+      if (event.type === BgJobEvents.Changed.name) {
+        // Event-driven redraw for the ba segment — covers a job finishing
+        // while no turn is active, without a dedicated polling interval.
+        this.syncBgContextBar();
         return;
       }
 
@@ -2461,6 +2564,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
+      onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
       onLoopCheckin: (input) => this.showLoopCheckin(input),
       onSubagentTaskStatus: (id, status) => {
@@ -2522,6 +2626,11 @@ export class ImpulseRenderer {
       onToolEnd: (id, _name, result, durationMs) => {
         if (SILENT_TOOLS.has(_name)) {
           return;
+        }
+
+        // Update background job bar when a bash_bg job starts
+        if (result.metadata?.["type"] === "bash_bg") {
+          this.syncBgContextBar();
         }
 
         this.thinkingElapsedMs = 0;
@@ -2723,8 +2832,21 @@ export class ImpulseRenderer {
     const label =
       this.goalState?.status === "active"
         ? this.goalState.text
-        : undefined;
+        : this.goalState?.status === "paused_judge_unavailable"
+          ? "[goal paused — judge unavailable]"
+          : undefined;
     this.syncContextBar({ goalLabel: label });
+  }
+
+  // No dedicated interval here: while a turn is active the existing
+  // spinnerInterval (setBusyStatus, 80ms) already redraws the frame the ba
+  // segment derives from Date.now(); while idle the segment renders as a
+  // static "ba N" (no glyph), and BgJobEvents.Changed triggers the one-off
+  // redraw needed when a job's count changes with no turn active.
+  private syncBgContextBar(): void {
+    const count = countRunningBgJobs();
+    this.syncContextBar({ backgroundCount: count > 0 ? count : undefined });
+    this.tui.requestRender();
   }
 
   private async emitStatusEvent(text: string, opts?: { live?: boolean }): Promise<void> {
@@ -2820,6 +2942,68 @@ export class ImpulseRenderer {
     this.planApprovalOverlayHandle = null;
   }
 
+  /** Block agent loop until user picks execute/proceed/revise/cancel for a completed plan. */
+  private async showPlanCompletionOverlay(input: {
+    planPath: string;
+    summary: string;
+  }): Promise<PlanCompletionDecision> {
+    if (!this.tui) return "cancel";
+
+    const shortPath = input.planPath.replace(
+      new RegExp(`^${os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+      "~"
+    );
+
+    const overlay = new PlanCompletionOverlay({
+      planPath: shortPath,
+      summary: input.summary,
+    });
+
+    return new Promise<PlanCompletionDecision>((resolve) => {
+      this.dismissPlanCompletionOverlay();
+
+      const handle = this.tui.showOverlay(overlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: "100%",
+        minWidth: this.overlayMin(),
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+        margin: this.listOverlayMargin(),
+      });
+      this.planCompletionOverlayHandle = handle;
+      this.setBusyStatus("Waiting for plan decision ...", "Plan ready...");
+      handle.focus();
+
+      const decisionLines: Record<PlanCompletionDecision, string> = {
+        execute: "Plan approved — executing tasks now",
+        proceed: "Plan approved — mode switched to AGENT",
+        revise: "Revising plan — staying in PLAN mode",
+        cancel: "Plan handoff cancelled — staying in PLAN mode",
+      };
+
+      overlay.onDecision = (decision) => {
+        this.dismissPlanCompletionOverlay();
+        this.addChatLine(advisorStatusLine(decisionLines[decision]));
+        this.tui.setFocus(this.promptInput);
+        this.tui.requestRender();
+        resolve(decision);
+      };
+
+      this.planCompletionInputCleanup = this.tui.addInputListener((data: string) => {
+        overlay.handleInput(data);
+        this.tui.requestRender();
+        return { consume: true };
+      });
+    });
+  }
+
+  private dismissPlanCompletionOverlay(): void {
+    this.planCompletionInputCleanup?.();
+    this.planCompletionInputCleanup = null;
+    this.planCompletionOverlayHandle?.hide();
+    this.planCompletionOverlayHandle = null;
+  }
+
   /** Request a layout refresh after content above the prompt changes. */
   private requestLayoutRefresh(): void {
     this.requestRenderForPhase("layout");
@@ -2828,11 +3012,16 @@ export class ImpulseRenderer {
   // ?? Slash autocomplete ????????????????????????????????????????????????????
 
   private slashCommands(): SlashCommandEntry[] {
-    return buildSlashCommandList({
+    const commands = buildSlashCommandList({
       experimentalAdvisor: this.experimentalAdvisorEnabled,
       experimentalUndo: this.experimentalUndoEnabled,
       experimentalGoal: this.experimentalGoalEnabled,
     });
+    const dynamicSkillEntries = listDynamicSkillCommands().map(({ cmd, slug }) => ({
+      cmd: `/${cmd}`,
+      hint: `run the "${slug}" skill`,
+    }));
+    return [...commands, ...dynamicSkillEntries];
   }
 
   private resetSlashTabCycleIfNeeded(input: string): void {
@@ -2869,6 +3058,7 @@ export class ImpulseRenderer {
   private async gracefulExit(): Promise<void> {
     await SessionManager.flushCurrent();
     clearActiveSessionMarker();
+    cleanupAllBgJobs();
     const session = SessionManager.getCurrentSession();
     const config = await loadConfig();
     this.branchWatcher?.dispose();
@@ -2964,6 +3154,10 @@ export class ImpulseRenderer {
       get isRunning() {
         return r.isRunning;
       },
+      cmdBa: (arg) => r.cmdBa(arg),
+      cmdSkills: (arg) => r.cmdSkills(arg),
+      cmdSkill: (arg) => r.cmdSkill(arg),
+      cmdRunSkillCommand: (slug, arg) => r.cmdRunSkillCommand(slug, arg),
       cmdAdvisor: (arg) => r.cmdAdvisor(arg),
       cmdExperimental: () => r.cmdExperimental(),
       cmdSettings: () => r.cmdSettings(),
@@ -3053,6 +3247,9 @@ export class ImpulseRenderer {
     if (arg) {
       this.addChatLine(clr.dim("Optional session name is not documented; starting a new session."));
     }
+    clearShellSessions();
+    cleanupAllBgJobs();
+    this.syncBgContextBar();
     await SessionManager.createNew(arg || undefined);
     const newCfg = await loadConfig();
     if (newCfg.defaultModel?.trim()) {
@@ -3737,6 +3934,7 @@ export class ImpulseRenderer {
       writeUpdateResumeHint(session.id);
     }
     clearActiveSessionMarker();
+    cleanupAllBgJobs();
     this.tui.stop();
     child.unref();
     process.exit(0);
@@ -4355,26 +4553,34 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    const sub = arg.trim().toLowerCase();
-    if (!sub) {
-      this.addChatLine(clr.dim("Usage: /goal <text> | status | pause | resume | clear"));
+    const trimmedArg = arg.trim();
+    const tokens = trimmedArg.split(/\s+/).filter(Boolean);
+    const firstToken = (tokens[0] ?? "").toLowerCase();
+
+    if (!trimmedArg) {
+      this.addChatLine(
+        clr.dim("Usage: /goal <text> | set [--plan[=revisionId]] <text> | status | pause | resume | clear")
+      );
       this.tui.requestRender();
       return;
     }
-    if (sub === "status") {
+    if (firstToken === "status") {
       if (!this.goalState) {
         this.addChatLine(clr.dim("No active goal"));
       } else {
+        const planSuffix = this.goalState.planRevisionId
+          ? `, plan: ${this.goalState.planRevisionId}`
+          : "";
         this.addChatLine(
           clr.dim(
-            `${this.goalState.status} — ${this.goalState.turnsUsed}/${this.goalState.maxTurns} turns: ${this.goalState.text}`
+            `${this.goalState.status} — ${this.goalState.turnsUsed}/${this.goalState.maxTurns} turns${planSuffix}: ${this.goalState.text}`
           )
         );
       }
       this.tui.requestRender();
       return;
     }
-    if (sub === "clear") {
+    if (firstToken === "clear") {
       this.goalState = undefined;
       await this.persistGoalState();
       this.syncGoalContextBar();
@@ -4382,7 +4588,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    if (sub === "pause") {
+    if (firstToken === "pause") {
       if (this.goalState) {
         this.goalState = { ...this.goalState, status: "paused" };
         await this.persistGoalState();
@@ -4392,16 +4598,30 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    if (sub === "resume") {
+    if (firstToken === "resume") {
       if (this.goalState) {
+        const wasJudgePause = this.goalState.status === "paused_judge_unavailable";
         this.goalState = {
           ...this.goalState,
           status: "active",
-          turnsUsed: 0,
+          // Preserve turnsUsed for judge pauses — no work-turn was consumed
+          ...(wasJudgePause ? {} : { turnsUsed: 0 }),
         };
         await this.persistGoalState();
         this.syncGoalContextBar();
-        void this.emitStatusEvent("Goal resumed — turn counter reset");
+        if (this.goalState.planRevisionId) {
+          const sessionId = SessionManager.getCurrentSessionID() ?? "";
+          if (!readPlanTasksMarkdown(sessionId, this.goalState.planRevisionId)) {
+            this.addChatLine(
+              clr.warn(
+                `Plan revision ${this.goalState.planRevisionId} not found — judging against goal text only.`
+              )
+            );
+          }
+        }
+        void this.emitStatusEvent(
+          wasJudgePause ? "Goal resumed" : "Goal resumed — turn counter reset"
+        );
       }
       this.tui.requestRender();
       return;
@@ -4411,7 +4631,75 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    this.goalState = createGoalState(arg.trim());
+
+    if (firstToken === "set") {
+      const sessionId = SessionManager.getCurrentSessionID() ?? "";
+      let planRevisionId: string | undefined;
+      let planRequested = false;
+      const textTokens: string[] = [];
+
+      for (const token of tokens.slice(1)) {
+        if (token === "--plan") {
+          planRequested = true;
+          continue;
+        }
+        if (token.startsWith("--plan=")) {
+          planRequested = true;
+          planRevisionId = token.slice("--plan=".length);
+          continue;
+        }
+        textTokens.push(token);
+      }
+
+      if (planRequested) {
+        if (planRevisionId) {
+          if (!readPlanTasksMarkdown(sessionId, planRevisionId)) {
+            const ids = listRevisionIds(sessionId);
+            this.addChatLine(
+              clr.warn(
+                ids.length > 0
+                  ? `Plan revision '${planRevisionId}' not found (or has no tasks.md). Available revisions: ${ids.join(", ")}.`
+                  : `Plan revision '${planRevisionId}' not found and no plan revisions exist for this session.`
+              )
+            );
+            this.tui.requestRender();
+            return;
+          }
+        } else {
+          const active = getActivePlanRevision(sessionId);
+          if (!active) {
+            this.addChatLine(
+              clr.warn("No active plan revision. Run PLAN mode first, or specify /goal set --plan=<revisionId>.")
+            );
+            this.tui.requestRender();
+            return;
+          }
+          planRevisionId = active.meta.revisionId;
+        }
+      }
+
+      let text = textTokens.join(" ").trim();
+      if (!text && planRevisionId) {
+        text = `Complete all tasks in plan revision ${planRevisionId} (tasks.md)`;
+      }
+      if (!text) {
+        this.addChatLine(clr.warn("Usage: /goal set [--plan[=revisionId]] <text>"));
+        this.tui.requestRender();
+        return;
+      }
+
+      this.goalState = createGoalState(text, planRevisionId ? { planRevisionId } : undefined);
+      await this.persistGoalState();
+      this.syncGoalContextBar();
+      void this.emitStatusEvent(
+        `Goal set: ${this.goalState.text}${planRevisionId ? ` (plan: ${planRevisionId})` : ""}`
+      );
+      this.tui.requestRender();
+      return;
+    }
+
+    // Legacy /goal <text>
+    this.goalState = createGoalState(trimmedArg);
     await this.persistGoalState();
     this.syncGoalContextBar();
     void this.emitStatusEvent(`Goal set: ${this.goalState.text}`);
@@ -5443,6 +5731,385 @@ export class ImpulseRenderer {
 
     this.sessionPickerHandle = this.showSessionPickerOverlay(overlay);
     this.tui.requestRender();
+  }
+
+  private async cmdBa(arg: string): Promise<void> {
+    const { listBgJobs, killBgJob } = await import("../tools/bg-process-registry.js");
+    const parts = arg.trim().split(/\s+/);
+    const sub = parts[0]?.toLowerCase() ?? "";
+
+    if (!sub || sub === "list") {
+      const jobs = listBgJobs();
+      if (jobs.length === 0) {
+        this.addChatLine(clr.dim("No background jobs."));
+      } else {
+        this.addChatLine(clr.dim(`Background jobs (${jobs.length}):`));
+        for (const j of jobs) {
+          const dur = j.endedAt
+            ? `${Math.round((j.endedAt - j.startedAt) / 1000)}s`
+            : `${Math.round((Date.now() - j.startedAt) / 1000)}s running`;
+          this.addChatLine(clr.dim(`  ${j.id} [${j.status}] ${dur}  ${j.command.slice(0, 60)}`));
+        }
+      }
+      this.tui.requestRender();
+      return;
+    }
+
+    const id = parts[1] ?? "";
+    if (!id) {
+      this.addChatLine(clr.dim(`Usage: /ba ${sub} <id>`));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (sub === "kill") {
+      const ok = killBgJob(id);
+      this.addChatLine(ok ? clr.dim(`Job '${id}' killed.`) : clr.warn(`No running job '${id}'.`));
+      this.syncBgContextBar();
+      this.tui.requestRender();
+      return;
+    }
+
+    if (sub === "restart") {
+      const { restartBgJob } = await import("../tools/bash.js");
+      const result = await restartBgJob(id);
+      if (result.ok) {
+        const pidNote = result.pid ? ` (pid ${result.pid})` : "";
+        this.addChatLine(clr.dim(`Job '${id}' restarted as '${result.newJobId}'${pidNote}.`));
+      } else {
+        this.addChatLine(clr.warn(result.error));
+      }
+      this.syncBgContextBar();
+      this.tui.requestRender();
+      return;
+    }
+
+    this.addChatLine(clr.dim("Usage: /ba [list] | kill <id> | restart <id>"));
+    this.tui.requestRender();
+  }
+
+  private dismissSkillsOverlay(): void {
+    this.skillsOverlayHandle?.hide();
+    this.skillsOverlayHandle = null;
+  }
+
+  private async cmdSkills(_arg: string): Promise<void> {
+    const skills = listInstalledSkills(process.cwd());
+    if (skills.length === 0) {
+      this.addChatLine(clr.dim("No skills installed. Use /skill new to create one."));
+      this.tui.requestRender();
+      return;
+    }
+    // Overlays are input-modal; keep the plain-text listing while a turn is running.
+    if (this.isRunning) {
+      this.addChatLine(clr.dim(`Installed skills (${skills.length}):`));
+      for (const s of skills) {
+        const alias = s.command ? ` [/${s.command}]` : "";
+        const desc = s.description ? ` — ${s.description}` : "";
+        this.addChatLine(clr.dim(`  ${s.slug}${alias}${desc}`));
+      }
+      this.tui.requestRender();
+      return;
+    }
+    this.showSkillsListOverlay(skills);
+  }
+
+  private showSkillsListOverlay(skills: InstalledSkillMeta[]): void {
+    this.dismissSkillsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: `Skills (${skills.length})`,
+      rows: buildSkillRows(skills),
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter choose action   Esc close"],
+    });
+    overlay.onSelect = (slug) => {
+      this.dismissSkillsOverlay();
+      const skill = skills.find((s) => s.slug === slug);
+      if (skill) this.showSkillActionOverlay(skill);
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private showSkillActionOverlay(skill: InstalledSkillMeta): void {
+    const rows: SelectableListRow[] = [
+      { id: "view", label: "View SKILL.md" },
+      ...(skill.command ? [{ id: "run", label: `Run (/${skill.command})` }] : []),
+      { id: "modify", label: "Modify" },
+      { id: "remove", label: "Remove" },
+    ];
+    const overlay = new SelectableListOverlay({
+      title: `Skill: ${skill.slug}`,
+      rows,
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter select   Esc back"],
+    });
+    overlay.onSelect = (id) => {
+      this.dismissSkillsOverlay();
+      if (id === "view") {
+        this.viewSkill(skill);
+      } else if (id === "run" && skill.command) {
+        void this.cmdRunSkillCommand(skill.slug, "");
+      } else if (id === "modify") {
+        void this.runSkillAgentTurn(
+          `Modify the existing skill '${skill.slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
+          `Modify skill: ${skill.slug}`
+        );
+      } else if (id === "remove") {
+        this.showSkillRemoveConfirmOverlay(skill);
+      }
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.showSkillsListOverlay(listInstalledSkills(process.cwd()));
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private viewSkill(skill: InstalledSkillMeta): void {
+    try {
+      const content = fs.readFileSync(skill.path, "utf-8");
+      const lines = content.split("\n").slice(0, 20);
+      this.addChatLine(clr.dim(`${skill.path}:`));
+      for (const line of lines) this.addChatLine(clr.dim(`  ${line}`));
+    } catch {
+      this.addChatLine(clr.warn(`Could not read ${skill.path}`));
+    }
+    this.tui.setFocus(this.promptInput);
+    this.tui.requestRender();
+  }
+
+  private showSkillRemoveConfirmOverlay(skill: InstalledSkillMeta): void {
+    const rows: SelectableListRow[] = [
+      { id: "cancel", label: "Cancel" },
+      { id: "remove", label: "Remove" },
+    ];
+    const overlay = new SelectableListOverlay({
+      title: `Remove skill: ${skill.slug}`,
+      rows,
+      boxSizing: "content",
+      maxHeight: 10,
+      helpLines: [`Deletes .agents/skills/${skill.slug}/`],
+    });
+    overlay.onSelect = (id) => {
+      this.dismissSkillsOverlay();
+      if (id === "remove") {
+        const result = removeSkill(process.cwd(), skill.slug);
+        this.addChatLine(result.success ? clr.dim(result.message) : clr.warn(result.message));
+      }
+      this.tui.setFocus(this.promptInput);
+      this.tui.requestRender();
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private async cmdSkill(arg: string): Promise<void> {
+    const parts = arg.trim().split(/\s+/);
+    const sub = parts[0]?.toLowerCase() ?? "";
+    const slug = parts.slice(1).join(" ");
+
+    if (sub === "new") {
+      if (this.isRunning) {
+        this.addChatLine(clr.warn("Wait for the current turn to finish."));
+        this.tui.requestRender();
+        return;
+      }
+      await this.runSkillAgentTurn(
+        "Create a new agent skill using the skill_write tool. Ask me what the skill should do, its name, and purpose before writing it.",
+        "New skill"
+      );
+      return;
+    }
+
+    if (sub === "remove" || sub === "modify") {
+      if (!slug) {
+        if (this.isRunning) {
+          this.addChatLine(clr.warn("Wait for the current turn to finish."));
+          this.tui.requestRender();
+          return;
+        }
+        const skills = listInstalledSkills(process.cwd());
+        if (skills.length === 0) {
+          this.addChatLine(clr.dim("No skills installed."));
+          this.tui.requestRender();
+          return;
+        }
+        if (sub === "remove") {
+          this.showSkillsRemovePicker(skills);
+        } else {
+          this.showSkillsModifyPicker(skills);
+        }
+        return;
+      }
+      if (this.isRunning) {
+        this.addChatLine(clr.warn("Wait for the current turn to finish."));
+        this.tui.requestRender();
+        return;
+      }
+      const skillDir = path.join(process.cwd(), ".agents", "skills", slug);
+      if (!fs.existsSync(skillDir)) {
+        this.addChatLine(clr.warn(`Skill '${slug}' not found.`));
+        this.tui.requestRender();
+        return;
+      }
+      if (sub === "remove") {
+        await this.runSkillAgentTurn(
+          `Remove the skill '${slug}' using the skill_remove tool.`,
+          `Remove skill: ${slug}`
+        );
+      } else {
+        await this.runSkillAgentTurn(
+          `Modify the existing skill '${slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
+          `Modify skill: ${slug}`
+        );
+      }
+      return;
+    }
+
+    this.addChatLine(clr.dim("Usage: /skill new | remove <slug> | modify <slug>"));
+    this.tui.requestRender();
+  }
+
+  private showSkillsRemovePicker(skills: InstalledSkillMeta[]): void {
+    this.dismissSkillsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: `Remove which skill? (${skills.length})`,
+      rows: buildSkillRows(skills),
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter select   Esc cancel"],
+    });
+    overlay.onSelect = (slug) => {
+      this.dismissSkillsOverlay();
+      const skill = skills.find((s) => s.slug === slug);
+      if (skill) this.showSkillRemoveConfirmOverlay(skill);
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private showSkillsModifyPicker(skills: InstalledSkillMeta[]): void {
+    this.dismissSkillsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: `Modify which skill? (${skills.length})`,
+      rows: buildSkillRows(skills),
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      helpLines: ["Up/Down navigate   Enter select   Esc cancel"],
+    });
+    overlay.onSelect = (slug) => {
+      this.dismissSkillsOverlay();
+      void this.runSkillAgentTurn(
+        `Modify the existing skill '${slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
+        `Modify skill: ${slug}`
+      );
+    };
+    overlay.onCancel = () => {
+      this.dismissSkillsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private async cmdRunSkillCommand(slug: string, arg: string): Promise<void> {
+    if (this.isRunning) {
+      this.addChatLine(clr.warn("Wait for the current turn to finish."));
+      this.tui.requestRender();
+      return;
+    }
+    const skillPath = path.join(process.cwd(), ".agents", "skills", slug, "SKILL.md");
+    if (!fs.existsSync(skillPath)) {
+      this.addChatLine(clr.warn(`Skill '${slug}' not found.`));
+      this.tui.requestRender();
+      return;
+    }
+    const skillContent = fs.readFileSync(skillPath, "utf-8");
+    const userMessage = arg
+      ? `Execute the following skill:\n\n${skillContent}\n\nUser input: ${arg}`
+      : `Execute the following skill:\n\n${skillContent}`;
+    await this.runSkillAgentTurn(userMessage, `Skill: ${slug}`);
+  }
+
+  private async runSkillAgentTurn(userMessage: string, displayLabel: string): Promise<void> {
+    this.isRunning = true;
+    this.loop.setImages([]);
+    this.addSectionGap();
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(displayLabel);
+    this.addSectionGap();
+
+    this.streamingRaw = "";
+    this.streamingText = null;
+
+    const events: LoopEvents = {
+      onTurnStart: () => {
+        this.setBusyStatus("", "Working on skill..");
+      },
+      onToken: (text) => {
+        if (!this.streamingText) {
+          this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
+          this.streamingText = new MarkdownTextBlock(GUTTER);
+          this.chat.addChild(this.streamingText);
+          this.hasTrailingGap = false;
+        }
+        this.streamingRaw += text;
+        this.streamingText.setText(this.streamingRaw);
+        this.requestLayoutRefresh();
+      },
+      onThinking: (text) => {
+        this.appendWorkerThinking(text);
+        this.requestLayoutRefresh();
+      },
+      onAdvisorStart: () => {},
+      onAdvisorToken: () => {},
+      onAdvisorEnd: () => {},
+      onToolStart: () => {},
+      onToolEnd: () => {},
+      onCompacting: () => {},
+      onCompacted: () => {},
+      onTurnEnd: () => {
+        this.spinStop();
+        if (this.streamingRaw) this.addSectionGap();
+        this.streamingRaw = "";
+        this.streamingText = null;
+        this.thinkingRaw = "";
+        this.thinkingText = null;
+        this.isRunning = false;
+        this.addSectionGap();
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+      onHardCutoff: () => {},
+      onError: (err) => {
+        this.spinStop();
+        this.addChatLine(`${clr.error("Error:")} ${err.message}`);
+        this.isRunning = false;
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+    };
+
+    try {
+      await this.loop.run(userMessage, this.mode, events, {
+        displayMessage: displayLabel,
+        segments: [{ kind: "text", value: userMessage }],
+      });
+    } catch {
+      this.isRunning = false;
+      this.drainTurnQueue();
+    }
   }
 
   private async runShellReview(
