@@ -4655,7 +4655,9 @@ export class ImpulseRenderer {
       return;
     }
 
-    if (firstToken === "set") {
+    const hasPlanFlag = tokens.slice(1).some((t) => t === "--plan" || t.startsWith("--plan="));
+
+    if (firstToken === "set" && hasPlanFlag) {
       const sessionId = SessionManager.getCurrentSessionID() ?? "";
       let planRevisionId: string | undefined;
       let planRequested = false;
@@ -4675,20 +4677,7 @@ export class ImpulseRenderer {
       }
 
       if (planRequested) {
-        if (planRevisionId) {
-          if (!readPlanTasksMarkdown(sessionId, planRevisionId)) {
-            const ids = listRevisionIds(sessionId);
-            this.addChatLine(
-              clr.warn(
-                ids.length > 0
-                  ? `Plan revision '${planRevisionId}' not found (or has no tasks.md). Available revisions: ${ids.join(", ")}.`
-                  : `Plan revision '${planRevisionId}' not found and no plan revisions exist for this session.`
-              )
-            );
-            this.tui.requestRender();
-            return;
-          }
-        } else {
+        if (!planRevisionId) {
           const active = getActivePlanRevision(sessionId);
           if (!active) {
             this.addChatLine(
@@ -4698,6 +4687,18 @@ export class ImpulseRenderer {
             return;
           }
           planRevisionId = active.meta.revisionId;
+        }
+        if (!readPlanTasksMarkdown(sessionId, planRevisionId)) {
+          const ids = listRevisionIds(sessionId);
+          this.addChatLine(
+            clr.warn(
+              ids.length > 0
+                ? `Plan revision '${planRevisionId}' not found (or has no tasks.md). Available revisions: ${ids.join(", ")}.`
+                : `Plan revision '${planRevisionId}' not found and no plan revisions exist for this session.`
+            )
+          );
+          this.tui.requestRender();
+          return;
         }
       }
 

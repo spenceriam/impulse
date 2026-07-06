@@ -105,8 +105,8 @@ export function markBgJobDone(id: string, exitCode: number): void {
   entry.endedAt = Date.now();
 
   const note = exitCode === 0
-    ? `[bg-${id}] '${entry.command.slice(0, 60)}' finished (exit 0).`
-    : `[bg-${id}] '${entry.command.slice(0, 60)}' exited with code ${exitCode}.`;
+    ? `[${id}] '${entry.command.slice(0, 60)}' finished (exit 0).`
+    : `[${id}] '${entry.command.slice(0, 60)}' exited with code ${exitCode}.`;
 
   if (!isAgentTurnActive()) {
     pendingBgNotifications.push(note);
