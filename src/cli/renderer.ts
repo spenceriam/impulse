@@ -232,6 +232,7 @@ import {
   appendGoalProgress,
 } from "../goal/artifact.js";
 import { invalidatePromptCache } from "../agent/prompts.js";
+import { clearProjectStructureCache } from "../agent/project-structure.js";
 import { getRepairTelemetrySummary } from "../harness/repair-telemetry.js";
 import {
   collectSessionStats,
@@ -3272,6 +3273,7 @@ export class ImpulseRenderer {
     }
     clearShellSessions();
     cleanupAllBgJobs();
+    clearProjectStructureCache();
     this.syncBgContextBar();
     await SessionManager.createNew(arg || undefined);
     const newCfg = await loadConfig();
@@ -6101,6 +6103,7 @@ export class ImpulseRenderer {
       onToolEnd: () => {},
       onCompacting: () => {},
       onCompacted: () => {},
+      onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTurnEnd: () => {
         this.spinStop();
         if (this.streamingRaw) this.addSectionGap();

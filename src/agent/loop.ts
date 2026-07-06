@@ -456,6 +456,7 @@ export class AgentLoop {
 
       events.onTurnStart();
       this.contextWrapupInjected = false;
+      await this.flushTurnInjections();
 
       while (continueLoop && !signal.aborted) {
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
