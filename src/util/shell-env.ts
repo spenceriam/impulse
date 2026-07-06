@@ -18,7 +18,7 @@ export interface ShellEnvironment {
   shellType: WindowsCommandShellType | "bash" | "zsh" | "fish" | "sh" | "unknown";
   /** Shell actually used by the bash tool for command execution. */
   commandShell: string;
-  commandShellType: WindowsCommandShellType | "bash";
+  commandShellType: WindowsCommandShellType | "bash" | "wsl";
   supportsChainedCommands: boolean;
   commandSeparator: string; // ; or && depending on shell
   recommendations: string[];
@@ -388,6 +388,14 @@ export function generateShellContext(env: ShellEnvironment): string {
       parts.push("- POSIX-to-PowerShell translation is not applied in Git Bash");
       break;
 
+    case "wsl":
+      parts.push("- Commands run inside WSL (Windows Subsystem for Linux) — use POSIX/bash syntax");
+      parts.push("- Supports && (and), || (or), and ; (unconditional) operators");
+      parts.push("- Windows paths are accessible under /mnt/ (e.g. C:\\Users → /mnt/c/Users)");
+      parts.push("- Linux-native package managers (apt, etc.) are available inside WSL");
+      parts.push("- Working directory is auto-translated from Windows path to /mnt/... form");
+      break;
+
     case "bash":
       parts.push("- Use && to chain commands (runs next only if previous succeeds)");
       parts.push("- Use || for OR logic (runs next only if previous fails)");
@@ -405,3 +413,72 @@ export function generateShellContext(env: ShellEnvironment): string {
   return parts.join("\n");
 }
 import { detectWindowsCommandShell, type WindowsCommandShellType } from "./windows-shell.js";
+
+// ---------------------------------------------------------------------------
+// Tool-availability probe (#118 item 3 / #115 shared)
+// ---------------------------------------------------------------------------
+
+export interface ToolAvailability {
+  available: string[];   // "git 2.41.0" style (version when probed, name-only as fallback)
+  unavailable: string[];
+}
+
+let cachedToolAvailability: Promise<ToolAvailability> | undefined;
+
+const COMMON_TOOLS = ["git", "node", "npm", "bun", "python", "docker", "rg", "jq", "curl"];
+const WINDOWS_EXTRA = ["wsl"];
+
+async function probeOneTool(name: string): Promise<string | null> {
+  try {
+    const found = Bun.which(name);
+    if (!found) return null;
+    // Probe version with a quick, per-check 1.5s timeout
+    const proc = Bun.spawn({
+      cmd: [name, "--version"],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = new Promise<"timeout">((r) => setTimeout(() => { try { proc.kill(); } catch { /* */ } r("timeout"); }, 1500));
+    const result = await Promise.race([
+      new Response(proc.stdout).text().then((t) => t.trim().split("\n")[0] ?? ""),
+      timer,
+    ]);
+    if (result === "timeout" || !result) return name;
+    // Keep only the first 60 chars to avoid huge version strings
+    return `${name} (${result.slice(0, 60)})`;
+  } catch {
+    return null;
+  }
+}
+
+export async function probeToolAvailability(): Promise<ToolAvailability> {
+  cachedToolAvailability ??= probeToolAvailabilityUncached();
+  return cachedToolAvailability;
+}
+
+async function probeToolAvailabilityUncached(): Promise<ToolAvailability> {
+  const tools = process.platform === "win32"
+    ? [...COMMON_TOOLS, ...WINDOWS_EXTRA]
+    : COMMON_TOOLS;
+
+  const results = await Promise.all(tools.map(probeOneTool));
+
+  const available: string[] = [];
+  const unavailable: string[] = [];
+  for (let i = 0; i < tools.length; i++) {
+    if (results[i] !== null) available.push(results[i]!);
+    else unavailable.push(tools[i]!);
+  }
+  return { available, unavailable };
+}
+
+export function formatToolAvailabilityBlock(avail: ToolAvailability): string {
+  const lines: string[] = ["## Available CLI tools"];
+  if (avail.available.length > 0) {
+    lines.push(`Available: ${avail.available.join(", ")}`);
+  }
+  if (avail.unavailable.length > 0) {
+    lines.push(`Not found: ${avail.unavailable.join(", ")}`);
+  }
+  return lines.join("\n");
+}

@@ -96,6 +96,11 @@ import { setCurrentMode } from "../tools/mode-state";
 import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
+import {
+  checkPlanCompletionHandoff,
+  planCompletionToolBehavior,
+  type PlanCompletionDecision,
+} from "./plan-completion.js";
 import { modelSupportsVision } from "../api/capabilities.js";
 import type { PromptSegment } from "../cli/prompt-input.js";
 import { buildUserMessageContent, normalizePasteContent } from "../cli/prompt-input.js";
@@ -139,6 +144,14 @@ export interface LoopEvents {
     summary: string;
     planMarkdown: string;
   }) => Promise<"proceed" | "decline">;
+  /**
+   * Block until the user decides how to handle a PLAN → AGENT handoff once
+   * plan artifacts (tasks.md) exist. Intercepts set_mode("AGENT") from PLAN.
+   */
+  onPlanCompletion?: (input: {
+    planPath: string;
+    summary: string;
+  }) => Promise<PlanCompletionDecision>;
   /** Tool call lifecycle */
   onToolStart(id: string, name: string, args: Record<string, unknown>): void;
   onToolEnd(
@@ -229,6 +242,12 @@ export class AgentLoop {
       this.pendingSteer = null;
       notes.push(formatSteeringNote(note));
     }
+    // Drain any background-job completion notifications queued while idle
+    try {
+      const { drainBgNotifications } = await import("../tools/bg-process-registry.js");
+      const bgNotes = drainBgNotifications();
+      notes.push(...bgNotes);
+    } catch { /* non-fatal — bg registry not loaded */ }
     await this.injectUserNotes(notes);
   }
 
@@ -356,7 +375,10 @@ export class AgentLoop {
       this.pendingImages = [];
 
       // ── Tool definitions ───────────────────────────────────────────────────
-      const toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
+      // let: reassigned when the PLAN-completion handoff switches mode mid-turn
+      // (see checkPlanCompletionHandoff below) so subsequent iterations of this
+      // same turn see the AGENT tool set instead of the stale PLAN one.
+      let toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
 
       // Add consult_advisor tool if experimental advisor is enabled
       if (
@@ -434,6 +456,7 @@ export class AgentLoop {
 
       events.onTurnStart();
       this.contextWrapupInjected = false;
+      await this.flushTurnInjections();
 
       while (continueLoop && !signal.aborted) {
         const currentMessages = (SessionManager.getCurrentSession()?.messages ?? []);
@@ -1029,6 +1052,45 @@ export class AgentLoop {
           }
 
           await flushTaskBatch();
+
+          // PLAN → AGENT handoff: when the model calls set_mode("AGENT") from
+          // PLAN mode with plan artifacts (tasks.md) already written, show the
+          // execute/proceed/revise/cancel overlay instead of switching modes
+          // silently. Bus events can't await a user decision, so this has to
+          // be intercepted here in the tool loop (mirrors the advisor
+          // consult_advisor special-case above).
+          if (
+            tc.name === "set_mode" &&
+            args["mode"] === "AGENT" &&
+            events.onPlanCompletion
+          ) {
+            const handoff = checkPlanCompletionHandoff(mode, "AGENT", session.id);
+            if (handoff) {
+              const toolStart = Date.now();
+              events.onToolStart(tc.id, "set_mode", args);
+
+              const decision = await events.onPlanCompletion({
+                planPath: handoff.planDirRel,
+                summary: String(args["reason"] ?? ""),
+              });
+              const behavior = planCompletionToolBehavior(decision, handoff.tasksPathRel);
+
+              let switchResult: ToolResult;
+              if (behavior.performSwitch) {
+                switchResult = await Tool.execute(tc.name, args);
+                mode = "AGENT";
+                toolDefs = Tool.getAPIDefinitionsForMode("AGENT");
+              } else {
+                switchResult = { success: true, output: `Mode unchanged (remains ${mode}).` };
+              }
+
+              const output = `${switchResult.output}\n\n${behavior.output}`;
+              const durationMs = Date.now() - toolStart;
+              await persistToolResult(tc.id, output);
+              events.onToolEnd(tc.id, "set_mode", { success: switchResult.success, output }, durationMs);
+              continue;
+            }
+          }
 
           // Question requires a questions array — fail fast with a clear tool row.
           if (

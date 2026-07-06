@@ -155,6 +155,22 @@ export function ensureActivePlanRevision(sessionId: string, cwd = process.cwd())
   return getActivePlanRevision(sessionId, cwd) ?? createPlanRevision(sessionId, undefined, cwd);
 }
 
+/** Read a specific revision's tasks.md, or null if the revision or file is missing. */
+export function readPlanTasksMarkdown(
+  sessionId: string,
+  revisionId: string,
+  cwd = process.cwd()
+): string | null {
+  const dir = getRevisionDir(sessionId, revisionId, cwd);
+  const tasksPath = path.join(dir, "tasks.md");
+  if (!fs.existsSync(tasksPath)) return null;
+  try {
+    return fs.readFileSync(tasksPath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 export function setPlanningStyleForActiveRevision(
   sessionId: string,
   style: PlanningStyle,

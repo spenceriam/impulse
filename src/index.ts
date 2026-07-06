@@ -27,12 +27,18 @@ import { initPty } from "./pty/index.js";
 import { migrateHomeIfNeeded } from "./session/migrate-home.js";
 import { enrichSessionTitles } from "./session/enrich-titles.js";
 import { summarizeSessions } from "./session/session-content.js";
+import { cleanupAllBgJobsSync } from "./tools/bg-process-registry.js";
 import packageJson from "../package.json";
 import * as readline from "readline";
 import * as fs from "fs";
 import * as path from "path";
 
 registerCrashRecoveryHandlers();
+
+// Best-effort safety net: reap any still-running background jobs if the
+// process exits without going through ImpulseRenderer.gracefulExit() (e.g. a
+// crash, or a signal not handled elsewhere).
+process.on("exit", () => cleanupAllBgJobsSync());
 
 const args = process.argv.slice(2);
 

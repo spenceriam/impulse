@@ -188,6 +188,49 @@ const TRANSLATIONS: CommandTranslation[] = [
     description: "touch -> New-Item -ItemType File",
   },
 
+  // cp -r / cp -> Copy-Item
+  {
+    pattern: /^cp\s+((?:-[rRpfiv]+\s+)*)?(?!-)(.+?)\s+(.+)$/,
+    replacement: (m) => {
+      const flags = m[1] || "";
+      const recurse = flags.includes("r") || flags.includes("R") ? " -Recurse" : "";
+      const force = flags.includes("f") ? " -Force" : "";
+      return `Copy-Item${recurse}${force} -Path ${quotePowerShellArray(parseShellWords(m[2]))} -Destination ${quotePowerShellArray(parseShellWords(m[3]))}`;
+    },
+    description: "cp -> Copy-Item",
+  },
+
+  // mv -> Move-Item
+  {
+    pattern: /^mv\s+((?:-[fiv]+\s+)*)?(?!-)(.+?)\s+(.+)$/,
+    replacement: (m) => {
+      const flags = m[1] || "";
+      const force = flags.includes("f") ? " -Force" : "";
+      return `Move-Item${force} -Path ${quotePowerShellArray(parseShellWords(m[2]))} -Destination ${quotePowerShellArray(parseShellWords(m[3]))}`;
+    },
+    description: "mv -> Move-Item",
+  },
+
+  // grep (single arg, no pipeline) -> Select-String
+  {
+    pattern: /^grep\s+((?:-[nliEv]+\s+)*)?(?!-)(.+?)\s+(.+)$/,
+    replacement: (m) => {
+      const flags = m[1] || "";
+      const caseInsensitive = flags.includes("i") ? " -CaseSensitive:$false" : " -CaseSensitive";
+      const listOnly = flags.includes("l") ? " | Select-Object Path" : "";
+      const notMatch = flags.includes("v") ? " -NotMatch" : "";
+      return `Select-String${caseInsensitive}${notMatch} -Pattern ${quotePowerShellArray(parseShellWords(m[2]))} -Path ${quotePowerShellArray(parseShellWords(m[3]))}${listOnly}`;
+    },
+    description: "grep -> Select-String",
+  },
+
+  // which -> (Get-Command ...).Source
+  {
+    pattern: /^which\s+(\S+)$/,
+    replacement: (m) => `(Get-Command ${m[1]} -ErrorAction SilentlyContinue).Source`,
+    description: "which -> (Get-Command).Source",
+  },
+
 ];
 
 /**

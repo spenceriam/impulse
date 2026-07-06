@@ -105,3 +105,55 @@ describe("context bar allow-all indicator", () => {
     }
   });
 });
+
+describe("context bar background job (ba) segment", () => {
+  const BG_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+  test("idle (isRunning false) shows a static count with no spinner glyph", () => {
+    const bar = new ContextBarComponent({
+      ...BASE_STATE,
+      bottomBarVisual: "full",
+      backgroundCount: 2,
+      isRunning: false,
+    });
+    const text = stripAnsi(bar.render(120).join("\n"));
+    expect(text).toContain("ba 2");
+    for (const glyph of BG_SPINNER) {
+      expect(text).not.toContain(glyph);
+    }
+  });
+
+  test("busy (isRunning true) shows the count with a spinner glyph", () => {
+    const bar = new ContextBarComponent({
+      ...BASE_STATE,
+      bottomBarVisual: "full",
+      backgroundCount: 2,
+      isRunning: true,
+    });
+    const text = stripAnsi(bar.render(120).join("\n"));
+    expect(text).toContain("ba 2");
+    expect(BG_SPINNER.some((glyph) => text.includes(glyph))).toBe(true);
+  });
+
+  test("zero background jobs omits the segment entirely", () => {
+    const bar = new ContextBarComponent({
+      ...BASE_STATE,
+      bottomBarVisual: "full",
+      backgroundCount: 0,
+      isRunning: true,
+    });
+    const text = stripAnsi(bar.render(120).join("\n"));
+    expect(text).not.toContain("ba ");
+  });
+
+  test("segment is omitted outside full visual mode", () => {
+    const bar = new ContextBarComponent({
+      ...BASE_STATE,
+      bottomBarVisual: "reduced",
+      backgroundCount: 3,
+      isRunning: true,
+    });
+    const text = stripAnsi(bar.render(120).join("\n"));
+    expect(text).not.toContain("ba 3");
+  });
+});
