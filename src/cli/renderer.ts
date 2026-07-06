@@ -4655,9 +4655,7 @@ export class ImpulseRenderer {
       return;
     }
 
-    const hasPlanFlag = tokens.slice(1).some((t) => t === "--plan" || t.startsWith("--plan="));
-
-    if (firstToken === "set" && hasPlanFlag) {
+    if (firstToken === "set") {
       const sessionId = SessionManager.getCurrentSessionID() ?? "";
       let planRevisionId: string | undefined;
       let planRequested = false;

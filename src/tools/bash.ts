@@ -1192,7 +1192,11 @@ export async function restartBgJob(id: string): Promise<RestartBgJobResult> {
     return { ok: false, error: `No job '${id}'.` };
   }
   if (entry.status === "running") {
+    const pid = entry.pid;
     killBgJob(id);
+    if (pid) {
+      await killProcessTree(pid);
+    }
   }
   try {
     const job = await spawnBackgroundJob(entry.command, entry.cwd);
