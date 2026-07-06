@@ -148,7 +148,13 @@ export function countRunningBgJobs(): number {
 export function cleanupAllBgJobs(): void {
   for (const [, entry] of registry) {
     if (entry.status === "running") {
+      // Best-effort graceful async kill (bookkeeping / listener cleanup)...
       try { entry.kill(); } catch { /* ignore */ }
+      // ...but also reap the tree synchronously by PID: callers invoke
+      // process.exit(0) immediately after, before the async kill can finish,
+      // and registry.clear() below would otherwise leave the process.on("exit")
+      // safety net with nothing to reap. Without this, trees orphan on exit.
+      try { if (entry.pid) killProcessTreeSync(entry.pid); } catch { /* ignore */ }
     }
   }
   registry.clear();

@@ -67,6 +67,21 @@ describe("bg-process-registry lifecycle", () => {
     expect(drainBgNotifications()).toEqual([]);
   });
 
+  test("cleanupAllBgJobs reaps the process tree synchronously by pid, not just via the async kill callback", () => {
+    let killed = false;
+    const job = registerBgJob({
+      command: "sleep 100",
+      cwd: "/tmp",
+      pid: 999999999, // guaranteed-invalid pid so the sync tree reap is a safe no-op
+      kill: () => { killed = true; },
+    });
+
+    expect(() => cleanupAllBgJobs()).not.toThrow();
+
+    expect(killed).toBe(true);
+    expect(getBgJob(job.id)).toBeUndefined();
+  });
+
   test("cleanupAllBgJobsSync swallows a throwing kill without throwing itself", () => {
     registerBgJob({
       command: "sleep 100",
