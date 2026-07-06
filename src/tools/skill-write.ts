@@ -57,9 +57,11 @@ export const skillWriteTool: Tool<SkillWriteInput> = Tool.define(
     writeFileSync(skillPath, input.content, { encoding: "utf-8", mode: 0o644 });
 
     // Register slash command if frontmatter declares one
-    const cmdMatch = input.content.match(/^command:\s*(\S+)/m);
-    if (cmdMatch?.[1]) {
-      registerSkillCommand(cmdMatch[1], input.slug);
+    const fm = input.content.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
+    const rawCmd = fm?.match(/^command:\s*(.*)$/m)?.[1]?.trim();
+    const command = rawCmd?.replace(/^["']|["']$/g, "");
+    if (command) {
+      registerSkillCommand(command, input.slug);
     }
 
     return {

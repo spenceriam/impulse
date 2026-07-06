@@ -923,8 +923,8 @@ async function executeWithPty(
     
     const elapsed = Date.now() - startTime;
     const maxLines = 2000;
-    const capped = capBashOutputLines(result.output, maxLines);
-    let output = capped.output;
+    const paginated = paginateAndCapBashOutput(result.output, input, maxLines);
+    let output = paginated.output;
 
     if (spawnOptions?.notice) {
       output = `${spawnOptions.notice}${output ? "\n" : ""}${output}`;
@@ -945,7 +945,7 @@ async function executeWithPty(
         workdir: input.workdir,
         exitCode: result.exitCode,
         duration: elapsed,
-        truncated: capped.truncated,
+        truncated: paginated.truncated,
         interactive: true,
         pid: result.pid,
       },
@@ -968,6 +968,42 @@ async function executeWithPty(
       },
     };
   }
+}
+
+function paginateAndCapBashOutput(
+  combinedOutput: string,
+  input: Pick<BashInput, "offset" | "limit">,
+  maxLines: number,
+): { output: string; truncated: boolean } {
+  const outputOffset = input.offset ?? 0;
+  const outputLimit = input.limit ?? maxLines;
+  const paginationRequested = outputOffset > 0 || input.limit !== undefined;
+  let paginatedOutput = combinedOutput;
+  let totalOutputLines = 0;
+  let slicedLineCount = 0;
+  if (paginationRequested) {
+    const allLines = combinedOutput.split("\n");
+    totalOutputLines = allLines.length;
+    const sliced = allLines.slice(outputOffset, outputOffset + outputLimit);
+    slicedLineCount = sliced.length;
+    paginatedOutput = sliced.join("\n");
+  }
+
+  const capped = capBashOutputLines(paginatedOutput, maxLines);
+  let output = capped.output;
+  let wasTruncated = capped.truncated;
+
+  if (paginationRequested) {
+    const delivered = capped.keptLines;
+    const nextOffset = outputOffset + delivered;
+    if (nextOffset < totalOutputLines) {
+      const cappedFurther = delivered < slicedLineCount ? ", further capped by output size limits" : "";
+      output = `${output}\n[Output paginated: lines ${outputOffset + 1}-${nextOffset} of ${totalOutputLines}${cappedFurther}. Re-run with offset: ${nextOffset} for more.]`;
+      wasTruncated = true;
+    }
+  }
+
+  return { output, truncated: wasTruncated };
 }
 
 /**
@@ -1037,36 +1073,9 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
   }
   
-  // Pagination: slice output lines, then byte-cap; the note is built AFTER
-  // capping so it reflects what was actually delivered (the byte/line cap
-  // can still trim a paginated slice, and the note must not overstate it).
-  const outputOffset = input.offset ?? 0;
-  const outputLimit = input.limit ?? maxLines;
-  const paginationRequested = outputOffset > 0 || input.limit !== undefined;
-  let paginatedOutput = combinedOutput;
-  let totalOutputLines = 0;
-  let slicedLineCount = 0;
-  if (paginationRequested) {
-    const allLines = combinedOutput.split("\n");
-    totalOutputLines = allLines.length;
-    const sliced = allLines.slice(outputOffset, outputOffset + outputLimit);
-    slicedLineCount = sliced.length;
-    paginatedOutput = sliced.join("\n");
-  }
-
-  const capped = capBashOutputLines(paginatedOutput, maxLines);
-  let output = capped.output;
-  let wasTruncated = capped.truncated;
-
-  if (paginationRequested) {
-    const delivered = capped.keptLines;
-    const nextOffset = outputOffset + delivered;
-    if (nextOffset < totalOutputLines) {
-      const cappedFurther = delivered < slicedLineCount ? ", further capped by output size limits" : "";
-      output = `${output}\n[Output paginated: lines ${outputOffset + 1}-${nextOffset} of ${totalOutputLines}${cappedFurther}. Re-run with offset: ${nextOffset} for more.]`;
-      wasTruncated = true;
-    }
-  }
+  const paginated = paginateAndCapBashOutput(combinedOutput, input, maxLines);
+  let output = paginated.output;
+  let wasTruncated = paginated.truncated;
 
   if (exitCode === -1) {
     output = `${output}${output ? "\n" : ""}[Timeout after ${timeoutMs}ms]`;
@@ -1252,6 +1261,14 @@ export const bashTool: Tool<BashInput> = Tool.define(
       // Background mode — non-blocking spawn, returns immediately with job ID
       if (input.background) {
         const result = await executeInBackground(input, cwd);
+        updateSessionCwd(sessionName, cwd, input.command);
+        if (sessionName) {
+          result.metadata = {
+            ...(result.metadata ?? {}),
+            session: sessionName,
+            sessionCwd: shellSessions.get(sessionName)?.cwd ?? cwd,
+          };
+        }
         return result;
       }
 
