@@ -1080,7 +1080,7 @@ export class AgentLoop {
                 mode = "AGENT";
                 toolDefs = Tool.getAPIDefinitionsForMode("AGENT");
               } else {
-                switchResult = { success: true, output: `Mode switched to ${mode}` };
+                switchResult = { success: true, output: `Mode unchanged (remains ${mode}).` };
               }
 
               const output = `${switchResult.output}\n\n${behavior.output}`;

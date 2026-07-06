@@ -228,6 +228,8 @@ import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
 import {
   writeGoalArtifact,
   readGoalArtifact,
+  deleteGoalArtifact,
+  appendGoalProgress,
 } from "../goal/artifact.js";
 import { invalidatePromptCache } from "../agent/prompts.js";
 import { getRepairTelemetrySummary } from "../harness/repair-telemetry.js";
@@ -1248,9 +1250,16 @@ export class ImpulseRenderer {
       } catch {
         // Non-fatal: fall back to metadata-only path
       }
+    } else {
+      try {
+        deleteGoalArtifact(session.id);
+      } catch {
+        // Non-fatal
+      }
     }
     const metadata = { ...(session.metadata ?? {}), goal: this.goalState };
     await SessionManager.update({ metadata });
+    invalidatePromptCache();
   }
 
   private loadGoalFromSession(session: Session): void {
@@ -1313,7 +1322,19 @@ export class ImpulseRenderer {
       planTasksMarkdown ? { planTasksMarkdown } : undefined
     );
 
+    const sessionId = SessionManager.getCurrentSessionID() ?? "";
+    const judgedTurn = activeGoal.turnsUsed + 1;
+    const logJudgeProgress = (verdict: string, reason: string) => {
+      appendGoalProgress(sessionId, {
+        turn: judgedTurn,
+        verdict,
+        reason,
+        timestamp: new Date().toISOString(),
+      });
+    };
+
     if (result.verdict === "done") {
+      logJudgeProgress("done", result.reason);
       this.goalState = {
         ...activeGoal,
         status: "done",
@@ -1326,6 +1347,7 @@ export class ImpulseRenderer {
     }
 
     if (result.verdict === "judge_unavailable") {
+      logJudgeProgress("judge_unavailable", result.reason);
       this.goalState = {
         ...activeGoal,
         status: "paused_judge_unavailable",
@@ -1341,6 +1363,7 @@ export class ImpulseRenderer {
     }
 
     const nextTurns = activeGoal.turnsUsed + 1;
+    logJudgeProgress("continue", result.reason);
     const updatedGoal: GoalState = {
       ...activeGoal,
       turnsUsed: nextTurns,

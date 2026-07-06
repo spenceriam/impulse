@@ -4,7 +4,8 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { ask as askPermission } from "../permission";
 import { SessionManager } from "../session/manager.js";
-import { registerSkillCommand } from "../cli/slash-dispatch.js";
+import { registerSkillCommand, unregisterSkillCommand } from "../cli/slash-dispatch.js";
+import { listInstalledSkills } from "./install-skill-source.js";
 
 const DESCRIPTION = `Create or update a skill SKILL.md file at .agents/skills/<slug>/SKILL.md.
 
@@ -46,6 +47,11 @@ export const skillWriteTool: Tool<SkillWriteInput> = Tool.define(
       message: `Create/update skill: ${input.slug}`,
       metadata: { path: skillPath, slug: input.slug, reason: `Write skill file for '${input.slug}'` },
     });
+
+    const existing = listInstalledSkills(cwd).find((s) => s.slug === input.slug);
+    if (existing?.command) {
+      unregisterSkillCommand(existing.command);
+    }
 
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(skillPath, input.content, { encoding: "utf-8", mode: 0o644 });

@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import { isAllowAllBypass } from "../permission/index.js";
 import {
   isExperimentalAdvisorEnabled,
+  isExperimentalGoalEnabled,
   load as loadConfig,
   type Config,
   type UserProfile,
@@ -464,7 +465,21 @@ export async function generateSystemPrompt(
 ): Promise<string> {
   const workingDir = cwd || process.cwd();
   const cfg = config ?? await loadConfig();
-  const turnKeyEarly = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}`;
+  const experimentalGoal = isExperimentalGoalEnabled(cfg);
+  let goalCacheKey = "off";
+  if (options?.sessionId && experimentalGoal) {
+    const { readGoalArtifact } = await import("../goal/artifact.js");
+    const goal = readGoalArtifact(options.sessionId, workingDir);
+    if (goal && goal.status !== "done") {
+      goalCacheKey = JSON.stringify({
+        text: goal.text,
+        status: goal.status,
+        turnsUsed: goal.turnsUsed,
+        planRevisionId: goal.planRevisionId ?? "",
+      });
+    }
+  }
+  const turnKeyEarly = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}:goal=${goalCacheKey}`;
   if (lastTurnPromptKey === turnKeyEarly && lastTurnPrompt) {
     return lastTurnPrompt;
   }
@@ -573,7 +588,7 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
   }
 
   // Active-goal context: inject when a goal is set so it survives /compact
-  if (options?.sessionId) {
+  if (options?.sessionId && experimentalGoal) {
     const { readGoalArtifact } = await import("../goal/artifact.js");
     const activeGoal = readGoalArtifact(options.sessionId, workingDir);
     if (activeGoal && activeGoal.status !== "done") {
