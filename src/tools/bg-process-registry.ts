@@ -3,14 +3,13 @@
  *
  * A job is created when `bash` is called with `background: true`.
  * Output is buffered in a fixed-size ring buffer (MAX_RING_LINES lines).
- * When a job exits while no agent turn is active, a notification is queued
- * and drained into the conversation at the next turn start via flushTurnInjections.
+ * When a job exits, a notification is queued and drained into the conversation
+ * at the next flushTurnInjections call (turn end or between tool-loop iterations).
  */
 
 import { z } from "zod";
 import { Bus } from "../bus";
 import { BusEvent } from "../bus/bus";
-import { isAgentTurnActive } from "../session/turn-active.js";
 import { killProcessTreeSync } from "../util/process-tree.js";
 
 /** Fires whenever a job's status changes — lets the UI redraw the `ba` count on demand, no polling. */
@@ -108,9 +107,7 @@ export function markBgJobDone(id: string, exitCode: number): void {
     ? `[${id}] '${entry.command.slice(0, 60)}' finished (exit 0).`
     : `[${id}] '${entry.command.slice(0, 60)}' exited with code ${exitCode}.`;
 
-  if (!isAgentTurnActive()) {
-    pendingBgNotifications.push(note);
-  }
+  pendingBgNotifications.push(note);
   Bus.publish(BgJobEvents.Changed, { id, status: entry.status });
 }
 

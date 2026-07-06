@@ -995,7 +995,12 @@ function paginateAndCapBashOutput(
 
   if (paginationRequested) {
     const delivered = capped.keptLines;
-    const nextOffset = outputOffset + delivered;
+    const pageAdvance = delivered > 0
+      ? delivered
+      : totalOutputLines > outputOffset
+        ? Math.max(outputLimit, 1)
+        : 0;
+    const nextOffset = outputOffset + pageAdvance;
     if (nextOffset < totalOutputLines) {
       const cappedFurther = delivered < slicedLineCount ? ", further capped by output size limits" : "";
       output = `${output}\n[Output paginated: lines ${outputOffset + 1}-${nextOffset} of ${totalOutputLines}${cappedFurther}. Re-run with offset: ${nextOffset} for more.]`;

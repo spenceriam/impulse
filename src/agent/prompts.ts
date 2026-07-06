@@ -604,7 +604,10 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
         );
         planNote = `\n\nThis goal tracks plan revision \`${activeGoal.planRevisionId}\`. Execute the tasks in \`${tasksPathRel}\` and check each off (\`- [x]\`) as you complete it.`;
       }
-      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}${planNote}\n\nContinue working toward this goal unless the user redirects you.`);
+      const continuationNote = activeGoal.status === "active"
+        ? "Continue working toward this goal unless the user redirects you."
+        : "The goal loop is paused — do not auto-continue toward this goal until the user resumes it with /goal resume.";
+      parts.push(`## Active goal\n\n${activeGoal.text}\n\n${statusLine}${planNote}\n\n${continuationNote}`);
     }
   }
 
