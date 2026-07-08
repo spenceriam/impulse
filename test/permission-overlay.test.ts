@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   measurePermissionOverlayPlainWidths,
+  PermissionOverlay,
 } from "../src/cli/components/permission-overlay.js";
 import {
   formatPermissionAction,
   formatPermissionReason,
 } from "../src/cli/permission-display.js";
 import type { PermissionRequest } from "../src/permission/types.js";
+import { assertGutterSafeAcrossWidths } from "./helpers/gutter-assertions.js";
 
 const bashRequest: PermissionRequest = {
   id: "1",
@@ -47,5 +49,21 @@ describe("permission overlay", () => {
     for (const w of widths) {
       expect(w).toBe(boxWidth);
     }
+  });
+
+  test("gutter-safe across narrow widths", () => {
+    assertGutterSafeAcrossWidths((width) =>
+      new PermissionOverlay(bashRequest).render(width)
+    );
+  });
+
+  test("gutter-safe with a long reason string that forces wrapping", () => {
+    const longReasonRequest: PermissionRequest = {
+      ...bashRequest,
+      metadata: { ...bashRequest.metadata, reason: "x".repeat(200) },
+    };
+    assertGutterSafeAcrossWidths((width) =>
+      new PermissionOverlay(longReasonRequest).render(width)
+    );
   });
 });

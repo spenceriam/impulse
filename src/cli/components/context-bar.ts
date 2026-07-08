@@ -76,7 +76,7 @@ function formatPercentColored(pct: number, pctStr: string): string {
   return clr.ctx(pctStr);
 }
 
-function gitBranch(cwd: string): string {
+export function gitBranch(cwd: string): string {
   try {
     return execSync("git rev-parse --abbrev-ref HEAD", {
       cwd,

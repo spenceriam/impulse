@@ -1,4 +1,11 @@
-import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import {
+  Editor,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
+  type EditorTheme,
+  type TUI,
+} from "@mariozechner/pi-tui";
 import type { UserProfile } from "../../util/config.js";
 import {
   intrinsicFramedBoxWidth,
@@ -14,7 +21,20 @@ import {
 
 export interface ProfileOverlayOptions {
   profile?: UserProfile;
+  tui: TUI;
 }
+
+/** Passthrough theme — profile overlay draws its own chrome via overlay-theme helpers. */
+const NOOP_EDITOR_THEME: EditorTheme = {
+  borderColor: (s: string) => s,
+  selectList: {
+    selectedPrefix: (s: string) => s,
+    selectedText: (s: string) => s,
+    description: (s: string) => s,
+    scrollInfo: (s: string) => s,
+    noMatch: (s: string) => s,
+  },
+};
 
 function fieldLines(
   label: string,
@@ -40,21 +60,33 @@ function stripAnsi(s: string): string {
 }
 
 export class ProfileOverlay implements Component {
+  private tui: TUI;
   private profile?: UserProfile;
   private selectedAction = 0;
   private measureTerminalWidth: number | null = null;
+  private mode: "view" | "editInstructions" = "view";
+  private instructionsEditor: Editor | null = null;
   private readonly actions = [
     { key: "edit", label: "Edit profile", hint: "e or Enter" },
+    { key: "instructions", label: "Edit instructions", hint: "i" },
     { key: "close", label: "Close", hint: "Esc" },
   ] as const;
 
   onEdit?: () => void;
   onCancel?: () => void;
+  /** Called with the new text when the inline instructions editor is saved (Ctrl+S). */
+  onSaveInstructions?: (text: string) => void;
 
   constructor(opts: ProfileOverlayOptions) {
+    this.tui = opts.tui;
     if (opts.profile !== undefined) {
       this.profile = opts.profile;
     }
+  }
+
+  /** Refresh the displayed profile without recreating the overlay (used after a save). */
+  setProfile(profile: UserProfile): void {
+    this.profile = profile;
   }
 
   setMeasureTerminalWidth(cols: number): void {
@@ -68,15 +100,51 @@ export class ProfileOverlay implements Component {
     const widths: number[] = [
       visibleWidth(`name: ${name || "(not set)"}`),
       visibleWidth(instructions || "(none)"),
-      visibleWidth("  > Edit profile  e or Enter"),
-      visibleWidth("↑/↓ navigate   e: edit   Esc: close"),
+      visibleWidth("  > Edit instructions  i"),
+      visibleWidth("↑/↓ navigate   e: edit   i: instructions   Esc: close"),
     ];
     return intrinsicFramedBoxWidth(terminal, "User profile", widths);
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.instructionsEditor?.invalidate();
+  }
+
+  private enterEditInstructions(): void {
+    this.mode = "editInstructions";
+    const editor = new Editor(this.tui, NOOP_EDITOR_THEME, { paddingX: 0 });
+    editor.disableSubmit = true;
+    editor.setText(this.profile?.customInstructions ?? "");
+    editor.focused = true;
+    this.instructionsEditor = editor;
+  }
+
+  private handleInstructionsEditorInput(data: string): void {
+    if (data === "\x1b") {
+      // Esc discards in-progress edits and returns to the view.
+      this.mode = "view";
+      this.instructionsEditor = null;
+      return;
+    }
+
+    if (data === "\x13") {
+      // Ctrl+S saves.
+      const text = this.instructionsEditor?.getExpandedText() ?? "";
+      this.mode = "view";
+      this.instructionsEditor = null;
+      this.onSaveInstructions?.(text);
+      return;
+    }
+
+    this.instructionsEditor?.handleInput(data);
+  }
 
   handleInput(data: string): void {
+    if (this.mode === "editInstructions") {
+      this.handleInstructionsEditorInput(data);
+      return;
+    }
+
     if (data === "\x1b") {
       this.onCancel?.();
       return;
@@ -95,9 +163,16 @@ export class ProfileOverlay implements Component {
       return;
     }
 
+    if (data === "i" || data === "I") {
+      this.enterEditInstructions();
+      return;
+    }
+
     if (data === "e" || data === "E" || data === "\r") {
       if (this.selectedAction === 0) {
         this.onEdit?.();
+      } else if (this.selectedAction === 1) {
+        this.enterEditInstructions();
       } else {
         this.onCancel?.();
       }
@@ -112,6 +187,11 @@ export class ProfileOverlay implements Component {
   render(width: number): string[] {
     const boxWidth = overlayRenderBoxWidth(width);
     const innerWidth = Math.max(20, boxWidth - 4);
+
+    if (this.mode === "editInstructions") {
+      return this.renderEditInstructions(boxWidth, innerWidth);
+    }
+
     const lines: string[] = [];
 
     lines.push(overlayTitleLine("User profile", boxWidth));
@@ -145,7 +225,29 @@ export class ProfileOverlay implements Component {
     lines.push(overlayEmptyLine(boxWidth));
     lines.push(
       overlaySideLine(
-        overlayDim("↑/↓ navigate   e: edit   Esc: close"),
+        overlayDim("↑/↓ navigate   e: edit   i: instructions   Esc: close"),
+        innerWidth,
+        boxWidth
+      )
+    );
+    lines.push(overlayBottomBorder(boxWidth));
+    return lines;
+  }
+
+  private renderEditInstructions(boxWidth: number, innerWidth: number): string[] {
+    const lines: string[] = [];
+    lines.push(overlayTitleLine("Edit custom instructions", boxWidth));
+    lines.push(overlayEmptyLine(boxWidth));
+
+    const editorLines = this.instructionsEditor?.render(innerWidth) ?? [""];
+    for (const line of editorLines) {
+      lines.push(overlaySideLine(line, innerWidth, boxWidth));
+    }
+
+    lines.push(overlayEmptyLine(boxWidth));
+    lines.push(
+      overlaySideLine(
+        overlayDim("Enter: newline   Ctrl+S: save   Esc: cancel"),
         innerWidth,
         boxWidth
       )

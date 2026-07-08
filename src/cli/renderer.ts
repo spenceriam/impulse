@@ -50,6 +50,7 @@ import {
   gutterContent,
   gutterSeparator,
   wrapGutterLines,
+  wrapGutterTintedLines,
 } from "./gutter.js";
 import {
   formatLogoLine,
@@ -82,7 +83,7 @@ import {
   resetAllowAllBypass,
   setAllowAllBypass,
 } from "../permission/index.js";
-import { ContextBarComponent } from "./components/context-bar.js";
+import { ContextBarComponent, gitBranch } from "./components/context-bar.js";
 import { clearActiveSessionMarker } from "../util/active-session-marker.js";
 import {
   isCosmeticTodoRewrite,
@@ -93,6 +94,7 @@ import {
 import { TaskBatchPermissionOverlay } from "./components/task-batch-permission-overlay.js";
 import type { TaskBatchDecision } from "../permission/task-batch.js";
 import { MarkdownTextBlock } from "./components/markdown-text.js";
+import { splitAtSafeBoundary } from "./stream-split.js";
 import { ShellCommandBlock } from "./components/shell-command-block.js";
 import { isLoneBang, parseAtReview, parseBangCommand } from "./shell-bang.js";
 import { isShellTakeoverChord } from "./shell-shortcuts.js";
@@ -258,9 +260,11 @@ import {
   A,
   advisorStatusLine,
   clr,
-  MODE_ARROW,
   MODE_COLORS,
   modelStatusLine,
+  USER_MESSAGE_ACCENT_FG,
+  USER_MESSAGE_ACCENT_GLYPH,
+  USER_MESSAGE_BG,
 } from "./ansi-theme.js";
 import {
   dispatchSlashCommand,
@@ -406,6 +410,8 @@ export class ImpulseRenderer {
   private queuePreviewText!: Text;
   private static readonly MAX_TURN_QUEUE = DEFAULT_MAX_TURN_QUEUE;
   private static readonly MAX_MUTABLE_STREAM_LINES = 12;
+  /** Past this rendered-line count, rotation may fall back to a last-safe-line cut. */
+  private static readonly MAX_MUTABLE_STREAM_LINES_HARD = 24;
   private turnQueue = new TurnQueueManager(
     ImpulseRenderer.MAX_TURN_QUEUE,
     (payload) => this.isNonemptySubmitPayload(payload)
@@ -1498,6 +1504,9 @@ export class ImpulseRenderer {
   // Streaming state: current assistant text block (updated in-place)
   private streamingText: MarkdownTextBlock | null = null;
   private streamingRaw = "";
+  /** Separator appended before the next frozen segment in currentTurnAssistantText; a
+   *  line-cut rotation sets this to "\n" for one segment so /copy stays byte-faithful. */
+  private nextTurnSegmentSeparator = "\n\n";
   private thinkingText: ThinkingBlock | null = null;
   private thinkingRaw = "";
   private thinkingOpen = false;
@@ -1537,6 +1546,10 @@ export class ImpulseRenderer {
   private profileOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private branchWatcher: GitBranchWatcher | null = null;
+  /** Last branch name actually announced in chat — dedupes redundant BranchEvents.Changed
+   *  fires from the two independent detection sources (command-driven + fs.watch), which
+   *  each debounce/cache on their own but can still both legitimately fire for one switch. */
+  private lastAnnouncedGitBranch: string | undefined;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
   private lastLiveMetricsAt = 0;
@@ -1587,7 +1600,6 @@ export class ImpulseRenderer {
   private speedoEnabled = false;
   private slashTabCycle: SlashCompleteCycle | null = null;
   private userName = "you"; // User's display name (loaded from config)
-  private modeChangeText: Text | null = null; // Track mode change line for in-place updates
 
   constructor(options?: ImpulseRendererOptions) {
     this.startupResume = options?.resume ?? null;
@@ -1693,7 +1705,7 @@ export class ImpulseRenderer {
         const { mode } = event.properties as { mode: string };
         const next = normalizeMode(mode) as Mode;
         const prev = this.mode;
-        this.applyModeChange(next, { prev, transition: "chat" });
+        this.applyModeChange(next, { prev });
         this.tui.requestRender();
         return;
       }
@@ -1724,6 +1736,16 @@ export class ImpulseRenderer {
       }
 
       if (event.type === BranchEvents.Changed.name) {
+        // Command-driven detection and the fs.watch source each debounce/cache
+        // independently, so one real switch can legitimately publish this event
+        // more than once. Re-read the branch fresh and only act if it actually
+        // differs from what was last announced — the real fix for the redundant
+        // "Git branch changed" repeats, not a bug in either upstream source.
+        const currentBranch = gitBranch(process.cwd());
+        if (currentBranch === this.lastAnnouncedGitBranch) {
+          return;
+        }
+        this.lastAnnouncedGitBranch = currentBranch;
         this.contextBar.invalidate();
         // Session state is intentionally untouched on branch changes (#78) —
         // surface a small note so users know why version/behavior may differ.
@@ -1938,6 +1960,7 @@ export class ImpulseRenderer {
     // Start git branch filesystem watcher to catch external branch switches
     this.branchWatcher = new GitBranchWatcher(process.cwd());
     this.branchWatcher.start();
+    this.lastAnnouncedGitBranch = gitBranch(process.cwd());
 
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
@@ -2007,10 +2030,12 @@ export class ImpulseRenderer {
 
   // ?? Mode cycling ?????????????????????????????????????????????????????????
 
-  private applyModeChange(
-    next: Mode,
-    options?: { prev?: Mode; transition?: "inline" | "chat" }
-  ): void {
+  /**
+   * Mode is ambient state, not conversation content — it never writes a line into the
+   * chat view. Visibility comes from the context bar label and the prompt accent color
+   * (see syncContextBar/syncModeColor below).
+   */
+  private applyModeChange(next: Mode, options?: { prev?: Mode }): void {
     const prev = options?.prev ?? this.mode;
     if (prev === next) return;
 
@@ -2022,44 +2047,6 @@ export class ImpulseRenderer {
     if (SessionManager.getCurrentSession()) {
       void SessionManager.update({ mode: next });
     }
-
-    if (options?.transition) {
-      const prevNorm = normalizeMode(prev);
-      const nextNorm = normalizeMode(next);
-      let modeLine = "";
-      if (isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-        modeLine = `${GUTTER}${A.fg(MODE_COLORS[nextNorm] ?? 34, displayModeLabel(nextNorm))}`;
-      } else if (!isDefaultMode(prevNorm) && isDefaultMode(nextNorm)) {
-        modeLine = `${GUTTER}${A.fg(MODE_COLORS[prevNorm] ?? 34, displayModeLabel(prevNorm))}${MODE_ARROW}`;
-      } else if (!isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-        const prevLabel = displayModeLabel(prevNorm);
-        const nextLabel = displayModeLabel(nextNorm);
-        modeLine = `${GUTTER}${A.fg(MODE_COLORS[prevNorm] ?? 34, prevLabel)}${MODE_ARROW}${A.fg(MODE_COLORS[nextNorm] ?? 34, nextLabel)}`;
-      }
-      if (modeLine.length > 0) {
-        if (options.transition === "inline") {
-          if (this.modeChangeText) {
-            this.modeChangeText.setText(modeLine);
-          } else {
-            this.addChatLine("");
-            this.modeChangeText = new Text(modeLine, 0, 0);
-            this.chat.addChild(this.modeChangeText);
-          }
-        } else {
-          const prevLabel = displayModeLabel(prevNorm);
-          const nextLabel = displayModeLabel(nextNorm);
-          if (isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-            this.addChatLine(`  ${A.fg(MODE_COLORS[nextNorm] ?? 34, nextLabel)}`);
-          } else if (!isDefaultMode(prevNorm) && isDefaultMode(nextNorm)) {
-            this.addChatLine(`  ${A.fg(MODE_COLORS[prevNorm] ?? 34, prevLabel)}${MODE_ARROW}`);
-          } else if (!isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-            this.addChatLine(
-              `  ${A.fg(MODE_COLORS[prevNorm] ?? 34, prevLabel)}${MODE_ARROW}${A.fg(MODE_COLORS[nextNorm] ?? 34, nextLabel)}`
-            );
-          }
-        }
-      }
-    }
   }
 
   private cycleMode(dir: 1 | -1): void {
@@ -2067,7 +2054,7 @@ export class ImpulseRenderer {
     const prev = this.mode;
     const idx = MODE_CYCLE.indexOf(this.mode);
     const next = MODE_CYCLE[((idx + dir) + MODE_CYCLE.length) % MODE_CYCLE.length]!;
-    this.applyModeChange(next, { prev, transition: "inline" });
+    this.applyModeChange(next, { prev });
     invalidatePromptCache();
     this.tui.requestRender();
   }
@@ -2481,14 +2468,10 @@ export class ImpulseRenderer {
     this.recordSubmittedPrompt(transcript);
 
     this.isRunning = true;
-    this.modeChangeText = null;
     this.turnShowsImpulseHeader = false;
 
     this.addSectionGap();
-    this.lastBandWasTool = false;
-    this.lastBandToolHadBody = false;
-    this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(transcript);
+    this.pushUserMessageBlock(transcript);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -2531,6 +2514,7 @@ export class ImpulseRenderer {
       onTurnStart: () => {
         this.clearCtrlCPending();
         this.currentTurnAssistantText = "";
+        this.nextTurnSegmentSeparator = "\n\n";
         this.streamBusyPhraseSet = false;
         this.contextTokens = Math.max(
           this.contextTokens,
@@ -2551,9 +2535,7 @@ export class ImpulseRenderer {
           this.streamBusyPhraseSet = true;
         }
         this.closeThinking();
-        if (this.shouldRotateStreamingSegment()) {
-          this.rotateStreamingSegment();
-        }
+        this.maybeRotateStreamingSegment();
         if (!this.streamingText) {
           if (this.lastBandWasTool) {
             this.addSectionGap();
@@ -2601,12 +2583,12 @@ export class ImpulseRenderer {
       onToolStart: (id, name, args) => {
         // Silent tools still finalize any open stream so continuation text is a new block.
         if (SILENT_TOOLS.has(name)) {
-          this.finalizeAssistantStreamingSegment(true);
+          this.finalizeStreamingAtSafeBoundary(true);
           return;
         }
 
         this.closeThinking();
-        this.finalizeAssistantStreamingSegment(false);
+        this.finalizeStreamingAtSafeBoundary(false);
         this.preToolSpacing = {
           lastBandWasTool: this.lastBandWasTool,
           lastBandToolHadBody: this.lastBandToolHadBody,
@@ -2897,6 +2879,28 @@ export class ImpulseRenderer {
     this.lastBandToolHadBody = false;
   }
 
+  /**
+   * Push a user message as a tinted block (§5a) — the username label and the
+   * message body render as one background-tinted unit with a left-only accent
+   * on its first line, so the user's turn is unmistakable scanning the
+   * transcript instead of competing visually with tool rows and assistant
+   * prose. Used both for live turns and session/`/show` replay.
+   */
+  private pushUserMessageBlock(text: string): void {
+    const combined = `${this.userName}\n${text}`;
+    const lines = wrapGutterTintedLines(combined, this.terminal.columns, {
+      bg: USER_MESSAGE_BG,
+      accent: USER_MESSAGE_ACCENT_GLYPH,
+      accentFg: USER_MESSAGE_ACCENT_FG,
+    });
+    for (const line of lines) {
+      this.chat.addChild(new Text(line, 0, 0));
+    }
+    this.hasTrailingGap = false;
+    this.lastBandWasTool = false;
+    this.lastBandToolHadBody = false;
+  }
+
   private addSectionGap(): Spacer | null {
     if (this.hasTrailingGap) return null;
     const spacer = new Spacer(1);
@@ -3110,30 +3114,59 @@ export class ImpulseRenderer {
    * Without this, silent tools (set_header) leave streamingRaw open and glue the next
    * continuation chunk onto the same paragraph.
    */
-  private appendAssistantTurnSegment(segment: string, separator = "\n\n"): void {
+  private appendAssistantTurnSegment(segment: string): void {
     const trimmed = segment.trim();
     if (!trimmed) return;
+    const separator = this.nextTurnSegmentSeparator;
+    this.nextTurnSegmentSeparator = "\n\n";
     this.currentTurnAssistantText = this.currentTurnAssistantText
       ? `${this.currentTurnAssistantText}${separator}${trimmed}`
       : trimmed;
   }
 
-  private shouldRotateStreamingSegment(): boolean {
-    if (!this.streamingText || !this.tui) return false;
+  /**
+   * Freeze the current streaming text at the last safe markdown boundary (#127),
+   * carrying any unsafe remainder forward in streamingRaw so the next onToken
+   * continues the same logical block seamlessly. Returns false (freezing
+   * nothing) when there's no live streaming block or no safe boundary exists
+   * yet (e.g. inside one long fence/table) — callers must tolerate that by
+   * leaving the block open rather than risking a mid-token/mid-table cut.
+   */
+  private freezeStreamingAtSafeBoundary(allowLineCut: boolean): boolean {
+    if (!this.streamingText || !this.streamingRaw) return false;
+    const split = splitAtSafeBoundary(this.streamingRaw, { allowLineCut });
+    if (!split) return false;
+
+    this.streamingText.setText(split.frozen);
+    this.appendAssistantTurnSegment(split.frozen);
+    if (split.kind === "paragraph") {
+      this.addSectionGap();
+    } else {
+      this.nextTurnSegmentSeparator = "\n";
+    }
+    this.streamingRaw = split.remainder;
+    this.streamingText = null;
+    return true;
+  }
+
+  /**
+   * Rotate the mutable streaming block once it grows past a soft line threshold, cutting
+   * only at a safe markdown boundary so headings, lists, and sentences never split
+   * mid-token (#127). Falls back to a last-safe-line cut past a hard threshold; defers
+   * indefinitely if no safe cut exists yet (e.g. inside one long fence/table).
+   */
+  private maybeRotateStreamingSegment(): void {
+    if (!this.streamingText || !this.tui) return;
     const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
-    const threshold = Math.max(
+    const soft = Math.max(
       8,
       Math.min(ImpulseRenderer.MAX_MUTABLE_STREAM_LINES, Math.floor(rows / 3))
     );
-    return this.streamingText.render(this.terminalCols()).length >= threshold;
-  }
+    const rendered = this.streamingText.render(this.terminalCols()).length;
+    if (rendered < soft) return;
 
-  private rotateStreamingSegment(): void {
-    if (this.streamingRaw.trim()) {
-      this.appendAssistantTurnSegment(this.streamingRaw);
-    }
-    this.streamingRaw = "";
-    this.streamingText = null;
+    const hard = Math.max(soft * 2, ImpulseRenderer.MAX_MUTABLE_STREAM_LINES_HARD);
+    this.freezeStreamingAtSafeBoundary(rendered >= hard);
   }
 
   private finalizeAssistantStreamingSegment(gapAfter = true): void {
@@ -3147,6 +3180,28 @@ export class ImpulseRenderer {
     if (gapAfter && hadContent) {
       this.addSectionGap();
     }
+  }
+
+  /**
+   * Finalize the streaming segment at a boundary that must not corrupt
+   * inline markdown/tables (a thinking burst opening, or a tool call
+   * starting) — unlike finalizeAssistantStreamingSegment, which always hard-
+   * cuts regardless of markdown safety (§127 interleaved-reasoning bug).
+   * Falls back to the plain finalize when there's no live streaming block to
+   * protect (nothing on-screen can be torn in that case).
+   */
+  private finalizeStreamingAtSafeBoundary(gapAfter: boolean): void {
+    if (!this.streamingText) {
+      this.finalizeAssistantStreamingSegment(gapAfter);
+      return;
+    }
+    const froze = this.freezeStreamingAtSafeBoundary(true);
+    if (froze && gapAfter) {
+      this.addSectionGap();
+    }
+    // If nothing froze (no safe boundary exists anywhere yet), the block
+    // stays open — correctness over ordering, same tradeoff as
+    // maybeRotateStreamingSegment.
   }
 
   private closeThinking(): void {
@@ -3998,11 +4053,18 @@ export class ImpulseRenderer {
   }
 
   private appendWorkerThinking(text: string): void {
-    this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+    const filtered = filterThinkingForDisplay(text);
     if (!this.thinkingOpen) {
-      this.finalizeAssistantStreamingSegment(false);
+      // An empty/whitespace-only delta (some providers emit these) must never
+      // open a visible-nothing thinking block and hard-cut the streaming text
+      // for it — that's the interleaved-reasoning half of #127.
+      if (!filtered.trim()) return;
+      this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+      this.finalizeStreamingAtSafeBoundary(false);
       this.thinkingRaw = "";
       this.thinkingText = null;
+    } else {
+      this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
     }
     if (!this.thinkingText) {
       this.addSectionGap();
@@ -4014,7 +4076,6 @@ export class ImpulseRenderer {
       this.thinkingOpen = true;
       this.thinkingStartedAt = Date.now();
     }
-    const filtered = filterThinkingForDisplay(text);
     this.thinkingRaw += filtered;
     this.thinkingText.appendContent(filtered);
     if (this.thinkingDisplay !== "full") {
@@ -5092,7 +5153,7 @@ export class ImpulseRenderer {
     const m = normalizeMode(arg.toUpperCase()) as Mode;
     if (MODE_CYCLE.includes(m)) {
       const prev = this.mode;
-      this.applyModeChange(m, { prev, transition: "chat" });
+      this.applyModeChange(m, { prev });
       this.tui.requestRender();
     } else {
       this.addChatLine(`  ${clr.error("!")} Unknown mode. Options: ${displayModeOptions()}`);
@@ -5194,9 +5255,23 @@ export class ImpulseRenderer {
     if (this.isRunning) return;
 
     const config = await loadConfig();
-    const overlay = new ProfileOverlay(
-      config.userProfile !== undefined ? { profile: config.userProfile } : {}
-    );
+    const overlay = new ProfileOverlay({
+      tui: this.tui,
+      ...(config.userProfile !== undefined ? { profile: config.userProfile } : {}),
+    });
+
+    overlay.onSaveInstructions = async (text: string) => {
+      const cfg = await loadConfig();
+      if (!cfg.userProfile) {
+        cfg.userProfile = { name: "", responsePreference: "balanced", customInstructions: text };
+      } else {
+        cfg.userProfile.customInstructions = text;
+      }
+      await saveConfig(cfg);
+      invalidatePromptCache();
+      overlay.setProfile(cfg.userProfile);
+      this.tui.requestRender();
+    };
 
     overlay.onEdit = async () => {
       this.profileOverlayHandle?.hide();
@@ -5239,7 +5314,6 @@ export class ImpulseRenderer {
       children.pop();
     }
     this.hasTrailingGap = false;
-    this.modeChangeText = null;
     this.lastHeaderLineTitle = null;
   }
 
@@ -5644,8 +5718,7 @@ export class ImpulseRenderer {
         break;
       case "user":
         this.addSectionGap();
-        this.addChatLine(`${A.fg(36, this.userName)}`);
-        this.addChatLine(step.text);
+        this.pushUserMessageBlock(step.text);
         this.addSectionGap();
         break;
       case "injected":
@@ -6070,8 +6143,7 @@ export class ImpulseRenderer {
     this.isRunning = true;
     this.loop.setImages([]);
     this.addSectionGap();
-    this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(displayLabel);
+    this.pushUserMessageBlock(displayLabel);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -6155,8 +6227,7 @@ export class ImpulseRenderer {
     this.isRunning = true;
     this.loop.setImages([]);
     this.addSectionGap();
-    this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(`@ ${question}`);
+    this.pushUserMessageBlock(`@ ${question}`);
     this.addSectionGap();
 
     this.streamingRaw = "";

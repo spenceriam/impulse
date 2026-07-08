@@ -3,6 +3,7 @@ import {
   SettingsOverlay,
   settingsValuesEqual,
 } from "../src/cli/components/settings-overlay.js";
+import { assertGutterSafeAcrossWidths } from "./helpers/gutter-assertions.js";
 
 const baseValues = {
   thinkingDisplay: "summary" as const,
@@ -68,6 +69,14 @@ describe("SettingsOverlay render", () => {
     expect(plain.some((l) => l.includes("Thinking display"))).toBe(true);
     expect(plain.some((l) => l.includes("Vision override"))).toBe(true);
     expect(plain.some((l) => l.includes("Esc: cancel"))).toBe(true);
+  });
+
+  test("gutter-safe across narrow widths", () => {
+    assertGutterSafeAcrossWidths((width) => {
+      const overlay = new SettingsOverlay({ values: baseValues });
+      overlay.setMaxHeight(20);
+      return overlay.render(width);
+    });
   });
 });
 
