@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-07
+
+  **Type:** patch
+  **Title:** Stream-split hardening, tool-calling transparency, and formatting fixes
+
+  ### Added
+  - **#128** -- New `ls` directory-listing tool, available in every mode alongside `file_read`/`glob`/`grep`, with reciprocal "did you mean" guidance between `file_read` and `ls` on directory/file mismatches
+  - Tool calls that get silently auto-repaired (e.g. `null` sent on an optional field) now return a `Note:` explaining what was repaired and how to send valid JSON next time, instead of carrying the model silently
+  - Truncated tool output (bash, grep, the harness-wide result cap) now states exactly what was kept and the precise retry (`offset: N`, a narrower pattern/path, etc.) instead of a dead-end "N chars omitted"
+  - Malformed tool-call JSON that can't be repaired now fails with a message naming the tool, the underlying parse error, and what to do next, instead of a confusing schema-mismatch error against a raw fallback
+  - Permission denials (single-tool and sub-agent batch) now consistently tell the model what to do next: ask the user via the question tool, propose an alternative, or drop the subtask
+  - `/user` profile's custom-instructions field can now be edited inline (press `i`, multi-line, Ctrl+S to save) instead of leaving the TUI for a plain-text prompt
+
+  ### Fixed
+  - **#127** -- Streaming assistant text no longer splits mid-sentence, mid-heading, mid-list-item, or mid-table when the mutable streaming block rotates; cuts only at safe markdown boundaries (paragraph preferred, last-complete-line as fallback)
+  - **#127** -- A thinking/reasoning burst arriving mid-response (interleaved reasoning, e.g. GLM-family models) no longer hard-cuts the streaming text at an arbitrary character — it now defers to the same safe-boundary logic, so inline bold/heading/list/table spans never tear in half around a thinking interrupt
+  - An empty or whitespace-only reasoning delta no longer opens a thinking block or disturbs the streaming text at all
+  - A tool call starting mid-stream now freezes the preceding text at a safe boundary instead of an arbitrary cut point
+  - `file_read` on a directory path now returns a friendly, sorted directory listing instead of a raw `EISDIR` error
+  - Tab/`/mode`/`set_mode` no longer write colored mode-transition lines into the chat — mode stays visible via the context bar label and prompt accent color only
+  - The "Git branch changed" notice no longer prints multiple times for a single branch switch (command-driven detection and the `.git/HEAD` watcher can each legitimately fire once; the chat notice now dedupes against the actually-current branch)
+  - Assistant markdown now supports H1–H6 headings (previously capped at H1–H4)
+
 ## [1.9.0] - 2026-07-01
 
   **Type:** minor
