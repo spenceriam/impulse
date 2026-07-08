@@ -13,6 +13,7 @@ import "./file-edit";
 // Search operations
 import "./glob";
 import "./grep";
+import "./ls";
 
 // Shell
 import "./bash";

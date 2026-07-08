@@ -15,6 +15,7 @@ import path from "path";
 const DESCRIPTION = `Read a file from disk with line numbers.
 
 Required: filePath. Optional: offset, limit.
+filePath must be a FILE, not a directory. Use ls to list directories.
 See docs/tools/file-read.md for details.`;
 
 const ReadSchema = z.object({
@@ -106,6 +107,46 @@ function levenshtein(a: string, b: string): number {
 const NOT_FOUND_LISTING_MAX_ENTRIES = 15;
 const NOT_FOUND_LISTING_MAX_CHARS = 300;
 
+type DirEntry = { name: string; isDirectory: () => boolean };
+
+/** Compact "Directory <dir> (N entries): a/, b/, c" listing line from already-fetched entries. */
+function formatDirListingLine(dir: string, entries: DirEntry[]): string | null {
+  const displayNames = [...entries]
+    .sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+
+  if (displayNames.length === 0) return null;
+
+  const shown = displayNames.slice(0, NOT_FOUND_LISTING_MAX_ENTRIES);
+  const more = displayNames.length > shown.length ? ` (+${displayNames.length - shown.length} more)` : "";
+  let listing = `Directory ${dir}${path.sep} (${displayNames.length} entries): ${shown.join(", ")}${more}`;
+  if (listing.length > NOT_FOUND_LISTING_MAX_CHARS) {
+    listing = `${listing.slice(0, NOT_FOUND_LISTING_MAX_CHARS - 1)}…`;
+  }
+  return listing;
+}
+
+/** Compact directory listing line for a directory path, fetching entries itself. */
+async function buildDirListingLine(dir: string): Promise<string | null> {
+  let entries: DirEntry[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  return formatDirListingLine(dir, entries);
+}
+
+/** Error output for a file_read call that targeted a directory instead of a file. */
+async function buildDirectoryError(displayPath: string, safePath: string): Promise<ToolResult> {
+  const listing = await buildDirListingLine(safePath);
+  const base = `Cannot read ${displayPath}: this is a directory, not a file. Use ls to list it, glob to find files under it, or grep to search inside it.`;
+  return { success: false, output: listing ? `${base}\n${listing}` : base };
+}
+
 /**
  * On ENOENT, build a "Did you mean" fuzzy suggestion plus a compact listing
  * of the parent directory, reusing a single readdir() call for both.
@@ -113,7 +154,7 @@ const NOT_FOUND_LISTING_MAX_CHARS = 300;
 async function buildNotFoundHint(filePath: string): Promise<string | null> {
   const dir = path.dirname(filePath);
   const base = path.basename(filePath);
-  let entries: Array<{ name: string; isDirectory: () => boolean }>;
+  let entries: DirEntry[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
@@ -135,22 +176,8 @@ async function buildNotFoundHint(filePath: string): Promise<string | null> {
     parts.push(`Did you mean: ${candidates.slice(0, 3).join(", ")}?`);
   }
 
-  const displayNames = [...entries]
-    .sort((a, b) => {
-      if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    })
-    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
-
-  if (displayNames.length > 0) {
-    const shown = displayNames.slice(0, NOT_FOUND_LISTING_MAX_ENTRIES);
-    const more = displayNames.length > shown.length ? ` (+${displayNames.length - shown.length} more)` : "";
-    let listing = `Directory ${dir}${path.sep} (${displayNames.length} entries): ${shown.join(", ")}${more}`;
-    if (listing.length > NOT_FOUND_LISTING_MAX_CHARS) {
-      listing = `${listing.slice(0, NOT_FOUND_LISTING_MAX_CHARS - 1)}…`;
-    }
-    parts.push(listing);
-  }
+  const listing = formatDirListingLine(dir, entries);
+  if (listing) parts.push(listing);
 
   return parts.length > 0 ? parts.join("\n") : null;
 }
@@ -212,6 +239,10 @@ export const fileRead: Tool<ReadInput> = Tool.define(
       try {
         const stats = await stat(safePath);
 
+        if (stats.isDirectory()) {
+          return buildDirectoryError(input.filePath, safePath);
+        }
+
         // Sniff for binary/BOM before attempting UTF-8 read
         const encoding = detectBinaryOrEncoding(safePath);
         if (encoding?.isBinary) {
@@ -257,9 +288,8 @@ export const fileRead: Tool<ReadInput> = Tool.define(
           truncated = end < totalLines;
         }
       } catch (error) {
-        const isNotFound =
-          error instanceof Error &&
-          ("code" in error ? (error as NodeJS.ErrnoException).code === "ENOENT" : error.message.includes("ENOENT"));
+        const code = error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : undefined;
+        const isNotFound = code === "ENOENT" || (error instanceof Error && error.message.includes("ENOENT"));
         if (isNotFound) {
           const hint = await buildNotFoundHint(safePath);
           const base = `File not found: ${input.filePath}`;
@@ -267,6 +297,10 @@ export const fileRead: Tool<ReadInput> = Tool.define(
             success: false,
             output: hint ? `${base}\n${hint}` : base,
           };
+        }
+        const isDirectory = code === "EISDIR" || (error instanceof Error && error.message.includes("EISDIR"));
+        if (isDirectory) {
+          return buildDirectoryError(input.filePath, safePath);
         }
         return {
           success: false,

@@ -79,6 +79,17 @@ export interface GlobMetadata {
 }
 
 // ============================================
+// Ls Tool Metadata
+// ============================================
+export interface LsMetadata {
+  type: "ls";
+  path?: string;             // Directory path if specified
+  entryCount: number;        // Number of entries returned (after limiting)
+  totalEntries: number;      // Total entries before limiting
+  truncated?: boolean;       // True if output was limited
+}
+
+// ============================================
 // Grep Tool Metadata
 // ============================================
 export interface GrepMetadata {
@@ -149,6 +160,7 @@ export type ToolMetadata =
   | FileEditMetadata
   | FileReadMetadata
   | GlobMetadata
+  | LsMetadata
   | GrepMetadata
   | TaskMetadata
   | TodoMetadata
@@ -187,6 +199,10 @@ export function isGlobMetadata(m: ToolMetadata): m is GlobMetadata {
   return m.type === "glob";
 }
 
+export function isLsMetadata(m: ToolMetadata): m is LsMetadata {
+  return m.type === "ls";
+}
+
 export function isGrepMetadata(m: ToolMetadata): m is GrepMetadata {
   return m.type === "grep";
 }
@@ -223,6 +239,7 @@ export const TypeGuards = {
   isFileWrite: (m: ToolMetadata): m is FileWriteMetadata => m.type === "file_write",
   isFileRead: (m: ToolMetadata): m is FileReadMetadata => m.type === "file_read",
   isGlob: (m: ToolMetadata): m is GlobMetadata => m.type === "glob",
+  isLs: (m: ToolMetadata): m is LsMetadata => m.type === "ls",
   isGrep: (m: ToolMetadata): m is GrepMetadata => m.type === "grep",
   isTask: (m: ToolMetadata): m is TaskMetadata => m.type === "task",
   isTodo: (m: ToolMetadata): m is TodoMetadata => m.type === "todo",

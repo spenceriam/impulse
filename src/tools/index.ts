@@ -4,6 +4,7 @@ export { fileWrite } from "./file-write";
 export { fileEdit } from "./file-edit";
 export { globTool } from "./glob";
 export { grepTool } from "./grep";
+export { lsTool } from "./ls";
 export { bashTool } from "./bash";
 export { todoWrite } from "./todo-write";
 export { todoRead } from "./todo-read";

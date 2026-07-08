@@ -18,7 +18,7 @@ const A = {
 
 function formatMarkdownLine(line: string): string {
   let result = line;
-  result = result.replace(/^#{1,4}\s+(.+)$/, (_, text) => A.bold + text + A.reset);
+  result = result.replace(/^#{1,6}\s+(.+)$/, (_, text) => A.bold + text + A.reset);
   result = result.replace(/\*\*(.+?)\*\*/g, (_, text) => A.bold + text + A.reset);
   result = result.replace(
     /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g,

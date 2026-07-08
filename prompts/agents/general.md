@@ -8,6 +8,7 @@ You have access to these tools:
 - file_edit: Edit files
 - glob: Find files by pattern
 - grep: Search file contents
+- ls: List directory contents
 - bash: Execute shell commands
 
 Guidelines:

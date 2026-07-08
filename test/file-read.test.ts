@@ -13,6 +13,7 @@ describe("file_read", () => {
     mkdirSync(path.join(root, "subdir"));
     writeFileSync(path.join(root, "hello-world.ts"), "content");
     writeFileSync(path.join(root, "another.ts"), "content");
+    writeFileSync(path.join(root, "subdir", "nested.ts"), "content");
 
     // Binary / encoding fixtures
     writeFileSync(path.join(root, "image.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
@@ -46,6 +47,17 @@ describe("file_read", () => {
 
     expect(result.success).toBe(false);
     expect(result.output).toBe(`File not found: ${path.join(root, "ghost-dir", "missing.ts")}`);
+  });
+
+  test("directory path returns a corrective message with a listing, not a raw EISDIR", async () => {
+    const result = await fileRead.handler({ filePath: path.join(root, "subdir") });
+
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("directory, not a file");
+    expect(result.output).toContain("Use ls");
+    expect(result.output).toContain(`Directory ${path.join(root, "subdir")}`);
+    expect(result.output).toContain("nested.ts");
+    expect(result.output).not.toContain("EISDIR");
   });
 
   test("binary file (PNG) is rejected with a clear message", async () => {

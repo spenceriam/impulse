@@ -22,6 +22,7 @@ const TOOL_DOCS_MAP: Record<string, string> = {
   file_edit: "file-edit.md",
   glob: "glob.md",
   grep: "grep.md",
+  ls: "ls.md",
   task: "task.md",
   todo_read: "todo-read.md",
   todo_write: "todo-write.md",

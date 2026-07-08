@@ -4,7 +4,7 @@ Reads a file from the local filesystem.
 
 ## Parameters
 
-- filePath (required): Absolute path to the file
+- filePath (required): Absolute path to the file. Must be a FILE, not a directory — use `ls` to list a directory's contents.
 - offset (optional): Line offset to start from (0-based)
 - limit (optional): Number of lines to read (default 2000)
 
@@ -20,3 +20,4 @@ Reads a file from the local filesystem.
 - If only `offset` or only `limit` is provided, the missing value is defaulted and a `Note:` in the result explains what was applied.
 - If the file exists but is empty, a warning is returned
 - This tool can read image files as raw content
+- If `filePath` points to a directory, the call fails with a corrective message and a compact listing of that directory — use `ls`, `glob`, or `grep` instead

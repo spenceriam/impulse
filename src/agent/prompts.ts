@@ -196,12 +196,12 @@ Planning mode restriction:
 
 **explore** - Fast, read-only codebase search
 - Use for: Finding files, searching code patterns, understanding codebase structure
-- Tools: file_read, glob, grep
+- Tools: file_read, glob, grep, ls
 - Best for: "Where is X defined?", "Find all usages of Y", "How does Z work?"
 
-**general** - Full capabilities for independent tasks  
+**general** - Full capabilities for independent tasks
 - Use for: Multi-step operations that can run autonomously
-- Tools: file_read, file_write, file_edit, glob, grep, bash
+- Tools: file_read, file_write, file_edit, glob, grep, ls, bash
 - Best for: Refactoring a module, implementing a small feature, running tests
 
 ### When to Use Subagents
@@ -341,7 +341,7 @@ Read-only understanding mode. You are patient, curious, and anticipatory. Your j
 
 You CAN:
 - Read files (file_read)
-- Search codebase (glob, grep)
+- Search codebase (glob, grep, ls)
 - Run read-only bash commands (git log, git status, ls, cat, etc.)
 - Use web_search and web_fetch for current external research
 - Explain code, concepts, and architecture
@@ -389,7 +389,7 @@ Once interrogation is complete, write the plan artifacts. Switching to AGENT aft
 
 ### Capabilities
 
-- Research: \`web_search\`, \`web_fetch\`, \`file_read\`, \`glob\`, \`grep\`
+- Research: \`web_search\`, \`web_fetch\`, \`file_read\`, \`glob\`, \`grep\`, \`ls\`
 - Delegate: parallel \`task\` with \`subagent_type: "explore"\` (includes web tools)
 - Write: \`file_write\` / \`file_edit\` only in active revision (\`design.md\`, \`spec.md\`, \`tasks.md\`; \`PRD.md\` after TDD confirmed via \`question\`)
 - \`plan_revision\`, \`install_skill\`, \`question\`
@@ -559,7 +559,7 @@ Workflow on work turns:
 3. Use \`plan_markdown\` from the tool result (do NOT file_read the plan path).
 4. Verify assumptions against the repo, then act.
 
-Readonly exploration (file_read, grep, glob, explore-only task) may run before consult for context.
+Readonly exploration (file_read, grep, glob, ls, explore-only task) may run before consult for context.
 Mutating tools (writes, edits, non-readonly bash, subagents) require consult_advisor first (system gate).
 Advisor output is ADVISORY — trust-but-verify against code and logs.`);
   }
@@ -675,7 +675,7 @@ const EXPLORE_AGENT_PROMPT = `You are an explore subagent for Impulse. Your job 
 IMPORTANT: Always respond in English regardless of the input language.
 
 You have access to READ-ONLY tools:
-- file_read, glob, grep
+- file_read, glob, grep, ls
 - web_search, web_fetch
 
 Guidelines:
@@ -706,6 +706,7 @@ You have access to these tools:
 - file_edit: Edit files
 - glob: Find files by pattern
 - grep: Search file contents
+- ls: List directory contents
 - bash: Execute shell commands
 
 Guidelines:
@@ -741,10 +742,10 @@ export function getSubagentPrompt(type: "explore" | "general"): string {
 export function getSubagentTools(type: "explore" | "general"): string[] {
   switch (type) {
     case "explore":
-      return ["file_read", "glob", "grep", "web_search", "web_fetch"];
+      return ["file_read", "glob", "grep", "ls", "web_search", "web_fetch"];
     case "general":
-      return ["file_read", "file_write", "file_edit", "glob", "grep", "bash"];
+      return ["file_read", "file_write", "file_edit", "glob", "grep", "ls", "bash"];
     default:
-      return ["file_read", "glob", "grep"];
+      return ["file_read", "glob", "grep", "ls"];
   }
 }
