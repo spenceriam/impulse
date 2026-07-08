@@ -312,15 +312,34 @@ export function respond(input: {
       pending.resolve();
       break;
       
-    case "reject":
+    case "reject": {
       // Reject with instructive error message for AI
       const toolName = pending.request.permission;
-      const actionDesc = pending.request.patterns.slice(0, 3).join(", ") + 
+      const actionDesc = pending.request.patterns.slice(0, 3).join(", ") +
         (pending.request.patterns.length > 3 ? "..." : "");
-      
-      const errorMsg = input.message
-        ? `[USER DECISION] Permission denied: ${input.message}`
-        : `[USER DECISION] Permission denied for ${toolName}: "${actionDesc}"
+
+      const errorMsg = formatPermissionDenialMessage(toolName, actionDesc, input.message);
+
+      pending.reject(new PermissionDeniedError(errorMsg));
+      break;
+    }
+  }
+}
+
+/**
+ * Build the [USER DECISION] rejection message returned to the model when a
+ * permission request is denied. Always includes the DO/DON'T behavioral
+ * guidance and a concrete "what now" instruction (§2.4) — a custom reason
+ * from the user is added on top, never in place of the guidance, so a
+ * rejection with an explanation is never worse-guided than a bare one.
+ */
+export function formatPermissionDenialMessage(
+  toolName: string,
+  actionDesc: string,
+  userMessage?: string
+): string {
+  const reasonLine = userMessage ? `\n\nUser's reason: ${userMessage}` : "";
+  return `[USER DECISION] Permission denied for ${toolName}: "${actionDesc}"${reasonLine}
 
 The user reviewed this request and chose NOT to allow it. This is a deliberate user decision, not an error.
 
@@ -329,14 +348,10 @@ DO NOT:
 - Suggest workarounds to achieve the same goal
 - Apologize for "failing"
 
-DO:
-- Acknowledge the user's decision
-- Ask how they would like to proceed
-- Wait for their guidance`;
-      
-      pending.reject(new PermissionDeniedError(errorMsg));
-      break;
-  }
+DO ONE OF THE FOLLOWING:
+- If you need the user's input to proceed, ask via the question tool (never plain chat text)
+- Propose a concrete alternative that doesn't require this action, if one exists
+- If neither applies, drop this subtask, say so plainly, and continue with the rest of the turn`;
 }
 
 /**

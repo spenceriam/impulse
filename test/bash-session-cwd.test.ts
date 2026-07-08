@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "fs";
 import path from "path";
 import { bashTool } from "../src/tools/bash.js";
+import { resetAllowAllBypass, setAllowAllBypass } from "../src/permission/index.js";
 
 const root = path.join(process.cwd(), `.tmp-bash-session-${Date.now()}`);
 const child = path.join(root, "child");
@@ -24,11 +25,18 @@ async function run(
 
 describe("bash named session cwd tracking", () => {
   beforeAll(() => {
+    // Without this, "cd child; exit 7" below classifies as an "unknown"
+    // command (exit isn't in bash.ts's SAFE_PATTERNS) and needsPermission()
+    // requires approval — which then hangs forever, since nothing in a
+    // headless test run ever calls permission/index.ts's respond() to
+    // resolve the pending ask() promise. Same pattern as bash-pagination.test.ts.
+    setAllowAllBypass(true);
     mkdirSync(child, { recursive: true });
     mkdirSync(other, { recursive: true });
   });
 
   afterAll(() => {
+    resetAllowAllBypass();
     rmSync(root, { recursive: true, force: true });
   });
 

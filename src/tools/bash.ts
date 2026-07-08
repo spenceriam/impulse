@@ -989,7 +989,13 @@ function paginateAndCapBashOutput(
     paginatedOutput = sliced.join("\n");
   }
 
-  const capped = capBashOutputLines(paginatedOutput, maxLines);
+  const capped = capBashOutputLines(
+    paginatedOutput,
+    maxLines,
+    undefined,
+    undefined,
+    outputOffset
+  );
   let output = capped.output;
   let wasTruncated = capped.truncated;
 

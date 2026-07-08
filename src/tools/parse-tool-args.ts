@@ -12,6 +12,37 @@ export function repairToolArgumentsJson(json: string): string {
   return repaired;
 }
 
+/** Cap on the raw-JSON preview shown back to the model in a parse-error message. */
+const RAW_JSON_PREVIEW_MAX = 300;
+
+/**
+ * Model-readable error for a tool call whose arguments never parsed as JSON,
+ * even after the repair pass in repairToolArgumentsJson(). Names the tool,
+ * surfaces the underlying parse error (which engines typically report with a
+ * character position), states whether a repair was attempted, and tells the
+ * model exactly what to do next — never a generic schema-mismatch error
+ * against the `{ raw: ... }` fallback shape.
+ */
+export function formatToolArgParseError(
+  toolName: string,
+  rawJson: string,
+  parseError: string,
+  repaired: boolean
+): string {
+  const preview =
+    rawJson.length > RAW_JSON_PREVIEW_MAX
+      ? `${rawJson.slice(0, RAW_JSON_PREVIEW_MAX)}…`
+      : rawJson;
+  const repairNote = repaired
+    ? " An automatic repair was attempted (e.g. adding missing quotes around a bare key) but the result was still invalid JSON."
+    : "";
+  return [
+    `Invalid tool call: arguments for "${toolName}" were not valid JSON — ${parseError}.${repairNote}`,
+    `Received: ${JSON.stringify(preview)}`,
+    `Emit a single valid JSON object matching the "${toolName}" tool's schema.`,
+  ].join("\n");
+}
+
 export function parseToolCallArguments(json: string): {
   args: Record<string, unknown>;
   repaired: boolean;

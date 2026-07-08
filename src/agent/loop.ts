@@ -28,7 +28,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Global } from "../global.js";
 import { Tool } from "../tools/registry";
-import { parseToolCallArguments } from "../tools/parse-tool-args.js";
+import { formatToolArgParseError, parseToolCallArguments } from "../tools/parse-tool-args.js";
 import { type Message } from "../session/store";
 import { buildVisionTranslatePrompt, buildVisionSelfKnowledge } from "./vision-prompt.js";
 
@@ -839,7 +839,8 @@ export class AgentLoop {
               for (const item of generalRunnable) {
                 skipped.set(item.tc.id, {
                   success: false,
-                  output: "Permission denied: general sub-agent batch was denied.",
+                  output:
+                    "[USER DECISION] The user denied this batch of general sub-agent tasks. This is a deliberate decision, not an error — do not retry it or similar variations. Ask the user how they'd like to proceed (use the question tool), propose an alternative that doesn't need sub-agents, or drop this subtask and continue with the rest of the turn.",
                 });
               }
               toRun = runnable.filter((item) => item.args["subagent_type"] !== "general");
@@ -847,7 +848,8 @@ export class AgentLoop {
               for (const item of runnable) {
                 skipped.set(item.tc.id, {
                   success: false,
-                  output: "Sub-agent batch cancelled.",
+                  output:
+                    "[USER DECISION] The user cancelled this entire sub-agent batch. This is a deliberate decision, not an error — do not retry it. Ask the user how they'd like to proceed (use the question tool), propose an alternative, or drop this subtask and continue with the rest of the turn.",
                 });
               }
               toRun = [];
@@ -949,6 +951,27 @@ export class AgentLoop {
 
           const parsedArgs = parseToolCallArguments(tc.argumentsJson);
           const args = parsedArgs.args;
+
+          // Malformed JSON that survived the repair pass: fail fast with a
+          // structured, tool-named error before any special-case branch below
+          // reads a field off the bogus `{ raw: ... }` fallback shape.
+          if (parsedArgs.parseError !== undefined) {
+            const toolStart = Date.now();
+            events.onToolStart(tc.id, tc.name, args);
+            const output = formatToolArgParseError(
+              tc.name,
+              tc.argumentsJson,
+              parsedArgs.parseError,
+              parsedArgs.repaired
+            );
+            const failResult = { success: false, output };
+            const durationMs = Date.now() - toolStart;
+            await persistToolResult(tc.id, output);
+            events.onToolEnd(tc.id, tc.name, failResult, durationMs);
+            this.consecutiveFailures++;
+            allSucceeded = false;
+            continue;
+          }
 
           // Tool gate enforcement
           if (
@@ -1093,16 +1116,14 @@ export class AgentLoop {
           }
 
           // Question requires a questions array — fail fast with a clear tool row.
+          // (Malformed JSON is already handled above, so args here parsed successfully.)
           if (
             tc.name === "question" &&
             (!Array.isArray(args["questions"]) || args["questions"].length === 0)
           ) {
             const toolStart = Date.now();
             events.onToolStart(tc.id, tc.name, args);
-            const output =
-              parsedArgs.parseError !== undefined
-                ? `Invalid question tool arguments (JSON parse error). Retry with valid JSON including a questions array (one or more topics).`
-                : `Invalid question tool arguments: questions array is required (one or more topics with options). Received ${typeof args["context"] === "string" ? "context only" : "incomplete payload"}.`;
+            const output = `Invalid question tool arguments: questions array is required (one or more topics with options). Received ${typeof args["context"] === "string" ? "context only" : "incomplete payload"}.`;
             const failResult = { success: false, output };
             const durationMs = Date.now() - toolStart;
             await persistToolResult(tc.id, output);

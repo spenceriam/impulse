@@ -4,6 +4,7 @@ import type { ToolDefinition } from "../api/types";
 import type { MODES } from "../constants";
 import { getCurrentMode } from "./mode-state";
 import { validateToolInput } from "./input-repair";
+import { buildRepairNote, prependToolNote } from "./tool-notes";
 
 type Mode = typeof MODES[number];
 
@@ -35,6 +36,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   file_read: "read_only",
   glob: "read_only",
   grep: "read_only",
+  ls: "read_only",
   question: "read_only",
   todo_read: "read_only",
   set_header: "utility",
@@ -274,16 +276,17 @@ export namespace Tool {
         };
       }
       const validated = validation.data;
+      const repairNote = buildRepairNote(validation.repairs);
 
       if (tool.timeout) {
         const result = await withTimeout(
           tool.handler(validated as TInput),
           tool.timeout
         );
-        return result;
+        return applyRepairNote(result, repairNote);
       } else {
         const result = await tool.handler(validated as TInput);
-        return result;
+        return applyRepairNote(result, repairNote);
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -308,6 +311,12 @@ export namespace Tool {
       };
     }
   }
+}
+
+/** Prepend the repair-transparency note to a tool result's output, if one applies. */
+function applyRepairNote(result: ToolResult, repairNote: string | null): ToolResult {
+  if (!repairNote) return result;
+  return { ...result, output: prependToolNote(result.output, repairNote) };
 }
 
 async function withTimeout<T>(
