@@ -20,6 +20,7 @@ import {
   type FileEditMetadata,
   type FileWriteMetadata,
   type GlobMetadata,
+  type LsMetadata,
   type GrepMetadata,
   type ToolMetadata,
   type TaskActionEntry,
@@ -88,6 +89,7 @@ const COMPACT_READONLY_TOOLS = new Set([
   "file_read",
   "glob",
   "grep",
+  "ls",
   "web_search",
   "web_fetch",
   "bash",
@@ -304,6 +306,10 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
     const path = typeof args["path"] === "string" ? ` in ${String(args["path"])}` : "";
     const include = typeof args["include"] === "string" ? ` (${String(args["include"])})` : "";
     return `${pattern}${path}${include}`;
+  }
+
+  if (name === "ls") {
+    return typeof args["path"] === "string" ? String(args["path"]) : ".";
   }
 
   const keys = ["path", "filePath", "file", "command", "pattern", "query", "description", "prompt", "url"];
@@ -720,6 +726,14 @@ function renderGlobMetadata(metadata: GlobMetadata, width: number): string[] {
   return [truncateGutterLine(`       ${clr.dim("found")} ${countText}  ${clr.dim("pattern")} ${metadata.pattern}${path}`, width)];
 }
 
+function renderLsMetadata(metadata: LsMetadata, width: number): string[] {
+  const countText = metadata.truncated
+    ? `${metadata.entryCount}/${metadata.totalEntries} entries shown`
+    : `${metadata.entryCount} ${pluralize(metadata.entryCount, "entry", "entries")}`;
+  const path = metadata.path ? `  path ${metadata.path}` : "";
+  return [truncateGutterLine(`       ${clr.dim("listed")} ${countText}${path}`, width)];
+}
+
 function renderGrepMetadata(metadata: GrepMetadata, width: number): string[] {
   const countText = `${metadata.matchCount} ${pluralize(metadata.matchCount, "match", "matches")}`;
   const path = metadata.path ? `  path ${metadata.path}` : "";
@@ -878,6 +892,10 @@ function renderMetadata(
 
   if (success && metadata && TypeGuards.isGlob(metadata)) {
     return renderGlobMetadata(metadata, width);
+  }
+
+  if (success && metadata && TypeGuards.isLs(metadata)) {
+    return renderLsMetadata(metadata, width);
   }
 
   if (success && metadata && TypeGuards.isGrep(metadata)) {
