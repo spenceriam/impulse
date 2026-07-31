@@ -18,6 +18,10 @@ import {
 } from "../util/config.js";
 import { detectShellEnvironment, generateShellContext } from "../util/shell-env.js";
 import { loadInstructions } from "../util/instructions.js";
+import {
+  loadEffectiveUserInstructions,
+  type EffectiveUserInstructions,
+} from "../util/user-instructions.js";
 
 type Mode = typeof MODES[number];
 
@@ -38,15 +42,23 @@ export function invalidatePromptCache(): void {
   void import("../harness/session-cache.js").then((m) => m.clearPinnedSystemPrompt());
 }
 
-export function formatUserCollaborationProfile(profile?: UserProfile): string | null {
-  if (!profile) return null;
+export function formatUserCollaborationProfile(
+  profile?: UserProfile,
+  effectiveInstructions?: EffectiveUserInstructions,
+  options?: { instructionToolAvailable?: boolean }
+): string | null {
+  if (!profile && !effectiveInstructions?.content) return null;
 
-  const lines: string[] = ["## User collaboration profile", ""];
-  if (profile.name?.trim()) {
+  const lines: string[] = [
+    "## User collaboration profile",
+    "",
+    "Profile settings source: ~/.impulse/config.json",
+  ];
+  if (profile?.name?.trim()) {
     lines.push(`Name: ${profile.name.trim()}`);
   }
 
-  const preference = profile.responsePreference?.trim() || "balanced";
+  const preference = profile?.responsePreference?.trim() || "balanced";
   const normalized = preference.toLowerCase();
   const presets: Record<string, string[]> = {
     balanced: [
@@ -90,8 +102,25 @@ export function formatUserCollaborationProfile(profile?: UserProfile): string | 
     lines.push(`- User-described preference: ${preference}`);
   }
 
-  if (profile.customInstructions?.trim()) {
-    lines.push("", "Custom instructions:", profile.customInstructions.trim());
+  const instructions = effectiveInstructions?.content ?? profile?.customInstructions ?? "";
+  if (instructions.trim()) {
+    const source = effectiveInstructions?.sourceLabel ?? "~/.impulse/config.json";
+    const instructionLines = [
+      "",
+      `Persistent instructions source: ${source}`,
+      "The Impulse host already loaded these instructions. Do not search the workspace to verify their source.",
+      "",
+      "Custom instructions:",
+      instructions,
+    ];
+    if (options?.instructionToolAvailable !== false) {
+      instructionLines.splice(
+        3,
+        0,
+        "Use user_instructions only when the user explicitly asks to persist a replacement, append, import, or clear operation."
+      );
+    }
+    lines.push(...instructionLines);
   }
 
   return lines.join("\n");
@@ -461,10 +490,14 @@ export async function generateSystemPrompt(
   mode: Mode,
   cwd?: string,
   config?: Config,
-  options?: { sessionId?: string }
+  options?: { sessionId?: string; userInstructionsPath?: string }
 ): Promise<string> {
   const workingDir = cwd || process.cwd();
   const cfg = config ?? await loadConfig();
+  const effectiveUserInstructions = await loadEffectiveUserInstructions(
+    cfg.userProfile?.customInstructions,
+    options?.userInstructionsPath
+  );
   const experimentalGoal = isExperimentalGoalEnabled(cfg);
   let goalCacheKey = "off";
   if (options?.sessionId && experimentalGoal) {
@@ -479,7 +512,13 @@ export async function generateSystemPrompt(
       });
     }
   }
-  const turnKeyEarly = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}:goal=${goalCacheKey}`;
+  const profileCacheKey = JSON.stringify({
+    name: cfg.userProfile?.name ?? "",
+    responsePreference: cfg.userProfile?.responsePreference ?? "balanced",
+    instructions: effectiveUserInstructions.fingerprint,
+  });
+  const turnKey = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}:goal=${goalCacheKey}:profile=${profileCacheKey}`;
+  const turnKeyEarly = turnKey;
   if (lastTurnPromptKey === turnKeyEarly && lastTurnPrompt) {
     return lastTurnPrompt;
   }
@@ -541,7 +580,11 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
     );
   }
 
-  const collaborationProfile = formatUserCollaborationProfile(cfg.userProfile);
+  const collaborationProfile = formatUserCollaborationProfile(
+    cfg.userProfile,
+    effectiveUserInstructions,
+    { instructionToolAvailable: mode === "AGENT" || mode === "DEBUG" }
+  );
   if (collaborationProfile) {
     parts.push(collaborationProfile);
   }
@@ -644,7 +687,6 @@ Use \`bash(background: true)\` for dev servers, watchers, or long-running proces
   }
 
   const result = parts.join("\n").trim();
-  const turnKey = `${mode}:${workingDir}:${cfg.defaultModel ?? ""}:${options?.sessionId ?? ""}`;
   lastTurnPromptKey = turnKey;
   lastTurnPrompt = result;
   return result;

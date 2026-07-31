@@ -13,7 +13,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { getProviderManager, resetProviderManager } from "./api/manager";
-import { createDefaultConfig, load as loadConfig, save as saveConfig } from "./util/config";
+import { load as loadConfig, save as saveConfig } from "./util/config";
 import type { Config } from "./util/config";
 import { testOllamaConnection } from "./api/providers/ollama.js";
 import { discoverModels } from "./cli/model-setup.js";
@@ -226,15 +226,7 @@ async function runSetup(): Promise<void> {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   // Persist to config file
-  const cfg = await loadConfig().catch(() =>
-    createDefaultConfig({
-      providers: {},
-      defaultProvider: providerKey,
-      defaultModel,
-      modelExplicitlySet: Boolean(defaultModel?.trim()),
-      hasSeenWelcome: false,
-    })
-  );
+  const cfg = await loadConfig();
 
   cfg.providers[providerKey as keyof Config["providers"]] = {
     apiKey: key,

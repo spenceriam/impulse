@@ -86,6 +86,11 @@ function isSeparatorRow(line: string): boolean {
   return cells.length >= 2 && cells.every(isSeparatorCell);
 }
 
+/** True when a line resembles a table row or separator. */
+export function isTableLikeLine(line: string): boolean {
+  return isTableCandidate(line) || isSeparatorRow(line);
+}
+
 function normalizeRow(row: string[], width: number): string[] {
   if (row.length === width) return row;
   if (row.length > width) return row.slice(0, width);

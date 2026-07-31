@@ -20,6 +20,7 @@ See [docs/tool-input-repair.md](../tool-input-repair.md) for the validate-then-r
 - question: docs/tools/question.md
 - set_header: docs/tools/set-header.md
 - set_mode: docs/tools/set-mode.md
+- user_instructions: docs/tools/user-instructions.md
 - web_fetch: docs/tools/web-fetch.md
 - web_search: docs/tools/web-search.md
 - tool_docs: docs/tools/tool-docs.md

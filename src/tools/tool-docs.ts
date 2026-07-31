@@ -28,6 +28,7 @@ const TOOL_DOCS_MAP: Record<string, string> = {
   question: "question.md",
   set_header: "set-header.md",
   set_mode: "set-mode.md",
+  user_instructions: "user-instructions.md",
   web_fetch: "web-fetch.md",
   web_search: "web-search.md",
   plan_revision: "plan-revision.md",

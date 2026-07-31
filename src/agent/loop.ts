@@ -265,7 +265,7 @@ export class AgentLoop {
     let abortIterationAssistantPersisted = false;
 
     try {
-      const config = await loadConfig();
+      const config = await loadConfig({ refresh: true });
       const manager = await getProviderManager();
 
       // Sync mode to tool-state so mode-restricted tools work
