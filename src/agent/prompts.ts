@@ -17,7 +17,7 @@ import {
   type UserProfile,
 } from "../util/config.js";
 import { detectShellEnvironment, generateShellContext } from "../util/shell-env.js";
-import { loadInstructions } from "../util/instructions.js";
+import { loadInstructions, clearInstructionCache } from "../util/instructions.js";
 import {
   loadEffectiveUserInstructions,
   type EffectiveUserInstructions,
@@ -39,6 +39,7 @@ export function invalidatePromptCache(): void {
   PROMPT_CACHE.clear();
   lastTurnPromptKey = undefined;
   lastTurnPrompt = undefined;
+  clearInstructionCache();
   void import("../harness/session-cache.js").then((m) => m.clearPinnedSystemPrompt());
 }
 

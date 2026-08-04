@@ -5276,12 +5276,14 @@ export class ImpulseRenderer {
     const effectiveInstructions = await loadEffectiveUserInstructions(
       config.userProfile?.customInstructions
     );
-    const profile = config.userProfile
-      ? { ...config.userProfile, customInstructions: effectiveInstructions.content }
-      : undefined;
-    const overlay = new ProfileOverlay(
-      profile !== undefined ? { profile } : {}
-    );
+    // Always surface file-backed instructions even when userProfile is unset
+    // (e.g. agent-only writes to ~/.impulse/user-instructions.md).
+    const profile = {
+      name: config.userProfile?.name ?? "",
+      responsePreference: config.userProfile?.responsePreference ?? "balanced",
+      customInstructions: effectiveInstructions.content,
+    };
+    const overlay = new ProfileOverlay({ profile });
 
     overlay.onEdit = async () => {
       this.profileOverlayHandle?.hide();
