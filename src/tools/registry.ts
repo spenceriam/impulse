@@ -39,6 +39,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   todo_read: "read_only",
   set_header: "utility",
   set_mode: "utility",
+  user_instructions: "write",
   web_fetch: "read_only",
   web_search: "read_only",
   tool_docs: "read_only",

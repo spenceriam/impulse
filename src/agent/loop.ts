@@ -91,7 +91,7 @@ import {
   type LoopCheckinDecision,
 } from "./loop-guard.js";
 import { buildDebugInstrumentationNudge } from "./debug-nudge.js";
-import { generateSystemPrompt } from "../agent/prompts";
+import { generateSystemPrompt, invalidatePromptCache } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
 import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
@@ -265,7 +265,7 @@ export class AgentLoop {
     let abortIterationAssistantPersisted = false;
 
     try {
-      const config = await loadConfig();
+      const config = await loadConfig({ refresh: true });
       const manager = await getProviderManager();
 
       // Sync mode to tool-state so mode-restricted tools work
@@ -455,6 +455,10 @@ export class AgentLoop {
       };
 
       events.onTurnStart();
+      // Rebuild system prompt each user turn so project instructions, skills,
+      // probes, and other dynamic blocks stay fresh. Within-turn tool iterations
+      // still hit the memo via lastTurnPromptKey.
+      invalidatePromptCache();
       this.contextWrapupInjected = false;
       await this.flushTurnInjections();
 

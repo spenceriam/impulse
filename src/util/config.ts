@@ -3,6 +3,7 @@ import { SessionManager } from "../session/manager";
 import fs from "fs/promises";
 import path from "path";
 import z from "zod";
+import { writeFileAtomic } from "./atomic-write.js";
 import { clearWindowsShellCache, clearWslCache } from "./windows-shell.js";
 
 // ============================================================
@@ -156,12 +157,41 @@ export type PreferredShell = z.infer<typeof ConfigSchema.shape.preferredShell>;
 export type Config = z.infer<typeof ConfigSchema>;
 export type UserProfile = NonNullable<Config["userProfile"]>;
 
-const configPath = path.join(Global.Path.config, "config.json");
+export const configPath = path.join(Global.Path.config, "config.json");
+export const configBackupPath = `${configPath}.bak`;
+
+export class ConfigFileError extends Error {
+  constructor(message: string, readonly sourcePath: string = configPath) {
+    super(message);
+    this.name = "ConfigFileError";
+  }
+}
+
+function invalidConfigError(error: unknown, sourcePath: string = configPath): ConfigFileError {
+  const detail = error instanceof z.ZodError
+    ? error.issues
+        .slice(0, 5)
+        .map((issue) => `${issue.path.join(".") || "config"}: ${issue.message}`)
+        .join("; ")
+    : error instanceof Error
+      ? error.message
+      : String(error);
+  return new ConfigFileError(
+    `Invalid Impulse config at ${sourcePath}: ${detail}. Fix the file or restore ${sourcePath}.bak.`,
+    sourcePath
+  );
+}
 
 async function loadConfigFile(): Promise<Partial<Config>> {
   try {
     const content = await fs.readFile(configPath, "utf-8");
-    return JSON.parse(content);
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      applyDefaults(parsed as Partial<Config>);
+      return parsed as Partial<Config>;
+    } catch (error) {
+      throw invalidConfigError(error);
+    }
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
       throw e;
@@ -215,14 +245,31 @@ export function createDefaultConfig(overrides?: Partial<Config>): Config {
 }
 
 let cachedConfig: Config | null = null;
+let cachedConfigFingerprint: string | null = null;
+
+async function configFileFingerprint(): Promise<string> {
+  try {
+    const stat = await fs.stat(configPath);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw error;
+  }
+}
 
 /** Clear in-memory config after home migration or external config edits. */
 export function invalidateConfigCache(): void {
   cachedConfig = null;
+  cachedConfigFingerprint = null;
 }
 
-export async function load(): Promise<Config> {
-  if (cachedConfig !== null) {
+export async function load(options?: { refresh?: boolean }): Promise<Config> {
+  const currentFingerprint = await configFileFingerprint();
+  if (
+    options?.refresh !== true &&
+    cachedConfig !== null &&
+    cachedConfigFingerprint === currentFingerprint
+  ) {
     return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
   }
 
@@ -245,7 +292,12 @@ export async function load(): Promise<Config> {
     ...envConfig,
     providers,
   };
-  const parsed = applyDefaults(merged as Partial<Config>);
+  let parsed: Config;
+  try {
+    parsed = applyDefaults(merged as Partial<Config>);
+  } catch (error) {
+    throw invalidConfigError(error);
+  }
   // Migrate showMainThinking → thinkingDisplay
   if (
     (fileConfig as { thinkingDisplay?: ThinkingDisplay }).thinkingDisplay === undefined
@@ -259,6 +311,7 @@ export async function load(): Promise<Config> {
     parsed.advisorMode = false;
   }
   cachedConfig = parsed;
+  cachedConfigFingerprint = await configFileFingerprint();
   return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
 }
 
@@ -331,19 +384,7 @@ export function resolveSubagentModel(config: Config, mainModel: string): string 
 }
 
 export async function save(config: Config): Promise<void> {
-  const parsed = applyDefaults(config);
-  await fs.mkdir(Global.Path.config, { recursive: true });
-
-  // Write config and explicitly sync to disk to ensure it's persisted
-  // This is especially important on Windows where filesystem operations
-  // may be cached and not immediately visible to subsequent reads
-  const fd = await fs.open(configPath, "w");
-  try {
-    await fd.writeFile(JSON.stringify(parsed, null, 2), "utf-8");
-    await fd.sync(); // Force flush to disk
-  } finally {
-    await fd.close();
-  }
+  const parsed = await saveConfigFileAtomic(config);
 
   // Clear shell detection caches when preferredShell changes so next command picks up the new setting
   if (cachedConfig?.preferredShell !== parsed.preferredShell) {
@@ -352,4 +393,34 @@ export async function save(config: Config): Promise<void> {
   }
 
   cachedConfig = parsed;
+  cachedConfigFingerprint = await configFileFingerprint();
+}
+
+/** Validate, back up, and atomically replace a config file without hiding corruption. */
+export async function saveConfigFileAtomic(
+  config: Config,
+  targetPath: string = configPath
+): Promise<Config> {
+  let parsed: Config;
+  try {
+    parsed = applyDefaults(config);
+  } catch (error) {
+    throw invalidConfigError(error, targetPath);
+  }
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
+  try {
+    const current = await fs.readFile(targetPath, "utf-8");
+    try {
+      applyDefaults(JSON.parse(current) as Partial<Config>);
+    } catch (error) {
+      throw invalidConfigError(error, targetPath);
+    }
+    await writeFileAtomic(`${targetPath}.bak`, current, { mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  await writeFileAtomic(targetPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+  return parsed;
 }

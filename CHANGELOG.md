@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-31
+
+  **Type:** patch
+  **Title:** Reliable user instructions and streaming Markdown handling
+
+  ### Fixed
+  - **#129** -- User-level instructions now load from `~/.impulse/user-instructions.md`, refresh between turns, and reach main and side-chat system prompts with a legacy config fallback.
+  - **#129** -- Multiline Markdown paste and `@path` imports preserve headings, lists, code fences, and blank lines without manual JSON escaping.
+  - **#129** -- Config saves are atomic with a last-known-good backup, and malformed config files are preserved with a clear recovery error.
+  - **#127** -- Long streamed responses now rotate only at safe Markdown boundaries, preventing punctuation, headings, lists, tables, and inline spans from splitting across terminal lines.
+
 ## [1.9.0] - 2026-07-01
 
   **Type:** minor

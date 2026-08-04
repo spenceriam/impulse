@@ -23,6 +23,7 @@ function createHost(calls: string[]): SlashDispatchHost {
     cmdAdvisor: async (arg) => record("advisor", arg),
     cmdExperimental: async () => record("experimental"),
     cmdSettings: async () => record("settings"),
+    cmdInstructions: async (arg) => record("instructions", arg),
     showConfigAliasHint: () => record("config"),
     cmdUpdate: async () => record("update"),
     cmdModel: async (arg) => record("model", arg),

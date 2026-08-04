@@ -5,6 +5,7 @@ import {
 } from "../src/cli/slash-aliases.js";
 import {
   dispatchSlashCommand,
+  parseSlashInput,
   slashDispatchKeys,
   type SlashDispatchHost,
 } from "../src/cli/slash-dispatch.js";
@@ -13,6 +14,7 @@ import {
   shouldShowSlashAutocomplete,
 } from "../src/cli/slash-autocomplete.js";
 import { buildSlashCommandList } from "../src/cli/slash-commands.js";
+import { buildSubmitPayload } from "../src/cli/prompt-input.js";
 
 function createHost(calls: string[]): SlashDispatchHost {
   const record = (name: string, arg = "") => {
@@ -24,6 +26,7 @@ function createHost(calls: string[]): SlashDispatchHost {
     cmdAdvisor: async (arg) => record("advisor", arg),
     cmdExperimental: async () => record("experimental"),
     cmdSettings: async () => record("settings"),
+    cmdInstructions: async (arg) => record("instructions", arg),
     showConfigAliasHint: () => record("config"),
     cmdUpdate: async () => record("update"),
     cmdModel: async (arg) => record("model", arg),
@@ -64,6 +67,37 @@ describe("slash aliases", () => {
     expect(canonicalizeSlashAliasInput("/mdl glm-4.7")).toBe("/model glm-4.7");
     expect(canonicalizeSlashAliasInput("/unknown arg")).toBe("/unknown arg");
     expect(canonicalizeSlashAliasInput("not /aa")).toBe("not /aa");
+  });
+
+  test("preserves multiline slash-command arguments", () => {
+    expect(parseSlashInput("/instructions replace # Header\n\n- First\n- Second")).toEqual({
+      cmd: "instructions",
+      arg: "replace # Header\n\n- First\n- Second",
+    });
+    expect(parseSlashInput("/instructions replace \n    indented\n")).toEqual({
+      cmd: "instructions",
+      arg: "replace \n    indented\n",
+    });
+    expect(parseSlashInput("/mode   debug  ")).toEqual({
+      cmd: "mode",
+      arg: "debug",
+    });
+  });
+
+  test("expands a multiline paste before instruction command dispatch", () => {
+    const marker = "[Pasted text #1]";
+    const markdown = "# Header\r\n\r\n- First\r\n- Second";
+    const payload = buildSubmitPayload(`/instructions replace ${marker}`, [{
+      display: marker,
+      originalDisplay: marker,
+      content: markdown,
+      kind: "text",
+    }]);
+
+    expect(parseSlashInput(payload.apiText)).toEqual({
+      cmd: "instructions",
+      arg: `replace ${markdown}`,
+    });
   });
 
   test("aliases are unique and do not shadow canonical dispatch keys", () => {
