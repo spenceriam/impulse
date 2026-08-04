@@ -3214,9 +3214,14 @@ export class ImpulseRenderer {
     }
 
     const froze = this.freezeStreamingAtSafeBoundary(true);
-    if (froze && gapAfter) {
-      this.addSectionGap();
+    if (froze) {
+      if (gapAfter) {
+        this.addSectionGap();
+      }
+      return;
     }
+
+    this.finalizeAssistantStreamingSegment(gapAfter);
   }
 
   private closeThinking(): void {

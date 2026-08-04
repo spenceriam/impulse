@@ -127,11 +127,26 @@ export function splitAtSafeBoundary(
 export function planStreamingRotation(
   input: StreamingRotationInput
 ): StreamingRotationPlan {
-  const split = input.renderedLines >= input.softLimit
+  const atSoftLimit = input.renderedLines >= input.softLimit;
+  const atHardLimit = input.renderedLines >= input.hardLimit;
+  let split = atSoftLimit
     ? splitAtSafeBoundary(input.raw, {
-        allowLineCut: input.renderedLines >= input.hardLimit,
+        allowLineCut: atHardLimit,
       })
     : null;
+
+  // When line limits are exceeded but no Markdown-safe boundary exists (e.g. one
+  // long wrapped line), force-rotate the whole buffer like the prior line-count path.
+  if (atSoftLimit && !split && input.raw.trim().length > 0) {
+    if (atHardLimit || !input.raw.includes("\n")) {
+      split = {
+        frozen: input.raw,
+        remainder: "",
+        kind: "line",
+      };
+    }
+  }
+
   const mutableRaw = split?.remainder ?? input.raw;
   return {
     split,

@@ -23,6 +23,68 @@ describe("splitAtSafeBoundary", () => {
     expect(plan.nextRaw).toBe("Next: tell me which section to expand");
   });
 
+  test("force-rotates a single long line when soft limit is reached", () => {
+    const plan = planStreamingRotation({
+      raw: "para one contin",
+      incomingToken: "uation",
+      renderedLines: 12,
+      softLimit: 12,
+      hardLimit: 24,
+    });
+
+    expect(plan.split).toEqual({
+      frozen: "para one contin",
+      remainder: "",
+      kind: "line",
+    });
+    expect(plan.nextRaw).toBe("uation");
+  });
+
+  test("waits for hard limit before force-rotating multi-line prose without paragraph breaks", () => {
+    const softPlan = planStreamingRotation({
+      raw: "line one\nline two contin",
+      incomingToken: "uation",
+      renderedLines: 12,
+      softLimit: 12,
+      hardLimit: 24,
+    });
+
+    expect(softPlan.split).toBeNull();
+    expect(softPlan.nextRaw).toBe("line one\nline two continuation");
+
+    const hardPlan = planStreamingRotation({
+      raw: "line one\nline two contin",
+      incomingToken: "uation",
+      renderedLines: 24,
+      softLimit: 12,
+      hardLimit: 24,
+    });
+
+    expect(hardPlan.split).toEqual({
+      frozen: "line one",
+      remainder: "line two contin",
+      kind: "line",
+    });
+    expect(hardPlan.nextRaw).toBe("line two continuation");
+  });
+
+  test("force-rotates at hard limit when no safe boundary exists", () => {
+    const plan = planStreamingRotation({
+      raw: "| a | b |\n| --- | --- |\n| 1 | 2",
+      incomingToken: " next",
+      renderedLines: 24,
+      softLimit: 12,
+      hardLimit: 24,
+    });
+
+    expect(plan.split).toEqual({
+      frozen: "| a | b |\n| --- | --- |\n| 1 | 2",
+      remainder: "",
+      kind: "line",
+    });
+    expect(plan.nextRaw).toBe(" next");
+  });
+
   test("returns null when a single paragraph has no safe boundary", () => {
     expect(splitAtSafeBoundary("para one contin")).toBeNull();
   });
