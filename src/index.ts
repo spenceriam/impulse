@@ -11,7 +11,6 @@
 
 import { registerCrashRecoveryHandlers } from "./util/crash-recovery.js";
 import {
-  createDefaultConfig,
   load as loadConfig,
   save as saveConfig,
   invalidateConfigCache,
@@ -465,15 +464,7 @@ async function runSetup(): Promise<void> {
   }
 
   // Save config
-  const cfg = await loadConfig().catch(() =>
-    createDefaultConfig({
-      providers: {},
-      defaultProvider: providerKey,
-      defaultModel,
-      modelExplicitlySet: Boolean(defaultModel?.trim()),
-      hasSeenWelcome: true,
-    })
-  );
+  const cfg = await loadConfig();
 
   const providers = cfg.providers as Record<string, unknown>;
   providers[providerKey] = {
@@ -560,29 +551,18 @@ export async function runOnboarding(): Promise<void> {
   }
 
   console.log(`
-  \x1b[90mCustom instructions are injected into every session's system prompt.
-  Leave blank to skip.\x1b[0m
+  \x1b[90mCustom instructions are managed inside Impulse with /instructions.
+  That workflow supports multiline Markdown and @path imports.\x1b[0m
 `);
-  const customInstructions = await ask("  Any custom instructions? (optional): ");
 
   // Load config and save user profile
-  const cfg = await loadConfig().catch(() =>
-    createDefaultConfig({
-      defaultProvider: "ollama",
-      defaultModel: "ollama/llama3.2",
-      hasSeenWelcome: true,
-      userProfile: {
-        name: "",
-        responsePreference: "balanced",
-        customInstructions: "",
-      },
-    })
-  );
+  const cfg = await loadConfig();
+  const legacyCustomInstructions = cfg.userProfile?.customInstructions ?? "";
 
   cfg.userProfile = {
     name,
     responsePreference,
-    customInstructions: customInstructions || "",
+    customInstructions: legacyCustomInstructions,
   };
   cfg.hasSeenWelcome = true;
 

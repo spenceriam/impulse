@@ -30,6 +30,7 @@ import "./question";
 // Session
 import "./set-header";
 import "./set-mode";
+import "./user-instructions";
 
 // Tool library
 import "./tool-docs";

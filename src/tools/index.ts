@@ -13,6 +13,7 @@ export { questionTool, resolveQuestion, rejectQuestion, hasPendingQuestion } fro
 export type { Question, QuestionOption, QuestionToolInput, QuestionToolOutput } from "./question";
 export { setHeader } from "./set-header";
 export { setMode } from "./set-mode";
+export { userInstructionsTool } from "./user-instructions";
 export { toolDocsTool } from "./tool-docs";
 export { doctorTool } from "./doctor";
 export { projectValidateTool } from "./project-validate";

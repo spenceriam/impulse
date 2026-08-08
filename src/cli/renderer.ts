@@ -25,6 +25,7 @@ import {
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
 import type { EditorTheme } from "@mariozechner/pi-tui";
+import { z } from "zod";
 import { spawn } from "child_process";
 import {
   PromptInput,
@@ -74,6 +75,15 @@ import { dimRuleIndented } from "./format-helpers.js";
 
 /** pi-tui maxHeight for session/model list overlays */
 const LIST_OVERLAY_MAX_HEIGHT = 18;
+const InstructionsCommandActionSchema = z.enum([
+  "view",
+  "show",
+  "replace",
+  "set",
+  "append",
+  "import",
+  "clear",
+]);
 import { overlayMinWidth } from "./layout.js";
 import { overlayMaxHeightForContent, overlayViewportMaxHeight } from "./overlay-height.js";
 import { PromptHistory } from "./prompt-history.js";
@@ -94,7 +104,11 @@ import {
 import { TaskBatchPermissionOverlay } from "./components/task-batch-permission-overlay.js";
 import type { TaskBatchDecision } from "../permission/task-batch.js";
 import { MarkdownTextBlock } from "./components/markdown-text.js";
-import { splitAtSafeBoundary } from "./stream-split.js";
+import {
+  planStreamingRotation,
+  splitAtSafeBoundary,
+  type StreamSplit,
+} from "./stream-split.js";
 import { ShellCommandBlock } from "./components/shell-command-block.js";
 import { isLoneBang, parseAtReview, parseBangCommand } from "./shell-bang.js";
 import { isShellTakeoverChord } from "./shell-shortcuts.js";
@@ -162,6 +176,11 @@ import {
   type ReasoningLevel,
   type ThinkingDisplay,
 } from "../util/config.js";
+import {
+  USER_INSTRUCTIONS_DISPLAY_PATH,
+  loadEffectiveUserInstructions,
+  writeUserInstructions,
+} from "../util/user-instructions.js";
 import {
   checkForUpdate,
   getCurrentVersion,
@@ -1578,6 +1597,7 @@ export class ImpulseRenderer {
   private planCompletionOverlayHandle: OverlayHandle | null = null;
   private planCompletionInputCleanup: (() => void) | null = null;
   private skillsOverlayHandle: OverlayHandle | null = null;
+  private instructionsOverlayHandle: OverlayHandle | null = null;
   private helpInputCleanup: (() => void) | null = null;
   private experimentalOverlayHandle: OverlayHandle | null = null;
   private settingsOverlayHandle: OverlayHandle | null = null;
@@ -2381,7 +2401,10 @@ export class ImpulseRenderer {
     }
 
     if (shouldTreatAsSlashCommand(input)) {
-      const canonicalSlash = canonicalizeSlashAliasInput(payload.apiText).trim();
+      const expandedSlash = canonicalizeSlashAliasInput(payload.apiText);
+      const canonicalSlash = /^\/instructions(?:\s|$)/i.test(expandedSlash.trimStart())
+        ? expandedSlash.trimStart()
+        : expandedSlash.trim();
       this.recordSubmittedPrompt(canonicalSlash);
       await this.handleSlash(canonicalSlash);
       this.tui.requestRender();
@@ -2535,7 +2558,7 @@ export class ImpulseRenderer {
           this.streamBusyPhraseSet = true;
         }
         this.closeThinking();
-        this.maybeRotateStreamingSegment();
+        const nextStreamingRaw = this.prepareStreamingToken(text);
         if (!this.streamingText) {
           if (this.lastBandWasTool) {
             this.addSectionGap();
@@ -2550,7 +2573,7 @@ export class ImpulseRenderer {
           this.chat.addChild(this.streamingText);
           this.hasTrailingGap = false;
         }
-        this.streamingRaw += text;
+        this.streamingRaw = nextStreamingRaw;
         this.streamingText.setText(this.streamingRaw);
         this.noteLiveGeneration(text);
         this.scheduleStreamRender();
@@ -3124,19 +3147,8 @@ export class ImpulseRenderer {
       : trimmed;
   }
 
-  /**
-   * Freeze the current streaming text at the last safe markdown boundary (#127),
-   * carrying any unsafe remainder forward in streamingRaw so the next onToken
-   * continues the same logical block seamlessly. Returns false (freezing
-   * nothing) when there's no live streaming block or no safe boundary exists
-   * yet (e.g. inside one long fence/table) — callers must tolerate that by
-   * leaving the block open rather than risking a mid-token/mid-table cut.
-   */
-  private freezeStreamingAtSafeBoundary(allowLineCut: boolean): boolean {
-    if (!this.streamingText || !this.streamingRaw) return false;
-    const split = splitAtSafeBoundary(this.streamingRaw, { allowLineCut });
-    if (!split) return false;
-
+  private freezeStreamingSplit(split: StreamSplit): void {
+    if (!this.streamingText) return;
     this.streamingText.setText(split.frozen);
     this.appendAssistantTurnSegment(split.frozen);
     if (split.kind === "paragraph") {
@@ -3146,27 +3158,42 @@ export class ImpulseRenderer {
     }
     this.streamingRaw = split.remainder;
     this.streamingText = null;
+  }
+
+  private freezeStreamingAtSafeBoundary(allowLineCut: boolean): boolean {
+    if (!this.streamingText || !this.streamingRaw) return false;
+    const split = splitAtSafeBoundary(this.streamingRaw, { allowLineCut });
+    if (!split) return false;
+
+    this.freezeStreamingSplit(split);
     return true;
   }
 
-  /**
-   * Rotate the mutable streaming block once it grows past a soft line threshold, cutting
-   * only at a safe markdown boundary so headings, lists, and sentences never split
-   * mid-token (#127). Falls back to a last-safe-line cut past a hard threshold; defers
-   * indefinitely if no safe cut exists yet (e.g. inside one long fence/table).
-   */
-  private maybeRotateStreamingSegment(): void {
-    if (!this.streamingText || !this.tui) return;
+  private prepareStreamingToken(incomingToken: string): string {
+    if (!this.streamingText || !this.tui) {
+      return `${this.streamingRaw}${incomingToken}`;
+    }
     const rows = this.tui.terminal?.rows ?? this.terminal.rows ?? 24;
-    const soft = Math.max(
+    const softLimit = Math.max(
       8,
       Math.min(ImpulseRenderer.MAX_MUTABLE_STREAM_LINES, Math.floor(rows / 3))
     );
-    const rendered = this.streamingText.render(this.terminalCols()).length;
-    if (rendered < soft) return;
-
-    const hard = Math.max(soft * 2, ImpulseRenderer.MAX_MUTABLE_STREAM_LINES_HARD);
-    this.freezeStreamingAtSafeBoundary(rendered >= hard);
+    const renderedLines = this.streamingText.render(this.terminalCols()).length;
+    const hardLimit = Math.max(
+      softLimit * 2,
+      ImpulseRenderer.MAX_MUTABLE_STREAM_LINES_HARD
+    );
+    const plan = planStreamingRotation({
+      raw: this.streamingRaw,
+      incomingToken,
+      renderedLines,
+      softLimit,
+      hardLimit,
+    });
+    if (plan.split) {
+      this.freezeStreamingSplit(plan.split);
+    }
+    return plan.nextRaw;
   }
 
   private finalizeAssistantStreamingSegment(gapAfter = true): void {
@@ -3182,26 +3209,20 @@ export class ImpulseRenderer {
     }
   }
 
-  /**
-   * Finalize the streaming segment at a boundary that must not corrupt
-   * inline markdown/tables (a thinking burst opening, or a tool call
-   * starting) — unlike finalizeAssistantStreamingSegment, which always hard-
-   * cuts regardless of markdown safety (§127 interleaved-reasoning bug).
-   * Falls back to the plain finalize when there's no live streaming block to
-   * protect (nothing on-screen can be torn in that case).
-   */
   private finalizeStreamingAtSafeBoundary(gapAfter: boolean): void {
     if (!this.streamingText) {
       this.finalizeAssistantStreamingSegment(gapAfter);
       return;
     }
     const froze = this.freezeStreamingAtSafeBoundary(true);
-    if (froze && gapAfter) {
-      this.addSectionGap();
+    if (froze) {
+      if (gapAfter) {
+        this.addSectionGap();
+      }
+      return;
     }
-    // If nothing froze (no safe boundary exists anywhere yet), the block
-    // stays open — correctness over ordering, same tradeoff as
-    // maybeRotateStreamingSegment.
+
+    this.finalizeAssistantStreamingSegment(gapAfter);
   }
 
   private closeThinking(): void {
@@ -3240,6 +3261,7 @@ export class ImpulseRenderer {
       cmdAdvisor: (arg) => r.cmdAdvisor(arg),
       cmdExperimental: () => r.cmdExperimental(),
       cmdSettings: () => r.cmdSettings(),
+      cmdInstructions: (arg) => r.cmdInstructions(arg),
       showConfigAliasHint: () => r.showConfigAliasHint(),
       cmdUpdate: () => r.cmdUpdate(),
       cmdModel: (arg) => r.cmdModel(arg),
@@ -5255,23 +5277,17 @@ export class ImpulseRenderer {
     if (this.isRunning) return;
 
     const config = await loadConfig();
-    const overlay = new ProfileOverlay({
-      tui: this.tui,
-      ...(config.userProfile !== undefined ? { profile: config.userProfile } : {}),
-    });
-
-    overlay.onSaveInstructions = async (text: string) => {
-      const cfg = await loadConfig();
-      if (!cfg.userProfile) {
-        cfg.userProfile = { name: "", responsePreference: "balanced", customInstructions: text };
-      } else {
-        cfg.userProfile.customInstructions = text;
-      }
-      await saveConfig(cfg);
-      invalidatePromptCache();
-      overlay.setProfile(cfg.userProfile);
-      this.tui.requestRender();
+    const effectiveInstructions = await loadEffectiveUserInstructions(
+      config.userProfile?.customInstructions
+    );
+    // Always surface file-backed instructions even when userProfile is unset
+    // (e.g. agent-only writes to ~/.impulse/user-instructions.md).
+    const profile = {
+      name: config.userProfile?.name ?? "",
+      responsePreference: config.userProfile?.responsePreference ?? "balanced",
+      customInstructions: effectiveInstructions.content,
     };
+    const overlay = new ProfileOverlay({ profile });
 
     overlay.onEdit = async () => {
       this.profileOverlayHandle?.hide();
@@ -5281,12 +5297,19 @@ export class ImpulseRenderer {
       await runOnboarding();
       const newConfig = await loadConfig();
       this.userName = newConfig.userProfile?.name || "you";
+      invalidatePromptCache();
       ensurePiTuiDebugRedrawDir();
       clearTerminalForTuiStart(this.terminal);
       this.tui.start();
       this.tui.setFocus(this.promptInput);
       this.addChatLine(clr.dim("Profile updated"));
       this.tui.requestRender();
+    };
+
+    overlay.onEditInstructions = () => {
+      this.profileOverlayHandle?.hide();
+      this.profileOverlayHandle = null;
+      void this.cmdInstructions("");
     };
 
     overlay.onCancel = () => {
@@ -5306,6 +5329,168 @@ export class ImpulseRenderer {
     });
     this.profileOverlayHandle.focus();
     this.tui.requestRender();
+  }
+
+  private dismissInstructionsOverlay(): void {
+    this.instructionsOverlayHandle?.hide();
+    this.instructionsOverlayHandle = null;
+  }
+
+  private beginInstructionsCommand(action: "replace" | "append" | "import"): void {
+    this.dismissInstructionsOverlay();
+    this.promptInput.clear();
+    this.promptInput.setText(`/instructions ${action} `);
+    this.tui.setFocus(this.promptInput);
+    this.tui.requestRender();
+  }
+
+  private async showCurrentUserInstructions(): Promise<void> {
+    const config = await loadConfig({ refresh: true });
+    const effective = await loadEffectiveUserInstructions(
+      config.userProfile?.customInstructions
+    );
+    this.addChatLine(
+      clr.dim(
+        `User instructions: ${effective.sourceLabel} (${effective.content.length} chars)`
+      )
+    );
+    if (!effective.content) {
+      this.addChatLine(clr.dim("  (none)"));
+    } else {
+      const lines = effective.content.split("\n");
+      for (const line of lines.slice(0, 40)) {
+        this.addChatLine(clr.dim(`  ${line}`));
+      }
+      if (lines.length > 40) {
+        this.addChatLine(clr.dim(`  ... ${lines.length - 40} more lines`));
+      }
+    }
+    this.tui.requestRender();
+  }
+
+  private async persistInstructionCommand(
+    action: "replace" | "append" | "import" | "clear",
+    value = ""
+  ): Promise<void> {
+    const stored = await writeUserInstructions(action, value);
+    invalidatePromptCache();
+    const verb = action === "replace"
+      ? "replaced"
+      : action === "append"
+        ? "appended"
+        : action === "import"
+          ? "imported"
+          : "cleared";
+    this.addChatLine(
+      clr.dim(
+        `User instructions ${verb}: ${USER_INSTRUCTIONS_DISPLAY_PATH} (${stored.content.length} chars)`
+      )
+    );
+    const allPreviewLines = stored.content.split("\n");
+    const previewLines = allPreviewLines.slice(0, 3);
+    if (previewLines.length === 1 && previewLines[0] === "") {
+      this.addChatLine(clr.dim("  (none)"));
+    } else {
+      for (const line of previewLines) {
+        const compact = line.length > 120 ? `${line.slice(0, 119)}…` : line;
+        this.addChatLine(clr.dim(`  ${compact}`));
+      }
+      if (allPreviewLines.length > previewLines.length) {
+        this.addChatLine(clr.dim("  ..."));
+      }
+    }
+    this.tui.requestRender();
+  }
+
+  private showInstructionsOverlay(): void {
+    this.dismissInstructionsOverlay();
+    const overlay = new SelectableListOverlay({
+      title: "User instructions",
+      rows: [
+        { id: "view", label: "View current instructions" },
+        { id: "replace", label: "Replace (paste multiline Markdown)" },
+        { id: "append", label: "Append Markdown" },
+        { id: "import", label: "Import @path" },
+        { id: "clear", label: "Clear instructions" },
+      ],
+      boxSizing: "responsive",
+      maxHeight: 12,
+      helpLines: ["Up/Down navigate   Enter select   Esc close"],
+    });
+    overlay.onSelect = (id) => {
+      this.dismissInstructionsOverlay();
+      if (id === "view") {
+        void this.cmdInstructions("view");
+      } else if (id === "replace" || id === "append" || id === "import") {
+        this.beginInstructionsCommand(id);
+      } else if (id === "clear") {
+        void this.cmdInstructions("clear");
+      }
+    };
+    overlay.onCancel = () => {
+      this.dismissInstructionsOverlay();
+      this.tui.setFocus(this.promptInput);
+    };
+    this.instructionsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  private async cmdInstructions(arg: string): Promise<void> {
+    if (this.isRunning) {
+      this.addChatLine(clr.warn("Wait for the current turn to finish."));
+      this.tui.requestRender();
+      return;
+    }
+
+    this.promptInput.clear();
+    const actionMatch = arg.match(/^(\S+)(?:[ \t]+([\s\S]*))?$/);
+    const rawAction = actionMatch?.[1]?.toLowerCase() ?? "";
+    const value = actionMatch?.[2] ?? "";
+
+    try {
+      if (!rawAction) {
+        this.showInstructionsOverlay();
+        return;
+      }
+      const actionResult = InstructionsCommandActionSchema.safeParse(rawAction);
+      if (!actionResult.success) {
+        this.addChatLine(
+          clr.dim(
+            "Usage: /instructions [view | replace <text> | append <text> | import @path | clear]"
+          )
+        );
+        this.tui.requestRender();
+        return;
+      }
+      const action = actionResult.data;
+      if (action === "view" || action === "show") {
+        await this.showCurrentUserInstructions();
+        return;
+      }
+      if (action === "replace" || action === "set" || action === "append") {
+        const normalizedAction = action === "append" ? "append" : "replace";
+        if (!value) {
+          this.beginInstructionsCommand(normalizedAction);
+          return;
+        }
+        await this.persistInstructionCommand(normalizedAction, value);
+        return;
+      }
+      if (action === "import") {
+        if (!value.trim()) {
+          this.beginInstructionsCommand("import");
+          return;
+        }
+        await this.persistInstructionCommand("import", value.trim());
+        return;
+      }
+      if (action === "clear") {
+        await this.persistInstructionCommand("clear");
+        return;
+      }
+    } catch (error) {
+      this.addChatLine(clr.warn(error instanceof Error ? error.message : String(error)));
+      this.tui.requestRender();
+    }
   }
 
   private clearChatView(): void {

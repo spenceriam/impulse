@@ -73,6 +73,11 @@ export function buildSlashCommandDefs(
       helpDetail: "Show core commands and shortcuts",
     },
     {
+      cmd: "/instructions",
+      hint: "view | replace | append | import | clear",
+      helpDetail: "Manage persistent user instructions with multiline paste or @path import",
+    },
+    {
       cmd: "/model",
       hint: "choose or change model",
       helpDetail: "Choose or change the worker model; configure provider API key and endpoint",

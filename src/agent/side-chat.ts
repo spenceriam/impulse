@@ -4,13 +4,21 @@
 
 import type { ChatMessage } from "../api/types.js";
 import { getProviderManager } from "../api/manager.js";
-import type { ReasoningLevel } from "../util/config.js";
+import { load as loadConfig, type ReasoningLevel } from "../util/config.js";
+import { formatUserCollaborationProfile } from "./prompts.js";
+import { loadEffectiveUserInstructions } from "../util/user-instructions.js";
 import type { Message } from "../session/store.js";
 
 export const SIDE_CONTEXT_MAX_CHARS = 4000;
 
 const SIDE_SYSTEM_PROMPT = `You are a brief side assistant for Impulse. Answer the user's clarification question concisely.
 You cannot use tools, read files, or modify the project. Do not suggest running commands unless the user explicitly asks.`;
+
+export function buildSideSystemPrompt(collaborationProfile?: string | null): string {
+  return collaborationProfile?.trim()
+    ? `${SIDE_SYSTEM_PROMPT}\n\n${collaborationProfile.trim()}`
+    : SIDE_SYSTEM_PROMPT;
+}
 
 export interface SideChatEvents {
   onToken(text: string): void;
@@ -108,8 +116,17 @@ export async function runSideChat(params: RunSideChatParams): Promise<RunSideCha
     userContent = `Recent main conversation (read-only):\n\n${contextSnapshot}\n\n---\n\nSide question: ${userText}`;
   }
 
+  const config = await loadConfig({ refresh: true });
+  const effectiveInstructions = await loadEffectiveUserInstructions(
+    config.userProfile?.customInstructions
+  );
+  const collaborationProfile = formatUserCollaborationProfile(
+    config.userProfile,
+    effectiveInstructions,
+    { instructionToolAvailable: false }
+  );
   const messages: ChatMessage[] = [
-    { role: "system", content: SIDE_SYSTEM_PROMPT },
+    { role: "system", content: buildSideSystemPrompt(collaborationProfile) },
     { role: "user", content: userContent },
   ];
 

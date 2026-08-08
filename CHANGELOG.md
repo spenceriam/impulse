@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.9.1] - 2026-07-07
 
   **Type:** patch
-  **Title:** Stream-split hardening, tool-calling transparency, and formatting fixes
+  **Title:** Stream-split hardening, reliable user instructions, tool-calling transparency, and formatting fixes
 
   ### Added
   - **#128** -- New `ls` directory-listing tool, available in every mode alongside `file_read`/`glob`/`grep`, with reciprocal "did you mean" guidance between `file_read` and `ls` on directory/file mismatches
@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tab/`/mode`/`set_mode` no longer write colored mode-transition lines into the chat — mode stays visible via the context bar label and prompt accent color only
   - The "Git branch changed" notice no longer prints multiple times for a single branch switch (command-driven detection and the `.git/HEAD` watcher can each legitimately fire once; the chat notice now dedupes against the actually-current branch)
   - Assistant markdown now supports H1–H6 headings (previously capped at H1–H4)
+
+  ### Fixed
+  - **#129** -- User-level instructions now load from `~/.impulse/user-instructions.md`, refresh between turns, and reach main and side-chat system prompts with a legacy config fallback.
+  - **#129** -- Multiline Markdown paste and `@path` imports preserve headings, lists, code fences, and blank lines without manual JSON escaping.
+  - **#129** -- Config saves are atomic with a last-known-good backup, and malformed config files are preserved with a clear recovery error.
 
 ## [1.9.0] - 2026-07-01
 

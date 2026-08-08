@@ -47,6 +47,7 @@ export interface SlashDispatchHost {
   cmdAdvisor(arg: string): Promise<void>;
   cmdExperimental(): Promise<void>;
   cmdSettings(): Promise<void>;
+  cmdInstructions(arg: string): Promise<void>;
   showConfigAliasHint(): void;
   cmdUpdate(): Promise<void>;
   cmdModel(arg: string): Promise<void>;
@@ -86,6 +87,7 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   advisor: (h, arg) => h.cmdAdvisor(arg),
   experimental: (h) => h.cmdExperimental(),
   settings: (h) => h.cmdSettings(),
+  instructions: (h, arg) => h.cmdInstructions(arg),
   config: (h) => h.showConfigAliasHint(),
   update: (h) => h.cmdUpdate(),
   model: (h, arg) => h.cmdModel(arg),
@@ -128,9 +130,14 @@ export function slashDispatchKeys(): string[] {
 
 /** Parse `/command args` into command slug and remainder. */
 export function parseSlashInput(input: string): { cmd: string; arg: string } {
-  const parts = input.slice(1).trim().split(/\s+/);
-  const cmd = parts[0]?.toLowerCase() ?? "";
-  const arg = parts.slice(1).join(" ").trim();
+  const body = input.slice(1).trimStart();
+  const commandMatch = body.match(/^\S+/);
+  const rawCommand = commandMatch?.[0] ?? "";
+  const cmd = rawCommand.toLowerCase();
+  const rawArg = body.slice(rawCommand.length).replace(/^[ \t]+/, "");
+  const arg = cmd === "instructions"
+    ? rawArg
+    : rawArg.trim().split(/\s+/).join(" ");
   return { cmd, arg };
 }
 
