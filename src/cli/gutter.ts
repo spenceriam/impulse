@@ -6,7 +6,7 @@
  * the right gutter.
  */
 
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
 export const GUTTER = "    ";
 export const GUTTER_WIDTH = 4;
@@ -52,56 +52,4 @@ export function wrapGutterLines(text: string, totalWidth: number): string[] {
 export function gutterSeparator(width: number): string {
   const inner = Math.max(0, width - TOTAL_GUTTER_WIDTH);
   return GUTTER + "─".repeat(inner) + GUTTER;
-}
-
-export interface GutterTintOptions {
-  /** ANSI background escape, e.g. "\x1b[48;5;236m". Spans only the inner region. */
-  bg: string;
-  /** Left-edge accent glyph shown just inside the left gutter (e.g. "▏"). Left-only — never mirrored on the right. */
-  accent?: string;
-  /** ANSI color escape applied to the accent glyph only (e.g. "\x1b[36m"). */
-  accentFg?: string;
-}
-
-/**
- * Wrap text to inner width and return gutter-prefixed lines with a background
- * tint spanning the inner region only — both gutters (including the right
- * one) stay plain, uncolored terminal background. Any ANSI resets embedded in
- * the content (e.g. from markdown spans) are re-anchored to the tint so the
- * background stays contiguous across the whole row instead of leaking back to
- * the terminal default partway through a line.
- *
- * Embedded `\n` in `text` are hard line breaks (e.g. a username label above
- * the message body) — each is word-wrapped independently. The accent glyph
- * marks only the very first rendered line of the whole block; continuation
- * lines get equivalent blank space so wrapped text still aligns.
- */
-export function wrapGutterTintedLines(
-  text: string,
-  totalWidth: number,
-  opts: GutterTintOptions
-): string[] {
-  const RESET = "\x1b[0m";
-  const inner = innerWidth(totalWidth);
-  const accent = opts.accent ?? "";
-  const accentWidth = accent.length > 0 ? visibleWidth(accent) + 1 : 0;
-  const contentWidth = Math.max(1, inner - accentWidth);
-  const normalized = text.length > 0 ? text : " ";
-
-  const paragraphs = normalized.split("\n");
-  const allLines = paragraphs.flatMap((p) => wrapTextWithAnsi(p.length > 0 ? p : " ", contentWidth));
-
-  return allLines.map((line, index) => {
-    const visible = visibleWidth(line);
-    const padded = line + " ".repeat(Math.max(0, contentWidth - visible));
-    const bgSafeContent = padded.split(RESET).join(`${RESET}${opts.bg}`);
-    const isFirst = index === 0;
-    const accentPart =
-      accent.length > 0
-        ? isFirst
-          ? `${opts.accentFg ?? ""}${accent}${RESET}${opts.bg} `
-          : " ".repeat(accentWidth)
-        : "";
-    return `${GUTTER}${opts.bg}${accentPart}${bgSafeContent}${RESET}`;
-  });
 }

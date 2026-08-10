@@ -51,7 +51,6 @@ import {
   gutterContent,
   gutterSeparator,
   wrapGutterLines,
-  wrapGutterTintedLines,
 } from "./gutter.js";
 import {
   formatLogoLine,
@@ -281,9 +280,6 @@ import {
   clr,
   MODE_COLORS,
   modelStatusLine,
-  USER_MESSAGE_ACCENT_FG,
-  USER_MESSAGE_ACCENT_GLYPH,
-  USER_MESSAGE_BG,
 } from "./ansi-theme.js";
 import {
   dispatchSlashCommand,
@@ -2494,7 +2490,10 @@ export class ImpulseRenderer {
     this.turnShowsImpulseHeader = false;
 
     this.addSectionGap();
-    this.pushUserMessageBlock(transcript);
+    this.lastBandWasTool = false;
+    this.lastBandToolHadBody = false;
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(transcript);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -2894,28 +2893,6 @@ export class ImpulseRenderer {
 
   private addChatLine(text: string): void {
     const lines = wrapGutterLines(text, this.terminal.columns);
-    for (const line of lines) {
-      this.chat.addChild(new Text(line, 0, 0));
-    }
-    this.hasTrailingGap = false;
-    this.lastBandWasTool = false;
-    this.lastBandToolHadBody = false;
-  }
-
-  /**
-   * Push a user message as a tinted block (§5a) — the username label and the
-   * message body render as one background-tinted unit with a left-only accent
-   * on its first line, so the user's turn is unmistakable scanning the
-   * transcript instead of competing visually with tool rows and assistant
-   * prose. Used both for live turns and session/`/show` replay.
-   */
-  private pushUserMessageBlock(text: string): void {
-    const combined = `${this.userName}\n${text}`;
-    const lines = wrapGutterTintedLines(combined, this.terminal.columns, {
-      bg: USER_MESSAGE_BG,
-      accent: USER_MESSAGE_ACCENT_GLYPH,
-      accentFg: USER_MESSAGE_ACCENT_FG,
-    });
     for (const line of lines) {
       this.chat.addChild(new Text(line, 0, 0));
     }
@@ -5903,7 +5880,8 @@ export class ImpulseRenderer {
         break;
       case "user":
         this.addSectionGap();
-        this.pushUserMessageBlock(step.text);
+        this.addChatLine(`${A.fg(36, this.userName)}`);
+        this.addChatLine(step.text);
         this.addSectionGap();
         break;
       case "injected":
@@ -6328,7 +6306,8 @@ export class ImpulseRenderer {
     this.isRunning = true;
     this.loop.setImages([]);
     this.addSectionGap();
-    this.pushUserMessageBlock(displayLabel);
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(displayLabel);
     this.addSectionGap();
 
     this.streamingRaw = "";
@@ -6412,7 +6391,8 @@ export class ImpulseRenderer {
     this.isRunning = true;
     this.loop.setImages([]);
     this.addSectionGap();
-    this.pushUserMessageBlock(`@ ${question}`);
+    this.addChatLine(`${A.fg(36, this.userName)}`);
+    this.addChatLine(`@ ${question}`);
     this.addSectionGap();
 
     this.streamingRaw = "";

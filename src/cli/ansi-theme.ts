@@ -35,13 +35,3 @@ export const MODE_COLORS: Record<string, number> = {
 
 /** Mode transition in chat (ASCII for Windows/macOS/Linux terminal fonts). */
 export const MODE_ARROW = " -> ";
-
-/**
- * Background tint for the user-message block (§5a) — a subtle dark slate,
- * pi-coding-agent-style. Distinct from the overlay panel background (233) so
- * user turns and modal overlays never look identical.
- */
-export const USER_MESSAGE_BG = "\x1b[48;5;236m";
-/** Left-edge accent glyph color for the user-message block (cyan, matches the username label). */
-export const USER_MESSAGE_ACCENT_FG = "\x1b[36m";
-export const USER_MESSAGE_ACCENT_GLYPH = "▏";
