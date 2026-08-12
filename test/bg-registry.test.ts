@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Bus } from "../src/bus";
 import {
   BgJobEvents,
@@ -13,22 +13,59 @@ import {
   markBgJobDone,
   registerBgJob,
 } from "../src/tools/bg-process-registry.js";
+import { killProcessTree } from "../src/util/process-tree.js";
+import { setCurrentMode } from "../src/tools/mode-state.js";
+import { enterAgentModeForTest } from "./helpers/authority.js";
 
 describe("bg-process-registry lifecycle", () => {
-  test("killBgJob marks the job killed and calls its kill callback", () => {
-    let killed = false;
-    const job = registerBgJob({ command: "sleep 100", cwd: "/tmp", kill: () => { killed = true; } });
-
-    const ok = killBgJob(job.id);
-
-    expect(ok).toBe(true);
-    expect(killed).toBe(true);
-    expect(getBgJob(job.id)?.status).toBe("killed");
+  beforeEach(async () => {
+    await cleanupAllBgJobs();
+    await enterAgentModeForTest();
   });
 
-  test("markBgJobDone does not overwrite a killed job's status or queue a notification", () => {
-    const job = registerBgJob({ command: "sleep 100", cwd: "/tmp", kill: () => {} });
-    killBgJob(job.id);
+  afterEach(async () => {
+    await cleanupAllBgJobs();
+    setCurrentMode("ASK");
+  });
+
+  test("killBgJob waits for process exit before reporting killed", async () => {
+    const proc = Bun.spawn({
+      cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    let killCalls = 0;
+    const job = registerBgJob({
+      command: "long-running process",
+      cwd: "/tmp",
+      pid: proc.pid,
+      kill: async () => {
+        killCalls++;
+        await killProcessTree(proc.pid);
+      },
+    });
+
+    try {
+      const result = killBgJob(job.id);
+      const duplicate = killBgJob(job.id);
+      expect(getBgJob(job.id)?.status).toBe("stopping");
+      expect(await Promise.all([result, duplicate])).toEqual([true, true]);
+      expect(killCalls).toBe(1);
+      expect(getBgJob(job.id)?.status).toBe("killed");
+      expect(() => process.kill(proc.pid, 0)).toThrow();
+    } finally {
+      await killProcessTree(proc.pid);
+    }
+  }, 10_000);
+
+  test("markBgJobDone does not overwrite a killed job's status or queue a notification", async () => {
+    const job = registerBgJob({
+      command: "sleep 100",
+      cwd: "/tmp",
+      pid: 999999999,
+      kill: () => {},
+    });
+    await killBgJob(job.id);
     drainBgNotifications(); // clear whatever the kill itself may have queued
 
     markBgJobDone(job.id, 0);
@@ -51,15 +88,21 @@ describe("bg-process-registry lifecycle", () => {
     expect(getBgJob(job2.id)?.status).toBe("failed");
   });
 
-  test("cleanupAllBgJobs kills only running jobs and empties the registry and notification queue", () => {
+  test("cleanupAllBgJobs kills only active jobs and empties the registry after confirmation", async () => {
     let killedRunning = false;
     let killedDone = false;
-    const running = registerBgJob({ command: "sleep 100", cwd: "/tmp", kill: () => { killedRunning = true; } });
+    const running = registerBgJob({
+      command: "sleep 100",
+      cwd: "/tmp",
+      pid: 999999999,
+      kill: () => { killedRunning = true; },
+    });
     const done = registerBgJob({ command: "echo hi", cwd: "/tmp", kill: () => { killedDone = true; } });
     markBgJobDone(done.id, 0);
 
-    cleanupAllBgJobs();
+    const result = await cleanupAllBgJobs();
 
+    expect(result.failedJobIds).toEqual([]);
     expect(killedRunning).toBe(true);
     expect(killedDone).toBe(false); // already finished; no need to kill it
     expect(listBgJobs()).toEqual([]);
@@ -67,7 +110,7 @@ describe("bg-process-registry lifecycle", () => {
     expect(drainBgNotifications()).toEqual([]);
   });
 
-  test("cleanupAllBgJobs reaps the process tree synchronously by pid, not just via the async kill callback", () => {
+  test("cleanupAllBgJobs awaits the kill callback and confirmed PID exit", async () => {
     let killed = false;
     const job = registerBgJob({
       command: "sleep 100",
@@ -76,14 +119,14 @@ describe("bg-process-registry lifecycle", () => {
       kill: () => { killed = true; },
     });
 
-    expect(() => cleanupAllBgJobs()).not.toThrow();
+    expect((await cleanupAllBgJobs()).failedJobIds).toEqual([]);
 
     expect(killed).toBe(true);
     expect(getBgJob(job.id)).toBeUndefined();
   });
 
-  test("cleanupAllBgJobsSync swallows a throwing kill without throwing itself", () => {
-    registerBgJob({
+  test("cleanupAllBgJobsSync swallows a throwing kill without throwing itself", async () => {
+    const job = registerBgJob({
       command: "sleep 100",
       cwd: "/tmp",
       pid: 999999999, // guaranteed-invalid pid so any real kill attempt errors
@@ -93,9 +136,11 @@ describe("bg-process-registry lifecycle", () => {
     });
 
     expect(() => cleanupAllBgJobsSync()).not.toThrow();
+    markBgJobDone(job.id, -1);
+    await cleanupAllBgJobs();
   });
 
-  test("publishes bg-job.changed on register, done, and kill", () => {
+  test("publishes bg-job.changed on register, done, stopping, and confirmed kill", async () => {
     const events: Array<{ id: string; status: string }> = [];
     const unsubscribe = Bus.subscribe((event) => {
       if (event.type === BgJobEvents.Changed.name) {
@@ -106,13 +151,19 @@ describe("bg-process-registry lifecycle", () => {
     const job = registerBgJob({ command: "echo hi", cwd: "/tmp", kill: () => {} });
     markBgJobDone(job.id, 0);
 
-    const job2 = registerBgJob({ command: "sleep 100", cwd: "/tmp", kill: () => {} });
-    killBgJob(job2.id);
+    const job2 = registerBgJob({
+      command: "sleep 100",
+      cwd: "/tmp",
+      pid: 999999999,
+      kill: () => {},
+    });
+    await killBgJob(job2.id);
 
     unsubscribe();
 
     expect(events).toContainEqual({ id: job.id, status: "running" });
     expect(events).toContainEqual({ id: job.id, status: "done" });
+    expect(events).toContainEqual({ id: job2.id, status: "stopping" });
     expect(events).toContainEqual({ id: job2.id, status: "killed" });
   });
 
@@ -120,13 +171,29 @@ describe("bg-process-registry lifecycle", () => {
     expect(() => appendBgOutput("no-such-job", "text")).not.toThrow();
   });
 
-  test("countRunningBgJobs reflects only running jobs", () => {
-    cleanupAllBgJobs();
-    registerBgJob({ command: "sleep 100", cwd: "/tmp", kill: () => {} });
+  test("countRunningBgJobs includes active running or stopping jobs", async () => {
+    await cleanupAllBgJobs();
+    registerBgJob({ command: "sleep 100", cwd: "/tmp", pid: 999999999, kill: () => {} });
     const finished = registerBgJob({ command: "echo hi", cwd: "/tmp", kill: () => {} });
     markBgJobDone(finished.id, 0);
 
     expect(countRunningBgJobs()).toBe(1);
-    cleanupAllBgJobs();
+    await cleanupAllBgJobs();
+  });
+
+  test("ASK rejects direct background registration without tracking a running job", async () => {
+    setCurrentMode("ASK");
+    let killCalls = 0;
+    const rejected = registerBgJob({
+      command: "must not start",
+      cwd: "/tmp",
+      kill: () => { killCalls++; },
+    });
+    await Promise.resolve();
+
+    expect(rejected.admitted).toBe(false);
+    expect(killCalls).toBe(1);
+    expect(getBgJob(rejected.id)).toBeUndefined();
+    expect(countRunningBgJobs()).toBe(0);
   });
 });

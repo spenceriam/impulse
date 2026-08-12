@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { ensureDefaultSkills } from "../src/skills/default-skills.js";
+import {
+  DefaultSkillScaffolding,
+  ensureDefaultSkills,
+} from "../src/skills/default-skills.js";
+import { listInstalledSkills } from "../src/tools/install-skill-source.js";
 
 describe("ensureDefaultSkills", () => {
   let defaultsDir: string;
@@ -103,5 +107,39 @@ describe("ensureDefaultSkills", () => {
     await ensureDefaultSkills(cwd);
 
     expect(fs.readFileSync(path.join(userSkillDir, "SKILL.md"), "utf-8")).toContain("User's own skill.");
+  });
+
+  test("ASK startup and resume are write-free until an explicit AGENT transition scaffolds once", async () => {
+    writeFixtureSkill("sample-skill");
+    const userSkillDir = path.join(cwd, ".agents", "skills", "user-skill");
+    const userSkillPath = path.join(userSkillDir, "SKILL.md");
+    fs.mkdirSync(userSkillDir, { recursive: true });
+    fs.writeFileSync(
+      userSkillPath,
+      "---\nname: user-skill\ndescription: existing readable skill\n---\n\nUser content.\n"
+    );
+    const userContent = fs.readFileSync(userSkillPath, "utf-8");
+    const scaffolding = new DefaultSkillScaffolding(cwd);
+
+    expect(await scaffolding.initialize("ASK", "startup")).toBe(false);
+    expect(await scaffolding.initialize("ASK", "session-resume")).toBe(false);
+    expect(await scaffolding.initialize("AGENT", "startup")).toBe(false);
+    expect(fs.readdirSync(path.join(cwd, ".agents", "skills"))).toEqual(["user-skill"]);
+    expect(fs.readFileSync(userSkillPath, "utf-8")).toBe(userContent);
+    expect(fs.existsSync(path.join(cwd, ".impulse"))).toBe(false);
+    expect(listInstalledSkills(cwd).map((skill) => skill.slug)).toEqual(["user-skill"]);
+
+    expect(await scaffolding.initialize("AGENT", "explicit-user-transition")).toBe(true);
+    const installed = path.join(cwd, ".agents", "skills", "sample-skill", "SKILL.md");
+    const marker = path.join(cwd, ".impulse", "default-skills.json");
+    expect(fs.existsSync(installed)).toBe(true);
+    expect(fs.existsSync(marker)).toBe(true);
+    const installedMtime = fs.statSync(installed).mtimeMs;
+    const markerMtime = fs.statSync(marker).mtimeMs;
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await scaffolding.initialize("AGENT", "explicit-user-transition")).toBe(false);
+    expect(fs.statSync(installed).mtimeMs).toBe(installedMtime);
+    expect(fs.statSync(marker).mtimeMs).toBe(markerMtime);
   });
 });

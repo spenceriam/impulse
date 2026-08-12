@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import {
-  buildPlanModeContextBlock,
+  buildStoredPlanContextBlock,
   createPlanRevision,
   getActivePlanRevision,
   type PlanningStyle,
@@ -9,7 +9,7 @@ import {
 import { toRelativePlanPath } from "../plan/paths.js";
 import { SessionManager } from "../session/manager.js";
 
-const DESCRIPTION = `Create a new plan revision in PLAN mode (latest revision becomes active context).
+const DESCRIPTION = `Create a new stored plan revision (latest revision becomes active context).
 
 Use when the user asks to revise or rework the plan — do not overwrite files in superseded revisions.
 First revision is created automatically on first plan write if none exists.`;
@@ -74,7 +74,7 @@ export const planRevisionTool: Tool<PlanRevisionInput> = Tool.define(
         "Active plan files:",
         paths,
         "",
-        buildPlanModeContextBlock(sessionId),
+        buildStoredPlanContextBlock(sessionId),
       ].join("\n"),
     };
   }

@@ -1,6 +1,6 @@
 # plan_revision
 
-Create a new plan revision in PLAN mode. The latest revision is always the active context for the main agent.
+Create a new stored plan revision in AGENT. The latest revision is always the active plan context for the main agent; planning and review can remain read-only in ASK.
 
 ## When to use
 

@@ -69,6 +69,10 @@ import {
 } from "../session/token-estimate.js";
 import { setAgentTurnActive } from "../session/turn-active.js";
 import {
+  canContinueAgentExecution,
+  registerAgentTurnExecution,
+} from "../session/turn-execution.js";
+import {
   ALLOW_ALL_TODO_NUDGE_MESSAGE,
   isTodoOnlyToolBatch,
   shouldInjectAllowAllTodoNudge,
@@ -90,17 +94,15 @@ import {
   snoozeLoopCheckin,
   type LoopCheckinDecision,
 } from "./loop-guard.js";
-import { buildDebugInstrumentationNudge } from "./debug-nudge.js";
 import { generateSystemPrompt, invalidatePromptCache } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
 import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
+import {
+  getAdvisorToolDefinitionForMode,
+  invokeAdvisorForMode,
+} from "./advisor-authority.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
-import {
-  checkPlanCompletionHandoff,
-  planCompletionToolBehavior,
-  type PlanCompletionDecision,
-} from "./plan-completion.js";
 import { modelSupportsVision } from "../api/capabilities.js";
 import type { PromptSegment } from "../cli/prompt-input.js";
 import { buildUserMessageContent, normalizePasteContent } from "../cli/prompt-input.js";
@@ -117,6 +119,7 @@ import {
 } from "../permission/task-batch.js";
 import type { ToolResult } from "../tools/registry";
 import { resolveSubagentThinkingEnabled } from "./subagent-thinking.js";
+import { taskModeError } from "../tools/task-authority.js";
 import {
   accumulateToolCallDelta,
   type PartialToolCall,
@@ -138,20 +141,12 @@ export interface LoopEvents {
   onAdvisorToken(text: string): void;
   /** Called when advisor finishes — passes the full response text as summary */
   onAdvisorEnd(summary: string): void;
-  /** Block until user approves or declines an advisor plan (optional). */
+  /** Block until the user chooses a read-only plan handoff (optional). */
   onPlanApproval?: (input: {
     planPath: string;
     summary: string;
     planMarkdown: string;
-  }) => Promise<"proceed" | "decline">;
-  /**
-   * Block until the user decides how to handle a PLAN → AGENT handoff once
-   * plan artifacts (tasks.md) exist. Intercepts set_mode("AGENT") from PLAN.
-   */
-  onPlanCompletion?: (input: {
-    planPath: string;
-    summary: string;
-  }) => Promise<PlanCompletionDecision>;
+  }) => Promise<"preview" | "agent" | "revise" | "stay">;
   /** Tool call lifecycle */
   onToolStart(id: string, name: string, args: Record<string, unknown>): void;
   onToolEnd(
@@ -184,9 +179,9 @@ export interface LoopEvents {
     contextTokenSource: FooterContextTokenSource;
     /** Prompt tokens served from provider cache this turn (when reported). */
     cacheReadTokens?: number;
-    /** DEBUG mode: leftover [IMPULSE_DEBUG] markers in edited files. */
-    debugInstrumentationNudge?: string;
   }): void;
+  /** Turn was cancelled at a confirmed execution boundary. */
+  onAbort?(): void;
   onHardCutoff(contextTokens: number): void;
   /** Fatal error */
   onError(err: Error): void;
@@ -257,8 +252,18 @@ export class AgentLoop {
     events: LoopEvents,
     turnOptions?: RunTurnOptions
   ): Promise<void> {
-    this.abortController = new AbortController();
-    const signal = this.abortController.signal;
+    const turnAbortController = new AbortController();
+    this.abortController = turnAbortController;
+    const signal = turnAbortController.signal;
+    const turnExecution = registerAgentTurnExecution(
+      () => turnAbortController.abort(),
+      { mutating: mode === "AGENT" }
+    );
+    if (!turnExecution.accepted) {
+      turnAbortController.abort();
+      events.onAbort?.();
+      return;
+    }
     setAgentTurnActive(true);
 
     let abortIterationText = "";
@@ -375,48 +380,12 @@ export class AgentLoop {
       this.pendingImages = [];
 
       // ── Tool definitions ───────────────────────────────────────────────────
-      // let: reassigned when the PLAN-completion handoff switches mode mid-turn
-      // (see checkPlanCompletionHandoff below) so subsequent iterations of this
-      // same turn see the AGENT tool set instead of the stale PLAN one.
+      // Reassigned after a model-requested AGENT -> ASK de-escalation so later
+      // iterations cannot keep advertising execution tools.
       let toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
 
-      // Add consult_advisor tool if experimental advisor is enabled
-      if (
-        config.advisorModel &&
-        config.advisorMode &&
-        isExperimentalAdvisorEnabled(config)
-      ) {
-        toolDefs.push({
-          type: "function",
-          function: {
-            name: "consult_advisor",
-            description:
-              "Consult the strategic advisor before mutating work. Include an **Executor draft** in context (your approach). " +
-              "Returns plan_markdown in the tool result — do NOT file_read the plan path. " +
-              "MUST be called before file writes, edits, non-readonly bash, or subagent launches.",
-            parameters: {
-              type: "object",
-              properties: {
-                topic: {
-                  type: "string",
-                  description: "Brief topic for the plan filename (3-8 words, e.g. 'refactor-auth-module')",
-                },
-                context: {
-                  type: "string",
-                  description:
-                    "Full context plus **Executor draft**: your reasoning, proposed approach, and what you need from the advisor",
-                },
-                type: {
-                  type: "string",
-                  enum: ["plan", "advisory"],
-                  description: "'plan' for new work / greenfield builds. 'advisory' for course corrections / error recovery",
-                },
-              },
-              required: ["topic", "context"],
-            },
-          },
-        });
-      }
+      const advisorToolDefinition = getAdvisorToolDefinitionForMode(mode, config);
+      if (advisorToolDefinition) toolDefs.push(advisorToolDefinition);
 
       // ── Agentic loop ───────────────────────────────────────────────────────
       let continueLoop = true;
@@ -439,7 +408,6 @@ export class AgentLoop {
       let planningLoopNudgeUsed = false;
       const bashCommandCounts = new Map<string, number>();
       let consecutiveTodoUnchangedCount = 0;
-      const debugEditedFiles = new Set<string>();
       let emptyRetryUsed = false;
       let lastUnproductiveCompact:
         | { tokens: number; messageCount: number }
@@ -624,7 +592,7 @@ export class AgentLoop {
         };
 
         for await (const chunk of manager.stream(streamOptions)) {
-          if (signal.aborted) break;
+          if (!canContinueAgentExecution(signal)) break;
 
           // Usage may arrive on a usage-only final chunk that carries an empty
           // choices array (OpenAI-compatible stream_options.include_usage).
@@ -677,7 +645,7 @@ export class AgentLoop {
         }
 
         abortIterationText = accumulatedText;
-        if (signal.aborted) break;
+        if (!canContinueAgentExecution(signal)) break;
 
         if (thinkingPhaseStartedAt !== null) {
           thinkingDurationMs += Date.now() - thinkingPhaseStartedAt;
@@ -800,9 +768,8 @@ export class AgentLoop {
             }
 
             const subagentType = item.args["subagent_type"];
-            if (mode === "PLAN" && subagentType !== "explore") {
-              const planMsg =
-                `PLAN mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`;
+            const planMsg = taskModeError(mode, subagentType);
+            if (planMsg) {
               const toolStart = Date.now();
               events.onToolStart(item.tc.id, "task", item.args);
               const durationMs = Date.now() - toolStart;
@@ -951,7 +918,7 @@ export class AgentLoop {
         };
 
         for (const tc of toolCalls) {
-          if (signal.aborted) break;
+          if (!canContinueAgentExecution(signal)) break;
 
           const parsedArgs = parseToolCallArguments(tc.argumentsJson);
           const args = parsedArgs.args;
@@ -1003,7 +970,7 @@ export class AgentLoop {
           }
 
           // Handle advisor tool specially
-          if (tc.name === "consult_advisor" && config.advisorModel) {
+          if (tc.name === "consult_advisor") {
             const toolStart = Date.now();
             events.onToolStart(tc.id, "consult_advisor", args);
 
@@ -1014,19 +981,45 @@ export class AgentLoop {
               function: { name: t.function.name, description: t.function.description ?? "" },
             }));
 
-            const advisorResult = await runAdvisorConsultation({
-              advisorModel: config.advisorModel,
-              fullSystemPrompt,
-              toolDefinitions: toolDefSummaries,
-              fullHistory: chatMessages,
-              topic: String(args["topic"] ?? "advisor-consult"),
-              context: String(args["context"] ?? ""),
-              callType: (args["type"] === "advisory" ? "advisory" : "plan"),
-              events,
-              signal,
+            const advisorInvocation = await invokeAdvisorForMode({
+              mode,
+              config,
+              source: "direct-model-dispatch",
+              invoke: () => runAdvisorConsultation({
+                advisorModel: config.advisorModel ?? "",
+                fullSystemPrompt,
+                toolDefinitions: toolDefSummaries,
+                fullHistory: chatMessages,
+                topic: String(args["topic"] ?? "advisor-consult"),
+                context: String(args["context"] ?? ""),
+                callType: (args["type"] === "advisory" ? "advisory" : "plan"),
+                events,
+                signal,
+              }),
             });
 
-            let userDecision: "proceed" | "decline" | undefined;
+            if (!advisorInvocation.executed || !advisorInvocation.value) {
+              const output = advisorInvocation.reason ?? "Advisor execution was not authorized.";
+              const blockedMsg: Message = {
+                role: "tool",
+                content: output,
+                tool_call_id: tc.id,
+                timestamp: new Date().toISOString(),
+              };
+              await SessionManager.addMessage(blockedMsg);
+              events.onToolEnd(
+                tc.id,
+                "consult_advisor",
+                { success: false, output },
+                Date.now() - toolStart
+              );
+              allSucceeded = false;
+              continue;
+            }
+
+            const advisorResult = advisorInvocation.value;
+
+            let userDecision: "preview" | "agent" | "revise" | "stay" | undefined;
             if (
               advisorResult.success &&
               advisorResult.planPath &&
@@ -1080,45 +1073,6 @@ export class AgentLoop {
 
           await flushTaskBatch();
 
-          // PLAN → AGENT handoff: when the model calls set_mode("AGENT") from
-          // PLAN mode with plan artifacts (tasks.md) already written, show the
-          // execute/proceed/revise/cancel overlay instead of switching modes
-          // silently. Bus events can't await a user decision, so this has to
-          // be intercepted here in the tool loop (mirrors the advisor
-          // consult_advisor special-case above).
-          if (
-            tc.name === "set_mode" &&
-            args["mode"] === "AGENT" &&
-            events.onPlanCompletion
-          ) {
-            const handoff = checkPlanCompletionHandoff(mode, "AGENT", session.id);
-            if (handoff) {
-              const toolStart = Date.now();
-              events.onToolStart(tc.id, "set_mode", args);
-
-              const decision = await events.onPlanCompletion({
-                planPath: handoff.planDirRel,
-                summary: String(args["reason"] ?? ""),
-              });
-              const behavior = planCompletionToolBehavior(decision, handoff.tasksPathRel);
-
-              let switchResult: ToolResult;
-              if (behavior.performSwitch) {
-                switchResult = await Tool.execute(tc.name, args);
-                mode = "AGENT";
-                toolDefs = Tool.getAPIDefinitionsForMode("AGENT");
-              } else {
-                switchResult = { success: true, output: `Mode unchanged (remains ${mode}).` };
-              }
-
-              const output = `${switchResult.output}\n\n${behavior.output}`;
-              const durationMs = Date.now() - toolStart;
-              await persistToolResult(tc.id, output);
-              events.onToolEnd(tc.id, "set_mode", { success: switchResult.success, output }, durationMs);
-              continue;
-            }
-          }
-
           // Question requires a questions array — fail fast with a clear tool row.
           // (Malformed JSON is already handled above, so args here parsed successfully.)
           if (
@@ -1142,24 +1096,20 @@ export class AgentLoop {
           const toolStart = Date.now();
           events.onToolStart(tc.id, tc.name, args);
 
-          let result = await Tool.execute(tc.name, args);
+          let result = await Tool.execute(tc.name, args, { callId: tc.id });
           const durationMs = Date.now() - toolStart;
+
+          if (tc.name === "set_mode" && result.success && result.metadata?.["mode"] === "ASK") {
+            mode = "ASK";
+            setCurrentMode(mode);
+            toolDefs = Tool.getAPIDefinitionsForMode(mode);
+          }
 
           if (!result.success) {
             this.consecutiveFailures++;
             allSucceeded = false;
           } else {
             this.consecutiveFailures = 0;
-          }
-
-          if (
-            mode === "DEBUG" &&
-            (tc.name === "file_write" || tc.name === "file_edit") &&
-            result.success
-          ) {
-            const editedPath =
-              typeof args["filePath"] === "string" ? args["filePath"] : "";
-            if (editedPath) debugEditedFiles.add(editedPath);
           }
 
           if (tc.name === "bash" && result.success) {
@@ -1201,6 +1151,11 @@ export class AgentLoop {
           await SessionManager.addMessage(toolResultMsg);
           events.onToolEnd(tc.id, tc.name, result, durationMs);
 
+          // A direct authority downgrade can arrive while the tool is active.
+          // Stop at this confirmed boundary before advisor recovery, another
+          // tool call, or the next provider continuation can begin.
+          if (!canContinueAgentExecution(signal)) break;
+
           if (tc.name === "file_write" && result.success) {
             const writePath = typeof args["filePath"] === "string" ? args["filePath"] : "";
             if (writePath) {
@@ -1225,43 +1180,50 @@ export class AgentLoop {
           // Auto-stuck: trigger advisor if too many consecutive failures
           if (
             this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES &&
-            config.advisorModel &&
-            isExperimentalAdvisorEnabled(config) &&
             !signal.aborted
           ) {
-            this.consecutiveFailures = 0;
             const stuckContext = `Auto-stuck detection: failed ${this.MAX_CONSECUTIVE_FAILURES} times in a row. Last error: ${result.output}. Need corrective guidance.`;
-            events.onAdvisorStart(config.advisorModel);
 
             const toolDefSummaries = toolDefs.map((t) => ({
               type: t.type,
               function: { name: t.function.name, description: t.function.description ?? "" },
             }));
 
-            const advisorResult = await runAdvisorConsultation({
-              advisorModel: config.advisorModel,
-              fullSystemPrompt: lastSystemPrompt,
-              toolDefinitions: toolDefSummaries,
-              fullHistory: chatMessages,
-              topic: "auto-stuck-recovery",
-              context: stuckContext,
-              callType: "advisory",
-              events,
-              signal,
+            const advisorInvocation = await invokeAdvisorForMode({
+              mode,
+              config,
+              source: "automatic-stuck-loop",
+              invoke: () => runAdvisorConsultation({
+                advisorModel: config.advisorModel ?? "",
+                fullSystemPrompt: lastSystemPrompt,
+                toolDefinitions: toolDefSummaries,
+                fullHistory: chatMessages,
+                topic: "auto-stuck-recovery",
+                context: stuckContext,
+                callType: "advisory",
+                events,
+                signal,
+              }),
             });
 
-            const guidance = advisorResult.success ? advisorResult.summary : `Advisor error: ${advisorResult.error ?? "unknown"}`;
+            if (advisorInvocation.executed && advisorInvocation.value) {
+              this.consecutiveFailures = 0;
+              const advisorResult = advisorInvocation.value;
+              const guidance = advisorResult.success ? advisorResult.summary : `Advisor error: ${advisorResult.error ?? "unknown"}`;
 
-            const advisorInjection: Message = {
-              role: "assistant",
-              content: `[Advisor guidance: ${guidance}]`,
-              timestamp: new Date().toISOString(),
-            };
-            await SessionManager.addMessage(advisorInjection);
+              const advisorInjection: Message = {
+                role: "assistant",
+                content: `[Advisor guidance: ${guidance}]`,
+                timestamp: new Date().toISOString(),
+              };
+              await SessionManager.addMessage(advisorInjection);
+            }
           }
         }
 
         await flushTaskBatch();
+
+        if (!canContinueAgentExecution(signal)) break;
 
         if (!allSucceeded && toolCalls.length > 0) {
           // Keep looping to let the model handle the errors
@@ -1379,6 +1341,7 @@ export class AgentLoop {
           iterationText: abortIterationText,
           iterationAssistantPersisted: abortIterationAssistantPersisted,
         });
+        events.onAbort?.();
         return;
       }
 
@@ -1425,11 +1388,6 @@ export class AgentLoop {
         estimatedTokens: estimatedContextTokens,
       });
       const contextTokens = contextUsage.tokens;
-      const debugInstrumentationNudge =
-        mode === "DEBUG"
-          ? buildDebugInstrumentationNudge([...debugEditedFiles])
-          : undefined;
-
       events.onTurnEnd({
         inputTokens: contextTokens,
         outputTokens,
@@ -1438,9 +1396,6 @@ export class AgentLoop {
         durationMs,
         contextTokenSource: contextUsage.source,
         ...(latestCacheReadTokens > 0 ? { cacheReadTokens: latestCacheReadTokens } : {}),
-        ...(debugInstrumentationNudge
-          ? { debugInstrumentationNudge }
-          : {}),
       });
 
     } catch (err) {
@@ -1450,10 +1405,12 @@ export class AgentLoop {
           iterationText: abortIterationText,
           iterationAssistantPersisted: abortIterationAssistantPersisted,
         });
+        events.onAbort?.();
         return;
       }
       events.onError(err instanceof Error ? err : new Error(String(err)));
     } finally {
+      turnExecution.complete();
       setAgentTurnActive(false);
       this.abortController = null;
     }

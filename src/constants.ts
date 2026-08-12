@@ -1,40 +1,42 @@
 export const MODES = [
+  "ASK",
   "AGENT",
-  "EXPLORE",
-  "PLAN",
-  "DEBUG",
 ] as const;
 
 export type Mode = typeof MODES[number];
 
+/** Canonical runtime authority at process and renderer startup. */
+export const DEFAULT_MODE: Mode = "ASK";
+
 const LEGACY_MODE_MAP: Record<string, Mode> = {
   AUTO: "AGENT",
   AGENT: "AGENT",
-  PLANNER: "PLAN",
-  "PLAN-PRD": "PLAN",
   WORK: "AGENT",
-  EXPLORE: "EXPLORE",
-  PLAN: "PLAN",
-  DEBUG: "DEBUG",
+  ASK: "ASK",
+  EXPLORE: "ASK",
+  PLAN: "ASK",
+  PLANNER: "ASK",
+  "PLAN-PRD": "ASK",
+  DEBUG: "ASK",
 };
 
 export function normalizeMode(mode?: string): Mode {
-  if (!mode) return "AGENT";
-  return LEGACY_MODE_MAP[mode.toUpperCase()] ?? "AGENT";
+  if (!mode) return DEFAULT_MODE;
+  return LEGACY_MODE_MAP[mode.toUpperCase()] ?? DEFAULT_MODE;
 }
 
-/** User-facing mode label. WORK is a legacy alias mapped to AGENT in normalizeMode. */
+/** User-facing canonical mode label. */
 export function displayModeLabel(mode: Mode | string): string {
   return normalizeMode(mode);
 }
 
-/** Default execution mode — omitted from context bar (implicit). */
+/** Safe default mode for new and unrecognized state. */
 export function isDefaultMode(mode: Mode | string): boolean {
-  return normalizeMode(mode) === "AGENT";
+  return normalizeMode(mode) === DEFAULT_MODE;
 }
 
 /** Modes shown in /mode help and Tab cycling. */
-export const MODE_CYCLE: Mode[] = ["AGENT", "EXPLORE", "PLAN", "DEBUG"];
+export const MODE_CYCLE: Mode[] = ["ASK", "AGENT"];
 
 export function displayModeOptions(): string {
   return MODE_CYCLE.map(displayModeLabel).join(" | ");

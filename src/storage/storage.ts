@@ -1,7 +1,17 @@
 import { Global } from "../global";
 import fs from "fs/promises";
 import path from "path";
-import { writeJsonAtomic } from "../util/atomic-write.js";
+import {
+  stageJsonAtomic,
+  writeJsonAtomic,
+  type StagedAtomicWrite,
+} from "../util/atomic-write.js";
+import { withSessionCommitLock } from "../session/commit-lock.js";
+
+export interface StorageWriteGuard {
+  canCommit(): boolean;
+  sessionID?: string;
+}
 
 class NotFoundErrorImpl extends Error {
   constructor(message: string) {
@@ -61,9 +71,36 @@ export namespace Storage {
     }
   }
 
-  export async function write<T>(key: string[], content: T): Promise<void> {
+  export async function write<T>(
+    key: string[],
+    content: T,
+    guard?: StorageWriteGuard
+  ): Promise<void> {
     const target = keyToPath(key);
-    await writeJsonAtomic(target, content);
+    if (!guard) {
+      await writeJsonAtomic(target, content);
+      return;
+    }
+
+    if (!guard.canCommit()) return;
+    const stage = await stageJsonAtomic(target, content);
+    try {
+      if (guard.sessionID) {
+        await withSessionCommitLock(guard.sessionID, () =>
+          stage.commitIf(guard.canCommit)
+        );
+      } else {
+        await stage.commitIf(guard.canCommit);
+      }
+    } catch (error) {
+      await stage.rollback().catch(() => {});
+      throw error;
+    }
+  }
+
+  /** Prepare a storage replacement without making it visible. */
+  export async function stage<T>(key: string[], content: T): Promise<StagedAtomicWrite> {
+    return stageJsonAtomic(keyToPath(key), content);
   }
 
   export async function update<T>(

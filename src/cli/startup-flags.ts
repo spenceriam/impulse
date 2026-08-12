@@ -20,6 +20,7 @@ export const KNOWN_BOOLEAN_FLAGS = new Set([
   "--dry-run",
   "--aa",
   "--allow-all",
+  "--acp",
   "--resume",
   "-r",
 ]);

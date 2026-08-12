@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.10.0] - 2026-08-09
+## [1.10.0] - 2026-08-12
 
   **Type:** minor
-  **Title:** Directory tooling, tool transparency, and streaming UI hardening
+  **Title:** Two-mode authority, safe previews, ACP, and terminal UX overhaul
 
   ### Added
+  - ASK and AGENT are now the only user-visible modes, with every new and resumed session defaulting safely to read-only ASK and consequential work requiring an explicit handoff
+  - ASK can delegate read-only investigation to explore subagents, request one minimal user-run diagnostic when local evidence is unavailable, or offer the exact `Preview safely` / `Switch to AGENT` / `Stay in ASK` execution choices
+  - Safe Preview runs proposed changes in an isolated temporary Git checkout under a capability-probed Bubblewrap sandbox, then requires an explicit Apply, Discard, or Keep decision before the active worktree can change
+  - `/settings` now includes a persisted global approval policy (`Prompt` or `Allow-All`) and presentation density (`Compact` or `Comfy`); Allow-All carries a concise warning and remains explicitly separate from sandbox protection
+  - Stable Agent Client Protocol v1 support via `impulse --acp`, including independent sessions, streaming, tools, permissions, plans, cancellation, configuration, and owned stdio MCP servers over the same session-scoped runtime used by the TUI
+  - `/skills` now owns progressive skill discovery through a submenu, while the agent proactively identifies and loads relevant on-disk skills without flooding top-level slash autocomplete
   - **#128** -- New `ls` directory-listing tool, available in every mode alongside `file_read`/`glob`/`grep`, with reciprocal "did you mean" guidance between `file_read` and `ls` on directory/file mismatches
   - Tool calls that get silently auto-repaired (e.g. `null` sent on an optional field) now return a `Note:` explaining what was repaired and how to send valid JSON next time, instead of carrying the model silently
   - Truncated tool output (bash, grep, the harness-wide result cap) now states exactly what was kept and the precise retry (`offset: N`, a narrower pattern/path, etc.) instead of a dead-end "N chars omitted"
@@ -21,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `/user` profile's custom-instructions field can now be edited inline (press `i`, multi-line, Ctrl+S to save) instead of leaving the TUI for a plain-text prompt
 
   ### Fixed
+  - Session replacement, mode transitions, cancellation, and shutdown now revoke active execution before changing authority and use generation-safe atomic persistence so stale turns cannot mutate or overwrite a newer session
+  - User prompts use the production presentation again; streamed tables, content immediately below tables, thinking visibility, compact tool rows, permission prompts, and narrow-terminal authority labels now share one stable visual hierarchy
+  - Client-provided MCP tools are treated as untrusted and AGENT-only even when a server self-asserts read-only metadata; permission policy is still enforced unless Allow-All was explicitly enabled
   - **#127** -- Streaming assistant text no longer splits mid-sentence, mid-heading, mid-list-item, or mid-table when the mutable streaming block rotates; cuts only at safe markdown boundaries (paragraph preferred, last-complete-line as fallback)
   - **#127** -- A thinking/reasoning burst arriving mid-response (interleaved reasoning, e.g. GLM-family models) no longer hard-cuts the streaming text at an arbitrary character — it now defers to the same safe-boundary logic, so inline bold/heading/list/table spans never tear in half around a thinking interrupt
   - An empty or whitespace-only reasoning delta no longer opens a thinking block or disturbs the streaming text at all

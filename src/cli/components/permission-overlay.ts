@@ -10,6 +10,7 @@ import {
   formatPermissionWhyPolicy,
 } from "../permission-display.js";
 import { overlayBoxWidth } from "../layout.js";
+import type { PresentationDensity } from "../presentation-density.js";
 import {
   intrinsicFramedBoxWidth,
   measureOverlayTopChromeWidth,
@@ -50,14 +51,16 @@ export class PermissionOverlay implements Component {
   private sessionWildcard = false;
   private confirmAlways = false;
   private measureTerminalWidth: number | null = null;
+  private readonly presentationDensity: PresentationDensity;
 
   onDecision?: (
     response: PermissionResponse,
     opts?: { wildcard?: boolean }
   ) => void;
 
-  constructor(request: PermissionRequest) {
+  constructor(request: PermissionRequest, presentationDensity: PresentationDensity = "compact") {
     this.request = request;
+    this.presentationDensity = presentationDensity;
   }
 
   setRequest(request: PermissionRequest): void {
@@ -166,6 +169,7 @@ export class PermissionOverlay implements Component {
     lines.push(overlayTitleLine("Permission required", boxWidth, 33));
 
     const pushBoxLine = (content = "") => {
+      if (!content && this.presentationDensity === "compact") return;
       lines.push(overlaySideLine(content, innerWidth, boxWidth));
     };
 
@@ -197,6 +201,13 @@ export class PermissionOverlay implements Component {
     const reason = formatPermissionReason(this.request);
     const { why } = formatPermissionWhyPolicy(this.request);
 
+    const boundary = typeof this.request.metadata?.["executionBoundary"] === "string"
+      ? String(this.request.metadata["executionBoundary"])
+      : "HOST";
+    const policy = typeof this.request.metadata?.["approvalPolicy"] === "string"
+      ? String(this.request.metadata["approvalPolicy"])
+      : "PROMPT";
+    pushBoxLine(`${A.dim}${boundary} · ${policy}${A.reset}`);
     pushBoxLine(`${A.bold}${action}${A.reset}`);
 
     for (const line of wrapTextWithAnsi(reason, innerWidth)) {

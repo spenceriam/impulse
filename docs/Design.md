@@ -1,5 +1,7 @@
 # Design
 
+> Historical OpenTUI/pre-v1 design snapshot. It does not describe the active Pi-TUI runtime; use `README.md`, `AGENTS.md`, and `CONTEXT.md` for the current ASK/AGENT architecture.
+
 > Architecture and system design for impulse
 
 Generated: 01-19-2026

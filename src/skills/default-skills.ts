@@ -8,6 +8,7 @@ import { existsSync, cpSync, mkdirSync, readdirSync, readFileSync, statSync } fr
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { writeJsonAtomic } from "../util/atomic-write.js";
+import type { Mode } from "../constants.js";
 
 const MARKER_PATH = ".impulse/default-skills.json";
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
@@ -37,6 +38,11 @@ function getDefaultSkillsDir(): string | null {
 }
 
 type ScaffoldMarker = Record<string, string>;
+
+export type DefaultSkillInitializationSource =
+  | "startup"
+  | "session-resume"
+  | "explicit-user-transition";
 
 function readMarker(cwd: string): ScaffoldMarker {
   const markerPath = join(cwd, MARKER_PATH);
@@ -120,5 +126,26 @@ export async function ensureDefaultSkills(cwd: string): Promise<void> {
 
   if (markerChanged) {
     await writeJsonAtomic(join(cwd, MARKER_PATH), marker);
+  }
+}
+
+/**
+ * Authority gate for default-skill writes during one renderer lifecycle.
+ * Existing skills can always be discovered separately; bundled defaults are
+ * scaffolded only after the user explicitly transitions into AGENT.
+ */
+export class DefaultSkillScaffolding {
+  private attempted = false;
+
+  constructor(private readonly cwd: string) {}
+
+  async initialize(mode: Mode, source: DefaultSkillInitializationSource): Promise<boolean> {
+    if (mode !== "AGENT" || source !== "explicit-user-transition" || this.attempted) {
+      return false;
+    }
+
+    this.attempted = true;
+    await ensureDefaultSkills(this.cwd);
+    return true;
   }
 }

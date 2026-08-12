@@ -2,14 +2,17 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { buildSkillRows } from "../src/cli/renderer.js";
+import {
+  buildSkillActionRows,
+  buildSkillRows,
+  buildSkillsMenuRows,
+} from "../src/cli/skills-presentation.js";
 import { SelectableListOverlay } from "../src/cli/components/selectable-list-overlay.js";
 import { removeSkill } from "../src/tools/skill-remove.js";
-import { listDynamicSkillCommands, registerSkillCommand, unregisterSkillCommand } from "../src/cli/slash-dispatch.js";
 import type { InstalledSkillMeta } from "../src/tools/install-skill-source.js";
 
 describe("buildSkillRows", () => {
-  test("maps slug, command, and description into row fields", () => {
+  test("maps slug and description into row fields without top-level command chrome", () => {
     const skills: InstalledSkillMeta[] = [
       { slug: "grill-with-docs", name: "Grill", description: "Interview-style doc grilling", command: "grill", path: "/x/SKILL.md" },
       { slug: "no-frills", name: "Plain", path: "/y/SKILL.md" },
@@ -19,12 +22,46 @@ describe("buildSkillRows", () => {
     expect(rows[0]).toEqual({
       id: "grill-with-docs",
       label: "grill-with-docs",
-      metaRight: "/grill",
       secondary: "Interview-style doc grilling",
     });
     expect(rows[1]).toEqual({ id: "no-frills", label: "no-frills" });
     expect(rows[1]?.metaRight).toBeUndefined();
     expect(rows[1]?.secondary).toBeUndefined();
+  });
+
+  test("shows progressive use/inspect actions and gates management by authority", () => {
+    const skill: InstalledSkillMeta = {
+      slug: "grill-with-docs",
+      name: "Grill",
+      description: "Interview-style doc grilling",
+      command: "grill",
+      path: "/x/SKILL.md",
+    };
+
+    expect(buildSkillActionRows(skill, "ASK").map((row) => row.label)).toEqual([
+      "Use skill",
+      "Inspect instructions",
+    ]);
+    expect(buildSkillActionRows(skill, "AGENT").map((row) => row.label)).toEqual([
+      "Use skill",
+      "Inspect instructions",
+      "Modify skill",
+      "Remove skill",
+    ]);
+  });
+
+  test("offers install only in AGENT and has a truthful ASK empty state", () => {
+    expect(buildSkillsMenuRows([], "ASK")).toEqual([
+      {
+        id: "skills:empty",
+        label: "No skills installed",
+        secondary: "ASK can inspect skills; switch to AGENT to install one",
+      },
+    ]);
+    expect(buildSkillsMenuRows([], "AGENT").map((row) => row.label)).toEqual([
+      "No skills installed",
+      "Install skill…",
+    ]);
   });
 
   test("returns an empty array for no skills", () => {
@@ -83,22 +120,17 @@ describe("removeSkill", () => {
       path.join(skillDir, "SKILL.md"),
       `---\nname: ${slug}\ndescription: test\ncommand: removemetest\n---\n\nBody.\n`
     );
-    registerSkillCommand("removemetest", slug);
   });
 
   afterEach(() => {
-    unregisterSkillCommand("removemetest");
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  test("deletes the skill directory and unregisters its slash command", () => {
-    expect(listDynamicSkillCommands()).toContainEqual({ cmd: "removemetest", slug });
-
+  test("deletes the skill directory", () => {
     const result = removeSkill(tmp, slug);
 
     expect(result.success).toBe(true);
     expect(fs.existsSync(path.join(tmp, ".agents", "skills", slug))).toBe(false);
-    expect(listDynamicSkillCommands()).not.toContainEqual({ cmd: "removemetest", slug });
   });
 
   test("reports failure for a skill that isn't installed", () => {

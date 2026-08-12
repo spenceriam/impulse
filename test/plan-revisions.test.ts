@@ -68,7 +68,7 @@ describe("plan revisions", () => {
 
     const initialDir = getRevisionDir(sessionId, "initial", tmp);
     const prd = path.join(initialDir, "PRD.md");
-    expect(validatePlanWritePath(prd, sessionId, tmp)).toContain("PLAN mode allows only");
+    expect(validatePlanWritePath(prd, sessionId, tmp)).toContain("Stored plan revisions allow only");
     expect(listRevisionIds(sessionId, tmp)).toEqual([]);
   });
 
@@ -90,13 +90,13 @@ describe("plan revisions", () => {
   });
 });
 
-describe("PLAN mode tool surface", () => {
-  test("allows file_edit and web tools for main agent", () => {
-    expect(isToolAllowedForMode("file_edit", "PLAN")).toBe(true);
-    expect(isToolAllowedForMode("web_search", "PLAN")).toBe(true);
-    expect(isToolAllowedForMode("bash", "PLAN")).toBe(false);
-    expect(isToolAllowedForMode("plan_revision", "PLAN")).toBe(true);
-    expect(isToolAllowedForMode("install_skill", "PLAN")).toBe(true);
+describe("stored plan tools under ASK authority", () => {
+  test("keeps research available without exposing stored-plan mutation", () => {
+    expect(isToolAllowedForMode("file_edit", "ASK")).toBe(false);
+    expect(isToolAllowedForMode("web_search", "ASK")).toBe(true);
+    expect(isToolAllowedForMode("bash", "ASK")).toBe(false);
+    expect(isToolAllowedForMode("plan_revision", "ASK")).toBe(false);
+    expect(isToolAllowedForMode("install_skill", "ASK")).toBe(false);
   });
 
   test("explore subagent includes web tools", () => {

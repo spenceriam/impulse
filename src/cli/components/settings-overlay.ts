@@ -1,8 +1,10 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
 import type {
   BottomBarVisual,
+  ApprovalPolicy,
   ReasoningLevel,
   ThinkingDisplay,
+  PresentationDensity,
 } from "../../util/config.js";
 import { composeScrollableOverlay } from "./overlay-scroll-region.js";
 import {
@@ -23,14 +25,19 @@ const COMM_STYLES = ["balanced", "concise", "detailed", "casual", "technical"] a
 const THINKING_CYCLE: ThinkingDisplay[] = ["off", "summary", "full"];
 const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
 const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
+const APPROVAL_POLICY_CYCLE: ApprovalPolicy[] = ["prompt", "allow-all"];
+const DENSITY_CYCLE: PresentationDensity[] = ["compact", "comfy"];
 
 export interface SettingsValues {
+  presentationDensity: PresentationDensity;
+  approvalPolicy: ApprovalPolicy;
   thinkingDisplay: ThinkingDisplay;
   reasoningLevel: ReasoningLevel;
   responsePreference: string;
   statsOnExit: boolean;
   showSubagentThinking: boolean;
   useSubagentModel: boolean;
+  workerModel: string;
   subagentModel?: string;
   visionModelOverride?: string;
   compactToolOutput: boolean;
@@ -39,12 +46,15 @@ export interface SettingsValues {
 
 export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boolean {
   return (
+    a.presentationDensity === b.presentationDensity &&
     a.thinkingDisplay === b.thinkingDisplay &&
+    a.approvalPolicy === b.approvalPolicy &&
     a.reasoningLevel === b.reasoningLevel &&
     a.responsePreference === b.responsePreference &&
     a.statsOnExit === b.statsOnExit &&
     a.showSubagentThinking === b.showSubagentThinking &&
     a.useSubagentModel === b.useSubagentModel &&
+    a.workerModel.trim() === b.workerModel.trim() &&
     (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "") &&
     (a.visionModelOverride?.trim() ?? "") === (b.visionModelOverride?.trim() ?? "") &&
     a.compactToolOutput === b.compactToolOutput &&
@@ -56,10 +66,11 @@ export interface SettingsOverlayOptions {
   values: SettingsValues;
 }
 
-type RowKind = "cycle" | "bool" | "vision" | "subagentModel";
+type RowKind = "cycle" | "bool" | "vision" | "workerModel" | "subagentModel";
 
 type SettingsRow = {
   key: keyof SettingsValues;
+  group: "Presentation" | "Execution" | "Agents" | "Model" | "Vision" | "Status";
   label: string;
   hint: string;
   kind: RowKind;
@@ -111,62 +122,93 @@ export class SettingsOverlay implements Component {
 
   private readonly rows: SettingsRow[] = [
     {
+      key: "presentationDensity",
+      group: "Presentation",
+      label: "Density",
+      hint: "compact (default) or comfy; behavior is unchanged",
+      kind: "cycle",
+    },
+    {
       key: "thinkingDisplay",
+      group: "Presentation",
       label: "Thinking display",
       hint: "off → summary (Thought for…) → full stream",
       kind: "cycle",
     },
     {
       key: "reasoningLevel",
+      group: "Presentation",
       label: "Reasoning depth",
       hint: "Provider reasoning level for new turns",
       kind: "cycle",
     },
     {
       key: "responsePreference",
+      group: "Presentation",
       label: "Communication style",
       hint: "balanced / concise / detailed / casual / technical",
       kind: "cycle",
     },
     {
-      key: "statsOnExit",
-      label: "Stats on exit",
-      hint: "Full stats on /exit and in /usage when on",
-      kind: "bool",
-    },
-    {
-      key: "bottomBarVisual",
-      label: "Bottom bar visuals",
-      hint: "full → reduced → minimal → off",
+      key: "approvalPolicy",
+      group: "Execution",
+      label: "Approval policy",
+      hint: "prompt or allow-all; this does not change execution isolation",
       kind: "cycle",
     },
     {
-      key: "compactToolOutput",
-      label: "Compact tool rows",
-      hint: "Dim one-liners for read-only tools; expand to see detail",
-      kind: "bool",
-    },
-    {
       key: "showSubagentThinking",
+      group: "Agents",
       label: "Subagent thinking",
       hint: "Show thinking progress inside task tool rows",
       kind: "bool",
     },
     {
+      key: "workerModel",
+      group: "Model",
+      label: "Worker model",
+      hint: "Main model for new turns; Enter opens the model picker",
+      kind: "workerModel",
+    },
+    {
       key: "useSubagentModel",
+      group: "Model",
       label: "Subagent model",
       hint: "Use a separate model for task subagents",
       kind: "subagentModel",
     },
     {
       key: "visionModelOverride",
+      group: "Vision",
       label: "Vision override",
       hint: "Model for images when main model lacks vision",
       kind: "vision",
     },
+    {
+      key: "compactToolOutput",
+      group: "Status",
+      label: "Compact tool rows",
+      hint: "Dim one-liners for read-only tools; expand to see detail",
+      kind: "bool",
+    },
+    {
+      key: "bottomBarVisual",
+      group: "Status",
+      label: "Bottom bar visuals",
+      hint: "full → reduced → minimal → off",
+      kind: "cycle",
+    },
+    {
+      key: "statsOnExit",
+      group: "Status",
+      label: "Stats on exit",
+      hint: "Full stats on /exit and in /usage when on",
+      kind: "bool",
+    },
   ];
 
   onPickSubagentModel?: () => void;
+  onPickWorkerModel?: () => void;
   onEnableSubagentModel?: () => void;
   onPickVisionOverride?: () => void;
   onClearVisionOverride?: () => void;
@@ -217,6 +259,10 @@ export class SettingsOverlay implements Component {
 
   private displayValue(row: SettingsRow): string {
     switch (row.key) {
+      case "presentationDensity":
+        return formatCycleValue(row.label, this.values.presentationDensity);
+      case "approvalPolicy":
+        return formatCycleValue(row.label, this.values.approvalPolicy);
       case "thinkingDisplay":
         return formatCycleValue(row.label, this.values.thinkingDisplay);
       case "reasoningLevel":
@@ -238,6 +284,8 @@ export class SettingsOverlay implements Component {
               this.values.subagentModel?.trim() || "(pick model)"
             )
           : formatBool(false);
+      case "workerModel":
+        return formatCycleValue(row.label, this.values.workerModel || "(pick model)");
       case "visionModelOverride":
         return formatCycleValue(
           row.label,
@@ -261,6 +309,10 @@ export class SettingsOverlay implements Component {
       }
       if (row.key === "useSubagentModel" && this.values.useSubagentModel) {
         this.onPickSubagentModel?.();
+        return;
+      }
+      if (row.key === "workerModel") {
+        this.onPickWorkerModel?.();
         return;
       }
       if (row.key === "visionModelOverride") {
@@ -299,6 +351,18 @@ export class SettingsOverlay implements Component {
 
   private cycleRow(row: SettingsRow): void {
     switch (row.key) {
+      case "presentationDensity":
+        this.values.presentationDensity = cycleValue(
+          this.values.presentationDensity,
+          DENSITY_CYCLE
+        );
+        break;
+      case "approvalPolicy":
+        this.values.approvalPolicy = cycleValue(
+          this.values.approvalPolicy,
+          APPROVAL_POLICY_CYCLE
+        );
+        break;
       case "thinkingDisplay":
         this.values.thinkingDisplay = cycleValue(
           this.values.thinkingDisplay,
@@ -341,6 +405,9 @@ export class SettingsOverlay implements Component {
         }
         break;
       }
+      case "workerModel":
+        this.onPickWorkerModel?.();
+        break;
       case "visionModelOverride":
         if (this.values.visionModelOverride?.trim()) {
           delete this.values.visionModelOverride;
@@ -357,14 +424,19 @@ export class SettingsOverlay implements Component {
 
     const top = [
       overlayTitleLine("Settings", boxWidth),
-      overlayEmptyLine(boxWidth),
+      ...(this.values.presentationDensity === "comfy" ? [overlayEmptyLine(boxWidth)] : []),
     ];
 
     const body: string[] = [];
     const rowSpans: { start: number; length: number }[] = [];
+    let previousGroup: SettingsRow["group"] | null = null;
     for (let i = 0; i < this.rows.length; i++) {
       const start = body.length;
       const row = this.rows[i]!;
+      if (row.group !== previousGroup) {
+        body.push(overlaySideLine(` ${overlayMuted(row.group)}`, innerWidth, boxWidth));
+        previousGroup = row.group;
+      }
       const selected = i === this.selectedIndex;
       const inner = formatSettingRowInner(
         row.label,
@@ -378,12 +450,16 @@ export class SettingsOverlay implements Component {
           ? padSelectedSideLine(inner, innerWidth, boxWidth)
           : overlaySideLine(inner, innerWidth, boxWidth)
       );
-      body.push(overlaySideLine(hint, innerWidth, boxWidth));
+      if (this.values.presentationDensity === "comfy" || selected) {
+        body.push(overlaySideLine(hint, innerWidth, boxWidth));
+      }
       rowSpans.push({ start, length: body.length - start });
     }
 
     const buildBottom = (footerText: string): string[] => {
-      const bottom: string[] = [overlayEmptyLine(boxWidth)];
+      const bottom: string[] = this.values.presentationDensity === "comfy"
+        ? [overlayEmptyLine(boxWidth)]
+        : [];
       overlayPushWrapped(bottom, footerText, innerWidth, boxWidth);
       bottom.push(overlayBottomBorder(boxWidth));
       return bottom;

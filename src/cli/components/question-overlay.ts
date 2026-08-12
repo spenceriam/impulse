@@ -1,6 +1,7 @@
 import { type Component, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
 import { overlayBoxWidth } from "../layout.js";
+import type { PresentationDensity } from "../presentation-density.js";
 import {
   handleOverlayScrollInput,
   overlayScrollPageStep,
@@ -43,14 +44,20 @@ export class QuestionOverlay implements Component {
   /** Index in buildAllLines output where footer + bottom border begin. */
   private chromeBottomStart = 0;
   private allLinesLength = 0;
+  private readonly presentationDensity: PresentationDensity;
 
   onSubmit?: (answers: string[][]) => void;
   onAbort?: () => void;
 
-  constructor(input: { context: string | undefined; questions: Question[] }) {
+  constructor(input: {
+    context: string | undefined;
+    questions: Question[];
+    presentationDensity?: PresentationDensity;
+  }) {
     this.context = input.context;
     this.questions = input.questions;
     this.answers = input.questions.map(() => []);
+    this.presentationDensity = input.presentationDensity ?? "comfy";
   }
 
   invalidate(): void {}
@@ -286,6 +293,7 @@ export class QuestionOverlay implements Component {
     lines.push(overlayTitleLine("Need your input", boxWidth));
 
     const pushBoxLine = (content = "") => {
+      if (!content && this.presentationDensity === "compact") return;
       lines.push(overlaySideLine(content, innerWidth, boxWidth));
     };
 

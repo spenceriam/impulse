@@ -19,7 +19,7 @@ describe("shouldShowSlashAutocomplete", () => {
   });
 
   test("lists all prefix matches when token is partial", () => {
-    const result = shouldShowSlashAutocomplete("/sh", COMMANDS);
+    const result = shouldShowSlashAutocomplete("/sho", COMMANDS);
     expect(result.show).toBe(true);
     expect(result.matches.map((m) => m.cmd).sort()).toEqual(["/show", "/show-think"]);
   });

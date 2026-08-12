@@ -3,6 +3,7 @@ import { Tool, ToolResult } from "./registry";
 import { executeSubagent } from "../agent/task-runner.js";
 import { formatTaskToolResultFromRun, type TaskCallSpec } from "../agent/task-pool.js";
 import { getCurrentMode } from "./mode-state";
+import { taskModeError } from "./task-authority.js";
 
 const DESCRIPTION = `Launch a subagent for delegated work.
 
@@ -37,10 +38,11 @@ export const taskTool: Tool<TaskInput> = Tool.define(
   async (input: TaskInput): Promise<ToolResult> => {
     try {
       const currentMode = getCurrentMode();
-      if (currentMode === "PLAN" && input.subagent_type !== "explore") {
+      const modeError = taskModeError(currentMode, input.subagent_type);
+      if (modeError) {
         return {
           success: false,
-          output: `PLAN mode only allows explore subagents. Use subagent_type="explore" for research-only delegation.`,
+          output: modeError,
         };
       }
 

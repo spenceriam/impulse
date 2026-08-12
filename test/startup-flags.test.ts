@@ -16,6 +16,7 @@ describe("findUnknownFlag", () => {
     expect(findUnknownFlag(["--auto-update"])).toBeUndefined();
     expect(findUnknownFlag(["--aa"])).toBeUndefined();
     expect(findUnknownFlag(["--allow-all"])).toBeUndefined();
+    expect(findUnknownFlag(["--acp"])).toBeUndefined();
     expect(findUnknownFlag(["--resume"])).toBeUndefined();
     expect(findUnknownFlag(["-r"])).toBeUndefined();
   });

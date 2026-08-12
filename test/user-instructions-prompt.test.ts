@@ -42,7 +42,7 @@ describe("user instructions provider integration", () => {
       expect(messages[0]?.content).not.toContain("legacy value must not win");
     }
 
-    const explorePrompt = await generateSystemPrompt("EXPLORE", projectDir, config, {
+    const explorePrompt = await generateSystemPrompt("ASK", projectDir, config, {
       sessionId: "explore-session",
       userInstructionsPath: instructionsPath,
     });

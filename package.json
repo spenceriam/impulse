@@ -7,11 +7,14 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun run scripts/build.ts",
+    "gauntlet:capture": "bun run src/cli/ux-capture.ts",
     "start": "bun run dist/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.3.0",
     "@mariozechner/pi-tui": "^0.73.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@vscode/ripgrep": "^1.18.0",
     "agent-browser": "^0.27.0",
     "diff": "^8.0.3",
@@ -19,7 +22,7 @@
     "node-pty": "1.1.0",
     "openai": "^4.73.0",
     "semver": "^7.7.3",
-    "zod": "^3.24.0",
+    "zod": "^3.25.0",
     "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {

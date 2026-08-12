@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { stat, readdir } from "fs/promises";
 import { sanitizePath } from "../util/path";
+import { currentExecutionContext, executionCwd } from "../execution/context.js";
 import { zFilePath } from "./schemas/branded";
 import { buildLsPathNote, prependToolNote } from "./tool-notes";
 
@@ -27,7 +28,10 @@ export const lsTool: Tool<LsInput> = Tool.define(
   async (input: LsInput): Promise<ToolResult> => {
     try {
       const displayPath = input.path ?? ".";
-      const safePath = sanitizePath(displayPath);
+      const execution = currentExecutionContext();
+      const safePath = execution
+        ? await execution.boundary.resolvePath(displayPath, "read")
+        : sanitizePath(displayPath);
 
       let stats;
       try {
@@ -69,7 +73,7 @@ export const lsTool: Tool<LsInput> = Tool.define(
       const footer = truncated ? `\n(showing first ${shown.length} of ${names.length} entries)` : "";
       const body = shown.length > 0 ? `${header}\n${shown.join("\n")}${footer}` : `${header}\n(empty)`;
 
-      const pathNote = buildLsPathNote(input, process.cwd());
+      const pathNote = buildLsPathNote(input, executionCwd());
 
       return {
         success: true,

@@ -26,20 +26,45 @@ import { initPty } from "./pty/index.js";
 import { migrateHomeIfNeeded } from "./session/migrate-home.js";
 import { enrichSessionTitles } from "./session/enrich-titles.js";
 import { summarizeSessions } from "./session/session-content.js";
-import { cleanupAllBgJobsSync } from "./tools/bg-process-registry.js";
+import { cleanupExecutionParticipantsSync } from "./tools/execution-revocation.js";
 import packageJson from "../package.json";
 import * as readline from "readline";
 import * as fs from "fs";
 import * as path from "path";
 
+const args = process.argv.slice(2);
+
+// ACP is a headless stdio protocol mode. Enter it before splash, migration,
+// provider setup, PTY initialization, or any stdout-oriented CLI behavior.
+if (args.includes("--acp")) {
+  const { serveAcpStdio } = await import("./acp/server.js");
+  let turnDriver;
+  if (
+    process.env["NODE_ENV"] === "test" &&
+    process.env["IMPULSE_ACP_TEST_DRIVER"] === "scripted"
+  ) {
+    const { AcpFixtureTurnDriver } = await import("./acp/fixture-driver.js");
+    turnDriver = new AcpFixtureTurnDriver();
+  }
+  try {
+    await serveAcpStdio({
+      version: packageJson.version,
+      allowAll: args.includes("--aa") || args.includes("--allow-all"),
+      ...(turnDriver ? { turnDriver } : {}),
+    });
+    process.exit(0);
+  } catch (error) {
+    process.stderr.write(`[impulse-acp] ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  }
+}
+
 registerCrashRecoveryHandlers();
 
-// Best-effort safety net: reap any still-running background jobs if the
+// Best-effort safety net: reap any still-running execution participants if the
 // process exits without going through ImpulseRenderer.gracefulExit() (e.g. a
 // crash, or a signal not handled elsewhere).
-process.on("exit", () => cleanupAllBgJobsSync());
-
-const args = process.argv.slice(2);
+process.on("exit", () => cleanupExecutionParticipantsSync());
 
 const unknownFlag = findUnknownFlag(args);
 if (unknownFlag) {
@@ -85,11 +110,13 @@ if (args.includes("--help") || args.includes("-h")) {
     impulse "your message"    Send a single message then enter interactive
     impulse -r, --resume      Resume session (picker)
     impulse --resume <id>     Resume session by id
-    impulse --setup                   Configure AI provider
+    impulse --setup           Configure AI provider
+    impulse --aa, --allow-all Start with permission prompts bypassed (not sandboxed)
+    impulse --acp             Serve ACP v1 over stdio (NDJSON)
     impulse --enrich-session-titles Backfill AI titles on saved sessions
-    impulse --list-sessions           Count sessions (total, empty, titled)
-    impulse --version                 Show version
-    impulse --update                  Install latest from npm and exit
+    impulse --list-sessions   Count sessions (total, empty, titled)
+    impulse --version         Show version
+    impulse --update          Install latest from npm and exit
 `);
   process.exit(0);
 }

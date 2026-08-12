@@ -31,19 +31,15 @@ function formatMarkdownLine(line: string): string {
 export class MarkdownTextBlock implements Component {
   private raw = "";
   private readonly indent: string;
-  private tableLayout: TableLayoutMode | null = null;
   constructor(indent = "    ") {
     this.indent = indent;
   }
 
   setText(text: string): void {
     this.raw = text;
-    this.tableLayout = null;
   }
 
-  invalidate(): void {
-    this.tableLayout = null;
-  }
+  invalidate(): void {}
 
   render(width: number): string[] {
     const indentW = visibleWidth(this.indent);
@@ -57,11 +53,11 @@ export class MarkdownTextBlock implements Component {
         // fall through to line handler
       } else {
         const table = parseTable(rawLines, index)!;
-        if (this.tableLayout === null) {
-          this.tableLayout = resolveTableLayoutMode(table.table, wrapWidth);
-        }
-        for (const line of renderTable(table.table, wrapWidth, this.tableLayout)) {
-          rendered.push(truncateGutterLine(`${this.indent}${line}`, width));
+        const tableLayout: TableLayoutMode = resolveTableLayoutMode(table.table, wrapWidth);
+        for (const line of renderTable(table.table, wrapWidth, tableLayout)) {
+          // End every table row in a neutral SGR state so streamed content after
+          // a styled cell cannot inherit bold/dim/color in terminals.
+          rendered.push(truncateGutterLine(`${this.indent}${line}${A.reset}`, width));
         }
         index = table.nextIndex;
         continue;

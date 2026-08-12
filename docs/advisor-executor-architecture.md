@@ -15,31 +15,31 @@ OFF → ON:
   1. Load config. Check if advisorModel is set.
   2. If configured: "Current Advisor: X via Y. Change? (y/N)"
   3. If NOT configured: force setup → pick → model → reasoning → activate
-  4. Inject "Advisor Mode" directive into Main Agent's system prompt
+  4. Inject the "Advisor workflow" directive into the main agent's system prompt
 
 ON → OFF:
   1. Remove advisorModel from config
-  2. Clear Advisor Mode directive from system prompt
+  2. Clear the advisor workflow directive from the system prompt
   3. Context bar: no advisor segment
 ```
 
 ### Config Fields
 - `advisorModel` (existing): full model string
-- `advisorMode` (NEW): boolean — is advisor mode active
+- `advisorMode` (legacy config key): boolean — is the advisor workflow active
 
 ---
 
 ## 2. The Main Agent — "Visa" Hard Tool Gate
 
 ### Gate Logic
-When advisor mode ON, AgentLoop enforces:
+When the advisor workflow is ON, AgentLoop enforces:
 - Tools BLOCKED before consult_advisor: `file_write`, `file_edit`, `bash` (write), `task`, `todo_write`
 - Tools ALLOWED: `read_file`, `glob`, `grep`, `bash` (read-only), `todo_read`, `web_search`, `web_fetch`, `set_header`, `set_mode`
 - After consult_advisor returns → gate opens for rest of turn
 
 ### System Prompt Injection
 ```
-## Advisor Mode (ACTIVE)
+## Advisor workflow (ACTIVE)
 MANDATORY: Call consult_advisor before any file writes, edits, bash execution, or subagent launches.
 If you encounter errors: DO NOT GUESS. Re-consult advisor with error context.
 ```
@@ -212,14 +212,14 @@ Two separate visual indicators during `consult_advisor`:
 - Timing: At end of turn, AFTER all tool results are shown
 - PERMISSION OVERLAY:
   Title: "Strategy Complete"
-  Body: [Main Agent's reasoning for why advisor mode is no longer needed — contextual explanation so user makes informed decision]
+  Body: [Main agent's reasoning for why the advisor workflow is no longer needed — contextual explanation so user makes informed decision]
   Options: "Keep ON" / "Deactivate"
 - If user is idle or doesn't respond, overlay remains (doesn't auto-dismiss)
 - Not a mid-turn interruption — clean end-of-turn reminder
 
 ### Project Session Resume (Future Enhancement — NOT in this plan)
 - Session resume with advisor state is a separate future feature
-- When sessions support `/continue`, advisor mode state will persist with the session
+- The advisor workflow state persists with the session
 - `.impulse/advisor-plans/` timestamped files will be discoverable by the resumed session
 - NOT part of the current implementation
 

@@ -5,6 +5,13 @@ import path from "path";
 import z from "zod";
 import { writeFileAtomic } from "./atomic-write.js";
 import { clearWindowsShellCache, clearWslCache } from "./windows-shell.js";
+import { normalizeMode } from "../constants.js";
+import { APPROVAL_POLICIES, type ApprovalPolicy } from "../permission/policy.js";
+import {
+  PRESENTATION_DENSITIES,
+  type PresentationDensity,
+} from "../cli/presentation-density.js";
+import { currentExecutionContext } from "../execution/context.js";
 
 // ============================================================
 // Multi-Provider Config Schema
@@ -54,8 +61,8 @@ const ConfigSchema = z.object({
   /** Advisor model — optional second model for strategic guidance */
   advisorModel: z.string().optional().describe("Advisor model for strategic guidance"),
 
-  /** Advisor mode — toggle for advisor/executor pattern */
-  advisorMode: z.boolean().default(false).describe("Whether advisor mode is active"),
+  /** Advisor workflow toggle for the advisor/executor pattern (legacy key retained). */
+  advisorMode: z.boolean().default(false).describe("Whether the advisor workflow is active"),
 
   /** Vision model — optional separate model for image understanding */
   visionModel: z.string().optional().describe("Vision model for image interpretation"),
@@ -81,8 +88,18 @@ const ConfigSchema = z.object({
   /** Model for task subagents when useSubagentModel is true (retained when toggled off) */
   subagentModel: z.string().optional().describe("Subagent model override"),
 
-  /** Default mode: AGENT, EXPLORE, PLAN, DEBUG */
-  defaultMode: z.string().default("AGENT").describe("Default agent mode"),
+  /** Default authority mode: ASK or AGENT (legacy values normalize on load). */
+  defaultMode: z
+    .string()
+    .default("ASK")
+    .transform((value) => normalizeMode(value))
+    .describe("Default agent mode"),
+
+  /** Global permission-prompt policy. This is independent of authority and sandboxing. */
+  approvalPolicy: z.enum(APPROVAL_POLICIES).default("prompt"),
+
+  /** Shared Pi-TUI presentation density. Semantics are identical in both modes. */
+  presentationDensity: z.enum(PRESENTATION_DENSITIES).default("compact"),
 
   /** Reasoning/thinking level for AI responses.
    * "off" = disabled; "low"/"medium"/"high" = enabled at that depth.
@@ -155,6 +172,8 @@ const ConfigSchema = z.object({
 export type PreferredShell = z.infer<typeof ConfigSchema.shape.preferredShell>;
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type { ApprovalPolicy };
+export type { PresentationDensity };
 export type UserProfile = NonNullable<Config["userProfile"]>;
 
 export const configPath = path.join(Global.Path.config, "config.json");
@@ -270,7 +289,9 @@ export async function load(options?: { refresh?: boolean }): Promise<Config> {
     cachedConfig !== null &&
     cachedConfigFingerprint === currentFingerprint
   ) {
-    return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
+    return applyRuntimeSessionConfig(
+      applySessionVision(applySessionAdvisor({ ...cachedConfig }))
+    );
   }
 
   const fileConfig = await loadConfigFile();
@@ -312,7 +333,33 @@ export async function load(options?: { refresh?: boolean }): Promise<Config> {
   }
   cachedConfig = parsed;
   cachedConfigFingerprint = await configFileFingerprint();
-  return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
+  return applyRuntimeSessionConfig(
+    applySessionVision(applySessionAdvisor({ ...cachedConfig }))
+  );
+}
+
+function applyRuntimeSessionConfig(config: Config): Config {
+  const runtime = currentExecutionContext()?.runtime?.getConfig();
+  if (!runtime) return config;
+  const currentProfile = config.userProfile ?? {
+    name: "",
+    responsePreference: "balanced",
+    customInstructions: "",
+  };
+  return {
+    ...config,
+    presentationDensity: runtime.density,
+    thinkingDisplay: runtime.thinkingDisplay,
+    reasoningLevel: runtime.reasoningLevel,
+    approvalPolicy: runtime.approvalPolicy,
+    ...(runtime.workerModel ? { defaultModel: runtime.workerModel, modelExplicitlySet: true } : {}),
+    useSubagentModel: Boolean(runtime.subagentModel),
+    ...(runtime.subagentModel ? { subagentModel: runtime.subagentModel } : {}),
+    userProfile: {
+      ...currentProfile,
+      responsePreference: runtime.communicationStyle,
+    },
+  };
 }
 
 /** Experimental advisor feature enabled in config. */

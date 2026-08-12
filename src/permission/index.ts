@@ -9,6 +9,12 @@ import {
   type PermissionType,
   PERMISSION_TYPES,
 } from "./types";
+import {
+  effectiveApprovalPolicy,
+  resetApprovalPolicyForTests,
+  setPersistedApprovalPolicy,
+} from "./policy.js";
+import { currentExecutionContext } from "../execution/context.js";
 
 export * from "./types";
 
@@ -21,7 +27,7 @@ export * from "./types";
  * - session: Auto-approve for current session (in-memory)
  * - always: Save to project config (persisted to .impulse/permissions.json)
  * 
- * When /allow-all bypass is ON, all permissions are auto-approved (session-scoped, not persisted).
+ * ApprovalPolicy is independent from authority and execution isolation.
  */
 
 // Project permissions file path
@@ -75,9 +81,6 @@ const sessionApprovals = new Map<string, Map<string, Set<string>>>();
  * Map of permission type -> Set of patterns
  */
 let projectApprovals: Map<string, Set<string>> | null = null;
-
-/** /allow-all bypass — auto-approve all tool permissions (in-memory only). */
-let allowAllBypass = false;
 
 /**
  * Load project permissions from .impulse/permissions.json
@@ -162,16 +165,16 @@ function isProjectApproved(permission: string, pattern: string): boolean {
 }
 
 export function isAllowAllBypass(): boolean {
-  return allowAllBypass;
+  return effectiveApprovalPolicy() === "allow-all";
 }
 
 export function setAllowAllBypass(on: boolean): void {
-  allowAllBypass = on;
+  setPersistedApprovalPolicy(on ? "allow-all" : "prompt");
 }
 
-/** Reset bypass (new session, resume, /new — never persisted). */
+/** Test compatibility helper; application lifecycle must not reset persisted policy. */
 export function resetAllowAllBypass(): void {
-  allowAllBypass = false;
+  resetApprovalPolicyForTests();
 }
 
 /**
@@ -223,8 +226,23 @@ export async function ask(input: {
   metadata?: Record<string, unknown>;
   tool?: { messageID: string; callID: string };
 }): Promise<void> {
-  if (allowAllBypass) {
+  if (effectiveApprovalPolicy() === "allow-all") {
     return;
+  }
+
+  const runtime = currentExecutionContext()?.runtime;
+  if (runtime) {
+    const decision = await runtime.requestPermission({
+      permission: input.permission,
+      patterns: input.patterns,
+      message: input.message,
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.tool ? { tool: input.tool } : {}),
+    });
+    if (decision === "allow") return;
+    throw new PermissionDeniedError(
+      formatPermissionDenialMessage(input.permission, input.patterns.slice(0, 3).join(", "))
+    );
   }
 
   // Check if all patterns are already approved
@@ -238,13 +256,18 @@ export async function ask(input: {
   
   // Create permission request
   const id = generatePermissionId();
+  const execution = currentExecutionContext();
   const request: PermissionRequest = {
     id,
     sessionID: input.sessionID,
     permission: input.permission,
     patterns: unapprovedPatterns,
     message: input.message,
-    metadata: input.metadata,
+    metadata: {
+      ...(input.metadata ?? {}),
+      executionBoundary: execution?.boundary.descriptor.label ?? "HOST",
+      approvalPolicy: effectiveApprovalPolicy() === "allow-all" ? "ALLOW-ALL" : "PROMPT",
+    },
     tool: input.tool,
   };
   

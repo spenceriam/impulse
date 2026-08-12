@@ -5,65 +5,60 @@
  * without needing to pass it through the entire execution chain.
  * 
  * The mode is set by the CLI renderer before each API call and read by tools that need
- * mode-aware behavior (like file_write restrictions in PLAN mode).
+ * mode-aware behavior (such as ASK write denial).
  */
 
-import type { MODES } from "../constants";
-import { SessionManager } from "../session/manager.js";
-import { validatePlanWritePath } from "../plan/revisions.js";
-
+import { DEFAULT_MODE, type MODES } from "../constants";
+import {
+  isExecutionAdmissionOpen,
+  reopenExecutionAdmissionAfterFailure,
+  setAskExecutionAdmission,
+} from "./execution-admission.js";
+import { currentExecutionContext, isIsolatedMutationContext } from "../execution/context.js";
 type Mode = typeof MODES[number];
 
-let currentMode: Mode = "AGENT";
+let currentMode: Mode = DEFAULT_MODE;
 
 /**
  * Set the current mode (called by the CLI renderer before API calls)
  */
-export function setCurrentMode(mode: Mode): void {
-  currentMode = mode;
+export function setCurrentMode(mode: Mode): boolean {
+  const runtime = currentExecutionContext()?.runtime;
+  if (runtime) {
+    runtime.setMode(mode);
+    return true;
+  }
+  if (mode === "AGENT") {
+    if (!isExecutionAdmissionOpen()) return false;
+    currentMode = mode;
+    return true;
+  }
+
+  currentMode = "ASK";
+  setAskExecutionAdmission();
+  return true;
+}
+
+/** Reopen a lifecycle-closed gate only when AGENT was already the current authority. */
+export function restoreAgentAuthorityAfterLifecycle(): boolean {
+  if (getCurrentMode() !== "AGENT") return false;
+  if (currentExecutionContext()?.runtime) return true;
+  reopenExecutionAdmissionAfterFailure();
+  return true;
 }
 
 /**
  * Get the current mode (called by tool handlers)
  */
 export function getCurrentMode(): Mode {
-  return currentMode;
-}
-
-/**
- * Legacy AUTO approval gate compatibility (no-op after AUTO removal)
- */
-export function isAutoApprovalGranted(): boolean {
-  return true;
-}
-
-export function setAutoApprovalGranted(_value: boolean): void {
-  // No-op: AUTO mode no longer exists.
-}
-
-export function resetAutoApproval(): void {
-  // No-op: AUTO mode no longer exists.
+  return currentExecutionContext()?.runtime?.getMode() ?? currentMode;
 }
 
 /**
  * Check if the current mode allows write operations
  */
 export function canWriteFiles(): boolean {
-  return currentMode === "AGENT" || currentMode === "DEBUG";
-}
-
-/**
- * Check if the current mode is PLAN.
- */
-export function isPlannerMode(): boolean {
-  return currentMode === "PLAN";
-}
-
-/**
- * Legacy PLAN-PRD compatibility helper.
- */
-export function isPlanPrdMode(): boolean {
-  return false;
+  return getCurrentMode() === "AGENT";
 }
 
 /**
@@ -74,22 +69,13 @@ export function validateWritePath(filePath: string): string | null {
   const mode = getCurrentMode();
   
   // Execution modes can write anywhere
-  if (mode === "AGENT" || mode === "DEBUG") {
+  if (mode === "AGENT") {
     return null;
   }
-  
-  // EXPLORE mode cannot write at all
-  if (mode === "EXPLORE") {
-    return "EXPLORE mode is read-only. Switch to WORK mode to write files.";
+
+  if (isIsolatedMutationContext()) {
+    return null;
   }
-  
-  if (mode === "PLAN") {
-    const sessionId = SessionManager.getCurrentSessionID();
-    if (!sessionId) {
-      return "PLAN mode requires an active session to write plan files.";
-    }
-    return validatePlanWritePath(filePath, sessionId);
-  }
-  
-  return null; // Unknown mode, allow by default
+
+  return `ASK mode is read-only. Ask the user to switch to AGENT before writing ${filePath}.`;
 }

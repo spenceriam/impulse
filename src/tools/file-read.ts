@@ -4,6 +4,7 @@ import { createReadStream, openSync, readSync, closeSync } from "fs";
 import { readFile, stat, readdir } from "fs/promises";
 import readline from "readline";
 import { sanitizePath } from "../util/path";
+import { currentExecutionContext } from "../execution/context.js";
 import { zFilePath } from "./schemas/branded";
 import {
   buildFileReadRangeNote,
@@ -227,7 +228,10 @@ export const fileRead: Tool<ReadInput> = Tool.define(
   ReadSchema,
   async (input: ReadInput): Promise<ToolResult> => {
     try {
-      const safePath = sanitizePath(input.filePath);
+      const execution = currentExecutionContext();
+      const safePath = execution
+        ? await execution.boundary.resolvePath(input.filePath, "read")
+        : sanitizePath(input.filePath);
       const offset = input.offset ?? 0;
       const limit = input.limit ?? FILE_READ_DEFAULT_LIMIT;
       const rangeNote = buildFileReadRangeNote(input);

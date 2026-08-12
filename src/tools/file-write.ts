@@ -19,6 +19,7 @@ import { FileEvents } from "../format/events";
 import { zFilePath } from "./schemas/branded";
 import { isWithinBase } from "../util/path.js";
 import { SessionManager } from "../session/manager";
+import { executionCwd } from "../execution/context.js";
 
 const DESCRIPTION = `Write a file to disk (create or overwrite).
 
@@ -45,7 +46,7 @@ async function fileExists(filePath: string): Promise<boolean> {
  * Check if a path is within the current working directory
  */
 function isWithinCwd(targetPath: string): boolean {
-  return isWithinBase(process.cwd(), targetPath);
+  return isWithinBase(executionCwd(), targetPath);
 }
 
 export const fileWrite: Tool<WriteInput> = Tool.define(
@@ -56,7 +57,7 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
     try {
       const safePath = await resolveToolPath(input.filePath, "file_write");
       
-      // Check mode-based path restrictions (PLAN -> docs/ or PRD.md)
+      // Enforce the current authority boundary before writing.
       const modeError = validateWritePath(safePath);
       if (modeError) {
         return {

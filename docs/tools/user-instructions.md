@@ -13,4 +13,4 @@ Read or update the user's persistent instructions at `~/.impulse/user-instructio
 
 Use a mutating action only when the user explicitly asks to persist an instruction change. Mentioning a preference or an `@path` alone is not authorization. The tool writes only the canonical user-instructions file and does not require allow-all mode.
 
-The agent tool is available in AGENT and DEBUG modes. The `/instructions` command remains available directly from the TUI.
+The mutating agent actions are available only in AGENT. The `/instructions` command remains available directly from the TUI, where persistent changes also require AGENT.

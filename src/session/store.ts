@@ -4,7 +4,16 @@ import { Global } from "../global";
 import crypto from "crypto";
 import path from "path";
 import type { OptionalPatch } from "../util/omit-undefined.js";
-import { writeJsonAtomic } from "../util/atomic-write.js";
+import {
+  stageJsonAtomic,
+  writeJsonAtomic,
+  type StagedAtomicWrite,
+} from "../util/atomic-write.js";
+import {
+  withSessionCommitLease,
+  withSessionCommitLock,
+  type SessionCommitLease,
+} from "./commit-lock.js";
 
 /**
  * Generate a project ID from a directory path.
@@ -60,6 +69,26 @@ export interface Session {
   /** Vision model used when this session had vision on. */
   visionModel?: string
   metadata?: Record<string, unknown>
+}
+
+export interface StagedSessionSnapshot extends StagedAtomicWrite {
+  session: Session;
+  commitWithLease(lease: SessionCommitLease): Promise<void>;
+  commitIfWithLease(
+    lease: SessionCommitLease,
+    canCommit: () => boolean
+  ): Promise<boolean>;
+}
+
+export interface StagedSessionCreation extends StagedAtomicWrite {
+  session: Session;
+  /** Install non-file store state only after the durable file is committable. */
+  activate(): Promise<void>;
+}
+
+export interface SessionMutationGuard {
+  sessionGeneration?: number;
+  canCommit?: () => boolean;
 }
 
 /** API payload for user messages (text or multimodal); persisted for session resume. */
@@ -126,6 +155,7 @@ class SessionStoreImpl {
   private static instance: SessionStoreImpl;
   private saveTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private pendingUpdates: Map<string, Partial<Session>> = new Map();
+  private pendingMutationGuards: Map<string, SessionMutationGuard> = new Map();
   private saveDelay: number = 1000;
   
   // Cache projectID -> sessionID mapping for quick lookups
@@ -178,6 +208,60 @@ class SessionStoreImpl {
     return newSession;
   }
 
+  /** Stage a brand-new session so callers can roll back even after promotion. */
+  async stageCreate(
+    session: Omit<Session, "created_at" | "updated_at">
+  ): Promise<StagedSessionCreation> {
+    const now = new Date().toISOString();
+    const newSession: Session = {
+      ...session,
+      created_at: now,
+      updated_at: now,
+    };
+    const target = this.getKey(newSession.id, newSession.projectID);
+    const stage = await stageJsonAtomic(
+      this.sessionFilePath(newSession.id, newSession.projectID),
+      newSession
+    );
+    let committed = false;
+
+    return {
+      session: newSession,
+      async commit() {
+        await stage.commit();
+        committed = true;
+      },
+      async commitIf(canCommit) {
+        const promoted = await stage.commitIf(canCommit);
+        committed = promoted;
+        return promoted;
+      },
+      activate: async () => {
+        this.sessionProjectMap.set(newSession.id, newSession.projectID);
+      },
+      rollback: async () => {
+        const failures: unknown[] = [];
+        if (!committed) {
+          try {
+            await stage.rollback();
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") failures.push(error);
+          }
+        }
+        try {
+          await Storage.remove(target);
+        } catch (error) {
+          failures.push(error);
+        }
+        this.sessionProjectMap.delete(newSession.id);
+        if (failures.length === 1) throw failures[0];
+        if (failures.length > 1) {
+          throw new AggregateError(failures, "Failed to roll back staged session creation");
+        }
+      },
+    };
+  }
+
   async read(sessionID: string, projectID?: string): Promise<Session> {
     const session = await Storage.read<Session>(this.getKey(sessionID, projectID));
     // Cache the mapping for future use
@@ -186,7 +270,18 @@ class SessionStoreImpl {
   }
 
   /** Cancel debounce and return any in-flight auto-save payload for this session. */
-  private takePendingUpdates(sessionID: string): Partial<Session> | undefined {
+  private takePendingUpdates(
+    sessionID: string,
+    generation?: number
+  ): Partial<Session> | undefined {
+    const pendingGuard = this.pendingMutationGuards.get(sessionID);
+    if (
+      generation !== undefined &&
+      pendingGuard?.sessionGeneration !== undefined &&
+      pendingGuard.sessionGeneration !== generation
+    ) {
+      return undefined;
+    }
     const timeout = this.saveTimeouts.get(sessionID);
     if (timeout) {
       clearTimeout(timeout);
@@ -197,6 +292,7 @@ class SessionStoreImpl {
     if (pending) {
       this.pendingUpdates.delete(sessionID);
     }
+    this.pendingMutationGuards.delete(sessionID);
     return pending;
   }
 
@@ -211,8 +307,13 @@ class SessionStoreImpl {
     }
   }
 
-  async update(sessionID: string, updates: OptionalPatch<Session>): Promise<Session> {
-    const pending = this.takePendingUpdates(sessionID);
+  async update(
+    sessionID: string,
+    updates: OptionalPatch<Session>,
+    guard?: SessionMutationGuard
+  ): Promise<Session> {
+    if (guard?.canCommit && !guard.canCommit()) return this.read(sessionID);
+    const pending = this.takePendingUpdates(sessionID, guard?.sessionGeneration);
     const projectID =
       this.sessionProjectMap.get(sessionID) ?? (await this.read(sessionID)).projectID;
     const draft = await this.read(sessionID, projectID);
@@ -223,26 +324,63 @@ class SessionStoreImpl {
     this.applyPatchToDraft(draft, updates);
     draft.updated_at = new Date().toISOString();
 
-    await this.atomicWriteSession(draft);
-    Bus.publish(SessionEvents.Updated, { sessionID, session: draft });
+    if (guard?.canCommit && !guard.canCommit()) return this.read(sessionID, projectID);
+    const stage = await this.stageSnapshot(draft);
+    let promoted = false;
+    try {
+      if (guard?.canCommit) {
+        promoted = await withSessionCommitLock(sessionID, (lease) =>
+          stage.commitIfWithLease(lease, guard.canCommit!)
+        );
+      } else {
+        await withSessionCommitLock(sessionID, (lease) =>
+          stage.commitWithLease(lease)
+        );
+        promoted = true;
+      }
+    } catch (error) {
+      await stage.rollback().catch(() => {});
+      throw error;
+    }
+    if (!promoted) return this.read(sessionID, projectID);
+    if (guard?.canCommit && !guard.canCommit()) return this.read(sessionID, projectID);
+    Bus.publish(SessionEvents.Updated, {
+      sessionID,
+      session: draft,
+      ...(guard?.sessionGeneration === undefined
+        ? {}
+        : { sessionGeneration: guard.sessionGeneration }),
+    });
     return draft;
   }
 
-  autoSave(sessionID: string, updates: Partial<Session>): void {
+  autoSave(
+    sessionID: string,
+    updates: Partial<Session>,
+    guard?: SessionMutationGuard
+  ): void {
     const existingTimeout = this.saveTimeouts.get(sessionID);
     if (existingTimeout) {
       clearTimeout(existingTimeout);
     }
 
-    const pending = this.pendingUpdates.get(sessionID) ?? {};
+    const priorGuard = this.pendingMutationGuards.get(sessionID);
+    const sameGeneration =
+      priorGuard?.sessionGeneration === undefined ||
+      guard?.sessionGeneration === undefined ||
+      priorGuard.sessionGeneration === guard.sessionGeneration;
+    const pending = sameGeneration ? (this.pendingUpdates.get(sessionID) ?? {}) : {};
     this.pendingUpdates.set(sessionID, { ...pending, ...updates });
+    if (guard) this.pendingMutationGuards.set(sessionID, guard);
 
     const timeout = setTimeout(async () => {
       try {
         const merged = this.pendingUpdates.get(sessionID);
         if (merged && Object.keys(merged).length > 0) {
-          await this.update(sessionID, merged);
+          const pendingGuard = this.pendingMutationGuards.get(sessionID);
+          await this.update(sessionID, merged, pendingGuard);
           this.pendingUpdates.delete(sessionID);
+          this.pendingMutationGuards.delete(sessionID);
         }
       } catch (e) {
         console.error(`Failed to auto-save session ${sessionID}:`, e);
@@ -257,9 +395,53 @@ class SessionStoreImpl {
   /**
    * Write a full session snapshot immediately (used on flush/exit).
    */
-  async writeSnapshot(session: Session): Promise<void> {
+  async writeSnapshot(
+    session: Session,
+    guard?: SessionMutationGuard
+  ): Promise<boolean> {
+    if (guard?.canCommit && !guard.canCommit()) return false;
     this.sessionProjectMap.set(session.id, session.projectID);
-    await this.atomicWriteSession(session);
+    const stage = await this.stageSnapshot(session);
+    try {
+      if (guard?.canCommit) {
+        return await withSessionCommitLock(session.id, (lease) =>
+          stage.commitIfWithLease(lease, guard.canCommit!)
+        );
+      }
+      await withSessionCommitLock(session.id, (lease) =>
+        stage.commitWithLease(lease)
+      );
+      return true;
+    } catch (error) {
+      await stage.rollback().catch(() => {});
+      throw error;
+    }
+  }
+
+  /** Stage a full snapshot without replacing its persisted session until commit. */
+  async stageSnapshot(session: Session): Promise<StagedSessionSnapshot> {
+    this.sessionProjectMap.set(session.id, session.projectID);
+    const stage = await stageJsonAtomic(
+      this.sessionFilePath(session.id, session.projectID),
+      session
+    );
+    const commitWithLease = (lease: SessionCommitLease) =>
+      withSessionCommitLease(lease, session.id, () => stage.commit());
+    const commitIfWithLease = (
+      lease: SessionCommitLease,
+      canCommit: () => boolean
+    ) => withSessionCommitLease(lease, session.id, () => stage.commitIf(canCommit));
+    return {
+      session,
+      commit: () => withSessionCommitLock(session.id, commitWithLease),
+      commitIf: (canCommit) =>
+        withSessionCommitLock(session.id, (lease) =>
+          commitIfWithLease(lease, canCommit)
+        ),
+      commitWithLease,
+      commitIfWithLease,
+      rollback: stage.rollback,
+    };
   }
 
   /**
@@ -335,13 +517,20 @@ class SessionStoreImpl {
     }
 
     const pending = this.pendingUpdates.get(sessionID);
+    const pendingGuard = this.pendingMutationGuards.get(sessionID);
     if (pending && Object.keys(pending).length > 0) {
       try {
-        await this.update(sessionID, pending);
-      } catch (e) {
-        console.error(`Failed to flush session ${sessionID}:`, e);
+        await this.update(sessionID, pending, pendingGuard);
+      } finally {
+        // update() normally consumes this payload before its first storage
+        // await. Do not erase a newer auto-save that arrived meanwhile.
+        if (this.pendingUpdates.get(sessionID) === pending) {
+          this.pendingUpdates.delete(sessionID);
+        }
+        if (this.pendingMutationGuards.get(sessionID) === pendingGuard) {
+          this.pendingMutationGuards.delete(sessionID);
+        }
       }
-      this.pendingUpdates.delete(sessionID);
     }
   }
 

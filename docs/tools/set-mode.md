@@ -1,14 +1,14 @@
 # set_mode
 
-Switches the operating mode (WORK, EXPLORE, PLAN, DEBUG).
+Switches between the two operating modes: ASK and AGENT.
 
 ## Parameters
 
-- mode (required): Target mode. Legacy aliases AUTO/AGENT/PLANNER/PLAN-PRD are accepted and mapped.
+- mode (required): ASK or AGENT
 - reason (optional): Short reason shown to the user
 
 ## Usage
 
-- Use when the conversation shifts to a different type of work
-- Explain why the switch helps
-- Avoid excessive switching
+- The model may de-escalate AGENT to ASK.
+- ASK to AGENT requires direct user authority. For consequential work, use `execution_handoff` so the user can choose Preview safely, Switch to AGENT, or Stay in ASK.
+- Never infer, replay, or synthesize an elevation choice.

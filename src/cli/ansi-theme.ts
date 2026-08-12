@@ -27,10 +27,8 @@ export const advisorStatusLine = (message: string) => clr.dim(message);
 
 /** ANSI color per mode — used for prompt arrow and context bar mode label */
 export const MODE_COLORS: Record<string, number> = {
+  ASK: 32,
   AGENT: 34,
-  EXPLORE: 32,
-  PLAN: 33,
-  DEBUG: 31,
 };
 
 /** Mode transition in chat (ASCII for Windows/macOS/Linux terminal fonts). */

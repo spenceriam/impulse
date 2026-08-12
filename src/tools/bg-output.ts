@@ -33,8 +33,8 @@ Tool.define(
       return { success: false, output: `No background job '${input.id}'.` };
     }
     const out = getBgOutput(input.id) ?? "";
-    const statusLine = job.status === "running"
-      ? `[${input.id}] running (pid ${job.pid ?? "?"}): ${job.command.slice(0, 60)}`
+    const statusLine = job.status === "running" || job.status === "stopping"
+      ? `[${input.id}] ${job.status} (pid ${job.pid ?? "?"}): ${job.command.slice(0, 60)}`
       : `[${input.id}] ${job.status} (exit ${job.exitCode ?? "?"}): ${job.command.slice(0, 60)}`;
     return {
       success: true,
@@ -57,10 +57,10 @@ Tool.define(
     if (!job) {
       return { success: false, output: `No background job '${input.id}'.` };
     }
-    if (job.status !== "running") {
+    if (job.status !== "running" && job.status !== "stopping") {
       return { success: false, output: `Job '${input.id}' is already ${job.status}.` };
     }
-    const ok = killBgJob(input.id);
+    const ok = await killBgJob(input.id);
     return ok
       ? { success: true, output: `Job '${input.id}' killed.` }
       : { success: false, output: `Failed to kill job '${input.id}'.` };

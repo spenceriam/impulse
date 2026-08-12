@@ -17,6 +17,6 @@ Read a GitHub issue using GitHub CLI (`gh`). **Requires `gh` installed and authe
 
 The tool returns the canonical issue URL. Use `web_fetch` on that URL, or install/auth `gh`.
 
-## PLAN mode
+## ASK and AGENT
 
-Available in PLAN (read-only). Does not require bash.
+Available in ASK and AGENT as a read-only repository query. Does not require bash.

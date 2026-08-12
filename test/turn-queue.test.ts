@@ -73,6 +73,20 @@ describe("TurnQueueManager", () => {
     expect(q.clearHead()).toBe(true);
     expect(q.clearHead()).toBe(false);
   });
+
+  test("closed execution admission leaves a queued turn queued", () => {
+    const q = new TurnQueueManager(5, nonempty);
+    q.enqueue(payload("keep queued during cleanup"));
+
+    expect(q.dequeueForExecution({ isRunning: false, admissionOpen: false })).toBeUndefined();
+    expect(q.length).toBe(1);
+    expect(q.at(0)?.displayMessage).toBe("keep queued during cleanup");
+
+    expect(
+      q.dequeueForExecution({ isRunning: false, admissionOpen: true })?.displayMessage
+    ).toBe("keep queued during cleanup");
+    expect(q.length).toBe(0);
+  });
 });
 
 describe("buildQueuePreviewText", () => {

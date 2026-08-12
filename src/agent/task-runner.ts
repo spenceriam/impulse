@@ -14,6 +14,8 @@ import {
   SUBAGENT_PROGRESS_WRAPPING_UP,
 } from "../cli/subagent-progress-labels.js";
 import type { ChatMessage } from "../api/types";
+import { canContinueAgentExecution } from "../session/turn-execution.js";
+import { executionCwd } from "../execution/context.js";
 
 /** Subagent tool loop cap (each iteration = one model completion + tool batch). */
 export const SUBAGENT_MAX_ITERATIONS = 150;
@@ -56,7 +58,7 @@ THOROUGHNESS: THOROUGH
 }
 
 function formatArgForDisplay(value: string): string {
-  const cwd = process.cwd();
+  const cwd = executionCwd();
   if (isAbsolute(value)) {
     const rel = relative(cwd, resolve(value));
     if (rel && !rel.startsWith("..")) {
@@ -211,6 +213,15 @@ export async function executeSubagent(
 
     const response = await manager.complete(completionOptions);
 
+    if (signal && !canContinueAgentExecution(signal)) {
+      return {
+        success: false,
+        output: "Subagent aborted",
+        summary: actionSummary,
+        actions: actionEntries,
+      };
+    }
+
     if (publishedThinking) {
       publish({
         type: "status",
@@ -301,6 +312,7 @@ export async function executeSubagent(
           tool_call_id: toolCall.id,
           content: result.success ? result.output : `Error: ${result.output}`,
         });
+        if (signal && !canContinueAgentExecution(signal)) break;
       } catch (error) {
         toolResults.push({
           tool_call_id: toolCall.id,

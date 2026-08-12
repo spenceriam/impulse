@@ -48,7 +48,7 @@ async function buildPlatform(platform: typeof PLATFORMS[number]) {
       name: `@spenceriam/impulse-${platform.name}`,
       version: VERSION,
       description: `IMPULSE binary for ${platform.name}`,
-      license: "MIT",
+      license: "AGPL-3.0",
       repository: {
         type: "git",
         url: "git+https://github.com/spenceriam/impulse.git"

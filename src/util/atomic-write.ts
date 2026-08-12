@@ -4,6 +4,19 @@ import path from "path";
 
 const writeChains = new Map<string, Promise<void>>();
 
+export interface StagedAtomicWrite {
+  commit(): Promise<void>;
+  /** Promote only when the synchronous predicate still admits this write. */
+  commitIf(canCommit: () => boolean): Promise<boolean>;
+  rollback(): Promise<void>;
+}
+
+interface PreparedAtomicWrite {
+  target: string;
+  dir: string;
+  tmp: string;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -15,8 +28,20 @@ async function fsyncDirectory(dir: string): Promise<void> {
   try {
     handle = await fs.open(dir, "r");
     await handle.sync();
-  } catch {
-    // Directory fsync is not available on every filesystem/platform.
+  } catch (error) {
+    // Directory fsync is not available on every filesystem/platform, but
+    // genuine I/O failures must propagate so callers do not claim durability.
+    const unsupported = new Set([
+      "EACCES",
+      "EBADF",
+      "EINVAL",
+      "EISDIR",
+      "ENOTSUP",
+      "EOPNOTSUPP",
+      "EPERM",
+    ]);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (!code || !unsupported.has(code)) throw error;
   } finally {
     await handle?.close().catch(() => {});
   }
@@ -48,6 +73,20 @@ async function writeFileAtomicUnchained(
   content: string | Buffer,
   options?: { mode?: number }
 ): Promise<void> {
+  const prepared = await prepareAtomicWrite(targetPath, content, options);
+  try {
+    await commitPreparedAtomicWrite(prepared);
+  } catch (error) {
+    await rollbackPreparedAtomicWrite(prepared).catch(() => {});
+    throw error;
+  }
+}
+
+async function prepareAtomicWrite(
+  targetPath: string,
+  content: string | Buffer,
+  options?: { mode?: number }
+): Promise<PreparedAtomicWrite> {
   const target = path.resolve(targetPath);
   const dir = path.dirname(target);
   const base = path.basename(target);
@@ -63,14 +102,21 @@ async function writeFileAtomicUnchained(
     await handle.sync();
     await handle.close();
     handle = undefined;
-
-    await renameWithRetry(tmp, target);
-    await fsyncDirectory(dir);
+    return { target, dir, tmp };
   } catch (error) {
     await handle?.close().catch(() => {});
     await fs.unlink(tmp).catch(() => {});
     throw error;
   }
+}
+
+async function commitPreparedAtomicWrite(prepared: PreparedAtomicWrite): Promise<void> {
+  await renameWithRetry(prepared.tmp, prepared.target);
+  await fsyncDirectory(prepared.dir);
+}
+
+async function rollbackPreparedAtomicWrite(prepared: PreparedAtomicWrite): Promise<void> {
+  await fs.unlink(prepared.tmp);
 }
 
 export async function writeFileAtomic(
@@ -98,4 +144,80 @@ export async function writeFileAtomic(
 
 export async function writeJsonAtomic(targetPath: string, value: unknown): Promise<void> {
   await writeFileAtomic(targetPath, JSON.stringify(value, null, 2), { mode: 0o600 });
+}
+
+/** Prepare and fsync a replacement while keeping the target unchanged until commit. */
+export async function stageFileAtomic(
+  targetPath: string,
+  content: string | Buffer,
+  options?: { mode?: number }
+): Promise<StagedAtomicWrite> {
+  const target = path.resolve(targetPath);
+  const previous = writeChains.get(target) ?? Promise.resolve();
+  let releaseGate!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  const reservation = previous.catch(() => {}).then(() => gate);
+  writeChains.set(target, reservation);
+
+  const release = () => {
+    releaseGate();
+    if (writeChains.get(target) === reservation) writeChains.delete(target);
+  };
+
+  await previous.catch(() => {});
+  let prepared: PreparedAtomicWrite;
+  try {
+    prepared = await prepareAtomicWrite(target, content, options);
+  } catch (error) {
+    release();
+    throw error;
+  }
+
+  let settled = false;
+  const promote = async (canCommit?: () => boolean): Promise<boolean> => {
+    if (settled) throw new Error("Atomic write stage already settled");
+    if (canCommit && !canCommit()) {
+      try {
+        await rollbackPreparedAtomicWrite(prepared);
+      } finally {
+        settled = true;
+        release();
+      }
+      return false;
+    }
+
+    // The predicate above is deliberately synchronous and immediately
+    // adjacent to starting the rename. Callers hold their mutation lease
+    // across this method so replacement handoff cannot overtake promotion.
+    await commitPreparedAtomicWrite(prepared);
+    settled = true;
+    release();
+    return true;
+  };
+  return {
+    async commit() {
+      await promote();
+    },
+    async commitIf(canCommit) {
+      return promote(canCommit);
+    },
+    async rollback() {
+      if (settled) return;
+      try {
+        await rollbackPreparedAtomicWrite(prepared);
+      } finally {
+        settled = true;
+        release();
+      }
+    },
+  };
+}
+
+export async function stageJsonAtomic(
+  targetPath: string,
+  value: unknown
+): Promise<StagedAtomicWrite> {
+  return stageFileAtomic(targetPath, JSON.stringify(value, null, 2), { mode: 0o600 });
 }

@@ -11,6 +11,7 @@ import {
 import { TerminalPanel } from "./components/terminal-panel.js";
 import { isShellTakeoverChord } from "./shell-shortcuts.js";
 import type { LoopEvents } from "../agent/loop.js";
+import { isExecutionAdmissionOpen } from "../tools/execution-admission.js";
 
 export interface ShellModeDeps {
   terminalPanel: TerminalPanel;
@@ -37,10 +38,16 @@ export class ShellModeController {
 
   constructor(private deps: ShellModeDeps) {}
 
-  toggleShellMode(): void {
+  async toggleShellMode(): Promise<void> {
     this.shellMode = !this.shellMode;
     this.shellEscArmed = false;
     if (!this.shellMode) {
+      if (this.shellCommandRunning && !(await abortUserShell())) {
+        this.shellMode = true;
+        this.deps.addStatusLine(this.deps.warn("Shell exit failed -- process still running"));
+        this.deps.requestRender();
+        return;
+      }
       this.deps.terminalPanel.reset();
       this.shellTakeoverActive = false;
       this.deps.setShellTakeover(false);
@@ -50,8 +57,12 @@ export class ShellModeController {
     this.deps.requestRender();
   }
 
-  exitShellMode(): void {
-    if (this.shellCommandRunning) abortUserShell();
+  async exitShellMode(): Promise<boolean> {
+    if (this.shellCommandRunning && !(await abortUserShell())) {
+      this.deps.addStatusLine(this.deps.warn("Shell exit failed -- process still running"));
+      this.deps.requestRender();
+      return false;
+    }
     this.shellMode = false;
     this.shellEscArmed = false;
     this.shellTakeoverActive = false;
@@ -59,9 +70,10 @@ export class ShellModeController {
     this.deps.setShellTakeover(false);
     this.deps.terminalPanel.reset();
     this.deps.requestRender();
+    return true;
   }
 
-  handleEscape(): boolean {
+  async handleEscape(): Promise<boolean> {
     if (!this.shellMode) return false;
     if (this.deps.isAgentRunning()) return false;
 
@@ -75,25 +87,30 @@ export class ShellModeController {
       this.deps.requestRender();
       return true;
     }
-    this.exitShellMode();
-    this.deps.addStatusLine(this.deps.dim("Left terminal mode"));
+    if (await this.exitShellMode()) {
+      this.deps.addStatusLine(this.deps.dim("Left terminal mode"));
+    }
     return true;
   }
 
-  handleAbort(): boolean {
+  async handleAbort(): Promise<boolean> {
     if (this.shellCommandRunning) {
-      abortUserShell();
+      if (!(await abortUserShell())) {
+        this.deps.addStatusLine(this.deps.warn("Shell abort failed -- process still running"));
+        this.deps.requestRender();
+        return true;
+      }
       this.shellCommandRunning = false;
       this.shellTakeoverActive = false;
       this.deps.setShellTakeover(false);
       this.deps.terminalPanel.setDone(-1, 0);
-      this.exitShellMode();
+      await this.exitShellMode();
       this.deps.addStatusLine(this.deps.warn("Shell command aborted"));
       this.deps.requestRender();
       return true;
     }
     if (this.shellMode) {
-      this.exitShellMode();
+      await this.exitShellMode();
       this.deps.addStatusLine(this.deps.dim("Left terminal mode"));
       this.deps.requestRender();
       return true;
@@ -135,7 +152,7 @@ export class ShellModeController {
   ): Promise<boolean> {
     const trimmed = input.trim();
     if (trimmed === "!") {
-      this.toggleShellMode();
+      await this.toggleShellMode();
       return true;
     }
     if (!this.shellMode) return false;
@@ -166,6 +183,11 @@ export class ShellModeController {
   }
 
   private async runShellCommand(command: string): Promise<void> {
+    if (!isExecutionAdmissionOpen()) {
+      this.deps.addStatusLine(this.deps.warn("Execution is paused during authority or lifecycle cleanup."));
+      this.deps.requestRender();
+      return;
+    }
     this.deps.terminalPanel.clearReview();
     this.deps.terminalPanel.setRunning(command);
     this.shellCommandRunning = true;
@@ -179,16 +201,27 @@ export class ShellModeController {
       this.deps.terminalPanel.setInteractiveHint(true);
     }
 
-    const result = await runUserShellCommand({
-      command,
-      cols: this.deps.terminalCols(),
-      rows: Math.max(8, this.deps.terminalRows() - 12),
-      onData: (chunk) => {
-        this.deps.terminalPanel.appendOutput(chunk);
-        this.deps.requestRender();
-      },
-      forceInteractive: interactive,
-    });
+    let result: ShellRunResult;
+    try {
+      result = await runUserShellCommand({
+        command,
+        cols: this.deps.terminalCols(),
+        rows: Math.max(8, this.deps.terminalRows() - 12),
+        onData: (chunk) => {
+          this.deps.terminalPanel.appendOutput(chunk);
+          this.deps.requestRender();
+        },
+        forceInteractive: interactive,
+      });
+    } catch (error) {
+      this.shellCommandRunning = false;
+      this.shellTakeoverActive = false;
+      this.deps.setShellTakeover(false);
+      this.deps.spinStop();
+      this.deps.addStatusLine(this.deps.warn(error instanceof Error ? error.message : String(error)));
+      this.deps.requestRender();
+      return;
+    }
 
     this.shellCommandRunning = false;
     this.shellTakeoverActive = false;

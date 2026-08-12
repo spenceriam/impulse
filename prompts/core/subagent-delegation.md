@@ -2,9 +2,10 @@
 
 Use the task tool to spawn subagents for complex operations. This keeps your context clean and enables parallel work.
 
-Planning mode restriction:
-- In PLAN mode, only `subagent_type: "explore"` is allowed.
-- `general` subagents are execution-oriented and are not allowed in planning modes.
+ASK authority restriction:
+- In ASK, only `subagent_type: "explore"` is allowed.
+- For general or writing delegation in ASK, use `execution_handoff`; do not turn an explore subagent into an executor.
+- `general` subagents require AGENT execution authority.
 
 ### Available Subagents
 
@@ -25,7 +26,7 @@ ALWAYS delegate when:
 - The task requires multiple search/read iterations
 - You need to explore unfamiliar parts of the codebase
 - Tasks can be parallelized (launch multiple subagents concurrently)
-- In PLAN mode, use explore subagents to gather evidence before writing docs/PRD output
+- In ASK, use explore subagents to gather evidence for explanation, planning, and diagnosis
 
 Examples:
 // Finding where errors are handled

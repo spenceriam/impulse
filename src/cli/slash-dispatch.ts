@@ -4,45 +4,10 @@
 
 import { resolveSlashAlias } from "./slash-aliases.js";
 
-// ---------------------------------------------------------------------------
-// Dynamic skill command registry (#117)
-// Skills with a `command:` frontmatter field register here: hydrated from
-// .agents/skills at startup (hydrateDynamicSkillCommands), and kept in sync
-// afterward by skill_write / skill_remove / install_skill as skills change.
-// ---------------------------------------------------------------------------
-
-/** slug of the skill that registered this command */
-const dynamicSkillCommands = new Map<string, string>();
-
-export function registerSkillCommand(cmd: string, slug: string): void {
-  dynamicSkillCommands.set(cmd.toLowerCase(), slug);
-}
-
-export function unregisterSkillCommand(cmd: string): void {
-  dynamicSkillCommands.delete(cmd.toLowerCase());
-}
-
-export function listDynamicSkillCommands(): Array<{ cmd: string; slug: string }> {
-  return [...dynamicSkillCommands.entries()].map(([cmd, slug]) => ({ cmd, slug }));
-}
-
-/** Load dynamic commands from installed skills on startup. */
-export async function hydrateDynamicSkillCommands(cwd: string): Promise<void> {
-  try {
-    const { listInstalledSkills } = await import("../tools/install-skill-source.js");
-    for (const skill of listInstalledSkills(cwd)) {
-      if (skill.command) registerSkillCommand(skill.command, skill.slug);
-    }
-  } catch {
-    /* non-fatal */
-  }
-}
-
 export interface SlashDispatchHost {
   readonly isRunning: boolean;
   cmdBa(arg: string): Promise<void>;
   cmdSkills(arg: string): Promise<void>;
-  cmdSkill(arg: string): Promise<void>;
   cmdRunSkillCommand(slug: string, arg: string): Promise<void>;
   cmdAdvisor(arg: string): Promise<void>;
   cmdExperimental(): Promise<void>;
@@ -52,7 +17,7 @@ export interface SlashDispatchHost {
   cmdUpdate(): Promise<void>;
   cmdModel(arg: string): Promise<void>;
   showVisionHint(): void;
-  cmdMode(arg: string): void;
+  cmdMode(arg: string): Promise<void>;
   showReasoningHint(): void;
   cmdUsage(): Promise<void>;
   cmdCheckpoint(): Promise<void>;
@@ -83,7 +48,6 @@ type SlashHandler = (host: SlashDispatchHost, arg: string) => void | Promise<voi
 const SLASH_DISPATCH: Record<string, SlashHandler> = {
   ba: (h, arg) => h.cmdBa(arg),
   skills: (h, arg) => h.cmdSkills(arg),
-  skill: (h, arg) => h.cmdSkill(arg),
   advisor: (h, arg) => h.cmdAdvisor(arg),
   experimental: (h) => h.cmdExperimental(),
   settings: (h) => h.cmdSettings(),
@@ -150,12 +114,6 @@ export async function dispatchSlashCommand(
   const handler = SLASH_DISPATCH[cmd];
   if (handler) {
     await handler(host, arg);
-    return;
-  }
-  // Fall through to dynamic skill commands
-  const skillSlug = dynamicSkillCommands.get(cmd);
-  if (skillSlug) {
-    await host.cmdRunSkillCommand(skillSlug, arg);
     return;
   }
   host.showUnknownSlash(cmd);

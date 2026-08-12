@@ -13,7 +13,7 @@ const MUTATING_BASH_PREFIX =
   /^(rm|mv|cp|mkdir|touch|chmod|chown|npm|npx|bun|yarn|pnpm|pip|cargo|make|sed|tee|curl|wget|docker|kubectl|helm|terraform|python|node|php|ruby|go\s+run|git\s+(commit|push|merge|rebase|checkout|reset|clean|stash))/i;
 
 export const ADVISOR_GATE_MESSAGE =
-  "[GATE] Advisor Mode is active. Call consult_advisor before file writes, edits, non-readonly bash, or subagent launches.";
+  "[GATE] Advisor workflow is active. Call consult_advisor before file writes, edits, non-readonly bash, or subagent launches.";
 
 export function isReadOnlyBashCommand(command: string): boolean {
   const cmd = command.trim();

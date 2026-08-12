@@ -66,6 +66,16 @@ export class TurnQueueManager {
     return this.queue.shift();
   }
 
+  /** Dequeue only when renderer execution is admitted; otherwise preserve the head. */
+  dequeueForExecution(input: {
+    isRunning: boolean;
+    admissionOpen: boolean;
+  }): PromptSubmitPayload | undefined {
+    if (this.holdDrain || input.isRunning || !input.admissionOpen) return undefined;
+    if (!this.pruneHead()) return undefined;
+    return this.shift();
+  }
+
   clearHead(): boolean {
     if (this.queue.length === 0) return false;
     this.queue.shift();

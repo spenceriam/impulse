@@ -31,7 +31,7 @@ export class ExperimentalOverlay implements Component {
   private readonly rows: Array<{ key: keyof ExperimentalFlags; label: string; hint: string }> = [
     {
       key: "advisor",
-      label: "Advisor mode",
+      label: "Advisor workflow",
       hint: "Strategic advisor + consult_advisor (experimental)",
     },
     {

@@ -142,7 +142,7 @@ jobs:
             "name": "$NPM_NAME",
             "version": "$VERSION",
             "description": "IMPULSE binary for ${{ matrix.platform }}-${{ matrix.arch }}",
-            "license": "MIT",
+            "license": "AGPL-3.0",
             "repository": {
               "type": "git",
               "url": "git+https://github.com/spenceriam/impulse.git"
@@ -316,7 +316,7 @@ jobs:
             "name": "@spenceriam/impulse",
             "version": "$VERSION",
             "description": "Provider-flexible terminal AI coding agent",
-            "license": "MIT",
+            "license": "AGPL-3.0",
             "bin": {
               "impulse": "./bin/impulse"
             },

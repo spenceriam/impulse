@@ -6,6 +6,7 @@ import {
   overlaySideLine,
   overlayTitleLine,
 } from "./overlay-theme.js";
+import { ALLOW_ALL_WARNING } from "../../permission/policy.js";
 
 const A = {
   reset: "\x1b[0m",
@@ -23,9 +24,7 @@ const OPTIONS: Array<{ value: AllowAllDisclaimerDecision; label: string }> = [
 ];
 
 const BODY_LINES = [
-  "/allow-all will bypass all permission requests.",
-  "Use this only on a sandbox or trusted system.",
-  "impulse is not responsible for any potential damages that may occur.",
+  ALLOW_ALL_WARNING,
 ];
 
 export class AllowAllDisclaimerOverlay implements Component {

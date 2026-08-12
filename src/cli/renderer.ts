@@ -20,7 +20,6 @@ import {
   Container,
   Text,
   Spacer,
-  wrapTextWithAnsi,
   type Component,
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
@@ -37,11 +36,15 @@ import { shouldTreatAsSlashCommand } from "./image-paths.js";
 import {
   completeSlashCommandTab,
   isSlashCommandInput,
-  shouldShowSlashAutocomplete,
+  renderSlashAutocompleteLines,
   type SlashCompleteCycle,
   type SlashCommandEntry,
 } from "./slash-autocomplete.js";
-import { buildSlashCommandList } from "./slash-commands.js";
+import {
+  buildTopLevelSlashCommandList,
+  cycleDisplayedMode,
+  resolveModeCommand,
+} from "./slash-commands.js";
 import { setAtAutocomplete } from "./at-autocomplete.js";
 import { canonicalizeSlashAliasInput } from "./slash-aliases.js";
 import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
@@ -89,9 +92,13 @@ import { PromptHistory } from "./prompt-history.js";
 import { loadPromptHistory, savePromptHistory } from "../util/prompt-history-store.js";
 import {
   isAllowAllBypass,
-  resetAllowAllBypass,
-  setAllowAllBypass,
 } from "../permission/index.js";
+import {
+  ALLOW_ALL_WARNING,
+  configureApprovalPolicy,
+  effectiveApprovalPolicy,
+  setPersistedApprovalPolicy,
+} from "../permission/policy.js";
 import { ContextBarComponent, gitBranch } from "./components/context-bar.js";
 import { clearActiveSessionMarker } from "../util/active-session-marker.js";
 import {
@@ -122,6 +129,8 @@ import { PermissionOverlay } from "./components/permission-overlay.js";
 import { LoopCheckinOverlay } from "./components/loop-checkin-overlay.js";
 import type { LoopCheckinChoice } from "./components/loop-checkin-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
+import { ExecutionHandoffOverlay } from "./components/execution-handoff-overlay.js";
+import { PreviewReviewOverlay } from "./components/preview-review-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
 import {
@@ -129,10 +138,6 @@ import {
   type SelectableListRow,
 } from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
-import {
-  PlanCompletionOverlay,
-  type PlanCompletionDecision,
-} from "./components/plan-completion-overlay.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
 import {
@@ -162,7 +167,8 @@ import {
   MANUAL_MODEL_ROW_ID,
 } from "./model-setup-rows.js";
 import { sessionHasResumeableContent } from "../session/session-content.js";
-import { AgentLoop, type LoopEvents } from "../agent/loop.js";
+import type { LoopEvents } from "../agent/loop.js";
+import { TuiRuntimeController } from "../runtime/tui-controller.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
 import {
   load as loadConfig,
@@ -172,6 +178,7 @@ import {
   isExperimentalGoalEnabled,
   isExperimentalUndoEnabled,
   type Config,
+  type PresentationDensity,
   type ReasoningLevel,
   type ThinkingDisplay,
 } from "../util/config.js";
@@ -226,19 +233,28 @@ import {
   loadModelsDevCatalog,
 } from "./model-catalog.js";
 import { Bus } from "../bus/index.js";
-import { HeaderEvents, ModeEvents, QuestionEvents, SubagentEvents, BranchEvents } from "../bus/events.js";
+import { HeaderEvents, ModeEvents, QuestionEvents, ExecutionHandoffEvents, SubagentEvents, BranchEvents } from "../bus/events.js";
 import { PermissionEvents, respond, type PermissionRequest } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
+import {
+  resumeSessionWithAuthority,
+  type ResumeAuthorityResult,
+} from "../session/resume-authority.js";
+import { createNewSessionWithAuthority } from "../session/new-session-authority.js";
 import { CompactManager } from "../session/compact.js";
 import { estimateSessionContextTokens } from "../session/token-estimate.js";
 import { CheckpointManager } from "../session/checkpoint.js";
 import { formatImpulseUiStatus } from "../session/status-events.js";
 import {
   createGoalState,
-  parseGoalState,
   type GoalState,
 } from "../session/goal-state.js";
-import { buildGoalContinuationMessage, judgeGoal } from "../agent/goal-loop.js";
+import {
+  buildGoalContinuationMessage,
+  isGoalLoopExecutable,
+  judgeGoal,
+  runGoalLoopActionIfExecutable,
+} from "../agent/goal-loop.js";
 import {
   getActivePlanRevision,
   listRevisionIds,
@@ -247,9 +263,10 @@ import {
 import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
 import {
   writeGoalArtifact,
-  readGoalArtifact,
   deleteGoalArtifact,
   appendGoalProgress,
+  hydrateGoalFromSession,
+  type GoalHydrationSource,
 } from "../goal/artifact.js";
 import { invalidatePromptCache } from "../agent/prompts.js";
 import { clearProjectStructureCache } from "../agent/project-structure.js";
@@ -261,16 +278,36 @@ import {
 import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
 import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
 import { listInstalledSkills, type InstalledSkillMeta } from "../tools/install-skill-source.js";
-import { countRunningBgJobs, cleanupAllBgJobs, BgJobEvents } from "../tools/bg-process-registry.js";
-import { removeSkill } from "../tools/skill-remove.js";
-import { ensureDefaultSkills } from "../skills/default-skills.js";
-import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
-import { setCurrentMode } from "../tools/mode-state.js";
 import {
-  displayModeLabel,
-  displayModeOptions,
-  isDefaultMode,
-  MODE_CYCLE,
+  createSkillActionOverlay,
+  createSkillsListOverlay,
+} from "./skills-presentation.js";
+import { countRunningBgJobs, BgJobEvents } from "../tools/bg-process-registry.js";
+import {
+  cleanupExecutionParticipants,
+  type ExecutionCleanupContext,
+} from "../tools/execution-revocation.js";
+import { removeSkill } from "../tools/skill-remove.js";
+import { DefaultSkillScaffolding } from "../skills/default-skills.js";
+import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
+import {
+  resolveExecutionHandoff,
+  USER_HANDOFF_AUTHORITY,
+  type ExecutionHandoffChoice,
+} from "../tools/execution-handoff.js";
+import { PreviewManager, type PreviewReview } from "../preview/manager.js";
+import {
+  PreviewApplyController,
+  USER_PREVIEW_APPLY_AUTHORITY,
+} from "../preview/apply-controller.js";
+import {
+  getCurrentMode,
+  restoreAgentAuthorityAfterLifecycle,
+  setCurrentMode,
+} from "../tools/mode-state.js";
+import { restoreAskExecutionAdmissionAfterFailure } from "../tools/execution-admission.js";
+import {
+  DEFAULT_MODE,
   normalizeMode,
   type Mode,
 } from "../constants.js";
@@ -281,14 +318,21 @@ import {
   MODE_COLORS,
   modelStatusLine,
 } from "./ansi-theme.js";
-import {
-  dispatchSlashCommand,
-  hydrateDynamicSkillCommands,
-  listDynamicSkillCommands,
-  type SlashDispatchHost,
-} from "./slash-dispatch.js";
+import { dispatchSlashCommand, type SlashDispatchHost } from "./slash-dispatch.js";
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
 import { buildQueuePreviewText } from "./queue-preview.js";
+import {
+  agentAuthorityError,
+  explicitUserModeTransitionNotice,
+  modelModeTransitionCommittedNotice,
+  modeTransitionFailureNotice,
+} from "./mode-authority.js";
+import { transitionModeAuthority } from "../tools/mode-transition.js";
+import {
+  isExecutionTurnAdmissionOpen,
+  registerExecutionStart,
+  type ExecutionStartRegistration,
+} from "../tools/execution-admission.js";
 import { copy as copyToClipboard } from "../util/clipboard.js";
 import {
   clearTerminalForTuiStart,
@@ -385,15 +429,7 @@ interface ModelSetupState {
 
 // ?? ImpulseRenderer ???????????????????????????????????????????????????????????
 
-/** Map installed-skill metadata to selectable-list rows for the /skills overlay. */
-export function buildSkillRows(skills: InstalledSkillMeta[]): SelectableListRow[] {
-  return skills.map((s) => ({
-    id: s.slug,
-    label: s.slug,
-    ...(s.command ? { metaRight: `/${s.command}` } : {}),
-    ...(s.description ? { secondary: s.description } : {}),
-  }));
-}
+export { buildSkillRows } from "./skills-presentation.js";
 
 export type ResumeStartup = "picker" | { sessionId: string };
 
@@ -411,9 +447,13 @@ export class ImpulseRenderer {
   private tui!: TUI;
   private readonly startupResume: ResumeStartup | null;
   private readonly startupResumeReason: "interrupted" | null;
+  private startupResumeAttempted = false;
+  private startupResumeResult: ResumeAuthorityResult<Session> | null = null;
+  private startupResumeError: Error | null = null;
   private readonly allowAllOnStartup: boolean;
-  /** True once the startup disclaimer is accepted; keeps allow-all sticky across session switches. */
-  private allowAllStartupAgreed = false;
+  private readonly defaultSkillScaffolding: DefaultSkillScaffolding;
+  private readonly previewManager: PreviewManager;
+  private readonly previewApplyController: PreviewApplyController;
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
   private welcomeChildCount = 0;
@@ -544,7 +584,7 @@ export class ImpulseRenderer {
     }
   }
 
-  /** Check if advisor mode should be turned off (all tasks complete) */
+  /** Check if the advisor workflow should be turned off (all tasks complete). */
   private async checkAutoOffSuggestion(): Promise<void> {
     const config = await loadConfig();
     if (!config.advisorMode || !this.tui) return;
@@ -574,7 +614,7 @@ export class ImpulseRenderer {
       `${clr.bold("Strategy Complete")}`,
       this.setupSectionRule(),
       `All tasks from the advisor plan are complete.`,
-      `The main agent suggests advisor mode is no longer needed.`,
+      `The main agent suggests the advisor workflow is no longer needed.`,
       "",
       `${clr.dim("Enter: Keep ON  |  D: Deactivate Advisor  |  Esc: Dismiss")}`,
     ];
@@ -624,7 +664,7 @@ export class ImpulseRenderer {
       await this.persistSessionAdvisor(false);
       this.syncAdvisorFromConfig(await loadConfig());
       this.syncContextBar({ advisorModel: undefined });
-      this.addChatLine(clr.dim("Advisor mode disabled  --  all tasks complete"));
+      this.addChatLine(clr.dim("Advisor workflow disabled  --  all tasks complete"));
       this.tui.requestRender();
     }
   }
@@ -672,7 +712,7 @@ export class ImpulseRenderer {
     this.activePermission = request;
     this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
 
-    const overlay = new PermissionOverlay(request);
+    const overlay = new PermissionOverlay(request, this.presentationDensity);
     overlay.onDecision = (response, opts) => {
       const permissionID = request.id;
       const resumeStatus = `running ${request.permission}?`;
@@ -797,7 +837,11 @@ export class ImpulseRenderer {
     this.dismissQuestionOverlay(false);
     this.setBusyStatus("Waiting for answer ...", "Waiting for your answer...");
 
-    const overlay = new QuestionOverlay({ context, questions });
+    const overlay = new QuestionOverlay({
+      context,
+      questions,
+      presentationDensity: this.presentationDensity,
+    });
     overlay.onSubmit = (answers) => {
       this.dismissQuestionOverlay(false);
       resolveQuestion(answers);
@@ -826,6 +870,151 @@ export class ImpulseRenderer {
     this.questionOverlayHandle = null;
     if (restoreFocus) {
       this.tui.setFocus(this.promptInput);
+    }
+    this.tui.requestRender();
+  }
+
+  private dismissExecutionHandoffOverlay(): void {
+    this.executionHandoffOverlayHandle?.hide();
+    this.executionHandoffOverlayHandle = null;
+    this.tui?.setFocus(this.promptInput);
+    this.tui?.requestRender();
+  }
+
+  private showExecutionHandoffOverlay(input: {
+    id: string;
+    request: string;
+    description: string;
+  }): void {
+    if (!this.tui) return;
+    this.dismissExecutionHandoffOverlay();
+    const overlay = new ExecutionHandoffOverlay(input);
+    overlay.onDecision = (choice) => {
+      this.dismissExecutionHandoffOverlay();
+      void this.handleExecutionHandoffDecision(input, choice);
+    };
+    this.executionHandoffOverlayHandle = this.showContentSizedOverlay(overlay, {
+      maxHeight: overlayViewportMaxHeight(this.tui.terminal?.rows ?? this.terminal.rows ?? 24),
+    });
+    this.tui.requestRender();
+  }
+
+  private async handleExecutionHandoffDecision(
+    input: { id: string; request: string; description: string },
+    choice: ExecutionHandoffChoice
+  ): Promise<void> {
+    if (choice === "stay") {
+      resolveExecutionHandoff(input.id, choice, USER_HANDOFF_AUTHORITY);
+      this.addChatLine(clr.dim("Stayed in ASK · project remains read-only"));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (choice === "agent") {
+      const changed = await this.applyModeChange("AGENT", {
+        prev: this.mode,
+        source: "explicit-user-transition",
+      });
+      resolveExecutionHandoff(input.id, choice, USER_HANDOFF_AUTHORITY);
+      if (!changed && this.mode !== "AGENT") {
+        this.addChatLine(clr.warn("Could not enter AGENT; execution remains ASK."));
+      }
+      this.tui.requestRender();
+      return;
+    }
+
+    await this.runSafePreviewRequest(input.request, input.description);
+    resolveExecutionHandoff(input.id, choice, USER_HANDOFF_AUTHORITY);
+  }
+
+  private async runSafePreviewRequest(
+    request: string,
+    description: string
+  ): Promise<boolean> {
+    this.addChatLine(clr.dim("PREVIEW · probing bubblewrap · network off"));
+    this.syncApprovalPolicyUi("PREVIEW");
+    this.tui.requestRender();
+    let result;
+    try {
+      result = await this.previewManager.preview({ prompt: request, description });
+    } catch (error) {
+      this.addChatLine(clr.warn(
+        `Safe preview failed: ${error instanceof Error ? error.message : String(error)}`
+      ));
+      this.addChatLine(clr.dim("Stayed in ASK · no host fallback was used"));
+      return false;
+    } finally {
+      this.syncApprovalPolicyUi("HOST");
+    }
+
+    if (result.status !== "ready") {
+      this.addChatLine(clr.warn(result.notice));
+      if (result.status === "unavailable" && result.remediation) {
+        this.addChatLine(clr.dim(result.remediation));
+      }
+      this.addChatLine(clr.dim("Stayed in ASK · use /mode AGENT only for explicit host execution"));
+      this.tui.requestRender();
+      return false;
+    }
+
+    this.addChatLine(clr.dim("PREVIEW · bubblewrap · network off · process cleanup confirmed"));
+    this.addChatLine(clr.dim(
+      result.changedFiles.length > 0
+        ? `Changed: ${result.changedFiles.join(", ")}`
+        : "Changed: no files"
+    ));
+    if (result.diffStat) this.addChatLine(clr.dim(result.diffStat));
+    for (const line of result.agentSummary.slice(0, 3)) this.addChatLine(clr.dim(line));
+    this.showPreviewReviewOverlay(result);
+    this.tui.requestRender();
+    return true;
+  }
+
+  private dismissPreviewReviewOverlay(): void {
+    this.previewReviewOverlayHandle?.hide();
+    this.previewReviewOverlayHandle = null;
+    this.tui?.setFocus(this.promptInput);
+    this.tui?.requestRender();
+  }
+
+  private showPreviewReviewOverlay(review: PreviewReview): void {
+    const overlay = new PreviewReviewOverlay(review);
+    overlay.onDecision = (decision) => {
+      this.dismissPreviewReviewOverlay();
+      void this.handlePreviewReviewDecision(review, decision);
+    };
+    this.previewReviewOverlayHandle = this.showContentSizedOverlay(overlay, {
+      maxHeight: overlayViewportMaxHeight(this.tui.terminal?.rows ?? this.terminal.rows ?? 24),
+    });
+    this.tui.requestRender();
+  }
+
+  private async handlePreviewReviewDecision(
+    review: PreviewReview,
+    decision: "apply" | "discard" | "keep"
+  ): Promise<void> {
+    if (decision === "discard") {
+      const result = await this.previewManager.discard(review.id);
+      this.addChatLine(result.ok ? clr.dim(result.notice) : clr.warn(result.notice));
+      this.tui.requestRender();
+      return;
+    }
+    if (decision === "keep") {
+      const kept = this.previewManager.keep(review.id);
+      this.addChatLine(clr.dim(`Preview kept: ${kept.path}`));
+      this.addChatLine(clr.dim(`Cleanup: ${kept.cleanupCommand}`));
+      this.tui.requestRender();
+      return;
+    }
+
+    const result = await this.previewApplyController.apply(
+      review.id,
+      USER_PREVIEW_APPLY_AUTHORITY
+    );
+    if (result.ok) {
+      this.addChatLine(clr.dim(`Applied reviewed preview: ${result.changedFiles.join(", ") || "no files"}`));
+    } else {
+      this.addChatLine(clr.warn(result.notice));
     }
     this.tui.requestRender();
   }
@@ -1084,13 +1273,13 @@ export class ImpulseRenderer {
     this.ctrlCPendingAt = 0;
   }
 
-  private handleCtrlC(): void {
+  private async handleCtrlC(): Promise<void> {
     if (this.modelSetup) {
       this.cancelModelSetup();
       return;
     }
 
-    if (this.abortActiveShell()) {
+    if (await this.abortActiveShell()) {
       return;
     }
 
@@ -1134,7 +1323,7 @@ export class ImpulseRenderer {
 
     rejectQuestion(new Error("Question cancelled by user"));
     this.dismissQuestionOverlay(false);
-    abortCurrentBashExecution();
+    void abortCurrentBashExecution();
     this.closeThinking();
     this.finalizeAssistantStreamingSegment(false);
 
@@ -1236,12 +1425,14 @@ export class ImpulseRenderer {
   }
 
   private drainTurnQueue(): void {
-    if (this.turnQueue.isHoldDrain || this.turnQueue.length === 0 || this.isRunning) return;
-    if (!this.turnQueue.pruneHead()) {
+    const next = this.turnQueue.dequeueForExecution({
+      isRunning: this.isRunning,
+      admissionOpen: isExecutionTurnAdmissionOpen(this.mode === "AGENT"),
+    });
+    if (!next) {
       this.updateQueuePreview();
       return;
     }
-    const next = this.turnQueue.shift()!;
     this.updateQueuePreview();
     const reviewQ = parseAtReview(next.displayMessage.trim());
     if (reviewQ && this.lastShellOutput) {
@@ -1261,45 +1452,63 @@ export class ImpulseRenderer {
     });
   }
 
-  private async persistGoalState(): Promise<void> {
+  private async persistGoalState(options?: {
+    signal?: AbortSignal;
+    requireAgentAuthority?: boolean;
+  }): Promise<void> {
+    const canPersist = () =>
+      options?.signal?.aborted !== true &&
+      (!options?.requireAgentAuthority ||
+        (this.mode === "AGENT" && getCurrentMode() === "AGENT"));
+    if (!canPersist()) return;
+
     const session = SessionManager.getCurrentSession();
     if (!session) return;
     // Write to .impulse/goals/ artifact (primary) and keep metadata key for
     // backward compat with older sessions that only have the metadata path.
     if (this.goalState) {
       try {
+        if (!canPersist()) return;
         await writeGoalArtifact(session.id, this.goalState);
       } catch {
         // Non-fatal: fall back to metadata-only path
       }
     } else {
+      if (!canPersist()) return;
       try {
         deleteGoalArtifact(session.id);
       } catch {
         // Non-fatal
       }
     }
+    if (!canPersist()) return;
     const metadata = { ...(session.metadata ?? {}), goal: this.goalState };
     await SessionManager.update({ metadata });
+    if (!canPersist()) return;
     invalidatePromptCache();
   }
 
-  private loadGoalFromSession(session: Session): void {
-    // Prefer artifact if available; fall back to legacy session.metadata['goal'].
-    const fromArtifact = readGoalArtifact(session.id);
-    this.goalState = fromArtifact ?? parseGoalState(session.metadata?.["goal"]);
-    // One-time migration: if we loaded from metadata but have no artifact yet, write the artifact.
-    if (!fromArtifact && this.goalState) {
-      void writeGoalArtifact(session.id, this.goalState).catch(() => { /* non-fatal */ });
-    }
+  private loadGoalFromSession(
+    session: Session,
+    source: GoalHydrationSource = "session-hydration"
+  ): void {
+    const hydration = hydrateGoalFromSession({
+      sessionId: session.id,
+      metadataGoal: session.metadata?.["goal"],
+      mode: this.mode,
+      source,
+    });
+    this.goalState = hydration.state;
+    void hydration.migration.catch(() => { /* non-fatal */ });
   }
 
   private goalLoopActive(): boolean {
-    return (
-      this.experimentalGoalEnabled &&
-      this.goalState !== undefined &&
-      this.goalState.status === "active"
-    );
+    return getCurrentMode() === "AGENT" &&
+      isGoalLoopExecutable(
+        this.mode,
+        this.experimentalGoalEnabled,
+        this.goalState
+      );
   }
 
   private async maybeContinueGoalLoop(): Promise<void> {
@@ -1320,6 +1529,10 @@ export class ImpulseRenderer {
     }
 
     const cfg = await loadConfig();
+    if (!this.goalLoopActive()) {
+      this.drainTurnQueue();
+      return;
+    }
     const judgeModel = cfg.subagentModel?.trim() || cfg.defaultModel?.trim();
 
     let planTasksMarkdown: string | undefined;
@@ -1331,61 +1544,124 @@ export class ImpulseRenderer {
         planTasksMarkdown = tasks;
         planTasksPath = toRelativePlanPath(getRevisionDir(sessionId, activeGoal.planRevisionId));
       } else {
-        void this.emitStatusEvent(
-          `Plan revision ${activeGoal.planRevisionId} not found — judging against goal text only.`
-        );
+        const notice = await runGoalLoopActionIfExecutable({
+          mode: this.mode,
+          experimentalGoalEnabled: this.experimentalGoalEnabled,
+          state: activeGoal,
+          action: async (signal) => {
+            if (signal.aborted) return;
+            await this.emitStatusEvent(
+              `Plan revision ${activeGoal.planRevisionId} not found — judging against goal text only.`
+            );
+          },
+        });
+        if (!notice.executed || !this.goalLoopActive()) {
+          return;
+        }
       }
     }
 
-    const result = await judgeGoal(
-      activeGoal,
-      this.lastAssistantTurnText,
-      judgeModel,
-      planTasksMarkdown ? { planTasksMarkdown } : undefined
-    );
+    const judgeAction = await runGoalLoopActionIfExecutable({
+      mode: this.mode,
+      experimentalGoalEnabled: this.experimentalGoalEnabled,
+      state: activeGoal,
+      action: (signal) => judgeGoal(
+        activeGoal,
+        this.lastAssistantTurnText,
+        judgeModel,
+        planTasksMarkdown ? { planTasksMarkdown, signal } : { signal }
+      ),
+    });
+    if (!judgeAction.executed || !judgeAction.value || !this.goalLoopActive()) {
+      return;
+    }
+    const result = judgeAction.value;
 
     const sessionId = SessionManager.getCurrentSessionID() ?? "";
     const judgedTurn = activeGoal.turnsUsed + 1;
-    const logJudgeProgress = (verdict: string, reason: string) => {
-      appendGoalProgress(sessionId, {
-        turn: judgedTurn,
-        verdict,
-        reason,
-        timestamp: new Date().toISOString(),
+    const logJudgeProgress = (verdict: string, reason: string) =>
+      runGoalLoopActionIfExecutable({
+        mode: this.mode,
+        experimentalGoalEnabled: this.experimentalGoalEnabled,
+        state: activeGoal,
+        action: async (signal) => {
+          if (signal.aborted) return;
+          appendGoalProgress(sessionId, {
+            turn: judgedTurn,
+            verdict,
+            reason,
+            timestamp: new Date().toISOString(),
+          });
+        },
       });
-    };
+    const persistIfExecutable = () => runGoalLoopActionIfExecutable({
+      mode: this.mode,
+      experimentalGoalEnabled: this.experimentalGoalEnabled,
+      state: activeGoal,
+      action: (signal) => this.persistGoalState({
+        signal,
+        requireAgentAuthority: true,
+      }),
+    });
+    const emitStatusIfExecutable = (text: string) =>
+      runGoalLoopActionIfExecutable({
+        mode: this.mode,
+        experimentalGoalEnabled: this.experimentalGoalEnabled,
+        state: activeGoal,
+        action: async (signal) => {
+          if (signal.aborted) return;
+          await this.emitStatusEvent(text);
+        },
+      });
 
     if (result.verdict === "done") {
-      logJudgeProgress("done", result.reason);
+      const logged = await logJudgeProgress("done", result.reason);
+      if (!logged.executed || !this.goalLoopActive()) {
+        return;
+      }
       this.goalState = {
         ...activeGoal,
         status: "done",
         lastJudgeReason: result.reason,
       };
-      await this.persistGoalState();
-      void this.emitStatusEvent(`Goal achieved: ${result.reason}`);
+      const persisted = await persistIfExecutable();
+      if (!persisted.executed) {
+        return;
+      }
+      const status = await emitStatusIfExecutable(`Goal achieved: ${result.reason}`);
+      if (!status.executed) return;
       this.drainTurnQueue();
       return;
     }
 
     if (result.verdict === "judge_unavailable") {
-      logJudgeProgress("judge_unavailable", result.reason);
+      const logged = await logJudgeProgress("judge_unavailable", result.reason);
+      if (!logged.executed || !this.goalLoopActive()) {
+        return;
+      }
       this.goalState = {
         ...activeGoal,
         status: "paused_judge_unavailable",
         lastJudgeReason: result.reason,
       };
-      await this.persistGoalState();
+      const persisted = await persistIfExecutable();
+      if (!persisted.executed) {
+        return;
+      }
       this.syncGoalContextBar();
-      void this.emitStatusEvent(
+      const status = await emitStatusIfExecutable(
         "Goal paused — judge model unavailable. Run /goal resume after restoring it."
       );
+      if (!status.executed) return;
       this.drainTurnQueue();
       return;
     }
 
     const nextTurns = activeGoal.turnsUsed + 1;
-    logJudgeProgress("continue", result.reason);
+    const logged = await logJudgeProgress("continue", result.reason);
+    if (!logged.executed || !this.goalLoopActive()) {
+      return;
+    }
     const updatedGoal: GoalState = {
       ...activeGoal,
       turnsUsed: nextTurns,
@@ -1395,24 +1671,36 @@ export class ImpulseRenderer {
 
     if (nextTurns >= activeGoal.maxTurns) {
       this.goalState = { ...updatedGoal, status: "paused" };
-      await this.persistGoalState();
-      void this.emitStatusEvent(
+      const persisted = await persistIfExecutable();
+      if (!persisted.executed) {
+        return;
+      }
+      const status = await emitStatusIfExecutable(
         `Goal paused — ${nextTurns}/${activeGoal.maxTurns} turns. /goal resume`
       );
+      if (!status.executed) return;
       this.drainTurnQueue();
       return;
     }
 
-    await this.persistGoalState();
+    const persisted = await persistIfExecutable();
+    if (!persisted.executed || !this.goalLoopActive()) {
+      return;
+    }
     const continuation = buildGoalContinuationMessage(
       updatedGoal,
       planTasksPath ? { planTasksPath } : undefined
     );
-    void this.runTurn({
-      apiText: continuation,
-      displayMessage: continuation,
-      orderedImages: [],
-      segments: [],
+    await runGoalLoopActionIfExecutable({
+      mode: this.mode,
+      experimentalGoalEnabled: this.experimentalGoalEnabled,
+      state: updatedGoal,
+      action: (signal) => this.runTurn({
+        apiText: continuation,
+        displayMessage: continuation,
+        orderedImages: [],
+        segments: [],
+      }, { autonomousGoalSignal: signal }),
     });
   }
 
@@ -1447,9 +1735,14 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private abortActiveShell(): boolean {
+  private async abortActiveShell(): Promise<boolean> {
     if (this.shellCommandRunning) {
-      abortUserShell();
+      const stopped = await abortUserShell();
+      if (!stopped) {
+        this.addChatLine(clr.warn("Shell cancellation failed -- process still running"));
+        this.tui.requestRender();
+        return true;
+      }
       this.shellCommandRunning = false;
       this.shellTakeoverActive = false;
       this.activeShellBlock?.setCancelled();
@@ -1477,10 +1770,12 @@ export class ImpulseRenderer {
       return true;
     }
     this.shellEscArmed = false;
-    return this.abortActiveShell();
+    void this.abortActiveShell();
+    return true;
   }
 
   private async runBangCommand(command: string): Promise<void> {
+    if (this.showAgentAuthorityRequirement("run shell commands")) return;
     this.addSectionGap();
     const block = new ShellCommandBlock(command);
     this.activeShellBlock = block;
@@ -1495,16 +1790,29 @@ export class ImpulseRenderer {
       block.setInteractiveHint(true);
     }
 
-    const result = await runUserShellCommand({
-      command,
-      cols: this.terminalCols(),
-      rows: Math.max(8, (this.tui.terminal?.rows ?? 24) - 12),
-      onData: (chunk) => {
-        block.appendOutput(chunk);
-        this.requestLayoutRefresh();
-      },
-      forceInteractive: interactive,
-    });
+    let result: ShellRunResult;
+    try {
+      result = await runUserShellCommand({
+        command,
+        cols: this.terminalCols(),
+        rows: Math.max(8, (this.tui.terminal?.rows ?? 24) - 12),
+        onData: (chunk) => {
+          block.appendOutput(chunk);
+          this.requestLayoutRefresh();
+        },
+        forceInteractive: interactive,
+      });
+    } catch (error) {
+      this.shellCommandRunning = false;
+      this.shellTakeoverActive = false;
+      block.setInteractiveHint(false);
+      block.setTakeoverActive(false);
+      block.setCancelled();
+      this.activeShellBlock = null;
+      this.addChatLine(clr.warn(error instanceof Error ? error.message : String(error)));
+      this.requestLayoutRefresh();
+      return;
+    }
 
     this.shellCommandRunning = false;
     this.shellTakeoverActive = false;
@@ -1555,6 +1863,8 @@ export class ImpulseRenderer {
   private permissionOverlayHandle: OverlayHandle | null = null;
   private loopCheckinOverlayHandle: OverlayHandle | null = null;
   private questionOverlayHandle: OverlayHandle | null = null;
+  private executionHandoffOverlayHandle: OverlayHandle | null = null;
+  private previewReviewOverlayHandle: OverlayHandle | null = null;
   private sessionPickerHandle: OverlayHandle | null = null;
   private modelPickerHandle: OverlayHandle | null = null;
   private modelSetupOverlayHandle: OverlayHandle | null = null;
@@ -1570,8 +1880,9 @@ export class ImpulseRenderer {
   private lastLiveMetricsAt = 0;
 
   // Agent + state
-  private loop = new AgentLoop();
-  private mode: Mode = "AGENT";
+  private loop = new TuiRuntimeController({ cwd: process.cwd() });
+  private mode: Mode = "ASK";
+  private modeTransitionPending = false;
   private contextTokens = 0;
   private contextWindow = 128_000;
   private advisorModel: string | undefined;
@@ -1584,14 +1895,13 @@ export class ImpulseRenderer {
   private sideStreamActive = false;
   private currentSideExchangeId: string | null = null;
   private reasoningLevel: ReasoningLevel = "medium";
+  private presentationDensity: PresentationDensity = "compact";
   private reasoningCapability: ReasoningCapability = { supported: true, style: "binary", levels: ["off", "medium"] };
   private isRunning = false;
   private allowAllDisclaimerHandle: OverlayHandle | null = null;
   private modelSetup: ModelSetupState | null = null;
   private planApprovalOverlayHandle: OverlayHandle | null = null;
   private planApprovalInputCleanup: (() => void) | null = null;
-  private planCompletionOverlayHandle: OverlayHandle | null = null;
-  private planCompletionInputCleanup: (() => void) | null = null;
   private skillsOverlayHandle: OverlayHandle | null = null;
   private instructionsOverlayHandle: OverlayHandle | null = null;
   private helpInputCleanup: (() => void) | null = null;
@@ -1621,6 +1931,16 @@ export class ImpulseRenderer {
     this.startupResume = options?.resume ?? null;
     this.startupResumeReason = options?.resumeReason ?? null;
     this.allowAllOnStartup = options?.allowAllOnStartup ?? false;
+    this.defaultSkillScaffolding = new DefaultSkillScaffolding(process.cwd());
+    this.previewManager = new PreviewManager({ activeWorkspace: process.cwd() });
+    this.previewApplyController = new PreviewApplyController({
+      checkApply: (id) => this.previewManager.checkApply(id),
+      apply: (id) => this.previewManager.apply(id),
+      transition: (mode) => this.applyModeChange(mode, {
+        prev: this.mode,
+        source: "explicit-user-transition",
+      }),
+    });
   }
 
   /** Submit a plain-text message after the TUI is running (CLI initial arg). */
@@ -1633,7 +1953,10 @@ export class ImpulseRenderer {
 
   async start(): Promise<void> {
     let config = await loadConfig();
-    this.mode = normalizeMode(config.defaultMode) as Mode;
+    configureApprovalPolicy({ persisted: config.approvalPolicy });
+    // Persisted config/session modes are historical metadata. Runtime authority
+    // always starts in ASK until the user explicitly grants AGENT.
+    this.mode = DEFAULT_MODE;
     this.experimentalAdvisorEnabled = isExperimentalAdvisorEnabled(config);
     this.experimentalUndoEnabled = isExperimentalUndoEnabled(config);
     this.experimentalGoalEnabled = isExperimentalGoalEnabled(config);
@@ -1647,7 +1970,7 @@ export class ImpulseRenderer {
 
     SessionManager.setOptions({
       defaultModel: config.defaultModel ?? "",
-      defaultMode: this.mode,
+      defaultMode: DEFAULT_MODE,
       initialContextWindow: this.contextWindow,
     });
 
@@ -1657,10 +1980,17 @@ export class ImpulseRenderer {
       // sessions; #78). Falls back to a fresh session if the load fails.
       let resumedAtBoot = false;
       if (this.startupResume && this.startupResume !== "picker") {
+        this.startupResumeAttempted = true;
         try {
-          await SessionManager.load(this.startupResume.sessionId);
-          resumedAtBoot = true;
-        } catch {
+          const result = await this.resolveSessionResume(this.startupResume.sessionId);
+          this.startupResumeResult = result;
+          resumedAtBoot = result.ok;
+          if (result.ok) {
+            this.mode = result.mode;
+            setCurrentMode(result.mode);
+          }
+        } catch (error) {
+          this.startupResumeError = error instanceof Error ? error : new Error(String(error));
           resumedAtBoot = false;
         }
       }
@@ -1687,12 +2017,9 @@ export class ImpulseRenderer {
     debugLog(`thinking: ${config.thinking}, reasoningLevel: ${config.reasoningLevel}`);
     debugLog(`provider: ${config.defaultProvider}, model: ${config.defaultModel}`);
 
-    // Scaffold bundled default skills on first run, then re-register dynamic
-    // /command aliases from whatever's on disk. cwd is fixed for the process
-    // lifetime (no process.chdir anywhere in src/**), so this only needs to
-    // run once at startup.
-    await ensureDefaultSkills(process.cwd());
-    void hydrateDynamicSkillCommands(process.cwd());
+    // Startup only discovers skills already on disk. Bundled defaults require
+    // an explicit user transition into AGENT before they may be scaffolded.
+    await this.defaultSkillScaffolding.initialize(this.mode, "startup");
 
     // ?? Build TUI layout ??????????????????????????????????????????????????
     this.tui = new TUI(this.terminal);
@@ -1711,6 +2038,15 @@ export class ImpulseRenderer {
         return;
       }
 
+      if (event.type === ExecutionHandoffEvents.Asked.name) {
+        this.showExecutionHandoffOverlay(event.properties as {
+          id: string;
+          request: string;
+          description: string;
+        });
+        return;
+      }
+
       if (event.type === HeaderEvents.Updated.name) {
         const { title } = event.properties as { title: string };
         void this.onHeaderTitleUpdated(title);
@@ -1718,11 +2054,21 @@ export class ImpulseRenderer {
       }
 
       if (event.type === ModeEvents.Changed.name) {
-        const { mode } = event.properties as { mode: string };
+        const { mode, reason } = event.properties as { mode: string; reason?: string };
         const next = normalizeMode(mode) as Mode;
-        const prev = this.mode;
-        this.applyModeChange(next, { prev });
-        this.tui.requestRender();
+        this.applyCommittedModelModeChange(next, reason);
+        return;
+      }
+
+      if (event.type === ModeEvents.TransitionFailed.name) {
+        const result = event.properties as {
+          mode: "AGENT";
+          requestedMode: "ASK";
+          failedParticipantIds: string[];
+          stoppedJobs: number;
+          stoppedShells: number;
+        };
+        this.applyModelModeTransitionFailure(result);
         return;
       }
 
@@ -1861,7 +2207,7 @@ export class ImpulseRenderer {
         }
         return;
       }
-      this.cycleMode(1);
+      void this.cycleMode(1);
     };
     this.promptInput.onTabBackward = () => {
       if (this.modelSetup) return;
@@ -1869,7 +2215,7 @@ export class ImpulseRenderer {
       void this.cycleReasoning();
     };
     this.promptInput.onAbort = () => {
-      this.handleCtrlC();
+      void this.handleCtrlC();
     };
     this.promptInput.onExit = () => {
       void this.gracefulExit();
@@ -1968,6 +2314,9 @@ export class ImpulseRenderer {
       ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
       showAdvisorInBar: this.experimentalAdvisorEnabled && (config.advisorMode ?? false),
       bottomBarVisual: config.bottomBarVisual ?? "full",
+      presentationDensity: config.presentationDensity ?? "compact",
+      executionBoundary: "HOST",
+      approvalPolicy: effectiveApprovalPolicy() === "allow-all" ? "ALLOW-ALL" : "PROMPT",
     });
     this.syncVisionFromConfig(config);
     this.syncSpeedoUi();
@@ -1981,7 +2330,7 @@ export class ImpulseRenderer {
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
     this.tui.setFocus(this.promptInput);
-    this.applyAllowAllForSessionScope();
+    this.syncApprovalPolicyUi();
 
     this.tui.addInputListener((data) => {
       if (this.shellTakeoverActive && this.shellCommandRunning) {
@@ -2013,15 +2362,22 @@ export class ImpulseRenderer {
     ensurePiTuiDebugRedrawDir();
     clearTerminalForTuiStart(this.terminal);
     this.tui.start();
-    if (this.allowAllOnStartup) {
+    if (this.allowAllOnStartup && config.approvalPolicy !== "allow-all") {
       const agreed = await this.showAllowAllDisclaimer();
       if (agreed) {
-        this.allowAllStartupAgreed = true;
-        this.applyAllowAllForSessionScope();
-        this.addChatLine(clr.dim("All permissions bypassed"));
+        configureApprovalPolicy({
+          persisted: config.approvalPolicy,
+          launchOverride: "allow-all",
+        });
+        this.syncApprovalPolicyUi();
+        this.addChatLine(clr.warn("ALLOW-ALL for this launch · HOST"));
       } else {
         this.addChatLine(clr.dim("Allow-all not enabled."));
       }
+      this.tui.requestRender();
+    } else if (effectiveApprovalPolicy() === "allow-all") {
+      this.addChatLine(clr.warn("ALLOW-ALL persisted · HOST"));
+      this.addChatLine(clr.dim(ALLOW_ALL_WARNING));
       this.tui.requestRender();
     }
     // Discover reasoning capabilities in background (non-blocking)
@@ -2031,8 +2387,24 @@ export class ImpulseRenderer {
     if (this.startupResume === "picker") {
       await this.cmdResume("");
     } else if (this.startupResume) {
-      await this.applyResumeSession(this.startupResume.sessionId);
-      if (this.startupResumeReason === "interrupted") {
+      let resumed = false;
+      if (this.startupResumeAttempted) {
+        const result = this.startupResumeResult;
+        if (result?.ok) {
+          this.applyResolvedResume(result);
+          resumed = true;
+        } else if (result?.notice) {
+          this.addChatLine(clr.warn(result.notice));
+          this.syncBgContextBar();
+          this.tui.requestRender();
+        } else if (this.startupResumeError) {
+          this.addChatLine(clr.error(`Failed to load session: ${this.startupResumeError.message}`));
+          this.tui.requestRender();
+        }
+      } else {
+        resumed = await this.applyResumeSession(this.startupResume.sessionId);
+      }
+      if (resumed && this.startupResumeReason === "interrupted") {
         const sess = SessionManager.getCurrentSession();
         const title =
           sess?.headerTitle?.trim() || sess?.name?.trim() || "previous session";
@@ -2046,38 +2418,148 @@ export class ImpulseRenderer {
 
   // ?? Mode cycling ?????????????????????????????????????????????????????????
 
-  /**
-   * Mode is ambient state, not conversation content — it never writes a line into the
-   * chat view. Visibility comes from the context bar label and the prompt accent color
-   * (see syncContextBar/syncModeColor below).
-   */
-  private applyModeChange(next: Mode, options?: { prev?: Mode }): void {
-    const prev = options?.prev ?? this.mode;
+  private applyCommittedModelModeChange(next: Mode, reason?: string): void {
+    const prev = this.mode;
+    // Model events are committed de-escalations, never elevation authority.
+    if (prev === "ASK" && next === "AGENT") return;
     if (prev === next) return;
 
+    if (next === "ASK" && this.shellCommandRunning) this.clearRevokedUserShellUi();
     this.mode = next;
     setCurrentMode(next);
     this.syncContextBar({ mode: next });
     this.syncModeColor();
-
+    this.syncBgContextBar();
+    this.addChatLine(clr.dim(modelModeTransitionCommittedNotice(prev, next, reason)));
     if (SessionManager.getCurrentSession()) {
-      void SessionManager.update({ mode: next });
+      void SessionManager.update({ mode: next }).catch((error) => {
+        debugLog(`Failed to persist model mode change: ${String(error)}`);
+      });
+    }
+    this.tui.requestRender();
+    this.drainTurnQueue();
+  }
+
+  private applyModelModeTransitionFailure(result: {
+    mode: "AGENT";
+    requestedMode: "ASK";
+    failedParticipantIds: string[];
+    stoppedJobs: number;
+    stoppedShells: number;
+  }): void {
+    this.mode = "AGENT";
+    setCurrentMode("AGENT");
+    this.syncContextBar({ mode: "AGENT" });
+    this.syncModeColor();
+    this.syncBgContextBar();
+    this.addChatLine(clr.warn(modeTransitionFailureNotice(
+      result.stoppedJobs,
+      result.failedParticipantIds,
+      result.stoppedShells
+    )));
+    this.tui.requestRender();
+    this.drainTurnQueue();
+  }
+
+  /**
+   * Mode is ambient state. Explicit user transitions also write a compact authority
+   * notice so elevation stays visible when the context bar is disabled.
+   */
+  private async applyModeChange(
+    next: Mode,
+    options?: { prev?: Mode; source?: "model" | "explicit-user-transition" }
+  ): Promise<boolean> {
+    const prev = options?.prev ?? this.mode;
+    if (prev === next) return false;
+    if (this.modeTransitionPending) return false;
+    this.modeTransitionPending = true;
+
+    try {
+      const transition = await transitionModeAuthority(prev, next, {
+        source: options?.source === "model" ? "model" : "external",
+      });
+      if (!transition.changed) {
+        setCurrentMode(prev);
+        this.syncContextBar({ mode: prev });
+        this.addChatLine(
+          clr.warn(
+            modeTransitionFailureNotice(
+              transition.stoppedJobs,
+              transition.failedJobIds
+            )
+          )
+        );
+        this.syncBgContextBar();
+        return false;
+      }
+
+      if (transition.mode === "ASK" && ((transition.stoppedShells ?? 0) > 0 || this.shellCommandRunning)) {
+        this.clearRevokedUserShellUi();
+      }
+
+      this.mode = transition.mode;
+      setCurrentMode(transition.mode);
+      this.syncContextBar({ mode: transition.mode });
+      this.syncModeColor();
+      this.syncBgContextBar();
+
+      if (options?.source === "explicit-user-transition") {
+        const notice = explicitUserModeTransitionNotice(
+          prev,
+          transition.mode,
+          transition.stoppedJobs,
+          transition.stoppedShells ?? 0
+        );
+        if (notice) {
+          this.addChatLine(transition.mode === "AGENT" ? clr.warn(notice) : clr.dim(notice));
+        }
+      }
+
+      if (SessionManager.getCurrentSession()) {
+        void SessionManager.update({ mode: transition.mode }).catch((error) => {
+          debugLog(`Failed to persist explicit mode change: ${String(error)}`);
+        });
+      }
+
+      if (options?.source === "explicit-user-transition") {
+        void this.defaultSkillScaffolding
+          .initialize(transition.mode, "explicit-user-transition")
+          .then(() => undefined)
+          .catch((error) => {
+            debugLog(`Default skill scaffolding failed: ${String(error)}`);
+          });
+
+        if (transition.mode === "AGENT") {
+          const session = SessionManager.getCurrentSession();
+          if (session) this.loadGoalFromSession(session, "explicit-user-transition");
+        }
+      }
+      return true;
+    } finally {
+      this.modeTransitionPending = false;
     }
   }
 
-  private cycleMode(dir: 1 | -1): void {
+  private async cycleMode(dir: 1 | -1): Promise<void> {
     if (this.isRunning) return;
     const prev = this.mode;
-    const idx = MODE_CYCLE.indexOf(this.mode);
-    const next = MODE_CYCLE[((idx + dir) + MODE_CYCLE.length) % MODE_CYCLE.length]!;
-    this.applyModeChange(next, { prev });
-    invalidatePromptCache();
+    const next = cycleDisplayedMode(this.mode, dir);
+    const changed = await this.applyModeChange(next, { prev, source: "explicit-user-transition" });
+    if (changed) invalidatePromptCache();
     this.tui.requestRender();
   }
 
   private syncModeColor(): void {
     // Mode color is shown on the context bar; prompt chevron stays dim (see PromptInput).
     this.promptInput.setModeColor(MODE_COLORS[this.mode] ?? 34);
+  }
+
+  private showAgentAuthorityRequirement(action: string): boolean {
+    const error = agentAuthorityError(this.mode, action);
+    if (!error) return false;
+    this.addChatLine(clr.warn(error));
+    this.tui.requestRender();
+    return true;
   }
 
   /** Refresh reasoning capabilities for the current model */
@@ -2439,16 +2921,46 @@ export class ImpulseRenderer {
     void savePromptHistory(this.promptHistory.toJSON()).catch(() => {});
   }
 
-  private async runTurn(payload: PromptSubmitPayload): Promise<void> {
+  private async runTurn(
+    payload: PromptSubmitPayload,
+    options?: { autonomousGoalSignal?: AbortSignal }
+  ): Promise<void> {
     if (!this.isNonemptySubmitPayload(payload)) {
       this.drainTurnQueue();
       return;
     }
+    const admission = registerExecutionStart(
+      "renderer-turn",
+      () => this.loop.abort(),
+      { mutating: this.mode === "AGENT" }
+    );
+    if (!admission.accepted) {
+      if (options?.autonomousGoalSignal === undefined) this.enqueueTurn(payload);
+      return;
+    }
+    try {
+      await this.runAdmittedTurn(payload, options, admission);
+    } finally {
+      admission.complete();
+    }
+  }
+
+  private async runAdmittedTurn(
+    payload: PromptSubmitPayload,
+    options: { autonomousGoalSignal?: AbortSignal } | undefined,
+    admission: ExecutionStartRegistration
+  ): Promise<void> {
+    const autonomousGoalCancelled = () =>
+      admission.signal.aborted ||
+      options?.autonomousGoalSignal?.aborted === true ||
+      (options?.autonomousGoalSignal !== undefined && !this.goalLoopActive());
+    if (autonomousGoalCancelled()) return;
     const userMessage = payload.apiText;
     const displayMessage = payload.displayMessage;
     const transcript = userTranscriptText(payload);
-    // Mid-turn config validation: advisor mode ON but config missing?
+    // Mid-turn config validation: advisor workflow ON but config missing?
     const config = await loadConfig();
+    if (autonomousGoalCancelled()) return;
     if (config.advisorMode && !isExperimentalAdvisorEnabled(config)) {
       this.addChatLine(
         `${clr.warn("!")} Advisor requires experimental flag. Run ${clr.tool("/experimental")} to enable.`
@@ -2457,7 +2969,7 @@ export class ImpulseRenderer {
       return;
     }
     if (config.advisorMode && !config.advisorModel) {
-      this.addChatLine(`${clr.warn("!")} Advisor Mode is ON but no advisor model is configured.`);
+      this.addChatLine(`${clr.warn("!")} Advisor workflow is ON but no advisor model is configured.`);
       if (this.experimentalAdvisorEnabled) {
         this.addChatLine(`${clr.dim("Use /advisor to configure, or /advisor off to disable.")}`);
       } else {
@@ -2480,7 +2992,9 @@ export class ImpulseRenderer {
     }
 
     if (SessionManager.getCurrentSession()) {
-      void SessionManager.update({ mode: this.mode });
+      void SessionManager.update({ mode: this.mode }).catch((error) => {
+        debugLog(`Failed to persist turn mode: ${String(error)}`);
+      });
     }
 
     this.promptInput.clear();
@@ -2514,7 +3028,7 @@ export class ImpulseRenderer {
       contextWindow: this.contextWindow,
     });
 
-    const cfgForVision = await loadConfig();
+    const cfgForVision = config;
     if (payload.orderedImages.length > 0) {
       const sessionModel =
         SessionManager.getCurrentSession()?.model?.trim() ||
@@ -2592,7 +3106,6 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
-      onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
       onLoopCheckin: (input) => this.showLoopCheckin(input),
       onSubagentTaskStatus: (id, status) => {
@@ -2630,7 +3143,10 @@ export class ImpulseRenderer {
         const block = new ToolBlock(
           name,
           args,
-          subagentCodename !== undefined ? { subagentCodename } : undefined
+          {
+            presentationDensity: this.presentationDensity,
+            ...(subagentCodename !== undefined ? { subagentCodename } : {}),
+          }
         );
         this.toolBlocks.set(id, block);
         this.chat.addChild(block);
@@ -2776,9 +3292,6 @@ export class ImpulseRenderer {
           void this.persistCacheReadTokens(usage.cacheReadTokens);
         }
 
-        if (usage.debugInstrumentationNudge) {
-          this.addChatLine(clr.warn(usage.debugInstrumentationNudge));
-        }
 
         this.lastAssistantTurnText = turnText;
         this.addSectionGap();
@@ -2792,6 +3305,9 @@ export class ImpulseRenderer {
         } else {
           this.drainTurnQueue();
         }
+      },
+      onAbort: () => {
+        this.abortCurrentTurn();
       },
       onError: (err) => {
         this.spinStop();
@@ -2823,13 +3339,22 @@ export class ImpulseRenderer {
       },
     };
     await this.refreshActiveContextWindow(config, { discover: true });
+    if (autonomousGoalCancelled()) {
+      this.spinStop();
+      this.isRunning = false;
+      this.syncContextBar({ isRunning: false });
+      this.tui.setFocus(this.promptInput);
+      this.tui.requestRender();
+      return;
+    }
 
     await this.loop.run(userMessage, this.mode, events, {
       displayMessage,
       segments: payload.segments,
     });
+    if (autonomousGoalCancelled()) return;
 
-    // Auto-off suggestion: all todos complete + advisor mode ON
+    // Auto-off suggestion: all todos complete + advisor workflow ON
     await this.checkAutoOffSuggestion();
   }
 
@@ -2902,6 +3427,10 @@ export class ImpulseRenderer {
   }
 
   private addSectionGap(): Spacer | null {
+    if (this.presentationDensity === "compact") {
+      this.hasTrailingGap = false;
+      return null;
+    }
     if (this.hasTrailingGap) return null;
     const spacer = new Spacer(1);
     this.chat.addChild(spacer);
@@ -2909,13 +3438,13 @@ export class ImpulseRenderer {
     return spacer;
   }
 
-  /** Block agent loop until user approves or declines advisor plan */
+  /** Review a conversational plan and route execution through explicit user authority. */
   private async showPlanApprovalOverlay(input: {
     planPath: string;
     summary: string;
     planMarkdown: string;
-  }): Promise<"proceed" | "decline"> {
-    if (!this.tui) return "decline";
+  }): Promise<"preview" | "agent" | "revise" | "stay"> {
+    if (!this.tui) return "stay";
 
     const shortPath = input.planPath.replace(
       new RegExp(`^${os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
@@ -2926,9 +3455,11 @@ export class ImpulseRenderer {
       planPath: shortPath,
       summary: input.summary,
       planMarkdown: input.planMarkdown,
+      presentationDensity: this.presentationDensity,
+      mode: this.mode,
     });
 
-    return new Promise<"proceed" | "decline">((resolve) => {
+    return new Promise<"preview" | "agent" | "revise" | "stay">((resolve) => {
       this.dismissPlanApprovalOverlay();
 
       const handle = this.tui.showOverlay(overlay, {
@@ -2944,15 +3475,37 @@ export class ImpulseRenderer {
       handle.focus();
 
       overlay.onDecision = (decision) => {
+        void (async () => {
         this.dismissPlanApprovalOverlay();
-        if (decision === "proceed") {
-          this.addChatLine(advisorStatusLine("Plan approved — continuing"));
+        if (decision === "preview") {
+          await this.runSafePreviewRequest(
+            `Implement this reviewed plan:\n\n${input.planMarkdown}`,
+            input.summary
+          );
+          this.addChatLine(advisorStatusLine("Plan sent to isolated preview"));
+        } else if (decision === "agent") {
+          const changed = await this.applyModeChange("AGENT", {
+            prev: this.mode,
+            source: "explicit-user-transition",
+          });
+          this.addChatLine(advisorStatusLine(
+            changed || this.mode === "AGENT"
+              ? "Plan approved · AGENT authority active"
+              : "Plan remains read-only · AGENT transition failed"
+          ));
+        } else if (decision === "revise") {
+          this.addChatLine(advisorStatusLine(
+            `Plan revision requested · authority remains ${this.mode}`
+          ));
         } else {
-          this.addChatLine(advisorStatusLine("Plan declined — awaiting new instructions"));
+          this.addChatLine(advisorStatusLine(
+            `Plan not executed · authority remains ${this.mode}`
+          ));
         }
         this.tui.setFocus(this.promptInput);
         this.tui.requestRender();
         resolve(decision);
+        })();
       };
 
       this.planApprovalInputCleanup = this.tui.addInputListener((data: string) => {
@@ -2970,68 +3523,6 @@ export class ImpulseRenderer {
     this.planApprovalOverlayHandle = null;
   }
 
-  /** Block agent loop until user picks execute/proceed/revise/cancel for a completed plan. */
-  private async showPlanCompletionOverlay(input: {
-    planPath: string;
-    summary: string;
-  }): Promise<PlanCompletionDecision> {
-    if (!this.tui) return "cancel";
-
-    const shortPath = input.planPath.replace(
-      new RegExp(`^${os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
-      "~"
-    );
-
-    const overlay = new PlanCompletionOverlay({
-      planPath: shortPath,
-      summary: input.summary,
-    });
-
-    return new Promise<PlanCompletionDecision>((resolve) => {
-      this.dismissPlanCompletionOverlay();
-
-      const handle = this.tui.showOverlay(overlay, {
-        anchor: "bottom-center",
-        offsetY: -4,
-        width: "100%",
-        minWidth: this.overlayMin(),
-        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-        margin: this.listOverlayMargin(),
-      });
-      this.planCompletionOverlayHandle = handle;
-      this.setBusyStatus("Waiting for plan decision ...", "Plan ready...");
-      handle.focus();
-
-      const decisionLines: Record<PlanCompletionDecision, string> = {
-        execute: "Plan approved — executing tasks now",
-        proceed: "Plan approved — mode switched to AGENT",
-        revise: "Revising plan — staying in PLAN mode",
-        cancel: "Plan handoff cancelled — staying in PLAN mode",
-      };
-
-      overlay.onDecision = (decision) => {
-        this.dismissPlanCompletionOverlay();
-        this.addChatLine(advisorStatusLine(decisionLines[decision]));
-        this.tui.setFocus(this.promptInput);
-        this.tui.requestRender();
-        resolve(decision);
-      };
-
-      this.planCompletionInputCleanup = this.tui.addInputListener((data: string) => {
-        overlay.handleInput(data);
-        this.tui.requestRender();
-        return { consume: true };
-      });
-    });
-  }
-
-  private dismissPlanCompletionOverlay(): void {
-    this.planCompletionInputCleanup?.();
-    this.planCompletionInputCleanup = null;
-    this.planCompletionOverlayHandle?.hide();
-    this.planCompletionOverlayHandle = null;
-  }
-
   /** Request a layout refresh after content above the prompt changes. */
   private requestLayoutRefresh(): void {
     this.requestRenderForPhase("layout");
@@ -3040,16 +3531,11 @@ export class ImpulseRenderer {
   // ?? Slash autocomplete ????????????????????????????????????????????????????
 
   private slashCommands(): SlashCommandEntry[] {
-    const commands = buildSlashCommandList({
+    return buildTopLevelSlashCommandList({
       experimentalAdvisor: this.experimentalAdvisorEnabled,
       experimentalUndo: this.experimentalUndoEnabled,
       experimentalGoal: this.experimentalGoalEnabled,
     });
-    const dynamicSkillEntries = listDynamicSkillCommands().map(({ cmd, slug }) => ({
-      cmd: `/${cmd}`,
-      hint: `run the "${slug}" skill`,
-    }));
-    return [...commands, ...dynamicSkillEntries];
   }
 
   private resetSlashTabCycleIfNeeded(input: string): void {
@@ -3067,29 +3553,83 @@ export class ImpulseRenderer {
       return;
     }
 
-    const { show, matches } = shouldShowSlashAutocomplete(val, this.slashCommands());
-    if (!show) {
-      this.autocompleteText.setText("");
-    } else {
-      const avail = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
-      const lines = matches.flatMap((m) => {
-        const raw = `${GUTTER}${A.fg(36, m.cmd)}  ${A.fg(90, m.hint ?? "")}`;
-        return wrapTextWithAnsi(raw, avail);
-      });
-      this.autocompleteText.setText(lines.join("\n"));
-    }
+    const lines = renderSlashAutocompleteLines(
+      val,
+      this.slashCommands(),
+      this.terminal.columns
+    );
+    this.autocompleteText.setText(lines.join("\n"));
     this.requestLayoutRefresh();
   }
 
   // ?? Exit ??????????????????????????????????????????????????????????????????
 
+  private clearRevokedUserShellUi(): void {
+    this.shellCommandRunning = false;
+    this.shellTakeoverActive = false;
+    this.shellEscArmed = false;
+    if (this.shellEscTimer) clearTimeout(this.shellEscTimer);
+    this.activeShellBlock?.setInteractiveHint(false);
+    this.activeShellBlock?.setTakeoverActive(false);
+    this.activeShellBlock?.setCancelled();
+    this.activeShellBlock = null;
+  }
+
+  private async cleanupExecutionForLifecycle(
+    context: ExecutionCleanupContext
+  ): Promise<boolean> {
+    const cleanup = await cleanupExecutionParticipants(context);
+    if (cleanup.stoppedShells > 0) this.clearRevokedUserShellUi();
+    this.syncBgContextBar();
+    if (!cleanup.ok) {
+      this.addChatLine(clr.warn(cleanup.notice ?? "Lifecycle cleanup failed"));
+      this.tui.requestRender();
+      return false;
+    }
+    return true;
+  }
+
+  private async flushSessionForLifecycle(
+    context: "exit" | "update" | "tui-stop"
+  ): Promise<boolean> {
+    const expected = SessionManager.captureCurrentSessionMutation();
+    const label = context === "exit"
+      ? "Exit"
+      : context === "update"
+        ? "Update relaunch"
+        : "Action";
+    try {
+      const result = await SessionManager.flushCurrent();
+      const persisted = expected === null
+        ? result.status === "no-session"
+        : result.status === "persisted" &&
+          result.sessionID === expected.sessionID &&
+          result.generation === expected.generation;
+      if (persisted) return true;
+      const reason = result.status === "dirty"
+        ? `session remained dirty after ${result.attempts} save attempts`
+        : "session changed before save completed";
+      this.addChatLine(clr.warn(`${label} blocked -- ${reason}`));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.addChatLine(clr.warn(`${label} blocked -- session save failed: ${message}`));
+    }
+
+    if (this.mode === "AGENT") restoreAgentAuthorityAfterLifecycle();
+    else restoreAskExecutionAdmissionAfterFailure();
+    this.tui.requestRender();
+    this.drainTurnQueue();
+    return false;
+  }
+
   private async gracefulExit(): Promise<void> {
-    await SessionManager.flushCurrent();
+    if (!(await this.cleanupExecutionForLifecycle("exit"))) return;
+    if (!(await this.flushSessionForLifecycle("exit"))) return;
     clearActiveSessionMarker();
-    cleanupAllBgJobs();
     const session = SessionManager.getCurrentSession();
     const config = await loadConfig();
     this.branchWatcher?.dispose();
+    await this.loop.dispose();
     this.tui.stop();
     if (session?.id) {
       const title =
@@ -3209,16 +3749,19 @@ export class ImpulseRenderer {
         this.thinkingStartedAt = 0;
       }
       const durationMs = this.thinkingElapsedMs;
-      if (this.thinkingRaw.trim()) {
+      if (this.thinkingDisplay !== "off" && this.thinkingRaw.trim()) {
         this.thinkingText.setText(this.thinkingRaw);
       }
       this.thinkingText.finalize(durationMs);
+      if (this.thinkingDisplay === "off") {
+        this.thinkingText.setHidden();
+      }
       this.lastExpandableThinking = this.thinkingText;
       if (this.thinkingDisplay === "full") {
         this.thinkingText.setExpanded(true);
       }
       debugLog(`Thinking block closed (${durationMs}ms)`);
-      this.addSectionGap();
+      if (this.thinkingDisplay !== "off") this.addSectionGap();
       this.thinkingOpen = false;
     }
   }
@@ -3233,7 +3776,6 @@ export class ImpulseRenderer {
       },
       cmdBa: (arg) => r.cmdBa(arg),
       cmdSkills: (arg) => r.cmdSkills(arg),
-      cmdSkill: (arg) => r.cmdSkill(arg),
       cmdRunSkillCommand: (slug, arg) => r.cmdRunSkillCommand(slug, arg),
       cmdAdvisor: (arg) => r.cmdAdvisor(arg),
       cmdExperimental: () => r.cmdExperimental(),
@@ -3325,23 +3867,36 @@ export class ImpulseRenderer {
     if (arg) {
       this.addChatLine(clr.dim("Optional session name is not documented; starting a new session."));
     }
-    clearShellSessions();
-    cleanupAllBgJobs();
-    clearProjectStructureCache();
+    if (!(await this.cleanupExecutionForLifecycle("new-session"))) return;
     this.syncBgContextBar();
-    await SessionManager.createNew(arg || undefined);
-    const newCfg = await loadConfig();
-    if (newCfg.defaultModel?.trim()) {
-      await SessionManager.update({ model: newCfg.defaultModel });
+    const creation = await createNewSessionWithAuthority({
+      currentMode: this.mode,
+      create: async () => {
+        const newCfg = await loadConfig();
+        SessionManager.setOptions({ defaultModel: newCfg.defaultModel ?? "" });
+        return SessionManager.createNew(arg || undefined);
+      },
+    });
+    if (!creation.ok) {
+      this.mode = creation.mode;
+      this.syncContextBar({ mode: creation.mode });
+      this.syncModeColor();
+      this.addChatLine(clr.warn(creation.notice));
+      this.tui.requestRender();
+      this.drainTurnQueue();
+      return;
     }
-    this.applyAllowAllForSessionScope();
+    clearShellSessions();
+    clearProjectStructureCache();
+    this.syncApprovalPolicyUi();
     this.speedoEnabled = false;
     this.syncSpeedoUi();
     this.promptHistory.resetIndex();
     this.resetTurnUiState();
     this.clearChatView();
     this.addChatLine(clr.dim("New session started"));
-    this.applySessionToRenderer(SessionManager.getCurrentSession()!);
+    const session = creation.session;
+    this.applySessionToRenderer(session, normalizeMode(session.mode));
   }
 
   private cmdClearScreen(): void {
@@ -3854,7 +4409,7 @@ export class ImpulseRenderer {
       return;
     }
 
-    // Advisor mode: only save advisorModel, don't change default provider/model
+    // Advisor workflow: only save advisorModel, don't change default provider/model
     if (purpose === "advisor" || state.isAdvisorMode) {
       // Save API key to providers config
       const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
@@ -3969,6 +4524,7 @@ export class ImpulseRenderer {
   }
 
   private async cmdUpdate(): Promise<void> {
+    if (this.showAgentAuthorityRequirement("install updates")) return;
     if (this.isRunning) {
       this.addChatLine(clr.warn("Wait for the current turn to finish."));
       return;
@@ -3984,9 +4540,10 @@ export class ImpulseRenderer {
     this.addChatLine(
       modelStatusLine(`Update available: v${update.currentVersion} -> v${update.latestVersion}`)
     );
+    if (!(await this.cleanupExecutionForLifecycle("update"))) return;
+    if (!(await this.flushSessionForLifecycle("update"))) return;
     this.addChatLine(clr.dim("Installing update and relaunching..."));
     this.tui.requestRender();
-    await SessionManager.flushCurrent();
     const session = SessionManager.getCurrentSession();
     const child = spawn(impulseCommand(), ["--auto-update"], {
       detached: true,
@@ -4013,7 +4570,7 @@ export class ImpulseRenderer {
       writeUpdateResumeHint(session.id);
     }
     clearActiveSessionMarker();
-    cleanupAllBgJobs();
+    await this.loop.dispose();
     this.tui.stop();
     child.unref();
     process.exit(0);
@@ -4026,10 +4583,14 @@ export class ImpulseRenderer {
   }
 
   private syncDisplaySettingsFromConfig(config: Config): void {
+    this.presentationDensity = config.presentationDensity ?? "compact";
     this.thinkingDisplay = config.thinkingDisplay ?? "summary";
     this.responsePreference = config.userProfile?.responsePreference?.trim() || "balanced";
     this.compactToolOutputEnabled = config.compactToolOutput ?? true;
-    this.contextBar?.update({ bottomBarVisual: config.bottomBarVisual ?? "full" });
+    this.contextBar?.update({
+      bottomBarVisual: config.bottomBarVisual ?? "full",
+      presentationDensity: this.presentationDensity,
+    });
     this.applyThinkingDisplayMode();
   }
 
@@ -4042,8 +4603,10 @@ export class ImpulseRenderer {
         this.thinkingText.setText(this.thinkingRaw);
       }
       this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
-    } else {
+    } else if (this.thinkingDisplay === "summary") {
       this.thinkingText.setPlaceholder();
+    } else {
+      this.thinkingText.setHidden();
     }
   }
 
@@ -4066,7 +4629,7 @@ export class ImpulseRenderer {
       this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
     }
     if (!this.thinkingText) {
-      this.addSectionGap();
+      if (this.thinkingDisplay !== "off") this.addSectionGap();
       this.thinkingText = new ThinkingBlock();
       this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
       this.chat.addChild(this.thinkingText);
@@ -4077,8 +4640,10 @@ export class ImpulseRenderer {
     }
     this.thinkingRaw += filtered;
     this.thinkingText.appendContent(filtered);
-    if (this.thinkingDisplay !== "full") {
+    if (this.thinkingDisplay === "summary") {
       this.thinkingText.setPlaceholder();
+    } else if (this.thinkingDisplay === "off") {
+      this.thinkingText.setHidden();
     } else {
       this.thinkingText.setTruncateDisplay(this.thinkingTruncateDisplay());
       this.thinkingText.setText(this.thinkingRaw);
@@ -4525,6 +5090,7 @@ export class ImpulseRenderer {
   }
 
   private async cmdCheckpoint(): Promise<void> {
+    if (this.showAgentAuthorityRequirement("create or restore project checkpoints")) return;
     if (!this.experimentalUndoEnabled) {
       this.addChatLine(clr.warn("Checkpoint requires /experimental → undo"));
       this.tui.requestRender();
@@ -4549,6 +5115,7 @@ export class ImpulseRenderer {
   }
 
   private async cmdUndo(arg: string): Promise<void> {
+    if (this.showAgentAuthorityRequirement("create or restore project checkpoints")) return;
     if (!this.experimentalUndoEnabled) {
       this.addChatLine(clr.warn("Undo requires /experimental → undo"));
       this.tui.requestRender();
@@ -4591,6 +5158,7 @@ export class ImpulseRenderer {
   }
 
   private async cmdRedo(arg: string): Promise<void> {
+    if (this.showAgentAuthorityRequirement("create or restore project checkpoints")) return;
     if (!this.experimentalUndoEnabled) {
       this.addChatLine(clr.warn("Redo requires /experimental → undo"));
       this.tui.requestRender();
@@ -4665,6 +5233,7 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
+    if (this.showAgentAuthorityRequirement("change persistent goal state")) return;
     if (firstToken === "clear") {
       this.goalState = undefined;
       await this.persistGoalState();
@@ -4741,7 +5310,7 @@ export class ImpulseRenderer {
           const active = getActivePlanRevision(sessionId);
           if (!active) {
             this.addChatLine(
-              clr.warn("No active plan revision. Run PLAN mode first, or specify /goal set --plan=<revisionId>.")
+              clr.warn("No active plan revision. Create one first, or specify /goal set --plan=<revisionId>.")
             );
             this.tui.requestRender();
             return;
@@ -4873,12 +5442,15 @@ export class ImpulseRenderer {
     const config = await loadConfig();
 
     const initialValues: SettingsValues = {
+      presentationDensity: config.presentationDensity ?? "compact",
+      approvalPolicy: effectiveApprovalPolicy(),
       thinkingDisplay: config.thinkingDisplay ?? "summary",
       reasoningLevel: config.reasoningLevel ?? "medium",
       responsePreference: config.userProfile?.responsePreference?.trim() || "balanced",
       statsOnExit: config.statsOnExit ?? false,
       showSubagentThinking: config.showSubagentThinking,
       useSubagentModel: config.useSubagentModel,
+      workerModel: config.defaultModel,
       compactToolOutput: config.compactToolOutput ?? true,
       bottomBarVisual: config.bottomBarVisual ?? "full",
       ...(config.subagentModel !== undefined ? { subagentModel: config.subagentModel } : {}),
@@ -4896,6 +5468,9 @@ export class ImpulseRenderer {
         return "unchanged";
       }
       config.thinkingDisplay = values.thinkingDisplay;
+      config.presentationDensity = values.presentationDensity;
+      const approvalChanged = initialValues.approvalPolicy !== values.approvalPolicy;
+      if (approvalChanged) config.approvalPolicy = values.approvalPolicy;
       config.showMainThinking = values.thinkingDisplay === "full";
       config.reasoningLevel = values.reasoningLevel;
       config.statsOnExit = values.statsOnExit;
@@ -4912,6 +5487,16 @@ export class ImpulseRenderer {
       }
       config.userProfile.responsePreference = values.responsePreference;
       await saveConfig(config);
+      if (approvalChanged) {
+        configureApprovalPolicy({ persisted: values.approvalPolicy });
+        this.syncApprovalPolicyUi();
+        if (values.approvalPolicy === "allow-all") {
+          this.addChatLine(clr.warn("ALLOW-ALL enabled · HOST"));
+          this.addChatLine(clr.dim(ALLOW_ALL_WARNING));
+        } else {
+          this.addChatLine(clr.dim("PROMPT enabled · permission prompts restored"));
+        }
+      }
       invalidatePromptCache();
       this.reasoningLevel = values.reasoningLevel;
       this.syncDisplaySettingsFromConfig(config);
@@ -4963,10 +5548,27 @@ export class ImpulseRenderer {
         })();
       };
 
+      const openWorkerPicker = () => {
+        void (async () => {
+          await applySettingsValues(overlay.getValues());
+          this.dismissSettingsOverlay();
+          if (countConfiguredProviders(await loadConfig()) === 0) {
+            await this.startModelSetup(await loadConfig(), "worker");
+            finish();
+            return;
+          }
+          await this.openModelPicker({
+            purpose: "worker",
+            onComplete: () => finish(),
+          });
+        })();
+      };
+
       overlay.onAbort = () => finish();
 
       overlay.onEnableSubagentModel = openSubagentPicker;
       overlay.onPickSubagentModel = openSubagentPicker;
+      overlay.onPickWorkerModel = openWorkerPicker;
 
       overlay.onPickVisionOverride = () => {
         void (async () => {
@@ -5028,7 +5630,7 @@ export class ImpulseRenderer {
         contextWindow: this.contextWindow,
         mode: this.mode,
       });
-      this.addChatLine(advisorStatusLine("Advisor mode disabled"));
+      this.addChatLine(advisorStatusLine("Advisor workflow disabled"));
       return;
     }
 
@@ -5045,7 +5647,7 @@ export class ImpulseRenderer {
         contextWindow: this.contextWindow,
         mode: this.mode,
       });
-      this.addChatLine(advisorStatusLine("Advisor mode disabled"));
+      this.addChatLine(advisorStatusLine("Advisor workflow disabled"));
       return;
     }
 
@@ -5058,7 +5660,7 @@ export class ImpulseRenderer {
       this.syncAdvisorFromConfig(await loadConfig());
       this.advisorModel = arg;
       this.syncContextBar({ advisorModel: arg });
-      this.addChatLine(advisorStatusLine(`Advisor: ${arg} (mode ON)`));
+      this.addChatLine(advisorStatusLine(`Advisor: ${arg} (workflow ON)`));
       return;
     }
 
@@ -5099,7 +5701,7 @@ export class ImpulseRenderer {
       await saveConfig(cfg);
       await this.persistSessionAdvisor(true, fullModel);
       this.syncAdvisorFromConfig(await loadConfig());
-      this.addChatLine(advisorStatusLine(`Advisor: ${fullModel} (mode ON)`));
+      this.addChatLine(advisorStatusLine(`Advisor: ${fullModel} (workflow ON)`));
       this.tui.requestRender();
     };
 
@@ -5136,39 +5738,31 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private cmdMode(arg: string): void {
-    if (!arg) {
-      if (isDefaultMode(this.mode)) {
-        this.addChatLine(
-          `  default mode (AGENT)  |  explicit: EXPLORE | PLAN | DEBUG  |  Tab to cycle`
-        );
-      } else {
-        this.addChatLine(
-          `  mode: ${displayModeLabel(this.mode)}  |  options: ${displayModeOptions()}`
-        );
-      }
+  private async cmdMode(arg: string): Promise<void> {
+    const result = resolveModeCommand(arg, this.mode);
+    if ("message" in result) {
+      this.addChatLine(`  ${result.message}`);
       return;
     }
-    const m = normalizeMode(arg.toUpperCase()) as Mode;
-    if (MODE_CYCLE.includes(m)) {
+    if ("nextMode" in result) {
       const prev = this.mode;
-      this.applyModeChange(m, { prev });
+      const changed = await this.applyModeChange(result.nextMode, {
+        prev,
+        source: "explicit-user-transition",
+      });
+      if (changed) invalidatePromptCache();
       this.tui.requestRender();
-    } else {
-      this.addChatLine(`  ${clr.error("!")} Unknown mode. Options: ${displayModeOptions()}`);
+      return;
     }
+    this.addChatLine(`  ${clr.error("!")} ${result.error}`);
   }
 
-  private applyAllowAllForSessionScope(): void {
-    resetAllowAllBypass();
-    if (this.allowAllStartupAgreed) {
-      setAllowAllBypass(true);
-    }
-    this.syncAllowAllBypassUi();
-  }
-
-  private syncAllowAllBypassUi(): void {
-    this.syncContextBar({ allowAllBypass: isAllowAllBypass() });
+  private syncApprovalPolicyUi(boundary: "HOST" | "SANDBOX" | "PREVIEW" = "HOST"): void {
+    this.syncContextBar({
+      allowAllBypass: isAllowAllBypass(),
+      approvalPolicy: effectiveApprovalPolicy() === "allow-all" ? "ALLOW-ALL" : "PROMPT",
+      executionBoundary: boundary,
+    });
     this.tui?.requestRender();
   }
 
@@ -5228,11 +5822,13 @@ export class ImpulseRenderer {
       return;
     }
 
-    if (isAllowAllBypass()) {
-      this.allowAllStartupAgreed = false;
-      setAllowAllBypass(false);
-      this.syncAllowAllBypassUi();
-      this.addChatLine(clr.dim("Permission bypass off"));
+    if (effectiveApprovalPolicy() === "allow-all") {
+      const config = await loadConfig();
+      config.approvalPolicy = "prompt";
+      await saveConfig(config);
+      configureApprovalPolicy({ persisted: "prompt" });
+      this.syncApprovalPolicyUi();
+      this.addChatLine(clr.dim("PROMPT enabled · permission prompts restored"));
       this.tui.requestRender();
       return;
     }
@@ -5244,9 +5840,14 @@ export class ImpulseRenderer {
       return;
     }
 
-    setAllowAllBypass(true);
-    this.syncAllowAllBypassUi();
-    this.addChatLine(clr.dim("All permissions bypassed"));
+    const config = await loadConfig();
+    config.approvalPolicy = "allow-all";
+    await saveConfig(config);
+    setPersistedApprovalPolicy("allow-all");
+    configureApprovalPolicy({ persisted: "allow-all" });
+    this.syncApprovalPolicyUi();
+    this.addChatLine(clr.warn("ALLOW-ALL enabled · HOST"));
+    this.addChatLine(clr.dim(ALLOW_ALL_WARNING));
     this.tui.requestRender();
   }
 
@@ -5267,6 +5868,8 @@ export class ImpulseRenderer {
     const overlay = new ProfileOverlay({ profile });
 
     overlay.onEdit = async () => {
+      if (!(await this.cleanupExecutionForLifecycle("tui-stop"))) return;
+      if (!(await this.flushSessionForLifecycle("tui-stop"))) return;
       this.profileOverlayHandle?.hide();
       this.profileOverlayHandle = null;
       this.tui.stop();
@@ -5349,6 +5952,7 @@ export class ImpulseRenderer {
     action: "replace" | "append" | "import" | "clear",
     value = ""
   ): Promise<void> {
+    if (this.showAgentAuthorityRequirement("change persistent user instructions")) return;
     const stored = await writeUserInstructions(action, value);
     invalidatePromptCache();
     const verb = action === "replace"
@@ -5381,15 +5985,20 @@ export class ImpulseRenderer {
 
   private showInstructionsOverlay(): void {
     this.dismissInstructionsOverlay();
-    const overlay = new SelectableListOverlay({
-      title: "User instructions",
-      rows: [
-        { id: "view", label: "View current instructions" },
+    const rows: SelectableListRow[] = [
+      { id: "view", label: "View current instructions" },
+    ];
+    if (this.mode === "AGENT") {
+      rows.push(
         { id: "replace", label: "Replace (paste multiline Markdown)" },
         { id: "append", label: "Append Markdown" },
         { id: "import", label: "Import @path" },
         { id: "clear", label: "Clear instructions" },
-      ],
+      );
+    }
+    const overlay = new SelectableListOverlay({
+      title: "User instructions",
+      rows,
       boxSizing: "responsive",
       maxHeight: 12,
       helpLines: ["Up/Down navigate   Enter select   Esc close"],
@@ -5443,6 +6052,7 @@ export class ImpulseRenderer {
         await this.showCurrentUserInstructions();
         return;
       }
+      if (this.showAgentAuthorityRequirement("change persistent user instructions")) return;
       if (action === "replace" || action === "set" || action === "append") {
         const normalizedAction = action === "append" ? "append" : "replace";
         if (!value) {
@@ -5801,6 +6411,7 @@ export class ImpulseRenderer {
         experimentalGoal: this.experimentalGoalEnabled,
       },
       maxHeight,
+      presentationDensity: this.presentationDensity,
     });
     overlay.onCancel = () => this.dismissHelpOverlay();
     overlay.onScroll = () => {
@@ -5823,8 +6434,11 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private applySessionToRenderer(session: import("../session/store.js").Session): void {
-    const mode = normalizeMode(session.mode) as Mode;
+  private applySessionToRenderer(
+    session: import("../session/store.js").Session,
+    mode: Mode
+  ): void {
+    void this.defaultSkillScaffolding.initialize(mode, "session-resume");
     this.mode = mode;
     setCurrentMode(mode);
     this.syncModeColor();
@@ -5892,13 +6506,15 @@ export class ImpulseRenderer {
       case "thinking": {
         const filtered = filterThinkingForDisplay(step.text);
         if (!filtered.trim()) break;
-        this.addSectionGap();
+        if (this.thinkingDisplay !== "off") this.addSectionGap();
         const block = new ThinkingBlock();
         block.setTruncateDisplay(this.thinkingTruncateDisplay());
         block.setText(filtered);
         block.finalize(step.durationMs ?? 0);
         if (this.thinkingDisplay === "full") {
           block.setExpanded(true);
+        } else if (this.thinkingDisplay === "off") {
+          block.setHidden();
         }
         this.chat.addChild(block);
         this.hasTrailingGap = false;
@@ -5923,7 +6539,8 @@ export class ImpulseRenderer {
           step.name,
           step.args,
           step.result,
-          step.durationMs
+          step.durationMs,
+          { presentationDensity: this.presentationDensity }
         );
         const compact = shouldCompactToolOutput(
           step.name,
@@ -5944,18 +6561,53 @@ export class ImpulseRenderer {
     }
   }
 
-  private async applyResumeSession(sessionID: string): Promise<void> {
+  private async resolveSessionResume(
+    sessionID: string
+  ): Promise<ResumeAuthorityResult<Session>> {
+    return resumeSessionWithAuthority({
+      currentMode: this.mode,
+      inspect: () => SessionManager.inspectForResume(sessionID),
+      commit: () => SessionManager.load(sessionID),
+    });
+  }
+
+  private applyResolvedResume(result: ResumeAuthorityResult<Session>): void {
+    const session = result.session;
+    if (!result.ok || !session) return;
+
+    if (result.stoppedShells > 0 || this.shellCommandRunning) {
+      this.clearRevokedUserShellUi();
+    }
+    this.syncApprovalPolicyUi();
+    this.resetTurnUiState();
+    this.clearChatView();
+    this.applySessionToRenderer(session, result.mode);
+    this.showSessionRestored(session);
+    if (result.notice) {
+      this.addChatLine(result.mode === "AGENT" ? clr.warn(result.notice) : clr.dim(result.notice));
+      this.addSectionGap();
+    }
+    this.hydrateChatFromSession(session);
+    this.syncBgContextBar();
+    this.tui.requestRender();
+  }
+
+  private async applyResumeSession(sessionID: string): Promise<boolean> {
     try {
-      const session = await SessionManager.load(sessionID);
-      this.applyAllowAllForSessionScope();
-      this.resetTurnUiState();
-      this.clearChatView();
-      this.applySessionToRenderer(session);
-      this.showSessionRestored(session);
-      this.hydrateChatFromSession(session);
-      this.tui.requestRender();
+      const result = await this.resolveSessionResume(sessionID);
+      if (!result.ok) {
+        if (result.stoppedShells > 0) this.clearRevokedUserShellUi();
+        this.addChatLine(clr.warn(result.notice ?? "Resume blocked; execution remains AGENT"));
+        this.syncBgContextBar();
+        this.tui.requestRender();
+        return false;
+      }
+      this.applyResolvedResume(result);
+      return true;
     } catch (e) {
       this.addChatLine(clr.error(`Failed to load session: ${(e as Error).message}`));
+      this.tui.requestRender();
+      return false;
     }
   }
 
@@ -6023,7 +6675,8 @@ export class ImpulseRenderer {
     }
 
     if (sub === "kill") {
-      const ok = killBgJob(id);
+      if (this.showAgentAuthorityRequirement("kill or restart background jobs")) return;
+      const ok = await killBgJob(id);
       this.addChatLine(ok ? clr.dim(`Job '${id}' killed.`) : clr.warn(`No running job '${id}'.`));
       this.syncBgContextBar();
       this.tui.requestRender();
@@ -6031,6 +6684,7 @@ export class ImpulseRenderer {
     }
 
     if (sub === "restart") {
+      if (this.showAgentAuthorityRequirement("kill or restart background jobs")) return;
       const { restartBgJob } = await import("../tools/bash.js");
       const result = await restartBgJob(id);
       if (result.ok) {
@@ -6055,18 +6709,17 @@ export class ImpulseRenderer {
 
   private async cmdSkills(_arg: string): Promise<void> {
     const skills = listInstalledSkills(process.cwd());
-    if (skills.length === 0) {
-      this.addChatLine(clr.dim("No skills installed. Use /skill new to create one."));
-      this.tui.requestRender();
-      return;
-    }
     // Overlays are input-modal; keep the plain-text listing while a turn is running.
     if (this.isRunning) {
+      if (skills.length === 0) {
+        this.addChatLine(clr.dim("No skills installed."));
+        this.tui.requestRender();
+        return;
+      }
       this.addChatLine(clr.dim(`Installed skills (${skills.length}):`));
       for (const s of skills) {
-        const alias = s.command ? ` [/${s.command}]` : "";
         const desc = s.description ? ` — ${s.description}` : "";
-        this.addChatLine(clr.dim(`  ${s.slug}${alias}${desc}`));
+        this.addChatLine(clr.dim(`  ${s.slug}${desc}`));
       }
       this.tui.requestRender();
       return;
@@ -6076,15 +6729,26 @@ export class ImpulseRenderer {
 
   private showSkillsListOverlay(skills: InstalledSkillMeta[]): void {
     this.dismissSkillsOverlay();
-    const overlay = new SelectableListOverlay({
-      title: `Skills (${skills.length})`,
-      rows: buildSkillRows(skills),
-      boxSizing: "responsive",
-      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      helpLines: ["Up/Down navigate   Enter choose action   Esc close"],
-    });
+    const overlay = createSkillsListOverlay(
+      skills,
+      LIST_OVERLAY_MAX_HEIGHT,
+      this.mode,
+      this.presentationDensity
+    );
     overlay.onSelect = (slug) => {
       this.dismissSkillsOverlay();
+      if (slug === "skills:empty") {
+        this.showSkillsListOverlay(listInstalledSkills(process.cwd()));
+        return;
+      }
+      if (slug === "skills:install") {
+        if (this.showAgentAuthorityRequirement("install skills")) return;
+        void this.runSkillAgentTurn(
+          "Install an agent skill with install_skill. Ask for the full owner/repo/path or GitHub skill-folder URL before installing anything.",
+          "Install skill"
+        );
+        return;
+      }
       const skill = skills.find((s) => s.slug === slug);
       if (skill) this.showSkillActionOverlay(skill);
     };
@@ -6096,31 +6760,26 @@ export class ImpulseRenderer {
   }
 
   private showSkillActionOverlay(skill: InstalledSkillMeta): void {
-    const rows: SelectableListRow[] = [
-      { id: "view", label: "View SKILL.md" },
-      ...(skill.command ? [{ id: "run", label: `Run (/${skill.command})` }] : []),
-      { id: "modify", label: "Modify" },
-      { id: "remove", label: "Remove" },
-    ];
-    const overlay = new SelectableListOverlay({
-      title: `Skill: ${skill.slug}`,
-      rows,
-      boxSizing: "responsive",
-      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      helpLines: ["Up/Down navigate   Enter select   Esc back"],
-    });
+    const overlay = createSkillActionOverlay(
+      skill,
+      LIST_OVERLAY_MAX_HEIGHT,
+      this.mode,
+      this.presentationDensity
+    );
     overlay.onSelect = (id) => {
       this.dismissSkillsOverlay();
-      if (id === "view") {
+      if (id === "inspect") {
         this.viewSkill(skill);
-      } else if (id === "run" && skill.command) {
+      } else if (id === "use") {
         void this.cmdRunSkillCommand(skill.slug, "");
       } else if (id === "modify") {
+        if (this.showAgentAuthorityRequirement("create, modify, or remove skills")) return;
         void this.runSkillAgentTurn(
           `Modify the existing skill '${skill.slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
           `Modify skill: ${skill.slug}`
         );
       } else if (id === "remove") {
+        if (this.showAgentAuthorityRequirement("create, modify, or remove skills")) return;
         this.showSkillRemoveConfirmOverlay(skill);
       }
     };
@@ -6145,6 +6804,7 @@ export class ImpulseRenderer {
   }
 
   private showSkillRemoveConfirmOverlay(skill: InstalledSkillMeta): void {
+    if (this.showAgentAuthorityRequirement("create, modify, or remove skills")) return;
     const rows: SelectableListRow[] = [
       { id: "cancel", label: "Cancel" },
       { id: "remove", label: "Remove" },
@@ -6164,117 +6824,6 @@ export class ImpulseRenderer {
       }
       this.tui.setFocus(this.promptInput);
       this.tui.requestRender();
-    };
-    overlay.onCancel = () => {
-      this.dismissSkillsOverlay();
-      this.tui.setFocus(this.promptInput);
-    };
-    this.skillsOverlayHandle = this.showListOverlay(overlay);
-  }
-
-  private async cmdSkill(arg: string): Promise<void> {
-    const parts = arg.trim().split(/\s+/);
-    const sub = parts[0]?.toLowerCase() ?? "";
-    const slug = parts.slice(1).join(" ");
-
-    if (sub === "new") {
-      if (this.isRunning) {
-        this.addChatLine(clr.warn("Wait for the current turn to finish."));
-        this.tui.requestRender();
-        return;
-      }
-      await this.runSkillAgentTurn(
-        "Create a new agent skill using the skill_write tool. Ask me what the skill should do, its name, and purpose before writing it.",
-        "New skill"
-      );
-      return;
-    }
-
-    if (sub === "remove" || sub === "modify") {
-      if (!slug) {
-        if (this.isRunning) {
-          this.addChatLine(clr.warn("Wait for the current turn to finish."));
-          this.tui.requestRender();
-          return;
-        }
-        const skills = listInstalledSkills(process.cwd());
-        if (skills.length === 0) {
-          this.addChatLine(clr.dim("No skills installed."));
-          this.tui.requestRender();
-          return;
-        }
-        if (sub === "remove") {
-          this.showSkillsRemovePicker(skills);
-        } else {
-          this.showSkillsModifyPicker(skills);
-        }
-        return;
-      }
-      if (this.isRunning) {
-        this.addChatLine(clr.warn("Wait for the current turn to finish."));
-        this.tui.requestRender();
-        return;
-      }
-      const skillDir = path.join(process.cwd(), ".agents", "skills", slug);
-      if (!fs.existsSync(skillDir)) {
-        this.addChatLine(clr.warn(`Skill '${slug}' not found.`));
-        this.tui.requestRender();
-        return;
-      }
-      if (sub === "remove") {
-        await this.runSkillAgentTurn(
-          `Remove the skill '${slug}' using the skill_remove tool.`,
-          `Remove skill: ${slug}`
-        );
-      } else {
-        await this.runSkillAgentTurn(
-          `Modify the existing skill '${slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
-          `Modify skill: ${slug}`
-        );
-      }
-      return;
-    }
-
-    this.addChatLine(clr.dim("Usage: /skill new | remove <slug> | modify <slug>"));
-    this.tui.requestRender();
-  }
-
-  private showSkillsRemovePicker(skills: InstalledSkillMeta[]): void {
-    this.dismissSkillsOverlay();
-    const overlay = new SelectableListOverlay({
-      title: `Remove which skill? (${skills.length})`,
-      rows: buildSkillRows(skills),
-      boxSizing: "responsive",
-      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      helpLines: ["Up/Down navigate   Enter select   Esc cancel"],
-    });
-    overlay.onSelect = (slug) => {
-      this.dismissSkillsOverlay();
-      const skill = skills.find((s) => s.slug === slug);
-      if (skill) this.showSkillRemoveConfirmOverlay(skill);
-    };
-    overlay.onCancel = () => {
-      this.dismissSkillsOverlay();
-      this.tui.setFocus(this.promptInput);
-    };
-    this.skillsOverlayHandle = this.showListOverlay(overlay);
-  }
-
-  private showSkillsModifyPicker(skills: InstalledSkillMeta[]): void {
-    this.dismissSkillsOverlay();
-    const overlay = new SelectableListOverlay({
-      title: `Modify which skill? (${skills.length})`,
-      rows: buildSkillRows(skills),
-      boxSizing: "responsive",
-      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      helpLines: ["Up/Down navigate   Enter select   Esc cancel"],
-    });
-    overlay.onSelect = (slug) => {
-      this.dismissSkillsOverlay();
-      void this.runSkillAgentTurn(
-        `Modify the existing skill '${slug}'. Read its current SKILL.md first, then use skill_write to update it. Ask what changes I'd like.`,
-        `Modify skill: ${slug}`
-      );
     };
     overlay.onCancel = () => {
       this.dismissSkillsOverlay();
@@ -6339,7 +6888,6 @@ export class ImpulseRenderer {
       onToolEnd: () => {},
       onCompacting: () => {},
       onCompacted: () => {},
-      onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTurnEnd: () => {
         this.spinStop();
         if (this.streamingRaw) this.addSectionGap();
@@ -6349,6 +6897,13 @@ export class ImpulseRenderer {
         this.thinkingText = null;
         this.isRunning = false;
         this.addSectionGap();
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+      onAbort: () => {
+        this.spinStop();
+        this.isRunning = false;
+        this.syncContextBar({ isRunning: false });
         this.tui.requestRender();
         this.drainTurnQueue();
       },
@@ -6433,6 +6988,13 @@ export class ImpulseRenderer {
         this.thinkingText = null;
         this.isRunning = false;
         this.addSectionGap();
+        this.tui.requestRender();
+        this.drainTurnQueue();
+      },
+      onAbort: () => {
+        this.spinStop();
+        this.isRunning = false;
+        this.syncContextBar({ isRunning: false });
         this.tui.requestRender();
         this.drainTurnQueue();
       },

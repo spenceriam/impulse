@@ -24,6 +24,7 @@ export class ThinkingBlock implements Component {
 
   private phase: "streaming" | "finalized" = "streaming";
   private streamingMode: "body" | "placeholder" = "body";
+  private hidden = false;
   private expanded = false;
   private raw = "";
   private truncateDisplay = false;
@@ -34,6 +35,12 @@ export class ThinkingBlock implements Component {
   setPlaceholder(): void {
     this.phase = "streaming";
     this.streamingMode = "placeholder";
+    this.hidden = false;
+  }
+
+  /** Keep reasoning for history/expansion while rendering no transcript rows. */
+  setHidden(): void {
+    this.hidden = true;
   }
 
   /** Append reasoning tokens without clearing prior content (placeholder or body). */
@@ -51,6 +58,7 @@ export class ThinkingBlock implements Component {
   setText(text: string): void {
     this.phase = "streaming";
     this.streamingMode = "body";
+    this.hidden = false;
     this.applyRawText(text);
   }
 
@@ -73,6 +81,7 @@ export class ThinkingBlock implements Component {
   setExpanded(expanded: boolean): void {
     if (this.phase !== "finalized") return;
     this.expanded = expanded;
+    if (expanded) this.hidden = false;
   }
 
   toggleExpanded(): boolean {
@@ -88,6 +97,7 @@ export class ThinkingBlock implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
+    if (this.hidden && !this.expanded) return [];
     if (this.phase === "finalized" && !this.expanded) {
       const summary = formatThoughtSummary(this.durationMs);
       const line = `${GUTTER}${THINKING_COLOR}${summary}${RESET}`;

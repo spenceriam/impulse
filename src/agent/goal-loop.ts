@@ -4,12 +4,59 @@
 
 import { getProviderManager } from "../api/manager.js";
 import type { GoalState } from "../session/goal-state.js";
+import type { Mode } from "../constants.js";
+import { getCurrentMode } from "../tools/mode-state.js";
+import { registerGoalLoopExecution } from "./goal-execution.js";
 
 export type GoalJudgeVerdict = "done" | "continue" | "judge_unavailable";
 
 export interface GoalJudgeResult {
   verdict: GoalJudgeVerdict;
   reason: string;
+}
+
+export interface GoalLoopActionResult<T> {
+  executed: boolean;
+  value?: T;
+}
+
+/** Current authority and state required to execute or re-enter the goal loop. */
+export function isGoalLoopExecutable(
+  mode: Mode,
+  experimentalGoalEnabled: boolean,
+  state: GoalState | undefined
+): boolean {
+  return mode === "AGENT" && experimentalGoalEnabled && state?.status === "active";
+}
+
+/** Public authority gate for judge, persistence, and continuation side effects. */
+export async function runGoalLoopActionIfExecutable<T>(input: {
+  mode: Mode;
+  experimentalGoalEnabled: boolean;
+  state: GoalState | undefined;
+  action: (signal: AbortSignal) => Promise<T>;
+}): Promise<GoalLoopActionResult<T>> {
+  const canExecute = (signal?: AbortSignal) =>
+    signal?.aborted !== true &&
+    getCurrentMode() === "AGENT" &&
+    isGoalLoopExecutable(input.mode, input.experimentalGoalEnabled, input.state);
+
+  if (!canExecute()) {
+    return { executed: false };
+  }
+
+  const execution = registerGoalLoopExecution();
+  try {
+    if (!canExecute(execution.signal)) return { executed: false };
+    const value = await input.action(execution.signal);
+    if (!canExecute(execution.signal)) return { executed: false };
+    return { executed: true, value };
+  } catch (error) {
+    if (execution.signal.aborted) return { executed: false };
+    throw error;
+  } finally {
+    execution.complete();
+  }
 }
 
 const JUDGE_PROMPT = `You judge whether a coding agent goal is complete.
@@ -59,7 +106,7 @@ export async function judgeGoal(
   goal: GoalState,
   lastAssistantText: string,
   judgeModel?: string,
-  opts?: { planTasksMarkdown?: string }
+  opts?: { planTasksMarkdown?: string; signal?: AbortSignal }
 ): Promise<GoalJudgeResult> {
   const model = judgeModel?.trim();
   if (!model) {
@@ -68,6 +115,9 @@ export async function judgeGoal(
 
   try {
     const manager = await getProviderManager();
+    if (opts?.signal?.aborted) {
+      return { verdict: "judge_unavailable", reason: "judge cancelled" };
+    }
     const provider = manager.getProvider(model);
     const messages = buildJudgeMessages(goal, lastAssistantText, opts?.planTasksMarkdown);
     const response = await provider.complete({
@@ -76,7 +126,12 @@ export async function judgeGoal(
       stream: false,
       max_tokens: 200,
       reasoningLevel: "off",
+      ...(opts?.signal ? { signal: opts.signal } : {}),
     });
+
+    if (opts?.signal?.aborted) {
+      return { verdict: "judge_unavailable", reason: "judge cancelled" };
+    }
 
     const raw = response.choices[0]?.message?.content ?? "";
     const text = (typeof raw === "string" ? raw : "").trim();

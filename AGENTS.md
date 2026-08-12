@@ -9,14 +9,26 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.5.0
+- **Version:** v1.10.0
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.5.0 (2026-06-06) — UX simplification, tiered feedback, harness plumbing, provider-neutral capabilities, post-review hardening
+**Status:** v1.10.0 development branch (2026-08-12) — two-mode authority, safe execution handoff, runtime isolation, progressive skills, cohesive TUI presentation, and ACP v1
+
+### v1.10.0 development branch (2026-08-12)
+
+- [x] ASK is the default read-only mode; AGENT is the only user-visible execution mode
+- [x] ASK offers isolated Preview safely, explicit Switch to AGENT, or Stay in ASK when execution is needed
+- [x] Approval policy is independent of sandboxing; persisted Allow-All carries a concise, truthful warning
+- [x] Compact/comfy density, stable streaming tables, coherent thinking/tool/permission/settings presentation, and restored production user prompts
+- [x] `/skills` owns progressive skill discovery while prompts proactively match and load relevant skills
+- [x] Session-scoped runtime shared by Pi-TUI and the stable ACP v1 stdio adapter
+- [x] Gauntlet Loop capture, integrated critics, full suite, typecheck, build, and packaged ACP fixtures
+
+The release notes below are historical and may name modes or commands that no longer exist in the active two-mode interface.
 
 ### v1.5.0 (2026-06-06)
 
@@ -420,10 +432,12 @@ Users can always override AI agent version decisions:
 
 ```json
 {
+  "@agentclientprotocol/sdk": "1.3.0",
   "@mariozechner/pi-tui": "^0.73.0",
+  "@modelcontextprotocol/sdk": "1.30.0",
   "@vscode/ripgrep": "^1.18.0",
   "openai": "^4.73.0",
-  "zod": "^3.24.0"
+  "zod": "^3.25.0"
 }
 ```
 
@@ -444,27 +458,22 @@ Users can always override AI agent version decisions:
 
 | Mode | Color | Hex | Purpose | Tools |
 |------|-------|-----|---------|-------|
-| **EXPLORE** | Green | `#6fca6f` | Read-only understanding - patient, curious | Read-only + web research |
-| **WORK** | Cyan | `#5cffff` | Full execution + looper skill | All tools |
-| **PLAN** | Purple | `#b48eff` | Planning + documentation | Read-only + docs/ + PRD.md |
-| **DEBUG** | Orange | `#ffaa5c` | 7-step systematic debugging | All tools |
+| **ASK** | Green | `#6fca6f` | Default read-only research, planning, and evidence-first diagnosis | Read-only tools + web research + explore subagents |
+| **AGENT** | Cyan | `#5cffff` | Explicit implementation and host execution | All tools, subject to execution boundary and approval policy |
 
 ### Mode Switching
 
-All modes are **mode-aware** and will suggest switching when the conversation shifts:
+Only ASK and AGENT are user-visible. `Tab` toggles between them and `/mode ASK|AGENT` is the explicit command surface.
 
-| From | To | Signals |
-|------|-----|---------|
-| EXPLORE | PLAN | "I want to build...", "Let's create...", planning first |
-| EXPLORE | WORK | User explicitly wants to start coding |
-| EXPLORE | DEBUG | "Something's broken...", "This error..." |
-| PLAN | WORK | Requirements clear, user says "let's do it" |
-| WORK | PLAN | Complex scope needs architecture/tradeoff planning |
-| Any | EXPLORE | "Wait, explain...", "I don't understand..." |
+- ASK never silently acquires write authority. When an ASK turn reaches consequential execution, use `execution_handoff` to offer **Preview safely**, **Switch to AGENT**, or **Stay in ASK**.
+- Preview safely uses a temporary Git worktree plus a capability-probed OS sandbox, denies network, protects repository metadata, and requires an explicit Apply/Discard/Keep decision.
+- Diagnosis stays evidence-first and read-only in ASK. An explore subagent may extend investigation without elevating the main session.
+- AGENT to ASK revokes and settles active mutating work before the mode change is reported.
+- Approval policy (`prompt` or persisted `allow-all`) is separate from mode and sandboxing. Allow-All never implies isolation.
 
-### EXPLORE Mode Personality
+### ASK Personality
 
-EXPLORE is the "conversational" mode - like a traditional ChatGPT experience but with codebase awareness:
+ASK is the conversational, codebase-aware mode:
 
 - **Patient**: Doesn't rush to solutions, lets user think aloud
 - **Curious**: Asks "why" and "what if" questions
@@ -487,10 +496,8 @@ EXPLORE is the "conversational" mode - like a traditional ChatGPT experience but
 **Mode Colors:**
 | Mode | Color | Hex |
 |------|-------|-----|
-| EXPLORE | Green | `#6fca6f` |
-| WORK | Cyan | `#5cffff` |
-| PLAN | Purple | `#b48eff` |
-| DEBUG | Orange | `#ffaa5c` |
+| ASK | Green | `#6fca6f` |
+| AGENT | Cyan | `#5cffff` |
 
 **Status Colors:**
 | Status | Color | Hex |
@@ -595,7 +602,7 @@ Loading Animation (Braille Wheel):
 
 **Status Line Format:**
 ```
-⣾ provider/model | [EXPRESS] | [ENGAGE] | WORK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v0.27.11
+⣾ provider/model | [EXPRESS] | [ENGAGE] | ASK | [██████░░░░] 62% | ~/impulse |  main | MCP: ● | Queue: 2 | 01-26-2026 | v1.10.0
 │     │         │         │            │              │           │         │        │          │
 │     │         │         │            │              │           │         │        │          └── Version
 │     │         │         │            │              │           │         │        └── Date
@@ -887,12 +894,15 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 
 ## Commands
 
-Core (~15): `/allow-all`, `/clear`, `/compact`, `/exit`, `/experimental`, `/help`, `/model`, `/mode`, `/new`, `/quit`, `/resume` (alias `/sessions`), `/restore` (alias `/show`), `/settings`, `/steer`, `/update`, `/usage`, `/user`.
+Core: `/skills`, `/ba`, `/allow-all`, `/clear`, `/compact`, `/exit`, `/experimental`, `/help`, `/instructions`, `/model`, `/mode`, `/new`, `/quit`, `/resume` (alias `/sessions`), `/restore` (alias `/show`), `/settings`, `/steer`, `/update`, `/usage`, `/user`.
 
 Hidden power-user: `/copy`, `/debug`, `/side` (and `/side --history`), `/advisor` (experimental), `/undo` `/redo` (experimental), `/goal` (experimental).
 
 | Command | Description |
 |---------|-------------|
+| `/skills` | Progressive submenu for installed skills and skill actions |
+| `/ba` | List background jobs; kill/restart requires AGENT |
+| `/allow-all` | Persist PROMPT/ALLOW-ALL approval policy; never presented as sandboxing |
 | `/compact` | Manual context compaction |
 | `/resume` | Session picker (`/sessions` alias) |
 | `/restore` | Restore chat view from session history (`/show` alias) |
@@ -907,7 +917,7 @@ Hidden power-user: `/copy`, `/debug`, `/side` (and `/side --history`), `/advisor
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Cycle modes (or slash autocomplete when line starts with `/`) |
+| `Tab` | Toggle ASK/AGENT (or slash autocomplete when line starts with `/`) |
 | `Shift+Tab` | Cycle mode reverse (reasoning depth in `/settings`; Allow All Edits in permission prompt) |
 | `Enter` | Submit / Select |
 | `Shift+Enter` | Line break in input |

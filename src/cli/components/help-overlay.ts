@@ -1,5 +1,6 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import { overlayBoxWidth } from "../layout.js";
+import type { PresentationDensity } from "../presentation-density.js";
 import { renderHelpCommandsTable, tableBorderFg } from "../markdown-table.js";
 import {
   buildCoreSlashCommandDefs,
@@ -29,6 +30,7 @@ export type BuildHelpOverlayOptions = BuildSlashCommandsOptions;
 export interface HelpOverlayOptions {
   opts: BuildHelpOverlayOptions;
   maxHeight: number;
+  presentationDensity?: PresentationDensity;
 }
 
 function stripAnsi(s: string): string {
@@ -92,10 +94,8 @@ export function buildHelpContent(
 
   pushSection("Modes (/mode)");
   for (const modeLine of [
-    "AGENT (default) — full tool access",
-    "EXPLORE — read-only examination",
-    "PLAN — plan next steps without executing",
-    "DEBUG — structured debugging workflow",
+    "ASK (default) — read-only research, planning, and diagnosis",
+    "AGENT — explicit execution authority",
   ]) {
     for (const row of wrapIndentedProse(modeLine, innerWidth)) {
       push(row);
@@ -114,7 +114,7 @@ export function buildHelpContent(
 
   pushSection("Shell commands");
   for (const row of wrapIndentedProse(
-    "! cmd or !cmd — Run a shell command; output appears as its own block in chat (not a persistent shell session).",
+    "In AGENT, ! cmd or !cmd runs a shell command; output appears as its own block in chat (not a persistent shell session).",
     innerWidth
   )) {
     push(row);
@@ -170,12 +170,14 @@ export class HelpOverlay implements Component {
   private measureTerminalWidth: number | null = null;
   private scrollTop = 0;
   private lastBoxWidth = 0;
+  private readonly presentationDensity: PresentationDensity;
 
   onCancel?: () => void;
   onScroll?: () => void;
 
   constructor(options: HelpOverlayOptions) {
     this.opts = options.opts;
+    this.presentationDensity = options.presentationDensity ?? "compact";
     this.maxHeight = Math.max(CHROME_TOP_LINES + CHROME_BOTTOM_LINES + 1, options.maxHeight);
   }
 
@@ -194,17 +196,24 @@ export class HelpOverlay implements Component {
   }
 
   private viewportBodyLines(): number {
-    return Math.max(1, this.maxHeight - CHROME_TOP_LINES - CHROME_BOTTOM_LINES);
+    const topLines = this.presentationDensity === "comfy" ? CHROME_TOP_LINES : 1;
+    const bottomLines = this.presentationDensity === "comfy" ? CHROME_BOTTOM_LINES : 2;
+    return Math.max(1, this.maxHeight - topLines - bottomLines);
   }
 
   private buildScrollBodyLines(boxWidth: number): string[] {
     const innerWidth = Math.max(20, boxWidth - 4);
-    const content = buildHelpContent(this.opts, innerWidth);
+    const content = buildHelpContent(this.opts, innerWidth).filter(
+      (line) => this.presentationDensity === "comfy" || line.trim().length > 0
+    );
     return content.map((line) => overlaySideLine(line, innerWidth, boxWidth));
   }
 
   private buildChromeTop(boxWidth: number): string[] {
-    return [overlayTitleLine("Help", boxWidth), overlayEmptyLine(boxWidth)];
+    return [
+      overlayTitleLine("Help", boxWidth),
+      ...(this.presentationDensity === "comfy" ? [overlayEmptyLine(boxWidth)] : []),
+    ];
   }
 
   private buildChromeBottom(
@@ -213,7 +222,7 @@ export class HelpOverlay implements Component {
     needsScroll: boolean
   ): string[] {
     return [
-      overlayEmptyLine(boxWidth),
+      ...(this.presentationDensity === "comfy" ? [overlayEmptyLine(boxWidth)] : []),
       overlaySideLine(
         overlayDim(needsScroll ? FOOTER_SCROLL : FOOTER_IDLE),
         innerWidth,

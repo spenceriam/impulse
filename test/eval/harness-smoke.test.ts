@@ -8,7 +8,7 @@ describe("eval harness smoke", () => {
     const messages: Message[] = [
       {
         role: "system",
-        content: "[impulse_ui] Mode changed to EXPLORE",
+        content: "[impulse_ui] Mode changed to ASK",
         timestamp: new Date().toISOString(),
       },
       { role: "user", content: "hello", timestamp: new Date().toISOString() },

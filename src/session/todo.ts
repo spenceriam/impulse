@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Bus, TodoEvents } from "../bus";
 import { Storage } from "../storage";
 import { SessionManager } from "./manager";
 
@@ -28,20 +29,25 @@ export namespace Todo {
 
   export async function update(todos: Todo[], scopeId: string = getScopeId()): Promise<void> {
     if (!scopeId) return;
-    await Storage.write(["todo", scopeId], todos);
-    
-    const { TodoEvents } = await import("../bus/events");
-    const { Bus } = await import("../bus");
-    Bus.publish(TodoEvents.Updated, { sessionID: scopeId, todos });
+    const token = SessionManager.captureCurrentSessionMutation(scopeId);
+    if (!token) return;
 
-    const currentSessionId = SessionManager.getCurrentSessionID();
-    if (currentSessionId) {
-      try {
-        await SessionManager.update({ todos });
-      } catch {
-        // Ignore session sync errors; storage + bus already updated
-      }
-    }
+    await SessionManager.runCurrentSessionMutation(token, async (mutation) => {
+      if (!mutation.isCurrent()) return;
+      await Storage.write(["todo", scopeId], todos, {
+        canCommit: mutation.isCurrent,
+        sessionID: scopeId,
+      });
+      if (!mutation.isCurrent()) return;
+
+      const updated = await mutation.update({ todos });
+      if (!updated || !mutation.isCurrent()) return;
+      Bus.publish(TodoEvents.Updated, {
+        sessionID: scopeId,
+        todos,
+        sessionGeneration: token.generation,
+      });
+    });
   }
 
   export function create(

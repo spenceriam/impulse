@@ -10,9 +10,20 @@
 
 import fs from "fs";
 import { getGoalDir } from "./paths.js";
-import type { GoalState } from "../session/goal-state.js";
+import { parseGoalState, type GoalState } from "../session/goal-state.js";
 import { writeJsonAtomic } from "../util/atomic-write.js";
 import { getRevisionDir, toRelativePlanPath } from "../plan/paths.js";
+import type { Mode } from "../constants.js";
+
+export type GoalHydrationSource =
+  | "session-hydration"
+  | "explicit-user-transition";
+
+export interface GoalHydrationResult {
+  state: GoalState | undefined;
+  /** Resolves true only when this hydration created the legacy artifact. */
+  migration: Promise<boolean>;
+}
 
 function renderGoalMarkdown(state: GoalState, sessionId: string, cwd: string): string {
   const lines = ["# Goal", "", state.text, ""];
@@ -96,6 +107,34 @@ export function readGoalArtifact(
   } catch {
     return null;
   }
+}
+
+/**
+ * Hydrate goal state for a resumed/restored session without granting write authority.
+ * Legacy metadata remains viewable in ASK; its artifact is migrated only in AGENT.
+ */
+export function hydrateGoalFromSession(input: {
+  sessionId: string;
+  metadataGoal: unknown;
+  mode: Mode;
+  source: GoalHydrationSource;
+  cwd?: string;
+}): GoalHydrationResult {
+  const cwd = input.cwd ?? process.cwd();
+  const fromArtifact = readGoalArtifact(input.sessionId, cwd);
+  const state = fromArtifact ?? parseGoalState(input.metadataGoal);
+  const authorizedSource =
+    input.source === "session-hydration" ||
+    input.source === "explicit-user-transition";
+
+  if (fromArtifact || !state || input.mode !== "AGENT" || !authorizedSource) {
+    return { state, migration: Promise.resolve(false) };
+  }
+
+  return {
+    state,
+    migration: writeGoalArtifact(input.sessionId, state, cwd).then(() => true),
+  };
 }
 
 /**

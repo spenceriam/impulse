@@ -1,9 +1,16 @@
-import { cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 // Copy tool description files to dist
 const toolsDir = "./src/tools";
 const distDir = "./dist";
+mkdirSync(distDir, { recursive: true });
+
+function copyDirectoryFresh(source: string, destination: string): void {
+  rmSync(destination, { recursive: true, force: true });
+  cpSync(source, destination, { recursive: true });
+}
+
 const txtFiles = readdirSync(toolsDir).filter((f) => f.endsWith(".txt"));
 for (const file of txtFiles) {
   cpSync(join(toolsDir, file), join(distDir, file));
@@ -11,17 +18,17 @@ for (const file of txtFiles) {
 
 // Copy prompt library
 if (existsSync("./prompts")) {
-  cpSync("./prompts", join(distDir, "prompts"), { recursive: true });
+  copyDirectoryFresh("./prompts", join(distDir, "prompts"));
 }
 
 // Copy bundled default skills
 if (existsSync("./skills/defaults")) {
-  cpSync("./skills/defaults", join(distDir, "skills-defaults"), { recursive: true });
+  copyDirectoryFresh("./skills/defaults", join(distDir, "skills-defaults"));
 }
 
 // Copy tool documentation library
 if (existsSync("./docs/tools")) {
-  cpSync("./docs/tools", join(distDir, "docs", "tools"), { recursive: true });
+  copyDirectoryFresh("./docs/tools", join(distDir, "docs", "tools"));
 }
 
 const result = await Bun.build({

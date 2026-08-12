@@ -19,6 +19,8 @@ const bashRequest: PermissionRequest = {
   metadata: {
     command: "npm test -- --coverage",
     reason: "Run the test suite to verify the fix",
+    executionBoundary: "HOST",
+    approvalPolicy: "PROMPT",
   },
 };
 
@@ -30,6 +32,14 @@ describe("permission overlay", () => {
     expect(formatPermissionReason(bashRequest)).toBe(
       "Run the test suite to verify the fix"
     );
+  });
+
+  test("distinguishes technical boundary from approval policy", () => {
+    const text = new PermissionOverlay(bashRequest)
+      .render(100)
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+    expect(text).toContain("HOST · PROMPT");
   });
 
   test("reason is capped at 120 chars", () => {

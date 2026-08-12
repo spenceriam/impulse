@@ -34,7 +34,7 @@ async function main() {
     name: "@spenceriam/impulse-linux-x64",
     version: VERSION,
     description: "IMPULSE binary for linux-x64",
-    license: "MIT",
+    license: "AGPL-3.0",
     repository: {
       type: "git",
       url: "git+https://github.com/spenceriam/impulse.git"

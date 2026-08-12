@@ -16,6 +16,7 @@ export const TodoEvents = {
     z.object({
       sessionID: z.string(),
       todos: z.array(TodoSchema),
+      sessionGeneration: z.number().int().nonnegative().optional(),
     })
   ),
 };
@@ -34,6 +35,7 @@ export const SessionEvents = {
     z.object({
       sessionID: z.string(),
       session: z.any(),
+      sessionGeneration: z.number().int().nonnegative().optional(),
     })
   ),
 
@@ -114,6 +116,23 @@ export const QuestionEvents = {
   ),
 };
 
+export const ExecutionHandoffEvents = {
+  Asked: BusEvent.define(
+    "execution-handoff.asked",
+    z.object({
+      id: z.string(),
+      request: z.string(),
+      description: z.string(),
+      choices: z.tuple([
+        z.literal("Preview safely"),
+        z.literal("Switch to AGENT"),
+        z.literal("Stay in ASK"),
+      ]),
+      recommended: z.literal("Preview safely"),
+    })
+  ),
+};
+
 export const HeaderEvents = {
   Updated: BusEvent.define(
     "header.updated",
@@ -127,8 +146,19 @@ export const ModeEvents = {
   Changed: BusEvent.define(
     "mode.changed",
     z.object({
-      mode: z.enum(["AGENT", "EXPLORE", "PLAN", "DEBUG"]),
+      mode: z.enum(["ASK", "AGENT"]),
       reason: z.string().optional().describe("Brief explanation of why mode was changed"),
+    })
+  ),
+  TransitionFailed: BusEvent.define(
+    "mode.transition.failed",
+    z.object({
+      mode: z.literal("AGENT"),
+      requestedMode: z.literal("ASK"),
+      failedParticipantIds: z.array(z.string()),
+      stoppedJobs: z.number(),
+      stoppedShells: z.number(),
+      reason: z.string().optional().describe("Brief explanation of why mode was requested"),
     })
   ),
 };

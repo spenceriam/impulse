@@ -6,10 +6,12 @@ import { createGoalState } from "../src/session/goal-state.js";
 import { createPlanRevision } from "../src/plan/revisions.js";
 import {
   deleteGoalArtifact,
+  hydrateGoalFromSession,
   readGoalArtifact,
   writeGoalArtifact,
 } from "../src/goal/artifact.js";
 import { getGoalDir } from "../src/goal/paths.js";
+import { normalizeMode } from "../src/constants.js";
 
 describe("goal artifact", () => {
   let tmp: string;
@@ -63,5 +65,62 @@ describe("goal artifact", () => {
 
     deleteGoalArtifact(sessionId, tmp);
     expect(readGoalArtifact(sessionId, tmp)).toBeNull();
+  });
+
+  test("legacy goal resume stays in memory in ASK and migrates only with AGENT authority", async () => {
+    const legacyState = createGoalState("Safely hydrate the legacy goal");
+    const legacyMode = normalizeMode("PLAN");
+    expect(legacyMode).toBe("ASK");
+
+    const ask = hydrateGoalFromSession({
+      sessionId,
+      metadataGoal: legacyState,
+      mode: legacyMode,
+      source: "session-hydration",
+      cwd: tmp,
+    });
+    expect(ask.state).toEqual(legacyState);
+    expect(await ask.migration).toBe(false);
+    expect(fs.existsSync(getGoalDir(sessionId, tmp))).toBe(false);
+
+    const elevated = hydrateGoalFromSession({
+      sessionId,
+      metadataGoal: ask.state,
+      mode: "AGENT",
+      source: "explicit-user-transition",
+      cwd: tmp,
+    });
+    expect(await elevated.migration).toBe(true);
+    const goalDir = getGoalDir(sessionId, tmp);
+    const statePath = path.join(goalDir, "state.json");
+    const goalPath = path.join(goalDir, "goal.md");
+    expect(fs.existsSync(statePath)).toBe(true);
+    expect(fs.existsSync(goalPath)).toBe(true);
+    const stateMtime = fs.statSync(statePath).mtimeMs;
+    const goalMtime = fs.statSync(goalPath).mtimeMs;
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const repeated = hydrateGoalFromSession({
+      sessionId,
+      metadataGoal: legacyState,
+      mode: "AGENT",
+      source: "session-hydration",
+      cwd: tmp,
+    });
+    expect(await repeated.migration).toBe(false);
+    expect(fs.statSync(statePath).mtimeMs).toBe(stateMtime);
+    expect(fs.statSync(goalPath).mtimeMs).toBe(goalMtime);
+
+    const agentResumeSession = `${sessionId}-agent-resume`;
+    const agentResume = hydrateGoalFromSession({
+      sessionId: agentResumeSession,
+      metadataGoal: legacyState,
+      mode: "AGENT",
+      source: "session-hydration",
+      cwd: tmp,
+    });
+    expect(await agentResume.migration).toBe(true);
+    expect(fs.existsSync(path.join(getGoalDir(agentResumeSession, tmp), "state.json"))).toBe(true);
+    expect(fs.existsSync(path.join(getGoalDir(agentResumeSession, tmp), "goal.md"))).toBe(true);
   });
 });

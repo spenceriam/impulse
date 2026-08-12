@@ -6,9 +6,7 @@ describe("user_instructions tool", () => {
   test("is registered as a scoped write tool only in execution modes", () => {
     expect(Tool.get("user_instructions")).toBe(userInstructionsTool);
     expect(isToolAllowedForMode("user_instructions", "AGENT")).toBe(true);
-    expect(isToolAllowedForMode("user_instructions", "DEBUG")).toBe(true);
-    expect(isToolAllowedForMode("user_instructions", "EXPLORE")).toBe(false);
-    expect(isToolAllowedForMode("user_instructions", "PLAN")).toBe(false);
+    expect(isToolAllowedForMode("user_instructions", "ASK")).toBe(false);
   });
 
   test("documents explicit persistence intent and the single write target", () => {

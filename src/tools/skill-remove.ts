@@ -4,13 +4,11 @@ import { existsSync, rmSync } from "fs";
 import { join } from "path";
 import { ask as askPermission } from "../permission";
 import { SessionManager } from "../session/manager.js";
-import { listInstalledSkills } from "./install-skill-source.js";
-import { unregisterSkillCommand } from "../cli/slash-dispatch.js";
 
 const DESCRIPTION = `Remove an installed skill by deleting its .agents/skills/<slug>/ directory.
 
 Required: slug (the skill's folder name, as shown by /skills).
-This operation is permanent. The skill's slash command alias (if any) is deregistered.`;
+This operation is permanent. Skills are discovered only through the /skills submenu.`;
 
 const SkillRemoveSchema = z.object({
   slug: z.string().min(1).describe("Skill slug to remove (folder name under .agents/skills/)"),
@@ -23,7 +21,7 @@ export type RemoveSkillResult =
   | { success: false; message: string };
 
 /**
- * Delete a skill's directory and deregister its slash command alias.
+ * Delete a skill's directory.
  * Shared by the skill_remove tool (permission-gated above this call) and the
  * /skills removal overlay (a direct user action — no permission prompt).
  */
@@ -31,12 +29,6 @@ export function removeSkill(cwd: string, slug: string): RemoveSkillResult {
   const skillDir = join(cwd, ".agents", "skills", slug);
   if (!existsSync(skillDir)) {
     return { success: false, message: `Skill '${slug}' is not installed.` };
-  }
-
-  const skills = listInstalledSkills(cwd);
-  const meta = skills.find((s) => s.slug === slug);
-  if (meta?.command) {
-    unregisterSkillCommand(meta.command);
   }
 
   rmSync(skillDir, { recursive: true, force: true });

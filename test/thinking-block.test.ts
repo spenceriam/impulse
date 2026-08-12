@@ -36,6 +36,19 @@ describe("ThinkingBlock", () => {
     expect(lines.some((l) => l.includes("hidden reasoning"))).toBe(true);
   });
 
+  test("off stores content without rendering until explicitly expanded", () => {
+    const block = new ThinkingBlock();
+    block.setHidden();
+    block.appendContent("stored reasoning");
+    expect(block.render(80)).toEqual([]);
+
+    block.finalize(800);
+    expect(block.render(80)).toEqual([]);
+
+    block.setExpanded(true);
+    expect(block.render(80).some((line) => line.includes("stored reasoning"))).toBe(true);
+  });
+
   test("expanded shows body after finalize", () => {
     const block = new ThinkingBlock();
     block.setText("line one");

@@ -183,9 +183,7 @@ export function setPlanningStyleForActiveRevision(
   return { meta, dir: active.dir, files: buildFilePaths(active.dir, style) };
 }
 
-/**
- * PLAN-mode write path check. Only the active revision directory; allowed plan filenames only.
- */
+/** Stored-plan write path check: active revision directory and allowed filenames only. */
 export function validatePlanWritePath(
   filePath: string,
   sessionId: string,
@@ -200,7 +198,7 @@ export function validatePlanWritePath(
   const rel = path.relative(activeDir, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     return (
-      `PLAN mode can only write plan files under the active revision: ${toRelativePlanPath(activeDir, cwd)}. ` +
+      `Stored plan files must stay under the active revision: ${toRelativePlanPath(activeDir, cwd)}. ` +
       `Requested: ${filePath}. Use plan_revision to start a new revision before writing elsewhere.`
     );
   }
@@ -209,7 +207,7 @@ export function validatePlanWritePath(
   const allowed = allowedPlanFilenames(planningStyle).map((f) => f.toLowerCase());
   if (!allowed.includes(base)) {
     return (
-      `PLAN mode allows only: ${allowed.join(", ")} in the active revision. ` +
+      `Stored plan revisions allow only: ${allowed.join(", ")} in the active revision. ` +
       `For TDD artifacts (e.g. PRD.md), confirm TDD with the user via the question tool first.`
     );
   }
@@ -221,11 +219,11 @@ export function validatePlanWritePath(
   return null;
 }
 
-export function buildPlanModeContextBlock(sessionId: string, cwd = process.cwd()): string {
+export function buildStoredPlanContextBlock(sessionId: string, cwd = process.cwd()): string {
   const active = getActivePlanRevision(sessionId, cwd);
   if (!active) {
     return `
-## Active plan (PLAN mode)
+## Active stored plan
 
 No plan revision yet. On first plan write, revision \`initial\` will be created under \`.impulse/plans/${sessionId}/revisions/\`.
 Use \`plan_revision\` when the user asks to rework the plan (creates a new revision; latest revision is always current context).
@@ -237,7 +235,7 @@ Use \`plan_revision\` when the user asks to rework the plan (creates a new revis
     .join("\n");
 
   return `
-## Active plan (PLAN mode) — latest revision only
+## Active stored plan — latest revision only
 
 Revision: \`${active.meta.revisionId}\` (revises: ${active.meta.revises})
 Style: ${active.meta.planningStyle}

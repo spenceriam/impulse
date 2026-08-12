@@ -26,6 +26,7 @@ import {
   replaceAllLineTrimmed,
   resolveEditMatch,
 } from "./edit-match.js";
+import { executionCwd } from "../execution/context.js";
 
 const DESCRIPTION = `Edit a file by exact string replacement.
 
@@ -45,7 +46,7 @@ type EditInput = z.infer<typeof EditSchema>;
  * Check if a path is within the current working directory
  */
 function isWithinCwd(targetPath: string): boolean {
-  return isWithinBase(process.cwd(), targetPath);
+  return isWithinBase(executionCwd(), targetPath);
 }
 
 export const fileEdit: Tool<EditInput> = Tool.define(
@@ -56,7 +57,7 @@ export const fileEdit: Tool<EditInput> = Tool.define(
     try {
       const safePath = await resolveToolPath(input.filePath, "file_edit");
       
-      // Check mode-based path restrictions (PLAN -> docs/ or PRD.md)
+      // Enforce the current authority boundary before editing.
       const modeError = validateWritePath(safePath);
       if (modeError) {
         return {
@@ -209,4 +210,3 @@ export const fileEdit: Tool<EditInput> = Tool.define(
     }
   }
 );
-

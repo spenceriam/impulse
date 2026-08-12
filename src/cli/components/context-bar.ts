@@ -14,7 +14,7 @@ import {
   formatContextBarRight,
   formatContextBarVersionOnly,
 } from "../context-bar-date.js";
-import type { BottomBarVisual } from "../../util/config.js";
+import type { BottomBarVisual, PresentationDensity } from "../../util/config.js";
 import {
   COMPACT_WARNING_THRESHOLD,
   COMPACT_TRIGGER_THRESHOLD,
@@ -49,7 +49,11 @@ const clr = {
 
 /** Visible width of an ANSI-encoded string (strips escape sequences) */
 export function visibleWidth(s: string): number {
-  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").length;
+  return plainText(s).length;
+}
+
+function plainText(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 function shortModel(full: string): string {
@@ -99,7 +103,7 @@ function shortDir(cwd: string): string {
   return cwd.startsWith(home) ? `~/${last2}` : last2;
 }
 
-const MODE_COLOR: Record<string, number> = { AGENT: 34, EXPLORE: 32, PLAN: 33, DEBUG: 31 };
+const MODE_COLOR: Record<string, number> = { ASK: 32, AGENT: 34 };
 
 function joinParts(parts: string[], sep: string): string {
   return parts.filter((p) => visibleWidth(p.trim()) > 0).join(sep);
@@ -207,7 +211,10 @@ function buildLeftRows(
     return [truncateLeft(modelFull, leftAvail), truncateLeft(row2Joined, leftAvail)];
   }
 
-  const stacked = [modelFull, ctxSeg, dirBranchFull, modeFull, statsFull].filter(
+  // Authority is the one non-optional footer fact. In the narrow fallback it
+  // must occupy the first truncation slot; model, directory, and status may
+  // then use whatever remains on the second row.
+  const stacked = [modeFull, ctxSeg, modelFull, dirBranchFull, statsFull].filter(
     (p) => visibleWidth(p.trim()) > 0
   );
   return [
@@ -267,21 +274,31 @@ export interface ContextBarState {
   tokensPerSecond?: number;
   lastTurnMs?: number;
   allowAllBypass?: boolean;
+  approvalPolicy?: "PROMPT" | "ALLOW-ALL";
+  executionBoundary?: "HOST" | "SANDBOX" | "PREVIEW";
   showTurnSpeed?: boolean;
   queueDepth?: number;
   goalLabel?: string;
   backgroundCount?: number;
   showAdvisorInBar?: boolean;
   bottomBarVisual?: BottomBarVisual;
+  presentationDensity?: PresentationDensity;
+}
+
+export interface ContextBarRenderSources {
+  now?: () => Date;
+  branch?: (cwd: string) => string;
 }
 
 export class ContextBarComponent implements Component {
   private state: ContextBarState;
+  private readonly sources: ContextBarRenderSources;
   private cachedBranch: string | null = null;
   private branchCwd: string | null = null;
 
-  constructor(state: ContextBarState) {
+  constructor(state: ContextBarState, sources: ContextBarRenderSources = {}) {
     this.state = state;
+    this.sources = sources;
   }
 
   update(state: OptionalPatch<ContextBarState>): void {
@@ -304,7 +321,7 @@ export class ContextBarComponent implements Component {
     const showBranch = visual === "full";
 
     if (showBranch && (this.cachedBranch === null || this.branchCwd !== cwd)) {
-      this.cachedBranch = gitBranch(cwd);
+      this.cachedBranch = this.sources.branch?.(cwd) ?? gitBranch(cwd);
       this.branchCwd = cwd;
     }
 
@@ -313,7 +330,9 @@ export class ContextBarComponent implements Component {
     const pctStr = formatPercent(pct);
     const tokStr = `${formatTokens(s.contextTokens)}/${formatTokens(s.contextWindow)}`;
 
-    const sep = clr.sep(" │ ");
+    const sep = clr.sep(
+      s.presentationDensity === "comfy" ? "  │  " : " │ "
+    );
 
     const worker = shortModel(s.workerModel);
     const modelSeg = clr.model(worker);
@@ -357,16 +376,19 @@ export class ContextBarComponent implements Component {
           )
         : "";
     const modeFull =
-      visual === "full"
-        ? (s.mode === "AGENT" ? "" : c.fg(MODE_COLOR[s.mode] ?? 34, s.mode)) +
+      c.fg(MODE_COLOR[s.mode] ?? 34, s.mode) +
+      (visual === "full"
+        ?
           queueSeg +
           goalSeg +
           baSeg +
           (s.autoCompactOff ? clr.sep(" compact:OFF") : "")
-        : "";
+        : "");
 
     let statsFull = "";
-    if (s.allowAllBypass) {
+    if (s.executionBoundary || s.approvalPolicy) {
+      statsFull = [s.executionBoundary, s.approvalPolicy].filter(Boolean).join(" · ");
+    } else if (s.allowAllBypass) {
       statsFull = c.fg(214, visual === "full" ? "Allow-All" : "AA");
     } else if (visual === "full" && s.showTurnSpeed) {
       if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
@@ -377,7 +399,7 @@ export class ContextBarComponent implements Component {
       }
     }
 
-    const now = new Date();
+    const now = this.sources.now?.() ?? new Date();
     const rightSeg =
       visual === "minimal"
         ? ""
@@ -403,7 +425,14 @@ export class ContextBarComponent implements Component {
       hasStats: visibleWidth(statsFull) > 0,
     };
 
-    const leftRows = buildLeftRows(leftAvail, seg);
+    let leftRows = buildLeftRows(leftAvail, seg);
+    if (!plainText(leftRows.join("\n")).includes(s.mode)) {
+      const optional = joinParts([ctxSeg, modelFull, dirBranchFull, statsFull], sep);
+      leftRows = [
+        truncateLeft(modeFull, leftAvail),
+        truncateLeft(optional, leftAvail),
+      ];
+    }
     return applyRightAnchor(leftRows, width, leftAvail, rightSeg);
   }
 }

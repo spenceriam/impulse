@@ -26,6 +26,18 @@ export interface PtySpawnOptions {
   env?: Record<string, string | undefined>;
 }
 
+export interface PtyRuntime {
+  execute(
+    command: string,
+    cwd: string,
+    onEvent: (event: ShellOutputEvent) => void,
+    signal?: AbortSignal,
+    cols?: number,
+    rows?: number,
+    options?: PtySpawnOptions
+  ): Promise<PtyHandle>;
+}
+
 export const PtyEvents = {
   Output: "pty.output",
   PromptDetected: "pty.prompt_detected",
@@ -35,6 +47,12 @@ export const PtyEvents = {
 
 let ptyModulePromise: ReturnType<typeof loadPtyModule> | null = null;
 let ptyAvailable: boolean | null = null;
+let testRuntime: PtyRuntime | null = null;
+
+/** Deterministic process backend for public PTY-route regression tests. */
+export function setPtyRuntimeForTests(runtime: PtyRuntime | null): void {
+  testRuntime = runtime;
+}
 
 async function getPtyModule() {
   if (!ptyModulePromise) ptyModulePromise = loadPtyModule();
@@ -79,7 +97,7 @@ export async function probePtyAvailable(): Promise<boolean> {
 }
 
 export function isPtyAvailable(): boolean {
-  return ptyAvailable === true;
+  return testRuntime !== null || ptyAvailable === true;
 }
 
 export async function executePty(
@@ -91,9 +109,18 @@ export async function executePty(
   rows = 24,
   options?: PtySpawnOptions
 ): Promise<PtyHandle> {
+  if (signal?.aborted) {
+    throw new Error("PTY start cancelled before spawn.");
+  }
+  if (testRuntime) {
+    return testRuntime.execute(command, cwd, onEvent, signal, cols, rows, options);
+  }
   const mod = await getPtyModule();
   if (!mod) {
     throw new Error("PTY not available");
+  }
+  if (signal?.aborted) {
+    throw new Error("PTY start cancelled before spawn.");
   }
   return spawnWithNodePty(mod, command, cwd, cols, rows, onEvent, signal, options);
 }

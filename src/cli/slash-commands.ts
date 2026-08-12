@@ -3,6 +3,34 @@
  */
 
 import type { SlashCommandEntry } from "./slash-autocomplete.js";
+import { MODE_CYCLE, displayModeOptions, type Mode } from "../constants.js";
+
+export type ModeCommandResult =
+  | { message: string }
+  | { nextMode: Mode }
+  | { error: string };
+
+/** Resolve an explicit user /mode command without applying legacy migration aliases. */
+export function resolveModeCommand(arg: string, currentMode: Mode): ModeCommandResult {
+  const requested = arg.trim().toUpperCase();
+  if (!requested) {
+    return {
+      message: `mode: ${currentMode} | options: ${displayModeOptions()} | Tab to cycle`,
+    };
+  }
+
+  if (requested === "ASK" || requested === "AGENT") {
+    return { nextMode: requested };
+  }
+
+  return { error: `Unknown mode. Options: ${displayModeOptions()}` };
+}
+
+/** Next visible mode for Tab cycling. */
+export function cycleDisplayedMode(currentMode: Mode, dir: 1 | -1): Mode {
+  const index = MODE_CYCLE.indexOf(currentMode);
+  return MODE_CYCLE[((index + dir) + MODE_CYCLE.length) % MODE_CYCLE.length]!;
+}
 
 export interface SlashCommandDef {
   cmd: string;
@@ -33,19 +61,14 @@ export function buildSlashCommandDefs(
       helpDetail: "List all installed agent skills in this project",
     },
     {
-      cmd: "/skill",
-      hint: "new | remove | modify <slug>",
-      helpDetail: "Create a new skill, remove an existing one, or modify it",
-    },
-    {
       cmd: "/ba",
       hint: "list or manage background jobs",
-      helpDetail: "List background jobs (/ba), kill one (/ba kill <id>), or restart (/ba restart <id>)",
+      helpDetail: "List background jobs; kill/restart requires AGENT",
     },
     {
       cmd: "/allow-all",
       hint: "toggle bypass all permission prompts",
-      helpDetail: "Toggle bypassing all tool permission prompts (session-only)",
+      helpDetail: "Persist PROMPT/ALLOW-ALL approval policy; this does not sandbox execution",
     },
     {
       cmd: "/clear",
@@ -75,7 +98,7 @@ export function buildSlashCommandDefs(
     {
       cmd: "/instructions",
       hint: "view | replace | append | import | clear",
-      helpDetail: "Manage persistent user instructions with multiline paste or @path import",
+      helpDetail: "View instructions; persistent changes require AGENT",
     },
     {
       cmd: "/model",
@@ -85,7 +108,7 @@ export function buildSlashCommandDefs(
     {
       cmd: "/mode",
       hint: "change agent mode",
-      helpDetail: "Change mode: AGENT (default), EXPLORE, PLAN, DEBUG",
+      helpDetail: "Change mode: ASK (default, read-only) or AGENT (execution)",
     },
     {
       cmd: "/new",
@@ -125,7 +148,7 @@ export function buildSlashCommandDefs(
     {
       cmd: "/update",
       hint: "check and install latest release",
-      helpDetail: "Check for and install the latest release; resumes this session after install",
+      helpDetail: "Check for and install the latest release (requires AGENT)",
     },
     {
       cmd: "/usage",
@@ -178,19 +201,19 @@ export function buildSlashCommandDefs(
       {
         cmd: "/checkpoint",
         hint: "snapshot git + chat state",
-        helpDetail: "Create a git checkpoint at the current message index (experimental)",
+        helpDetail: "Create a git checkpoint at the current message index (AGENT, experimental)",
         hidden: true,
       },
       {
         cmd: "/undo",
         hint: "revert git + chat to checkpoint",
-        helpDetail: "Revert working tree and trim chat to prior checkpoint (experimental)",
+        helpDetail: "Revert working tree and trim chat to prior checkpoint (AGENT, experimental)",
         hidden: true,
       },
       {
         cmd: "/redo",
         hint: "reapply checkpoint",
-        helpDetail: "Reapply a later checkpoint (experimental)",
+        helpDetail: "Reapply a later checkpoint (AGENT, experimental)",
         hidden: true,
       }
     );
@@ -200,7 +223,7 @@ export function buildSlashCommandDefs(
     defs.push({
       cmd: "/goal",
       hint: "Hermes-style goal loop",
-      helpDetail: "Start or manage an autonomous goal loop (experimental)",
+      helpDetail: "Start or manage an autonomous goal loop (AGENT, experimental)",
       hidden: true,
     });
   }
@@ -215,12 +238,19 @@ export function buildCoreSlashCommandDefs(
   return buildSlashCommandDefs(opts).filter((d) => !d.hidden);
 }
 
-/** Autocomplete entries (sorted). */
-export function buildSlashCommandList(
+/** Top-level autocomplete entries (sorted); dynamic skill commands stay directly invocable. */
+export function buildTopLevelSlashCommandList(
   opts: BuildSlashCommandsOptions
 ): SlashCommandEntry[] {
   return buildSlashCommandDefs(opts).map((d) => ({
     cmd: d.cmd,
     hint: d.hint,
   }));
+}
+
+/** Backward-compatible name for the top-level autocomplete registry. */
+export function buildSlashCommandList(
+  opts: BuildSlashCommandsOptions
+): SlashCommandEntry[] {
+  return buildTopLevelSlashCommandList(opts);
 }

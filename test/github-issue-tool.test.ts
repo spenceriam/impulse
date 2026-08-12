@@ -52,8 +52,8 @@ describe("github_issue schema", () => {
 });
 
 describe("github_issue tool", () => {
-  test("allowed in PLAN mode as read_only", () => {
-    expect(isToolAllowedForMode("github_issue", "PLAN")).toBe(true);
+  test("allowed in ASK as read-only research", () => {
+    expect(isToolAllowedForMode("github_issue", "ASK")).toBe(true);
   });
 
   test.skipIf(ghReady.installed && ghReady.authenticated)(

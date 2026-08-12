@@ -4,6 +4,7 @@ import { Bus } from "../bus";
 import { QuestionEvents } from "../bus/events";
 import { SessionManager } from "../session/manager.js";
 import { fileError } from "../util/logger.js";
+import { currentExecutionContext } from "../execution/context.js";
 import {
   partitionQuestionsByPriorAnswers,
   priorAnsweredQuestionsFromSession,
@@ -104,6 +105,45 @@ export const questionTool: Tool<QuestionToolInput> = Tool.define(
   QuestionToolSchema,
   async (input: QuestionToolInput): Promise<ToolResult> => {
     try {
+      const runtime = currentExecutionContext()?.runtime;
+      if (runtime) {
+        const answers: string[][] = [];
+        for (const question of input.questions) {
+          const response = await runtime.requestQuestion({
+            prompt: `${question.topic}: ${question.question}`,
+            choices: question.options.map((option, index) => ({
+              id: String(index),
+              label: option.label,
+              ...(option.description ? { description: option.description } : {}),
+            })),
+            ...(question.multiple === undefined ? {} : { multiple: question.multiple }),
+          });
+          if (!response) {
+            return {
+              success: false,
+              output: "User cancelled the question. Proceed without this information or ask differently.",
+            };
+          }
+          answers.push(response);
+        }
+        return {
+          success: true,
+          output: `User responded:\n${input.questions.map((question, index) =>
+            `${question.topic}: ${(answers[index] ?? []).join(", ") || "(no selection)"}`
+          ).join("\n")}`,
+          metadata: {
+            type: "question",
+            context: input.context,
+            questions: input.questions.map((question, index) => ({
+              topic: question.topic,
+              question: question.question,
+              options: question.options.map((option) => option.label),
+              answers: answers[index] ?? [],
+            })),
+          },
+        };
+      }
+
       if (hasPendingQuestion()) {
         return {
           success: false,

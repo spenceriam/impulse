@@ -2,6 +2,9 @@
  * Slash-command autocomplete visibility (prefix match vs exact command token).
  */
 
+import { wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { A } from "./ansi-theme.js";
+import { GUTTER, GUTTER_WIDTH } from "./gutter.js";
 import { canonicalizeSlashAliasInput, slashAliasTarget } from "./slash-aliases.js";
 
 export type SlashCommandEntry = { cmd: string; hint?: string };
@@ -57,6 +60,22 @@ export function shouldShowSlashAutocomplete(
   }
 
   return { show: true, matches };
+}
+
+/** Production slash suggestion rows rendered above the prompt. */
+export function renderSlashAutocompleteLines(
+  input: string,
+  commands: SlashCommandEntry[],
+  terminalWidth: number
+): string[] {
+  const { show, matches } = shouldShowSlashAutocomplete(input, commands);
+  if (!show) return [];
+
+  const available = Math.max(8, terminalWidth - GUTTER_WIDTH);
+  return matches.flatMap((match) => {
+    const raw = `${GUTTER}${A.fg(36, match.cmd)}  ${A.fg(90, match.hint ?? "")}`;
+    return wrapTextWithAnsi(raw, available);
+  });
 }
 
 /** True when the prompt is entering or editing a slash command. */

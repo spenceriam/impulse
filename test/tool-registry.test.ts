@@ -1,10 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { Tool, isToolAllowedForMode } from "../src/tools/registry.js";
 import { MODES } from "../src/constants.js";
 import "../src/tools/ls.js";
+import { setCurrentMode } from "../src/tools/mode-state.js";
+import { enterAgentModeForTest } from "./helpers/authority.js";
 
 describe("Tool.execute", () => {
+  beforeEach(async () => enterAgentModeForTest());
+  afterEach(() => setCurrentMode("ASK"));
   test("suggests close tool names for unknown tools", async () => {
     Tool.define(
       "sample_tool",
@@ -55,7 +59,7 @@ describe("Tool.execute", () => {
 });
 
 describe("ls tool mode allowlist", () => {
-  test("is allowed in every mode, including read-only EXPLORE and PLAN", () => {
+  test("is allowed in both ASK and AGENT", () => {
     for (const mode of MODES) {
       expect(isToolAllowedForMode("ls", mode)).toBe(true);
     }

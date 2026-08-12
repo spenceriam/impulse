@@ -5,6 +5,10 @@ import type { MODES } from "../constants";
 import { getCurrentMode } from "./mode-state";
 import { validateToolInput } from "./input-repair";
 import { buildRepairNote, prependToolNote } from "./tool-notes";
+import {
+  currentExecutionContext,
+  isIsolatedMutationContext,
+} from "../execution/context.js";
 
 type Mode = typeof MODES[number];
 
@@ -22,11 +26,15 @@ export interface Tool<TInput = unknown> {
   timeout: number | undefined;
 }
 
+export interface ToolExecutionOptions {
+  callId?: string;
+}
+
 /**
  * Tool access categories by mode
  * 
- * - READ_ONLY: Available in all modes (file_read, glob, grep, question, etc.)
- * - WRITE: Only in execution modes (WORK, DEBUG) plus restricted planning tools in PLAN
+ * - READ_ONLY: Available in ASK and AGENT (file_read, glob, grep, question, etc.)
+ * - WRITE: Available only in AGENT, except session-only ASK capabilities
  */
 type ToolCategory = "read_only" | "write" | "utility";
 
@@ -38,6 +46,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   grep: "read_only",
   ls: "read_only",
   question: "read_only",
+  execution_handoff: "read_only",
   todo_read: "read_only",
   set_header: "utility",
   set_mode: "utility",
@@ -57,7 +66,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   bg_output: "read_only",
   bg_kill: "write",
 
-  // Write tools (restricted in PLAN)
+  // Project/session mutation tools
   file_write: "write",
   file_edit: "write",
   bash: "write",
@@ -66,10 +75,10 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 };
 
 /**
- * Unknown tools default to read_only.
+ * Unknown tools default to write so ASK fails closed.
  */
 function getToolCategory(toolName: string): ToolCategory {
-  return TOOL_CATEGORIES[toolName] ?? "read_only";
+  return TOOL_CATEGORIES[toolName] ?? "write";
 }
 
 function levenshteinDistance(a: string, b: string): number {
@@ -96,7 +105,11 @@ function levenshteinDistance(a: string, b: string): number {
 function findCloseMatches(name: string): string[] {
   const normalized = name.toLowerCase();
 
-  return Array.from(tools.keys())
+  const externalNames = currentExecutionContext()?.runtime
+    ?.getToolProvider()
+    ?.definitions(getCurrentMode())
+    .map((definition) => definition.function.name) ?? [];
+  return [...tools.keys(), ...externalNames]
     .map((toolName) => ({
       name: toolName,
       distance: levenshteinDistance(normalized, toolName.toLowerCase()),
@@ -108,30 +121,21 @@ function findCloseMatches(name: string): string[] {
 }
 
 function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: string): boolean {
-  if (category === "read_only" || category === "utility") {
-    return true;
-  }
-
-  if (mode === "AGENT" || mode === "DEBUG") {
-    return true;
-  }
-
-  if (mode === "PLAN") {
-    if (
-      toolName === "file_write" ||
-      toolName === "file_edit" ||
-      toolName === "task" ||
-      toolName === "todo_write"
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+  if (mode === "AGENT") return true;
+  if (category === "read_only") return true;
+  return toolName === "set_header" ||
+    toolName === "set_mode" ||
+    toolName === "todo_write" ||
+    toolName === "task";
 }
 
 export function isToolAllowedForMode(name: string, mode: Mode): boolean {
   return isCategoryAllowedForMode(getToolCategory(name), mode, name);
+}
+
+function isToolAllowedForCurrentExecution(name: string, mode: Mode): boolean {
+  if (isToolAllowedForMode(name, mode)) return true;
+  return isIsolatedMutationContext() && ["file_write", "file_edit", "bash"].includes(name);
 }
 
 const tools = new Map<string, Tool<unknown>>();
@@ -169,7 +173,7 @@ export namespace Tool {
    * for passing to provider streaming APIs.
    */
   export function getAPIDefinitions(): ToolDefinition[] {
-    return Array.from(tools.values()).map((tool) => {
+    const builtIns = Array.from(tools.values()).map((tool) => {
       // Convert Zod schema to JSON Schema
       const jsonSchema = zodToJsonSchema(tool.schema, {
         $refStrategy: "none",
@@ -188,18 +192,19 @@ export namespace Tool {
         },
       };
     });
+    const external = currentExecutionContext()?.runtime?.getToolProvider()?.definitions("AGENT") ?? [];
+    return [...builtIns, ...external];
   }
   
   /**
    * Get tools allowed for a specific mode as API-compatible definitions
    * 
    * Mode restrictions:
-   * - WORK, DEBUG: All tools
-   * - EXPLORE: Read-only tools only (no file_write, file_edit, bash, task)
-   * - PLAN: Read-only + file_write/task/todo_write (restricted in handlers)
+   * - AGENT: All tools
+   * - ASK: Read/research, questions, session-only updates, and explore subagents
    */
   export function getAPIDefinitionsForMode(mode: Mode): ToolDefinition[] {
-    return Array.from(tools.values())
+    const builtIns = Array.from(tools.values())
       .filter((tool) => isToolAllowedForMode(tool.name, mode))
       .map((tool) => {
         // Convert Zod schema to JSON Schema
@@ -211,19 +216,9 @@ export namespace Tool {
         // Remove $schema key if present (API doesn't need it)
         const { $schema, ...parameters } = jsonSchema as Record<string, unknown>;
         
-        // For PLAN, modify tool descriptions to note restrictions
         let description = tool.description;
-        if (
-          (tool.name === "file_write" || tool.name === "file_edit") &&
-          mode === "PLAN"
-        ) {
-          const restriction =
-            "RESTRICTED: PLAN mode can only write/edit files in the active plan revision under .impulse/plans/<sessionId>/revisions/.";
-          description = `${restriction}\n\n${description}`;
-        }
-
-        if (tool.name === "task" && mode === "PLAN") {
-          const restriction = "RESTRICTED: In PLAN mode, only subagent_type=\"explore\" is allowed.";
+        if (tool.name === "task" && mode === "ASK") {
+          const restriction = "RESTRICTED: In ASK mode, only subagent_type=\"explore\" is allowed. For general/writing work, use execution_handoff so the user can preview safely, switch to AGENT, or stay in ASK.";
           description = `${restriction}\n\n${description}`;
         }
 
@@ -236,15 +231,21 @@ export namespace Tool {
           },
         };
       });
+    const external = currentExecutionContext()?.runtime?.getToolProvider()?.definitions(mode) ?? [];
+    return [...builtIns, ...external];
   }
 
   export async function execute<TInput>(
     name: string,
-    input: unknown
+    input: unknown,
+    options: ToolExecutionOptions = {}
   ): Promise<ToolResult> {
     const tool = tools.get(name);
+    const execution = currentExecutionContext();
+    const externalProvider = execution?.runtime?.getToolProvider();
+    const external = tool ? undefined : externalProvider?.descriptor(name);
 
-    if (!tool) {
+    if (!tool && !external) {
       const suggestions = findCloseMatches(name);
       let errorMsg = `Tool not found: ${name}`;
       
@@ -261,10 +262,57 @@ export namespace Tool {
     }
 
     const currentMode = getCurrentMode();
-    if (!isToolAllowedForMode(name, currentMode)) {
+    if (external) {
+      if ((!external.readOnly && currentMode !== "AGENT") ||
+          (!external.readOnly && execution?.runtime?.canMutate() !== true)) {
+        return {
+          success: false,
+          output: `Tool "${name}" is not allowed in ${currentMode} mode. Ask the user to switch to AGENT before proceeding.`,
+        };
+      }
+      if (!external.readOnly && execution?.runtime) {
+        const decision = await execution.runtime.requestPermission({
+          permission: "mcp",
+          patterns: [name],
+          message: `Run MCP tool ${external.title}`,
+          metadata: {
+            tool: name,
+            ...(external.serverName ? { server: external.serverName } : {}),
+            ...(external.originalName ? { originalTool: external.originalName } : {}),
+          },
+          tool: {
+            messageID: execution.runtime.sessionId,
+            callID: options.callId ?? name,
+          },
+        });
+        if (decision !== "allow") {
+          return {
+            success: false,
+            output: decision === "cancel"
+              ? `MCP tool "${name}" was cancelled.`
+              : `MCP tool "${name}" was rejected by the user.`,
+          };
+        }
+        if (!execution.runtime.canMutate() || execution.signal?.aborted) {
+          return {
+            success: false,
+            output: `MCP tool "${name}" was cancelled because AGENT authority was revoked.`,
+          };
+        }
+      }
+      return externalProvider!.execute(name, input, {
+        ...(execution?.signal ? { signal: execution.signal } : {}),
+      });
+    }
+
+    if (!tool) {
+      return { success: false, output: `Tool not found: ${name}` };
+    }
+
+    if (!isToolAllowedForCurrentExecution(name, currentMode)) {
       return {
         success: false,
-        output: `Tool "${name}" is not allowed in ${currentMode} mode. Switch to WORK or DEBUG to proceed.`,
+        output: `Tool "${name}" is not allowed in ${currentMode} mode. Ask the user to switch to AGENT before proceeding.`,
       };
     }
 

@@ -4,7 +4,7 @@ import path from "path";
 const DEBUG_MARKER = "[IMPULSE_DEBUG]";
 
 /**
- * After a DEBUG-mode turn, nudge if edited files still contain debug instrumentation.
+ * Nudge if edited files still contain temporary debug instrumentation.
  */
 export function buildDebugInstrumentationNudge(
   editedFilePaths: string[],

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impulse UX Overhaul Gauntlet</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d0e;
+      --panel: #131719;
+      --line: #293034;
+      --text: #f2f5f5;
+      --muted: #899398;
+      --cyan: #5cffff;
+      --green: #6fca6f;
+      --yellow: #e6c655;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    main { width: min(1100px, calc(100% - 32px)); margin: 32px auto 80px; }
+    header { border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+    h1, h2 { margin: 0; font-weight: 600; }
+    h1 { font-size: clamp(24px, 5vw, 48px); letter-spacing: -0.04em; }
+    h2 { color: var(--cyan); font-size: 15px; margin-bottom: 14px; text-transform: uppercase; }
+    p { max-width: 82ch; }
+    code { color: var(--cyan); }
+    a { color: var(--cyan); }
+    .eyebrow, .meta { color: var(--muted); }
+    .eyebrow { margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.12em; }
+    .status { color: var(--yellow); }
+    section { margin-top: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); padding: 16px; }
+    .card strong { display: block; margin-bottom: 8px; }
+    ol, ul { margin: 0; padding-left: 22px; }
+    li + li { margin-top: 7px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .done { color: var(--green); }
+    .pending { color: var(--yellow); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Impulse / Gauntlet Loop</div>
+      <h1>Coding runtime UX overhaul</h1>
+      <p class="meta">Branch: <code>fix/formatting-and-tool-guardrails-127-128</code></p>
+      <p class="status">Current phase: accepted after integrated build, whole-system criticism, one correction pass, and fresh trust-contract verification</p>
+    </header>
+
+    <section>
+      <h2>Goal</h2>
+      <p>Make Impulse polished enough for other developers to adopt: a coherent terminal coding runtime with clear prompts, streaming responses, thinking, tools, permissions, planning, settings, skills, density controls, and ACP interoperability.</p>
+    </section>
+
+    <section>
+      <h2>Concrete bar</h2>
+      <div class="grid">
+        <div class="card">
+          <strong>Grok Build</strong>
+          Judge interaction hierarchy, compactness, state legibility, plan review, permission flow, tool presentation, and progressive disclosure against the running product, official examples, and public TUI source.
+        </div>
+        <div class="card">
+          <strong>Pi / pi-tui</strong>
+          Preserve differential rendering, keyboard-first behavior, terminal-width resilience, and the deliberately small visual vocabulary of the underlying TUI foundation.
+        </div>
+        <div class="card">
+          <strong>ACP v1</strong>
+          Prove interoperability with protocol-level fixtures for initialization, sessions, prompt streaming, tool calls, permissions, plans, modes, config options, a truthful command surface, cancellation, and terminal/file-system capabilities.
+        </div>
+      </div>
+      <ul>
+        <li>Token-firehose probe: typing, navigation, queueing, cancellation, and resize remain responsive while stable Markdown does not oscillate.</li>
+        <li>Thinking probe: immediate activity, bounded live content, elapsed-time collapse, full expansion, and replay without empty or zero-duration blocks.</li>
+        <li>Tool probe: semantic collapsed rows, grouped read/search activity, reversible truncation, and useful edit diffstats.</li>
+        <li>Permission probe: exact operation and scope, safe initial focus, park-without-answer, rejection feedback, and long-content resilience.</li>
+        <li>Discovery probe: bounded fuzzy slash results, no alias duplicates, contextual availability, completion without accidental execution, and a dedicated skills submenu.</li>
+        <li>Short-terminal probe: preserve prompt, transcript, and blocking decisions before chrome; temporary auto-compaction must not overwrite the user's density preference.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Loop contract</h2>
+      <ol>
+        <li>The lead splits the goal into the smallest independently improvable and judgeable pieces.</li>
+        <li>Each piece receives a builder with the goal, rules, and bar.</li>
+        <li>A separate fresh-context critic inspects the real artifact, not the builder's summary.</li>
+        <li>If Impulse loses the comparison, the critic identifies the largest meaningful gap.</li>
+        <li>The builder fixes that gap and the piece returns to a fresh critic. There is no fixed round count.</li>
+        <li>After each major wave, a fresh smoothing agent checks the complete runtime for consistency.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Sandbox comparison bar</h2>
+      <div class="grid">
+        <div class="card">
+          <strong>Separate controls</strong>
+          Mode governs agent behavior, approval policy governs consent prompts, and the execution boundary governs technical capability. No label or Allow-All setting may be presented as sandboxing.
+        </div>
+        <div class="card">
+          <strong>Fail closed</strong>
+          Probe the host backend before advertising isolation. An unavailable or failed sandbox must stop the isolated action or require an explicit, accurately labeled host-execution choice.
+        </div>
+        <div class="card">
+          <strong>Layered preview</strong>
+          A safe preview combines an isolated Git worktree with an OS-enforced filesystem and network boundary. The worktree makes the diff reviewable; the sandbox protects the machine.
+        </div>
+      </div>
+      <ul>
+        <li>Codex uses platform backends: Seatbelt on macOS, Bubblewrap with a Landlock fallback on Linux, and restricted-token sandboxing on Windows.</li>
+        <li>Codex workspace-write keeps the filesystem read-only by default, layers explicit writable roots, and protects repository metadata such as <code>.git</code>.</li>
+        <li>Copilot exposes OS sandboxing and Git worktrees as separate features, reinforcing that neither substitutes for the other.</li>
+        <li>Impulse must test filesystem escape, network denial, process cleanup, symlink traversal, protected repository metadata, unsupported hosts, and truthful fallback messaging.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>ACP readiness bar</h2>
+      <p>Current assessment: <strong class="done">stable-v1 launch bar met</strong>. The TUI and ACP adapter now consume the same session-scoped runtime; ACP stdio remains JSON-RPC-pure and advertises only implemented behavior.</p>
+      <ul>
+        <li>A session-scoped runtime must own cwd, mode, history, permissions, elicitation, tools, active processes, and cancellation.</li>
+        <li>Two interleaved sessions must remain independent, including cancellation and permission responses.</li>
+        <li>The ACP process must keep stdout JSON-RPC-pure and send diagnostics only to stderr.</li>
+        <li>Fixture transcripts must cover initialization, lifecycle, content capabilities, prompt streaming, tools and permissions, elicitation, plans and config, cancellation, and optional client filesystem/terminal capabilities.</li>
+        <li>Only implemented capabilities may be advertised; resource links and stdio MCP setup are baseline launch requirements.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Lead decomposition</h2>
+      <table>
+        <thead><tr><th>Piece</th><th>Status</th><th>Independent pass bar</th><th>Depends on</th></tr></thead>
+        <tbody>
+          <tr><td>0. Deterministic UX capture</td><td class="done">Accepted</td><td>One Bun command renders production components at 60/80/120 columns to plain, ANSI, and HTML evidence; deterministic tests prove registry coverage and no line overflow.</td><td>Passed fresh-context Critic 3 after two gap-fix rounds</td></tr>
+          <tr><td>1. Two-mode authority kernel</td><td class="done">Accepted</td><td>New sessions visibly start in ASK; only ASK and AGENT are advertised; legacy sessions migrate safely; tool authorization and prompts agree; no implicit transition grants write authority.</td><td>Whole-system authority review and final trust verification passed</td></tr>
+          <tr><td>2. ASK execution handoff</td><td class="done">Accepted</td><td>A consequential request in ASK presents safe preview, explicit AGENT transition, and stay-in-ASK choices; cancellation and resumed sessions preserve the correct authority.</td><td>Integrated product/spec review passed</td></tr>
+          <tr><td>3. Execution boundary</td><td class="done">Accepted</td><td>A deep sandbox interface capability-probes platform backends, layers an isolated worktree for preview, protects the host and repository metadata, denies network by default, cleans up processes, and fails closed.</td><td>Real Bubblewrap probes and whole-system safety review passed</td></tr>
+          <tr><td>4. Approval policy and settings</td><td class="done">Accepted</td><td>Prompt versus Allow-All is independent of sandboxing; global startup preference is explicit and persisted; the concise disclaimer remains truthful; every active state is visible and reversible.</td><td>Prompt/Allow-All independence and final MCP trust review passed</td></tr>
+          <tr><td>5. Density system</td><td class="done">Accepted</td><td>Compact and comfy use shared spacing tokens across conversation, tools, overlays, and input; both remain readable at 60/80/120 columns and persist through settings.</td><td>Production capture and whole-system product review passed</td></tr>
+          <tr><td>6. Skills and command discovery</td><td class="done">Accepted</td><td><code>/skills</code> owns skill discovery and actions in a submenu; slash completion stays short; agent skill awareness and invocation rules are visible and testable.</td><td>Progressive menu, proactive awareness, and truthful ACP command surface passed</td></tr>
+          <tr><td>7. Conversation runtime presentation</td><td class="done">Accepted</td><td>User prompts, streaming text, thinking, tools, tables, permissions, and questions have one coherent hierarchy and beat the pinned Grok examples under blind artifact comparison.</td><td>Table transitions, compact/comfy captures, and product review passed</td></tr>
+          <tr><td>8. Planning and settings presentation</td><td class="done">Accepted</td><td>Plans, review, changes, active state, and settings are keyboard-clear, width-safe, and visually consistent with the conversation runtime.</td><td>ASK review handoff, grouped settings, and product review passed</td></tr>
+          <tr><td>9. Session-scoped runtime</td><td class="done">Accepted</td><td>A deep headless interface owns session lifecycle and turns; two interleaved sessions retain independent cwd, mode, history, permissions, elicitation, tools, and cancellation; the TUI consumes the same interface.</td><td>Retryable teardown, awaited revocation, isolation fixtures, and standards review passed</td></tr>
+          <tr><td>10. ACP v1 adapter</td><td class="done">Accepted</td><td>Protocol fixtures prove initialize, sessions, baseline content, MCP setup, prompt streaming, tool calls, permissions, plans, modes/config, cancellation, a truthful command surface, and optional client capabilities over the shared runtime.</td><td>Official SDK source/dist fixtures and final ACP trust/advertising reviews passed</td></tr>
+          <tr><td>11. Whole-runtime smoothing</td><td class="done">Accepted</td><td>A fresh agent finds and removes cross-piece inconsistency; full tests, typecheck, build, capture review, safety probes, and ACP fixtures pass.</td><td>Fresh Standards and Product/Spec critics passed after integrated correction</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Decision log</h2>
+      <table>
+        <thead><tr><th>Status</th><th>Decision</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr><td class="done">Done</td><td>Release the completed overhaul as <code>1.10.0</code> on <code>fix/formatting-and-tool-guardrails-127-128</code>.</td><td>The user confirmed that production <code>main</code> remains on the 1.9 line and directed the overhaul to stay with the existing unreleased 1.10 branch.</td></tr>
+          <tr><td class="done">Done</td><td>Restore the production user-prompt presentation before redesign.</td><td>Commit <code>a2abe58</code>; gutter tests, typecheck, and build pass.</td></tr>
+          <tr><td class="done">Done</td><td>Advertise two modes: new sessions start visibly in read-only <code>ASK</code>; consequential execution requires an explicit transition to <code>AGENT</code>.</td><td>User confirmed that ASK must never silently gain destructive authority; canonical terms are recorded in <code>CONTEXT.md</code>.</td></tr>
+          <tr><td class="done">Done</td><td>Separate approval policy from execution boundary.</td><td>Codex and Copilot both distinguish prompt policy from OS-enforced filesystem/network limits; Allow-All is not itself a sandbox.</td></tr>
+          <tr><td class="done">Done</td><td>Define the minimum technical bar for a safe preview.</td><td>Isolated worktree plus capability-probed OS sandbox; fail closed; never market worktree isolation alone as a sandbox.</td></tr>
+          <tr><td class="done">Done</td><td>ASK safe preview always uses isolation and requires a separate explicit Apply step.</td><td>Conservative default chosen to preserve user authority while completing the integrated build; preview never mutates the active worktree automatically.</td></tr>
+          <tr><td class="done">Done</td><td>Allow-All is a persisted global approval policy with a concise acknowledgment when enabling; it remains visibly separate from execution boundary.</td><td>User requested persistent global Allow-All and a shorter disclaimer; host and sandbox labels remain distinct.</td></tr>
+          <tr><td class="done">Done</td><td>Use compact density by default with a persisted comfy alternative across transcript, tools, overlays, planning, settings, and input.</td><td>Production capture and regression matrix exercise both densities at 60/80/120 columns.</td></tr>
+          <tr><td class="done">Done</td><td>Launch stable ACP v1 through <code>impulse --acp</code> and advertise only implemented capabilities.</td><td>Source and packaged stdio fixtures use the official ACP SDK; draft elicitation is opt-in only.</td></tr>
+          <tr><td class="done">Done</td><td>Require a session-scoped headless runtime before claiming ACP conformance.</td><td>The former process-global state could not satisfy ACP multi-session isolation; the shared runtime now owns each session independently.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Validation evidence</h2>
+      <ul>
+        <li><code>bun test test/gutter-layout.test.ts</code>: 6 passed.</li>
+        <li><code>bun test test/ux-capture.test.ts</code>: 7 passed after the Critic 1 discovery fix.</li>
+        <li><code>bun run gauntlet:capture</code>: deterministic HTML, ANSI, and plain-text artifacts generated.</li>
+        <li>Piece 0 Critic 1: failed because slash autocomplete and skills-menu artifacts were absent; largest gap returned to the same builder.</li>
+        <li>Piece 0 Critic 2: failed because production autocomplete still listed hydrated skill commands even though the artifact hid them; production progressive-disclosure fix returned to the same builder.</li>
+        <li>After the Critic 2 fix, <code>bun test test/skill-hydration.test.ts test/ux-capture.test.ts</code>: 10 passed.</li>
+        <li>Piece 0 Critic 3: passed with 12 production-backed scenarios, artifact/source agreement, deterministic regeneration, and no visible-width overflow.</li>
+        <li>Piece 1 builder: authority kernel is integrated and builder-complete; further narrow critique was stopped at the user's request so the remaining experience can be built before a fresh whole-system audit.</li>
+        <li>Piece 1 Critic 1: failed because ASK startup still scaffolded default skills and project-local Impulse state; the startup mutation gap returned to the same builder.</li>
+        <li>After the Critic 1 fix, ASK startup/resume is discovery-only; explicit user transition to AGENT gates idempotent default-skill scaffolding; 66 focused tests passed.</li>
+        <li>Piece 1 Critic 2: failed because advisor paths bypassed the tool registry and could persist plans in ASK; the advisor execution gate returned to the same builder.</li>
+        <li>After the Critic 2 fix, advisor advertisement, direct dispatch, and automatic stuck recovery all require AGENT plus the existing advisor feature gates; 25 focused tests, capture, typecheck, build, and diff checks passed before fresh-context Critic 3.</li>
+        <li>Piece 1 Critic 3: failed because reduced/minimal/off context bars hid ASK/AGENT while Tab could silently elevate to AGENT; authority visibility returned to the same builder.</li>
+        <li>After the Critic 3 fix, full/reduced/minimal bars continuously show ASK/AGENT and off-mode transitions emit an explicit authority notice; 57 focused tests, capture, typecheck, build, and diff checks passed before fresh-context Critic 4.</li>
+        <li>Piece 1 Critic 4: failed because ASK resume could materialize legacy goal metadata into project-local goal artifacts; resume persistence returned to the same builder.</li>
+        <li>After the Critic 4 fix, ASK goal hydration is memory-only while AGENT migration and explicit user elevation remain idempotent; 66 focused tests, capture, typecheck, build, and diff checks passed before fresh-context Critic 5.</li>
+        <li>Piece 1 Critic 5: failed because a memory-only active goal in ASK could still auto-resume after a conversational turn and then call the judge, persist progress, or launch continuations; goal execution gating returned to the same builder.</li>
+        <li>After the Critic 5 fix, goal execution requires current AGENT authority at judge, post-judge, persistence, and relaunch boundaries; 67 focused tests, capture, typecheck, build, and diff checks passed before fresh-context Critic 6.</li>
+        <li>Piece 1 Critic 6: failed because AGENT→ASK did not revoke already-running tracked background shell jobs; transition-time authority revocation returned to the same builder.</li>
+        <li>After the Critic 6 fix, AGENT→ASK confirms scoped termination of every tracked background job or fails closed in AGENT; the full suite passed 599 tests with 7 platform/environment skips before fresh-context Critic 7.</li>
+        <li>Piece 1 Critic 7: failed because an asynchronous kill could be marked complete before process exit, allowing transition-time revocation to skip a live job; confirmed registry semantics returned to the same builder.</li>
+        <li>After the Critic 7 fix, background jobs remain active while stopping, concurrent kills share confirmation, and killed means observed exit; the full suite passed 600 tests with 7 skips before fresh-context Critic 8.</li>
+        <li>Piece 1 Critic 8: failed because the separately tracked interactive <code>!</code> shell could continue mutating after ASK was announced; execution-participant revocation returned to the same builder.</li>
+        <li>After the Critic 8 fix, background jobs and active interactive shells share confirmed, fail-closed revocation; the full suite passed 602 tests with 7 skips before fresh-context Critic 9.</li>
+        <li>Piece 1 Critic 9: failed because lifecycle cleanup for new session, exit, and update relaunch bypassed active-shell revocation; unified shutdown cleanup returned to the same builder.</li>
+        <li>After the Critic 9 fix, every normal reset, shutdown, relaunch, cancellation, and teardown path awaits unified execution-participant cleanup or fails closed; the full suite passed 605 tests with 7 skips before fresh-context Critic 10.</li>
+        <li>Piece 1 Critic 10: failed because session resume directly copied stored authority, bypassing revocation on AGENT→ASK and risking historical silent elevation on ASK→AGENT; resume authority returned to the same builder.</li>
+        <li>After the Critic 10 fix, interactive, startup, continue, and interrupted resumes inspect then transactionally apply under current explicit authority; the full suite passed 609 tests with 7 skips before fresh-context Critic 11.</li>
+        <li>Piece 1 Critic 11: failed because foreground tool execution was not an execution participant and could keep mutating after AGENT→ASK; foreground cancellation and confirmation returned to the same builder.</li>
+        <li>After the Critic 11 fix, foreground standard/PTY processes and active agent turns join confirmed revocation with post-tool/subagent authority checks; the full suite passed 616 tests with 7 skips before fresh-context Critic 12.</li>
+        <li>Piece 1 Critic 12: failed because autonomous goal judge/persistence work lived outside the execution-participant contract and could mutate after a downgrade; goal-loop cancellation and post-await checks returned to the same builder.</li>
+        <li>After the Critic 12 fix, autonomous goal judge, persistence, and relaunch work participates in confirmed revocation and post-await authority checks; the full suite passed 621 tests with 7 skips before fresh-context Critic 13.</li>
+        <li>Piece 1 Critic 13: failed because revocation took a one-time snapshot and allowed abort callbacks or queue drains to register replacement work before cleanup returned; closed-phase quiescence returned to the same builder.</li>
+        <li>After the Critic 13 fix, revocation closes admission, shares concurrent cleanup, rejects late cross-registry work, holds queued turns, and requires stable quiescence; the full suite passed 630 tests with 7 skips before fresh-context Critic 14.</li>
+        <li>Piece 1 Critic 14: failed because model self-deescalation used a signal-only shortcut and committed ASK with its initiating turn still active; deferred truthful de-escalation returned to the same builder.</li>
+        <li>After the Critic 14 fix, model self-deescalation stays pending and truthful until the initiating turn exits and closed revocation commits; the full suite passed 633 tests with 7 skips before fresh-context Critic 15.</li>
+        <li>Piece 1 Critic 15: failed because foreground standard/PTY processes spawned before participant registration, leaving an untracked mutation window during cleanup; pre-spawn admission returned to the same builder.</li>
+        <li>After the Critic 15 fix, foreground standard/PTY execution reserves admission before spawn and atomically transfers tracked ownership; the full suite passed 638 tests with 7 skips before fresh-context Critic 16.</li>
+        <li>Piece 1 Critic 16: failed because same-authority session resume could commit a different session while an active turn remained admitted; session-identity quiescence returned to the same builder.</li>
+        <li>After the Critic 16 fix, every session replacement enters closed cleanup before commit, preserves the old session on failure, and defers legacy persistence until commit; the full suite passed 642 tests with 6 skips before fresh-context Critic 17.</li>
+        <li>Piece 1 Critic 17: failed because target canonicalization could throw after the old session pointer was cleared, leaving no current session; atomic session commit and rollback returned to the same builder.</li>
+        <li>After the Critic 17 fix, session replacement stages and fsyncs migration, promotes atomically, swaps identity last, and rolls back failures while retaining both error causes; the full suite passed 648 tests with 6 skips before fresh-context Critic 18.</li>
+        <li>Piece 1 Critic 18: failed because fresh-process mode initialized to ASK while mutation admission initialized open, allowing direct execution before synchronization; fail-closed initialization returned to the same builder.</li>
+        <li>After the Critic 18 fix, fresh process state is ASK with mutation admission closed from first import while read-only admission remains available; the full suite passed 650 tests with 6 skips before fresh-context Critic 19.</li>
+        <li>Piece 1 Critic 19: failed because new-session creation cleared the old current session before replacement storage succeeded; transactional create-and-swap returned to the same builder.</li>
+        <li>After the Critic 19 fix, new-session creation stages and fsyncs the candidate, retains old identity, swaps last, and restores old UI/mode/admission on failure; the full suite passed 658 tests with 6 skips before fresh-context Critic 20.</li>
+        <li>Piece 1 Critic 20: failed because a late unawaited update for the old session could overwrite the current pointer after successful replacement; session generation/CAS semantics returned to the same builder.</li>
+        <li>After the Critic 20 fix, replacements advance a session generation and all async/debounced updates use identity+generation guards with serialized same-session writes; the full suite passed 663 tests with 6 skips before fresh-context Critic 21.</li>
+        <li>Piece 1 Critic 21: failed because delayed todo writes compared session ID without generation and could cross a same-ID resume; generation-fenced todo mutation returned to the same builder.</li>
+        <li>After the Critic 21 fix, todo writes use the shared generation-token CAS queue with guarded storage promotion, event emission, and UI updates; the full suite passed 666 tests with 6 skips before fresh-context Critic 22.</li>
+        <li>Piece 1 Critic 22: failed because a stale same-ID write could pass its pre-check, await promotion, then overwrite resumed disk state after generation advanced; commit-point CAS and mutation-chain fencing returned to the same builder.</li>
+        <li>After the Critic 22 fix, atomic promotion validates identity+generation at rename time, same-ID replacement fences mutation chains, and stale stages leave no disk/event/UI effects; the full suite passed 670 tests with 6 skips before fresh-context Critic 23.</li>
+        <li>Piece 1 Critic 23: failed because final validation happened before an awaited rename, allowing generation advance during promotion; shared commit-lock serialization returned to the same builder.</li>
+        <li>After the Critic 23 fix, a per-session lease serializes final validation, rename, directory fsync, and generation advance for session, todo, and debounced-message writers; the full suite passed 674 tests with 6 skips before fresh-context Critic 24.</li>
+        <li>Piece 1 Critic 24: failed because <code>flushCurrent()</code> bypassed the mutation queue, generation guard, and promotion lease, allowing stale snapshots across same-ID resume; guarded flush returned to the same builder.</li>
+        <li>After the Critic 24 fix, flush captures identity+generation, joins serialized promotion, preserves newer fields, and forces lifecycle callers to await or fail closed; the full suite passed 681 tests with 6 skips before fresh-context Critic 25.</li>
+        <li>Piece 1 Critic 25: failed because same-generation messages arriving during promotion advanced memory but not disk while flush still reported persisted; content-revision stable durability returned to the same builder.</li>
+        <li>After the Critic 25 fix, generation-local content revisions make flush retry to a stable durable snapshot or return dirty, and lifecycle/session replacement paths fail closed; the full suite passed 687 tests with 6 skips before fresh-context Critic 26.</li>
+        <li>Pieces 2–4 builder validation: 714 tests passed with 7 platform skips; real Bubblewrap execution, dirty-baseline preview isolation, explicit apply/rollback/cleanup, handoff authority, policy persistence, capture, typecheck, build, and diff checks passed.</li>
+        <li>Pieces 5–8 builder validation: 737 tests passed with 7 platform skips; compact/comfy density, table-following regressions, progressive <code>/skills</code>, proactive skill awareness, ASK plan handoff, grouped settings, capture, typecheck, build, and diff checks passed.</li>
+        <li>Pieces 9–10 builder validation: 749 tests passed with 7 platform skips; interleaved runtime isolation, TUI controller, ACP permissions/elicitation/plans/config/cancellation, source and dist stdio fixtures, typecheck, build, and diff checks passed.</li>
+        <li>Whole-system product critic: failed because the 60-column full context bar can truncate ASK/AGENT under realistic advisor/status load; narrow authority visibility entered the integrated correction round.</li>
+        <li>Whole-system standards critic: failed because runtime teardown drops ownership before cleanup succeeds, skips later cleanup participants, and suppresses ACP disposal failure; retryable exhaustive teardown entered the integrated correction round.</li>
+        <li>Whole-system ACP critic: failed because <code>session/new</code> rejects every client-provided stdio MCP server despite stable ACP v1 requiring session MCP setup; owned MCP handshake, tool execution, and child cleanup entered the integrated correction round.</li>
+        <li>Whole-system authority critic: failed because an ACP/headless AGENT→ASK transition reports ASK without first revoking and settling that session's active mutating turn; session-local awaited revocation entered the integrated correction round.</li>
+        <li>Integrated correction validation: 757 tests passed with 7 platform skips; typecheck, build, capture, diff checks, and source/dist official-SDK ACP fixtures passed.</li>
+        <li>Final Product/Spec critic: failed because ACP advertised TUI slash commands it did not dispatch; the unsupported command palette was removed so native ACP methods are the only advertised deterministic controls.</li>
+        <li>Final Standards critic: failed because an external MCP server could self-assert <code>readOnlyHint</code> and gain ASK access; all client-provided MCP tools are now untrusted, AGENT-only, and permission-gated unless Allow-All is explicit.</li>
+        <li>Fresh ACP advertising verification: passed after source/dist fixtures proved no unsupported command update is published.</li>
+        <li>Fresh MCP trust-boundary verification: passed after a deceptive read-only fixture proved no exposure or execution in ASK and explicit AGENT plus policy-gated execution.</li>
+        <li>Completion-audit Product/ACP critic: failed because <code>execution_handoff</code> waited on a TUI-only bus event in ACP, and active Advisor labels looked like a third authority mode.</li>
+        <li>Completion-audit Standards critic: failed on runtime-served four-mode tool docs, stale generated prompts, inaccurate resume wording, dead mode/skill compatibility APIs, and project-owned MIT packaging metadata.</li>
+        <li>Integrated completion fix: ACP form clients receive the exact handoff choices, non-form clients stay in ASK without hanging, safe preview remains isolated and reviewed, active Advisor labels say workflow, tool docs/assets are fresh, dead compatibility paths are removed, and project-owned release metadata is AGPL-3.0.</li>
+        <li>First re-critics found two residual branches: direct <code>/advisor &lt;model&gt;</code> still said <code>mode ON</code>, and three tracked packaging generators still emitted MIT metadata; both returned to the builder.</li>
+        <li>Final fresh Product/ACP re-critic: passed exact choices, no-form fallback, session-local authority, isolated Apply/Discard/Keep review, and the two-mode user surface; 83 targeted tests passed.</li>
+        <li>Final fresh Packaging/Standards re-critic: passed AGPL-3.0 and 1.10.0 wrapper alignment, fresh generated assets, two-mode runtime docs, and removal of dead dynamic-skill/mode compatibility APIs.</li>
+        <li>Final fresh ASK-debugging critic: passed read-only evidence gathering, explore-subagent delegation, explicit execution handoff for reproduction or instrumentation, minimal user-run evidence requests, and clear separation from Allow-All and sandbox authority.</li>
+        <li>Final full validation after the completion loop: 737 tests passed with 7 platform skips and 3,993 assertions; <code>bun run typecheck</code>, <code>bun run build</code>, <code>bun run gauntlet:capture</code>, <code>git diff --check</code>, and packaged <code>dist/index.js --acp</code> fixtures passed.</li>
+        <li><code>bun run typecheck</code>: passed.</li>
+        <li><code>bun run build</code>: passed.</li>
+        <li>Full overhaul validation and fresh critic verification are complete.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

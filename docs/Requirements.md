@@ -1,5 +1,7 @@
 # Requirements
 
+> Historical pre-v1 requirements snapshot. It does not describe the active runtime; use `README.md`, `AGENTS.md`, and `CONTEXT.md` for the current ASK/AGENT contract.
+
 > Functional and non-functional requirements for impulse
 
 Generated: 01-19-2026

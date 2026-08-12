@@ -15,7 +15,7 @@ explore (read-only, fast)
 - Tools: file_read, glob, grep, ls, web_search, web_fetch
 - Use for: locating code, understanding patterns, external research, answering "where/what/how" questions
 
-general (full access)
+general (execution-capable)
 - Tools: file_read, file_write, file_edit, glob, grep, ls, bash
 - Use for: multi-step refactors, implementations, test runs
 
@@ -60,6 +60,7 @@ Sub-agents in a batch start with a **1.5s offset per task index** (first task im
 
 - Subagent results return to the main agent, not the user
 - Provide specific prompts; subagents do not see conversation history
-- Mode restrictions:
-  - PLAN: only `subagent_type: "explore"` is allowed
-  - WORK/DEBUG: both `explore` and `general` are allowed
+- Authority restrictions:
+  - ASK: only `subagent_type: "explore"` is allowed
+  - AGENT: both `explore` and `general` are allowed
+  - For general delegation requested while in ASK, use `execution_handoff`; never elevate implicitly

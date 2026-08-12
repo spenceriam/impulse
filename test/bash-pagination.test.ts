@@ -4,17 +4,21 @@ import { tmpdir } from "os";
 import path from "path";
 import { bashTool } from "../src/tools/bash.js";
 import { resetAllowAllBypass, setAllowAllBypass } from "../src/permission/index.js";
+import { setCurrentMode } from "../src/tools/mode-state.js";
+import { enterAgentModeForTest } from "./helpers/authority.js";
 
 describe("bash output pagination", () => {
   let root: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     setAllowAllBypass(true);
+    await enterAgentModeForTest();
     root = mkdtempSync(path.join(tmpdir(), "impulse-bash-pagination-"));
   });
 
   afterAll(() => {
     resetAllowAllBypass();
+    setCurrentMode("ASK");
     rmSync(root, { recursive: true, force: true });
   });
 

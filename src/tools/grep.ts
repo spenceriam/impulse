@@ -3,6 +3,7 @@ import { chmodSync, existsSync, statSync } from "fs";
 import { dirname } from "path";
 import { Tool, ToolResult } from "./registry";
 import { sanitizePath } from "../util/path";
+import { currentExecutionContext, executionCwd } from "../execution/context.js";
 import { zFilePath, zGlobPattern } from "./schemas/branded";
 import { buildGrepPathNote, prependToolNote } from "./tool-notes";
 
@@ -69,7 +70,10 @@ export const grepTool: Tool<GrepInput> = Tool.define(
         };
       }
 
-      const searchPath = sanitizePath(input.path ?? ".");
+      const execution = currentExecutionContext();
+      const searchPath = execution
+        ? await execution.boundary.resolvePath(input.path ?? ".", "read")
+        : sanitizePath(input.path ?? ".");
 
       // Ensure binary has execute permissions (fixes EACCES on bundled binaries)
       try {
@@ -153,7 +157,7 @@ export const grepTool: Tool<GrepInput> = Tool.define(
           ? `\n\n[Results limited to ${MAX_RESULTS} matches; more may exist. Narrow with a tighter pattern, a specific path, or an include filter (e.g. include: "*.ts") to see the rest.]`
           : "";
 
-      const pathNote = buildGrepPathNote(input, process.cwd());
+      const pathNote = buildGrepPathNote(input, executionCwd());
       const body = grepOutputLines.join("\n") + truncatedNotice;
 
       return {

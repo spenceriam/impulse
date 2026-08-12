@@ -1,8 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { restartBgJob } from "../src/tools/bash.js";
-import { getBgJob, killBgJob, registerBgJob } from "../src/tools/bg-process-registry.js";
+import { cleanupAllBgJobs, getBgJob, killBgJob, registerBgJob } from "../src/tools/bg-process-registry.js";
+import { setCurrentMode } from "../src/tools/mode-state.js";
+import { enterAgentModeForTest } from "./helpers/authority.js";
 
 describe("restartBgJob", () => {
+  beforeEach(async () => enterAgentModeForTest());
+  afterEach(async () => {
+    await cleanupAllBgJobs();
+    setCurrentMode("ASK");
+  });
+
   test("returns ok:false for an unknown job id", async () => {
     const result = await restartBgJob("no-such-job");
     expect(result.ok).toBe(false);
@@ -37,7 +45,7 @@ describe("restartBgJob", () => {
         const newEntry = getBgJob(result.newJobId);
         expect(newEntry?.command).toBe(`bun -e "console.log(1)"`);
         expect(newEntry?.cwd).toBe(cwd);
-        killBgJob(result.newJobId);
+        await killBgJob(result.newJobId);
       }
     } finally {
       resetAllowAllBypass();
@@ -52,6 +60,7 @@ describe("restartBgJob", () => {
     const entry = registerBgJob({
       command: `bun -e "console.log(1)"`,
       cwd: process.cwd(),
+      pid: 999999999,
       kill: () => { killed = true; },
     });
 
@@ -61,7 +70,7 @@ describe("restartBgJob", () => {
       expect(killed).toBe(true);
       expect(getBgJob(entry.id)?.status).toBe("killed");
     } finally {
-      if (result?.ok) killBgJob(result.newJobId);
+      if (result?.ok) await killBgJob(result.newJobId);
     }
   }, 15_000);
 });

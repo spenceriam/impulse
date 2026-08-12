@@ -22,6 +22,10 @@ import { detectWindowsCommandShell, detectWslShell } from "../util/windows-shell
 import { load as loadConfig } from "../util/config.js";
 import { killProcessTree } from "../util/process-tree.js";
 import {
+  registerForegroundProcess,
+  revokeForegroundProcesses,
+} from "./foreground-process-registry.js";
+import {
   registerBgJob,
   appendBgOutput,
   markBgJobDone,
@@ -29,6 +33,11 @@ import {
   killBgJob,
   type BgJob,
 } from "./bg-process-registry.js";
+import {
+  registerExecutionStart,
+  type ExecutionStartRegistration,
+} from "./execution-admission.js";
+import { currentExecutionContext } from "../execution/context.js";
 
 /** Default bash/PTY timeout per docs/tools/bash.md */
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -828,9 +837,15 @@ async function executeWithPty(
   input: BashInput,
   toolCallId: string,
   abortSignal: AbortSignal,
-  cwd: string
+  cwd: string,
+  admission: ExecutionStartRegistration
 ): Promise<ToolResult> {
   const startTime = Date.now();
+  const spawnAbort = new AbortController();
+  const forwardAbort = () => spawnAbort.abort();
+  abortSignal.addEventListener("abort", forwardAbort, { once: true });
+  admission.signal.addEventListener("abort", forwardAbort, { once: true });
+  if (abortSignal.aborted || admission.signal.aborted) spawnAbort.abort();
   
   let lastOutput = "";
   
@@ -864,7 +879,13 @@ async function executeWithPty(
   };
   
   try {
+    if (spawnAbort.signal.aborted) {
+      throw new Error("Foreground PTY start cancelled during execution cleanup.");
+    }
     const spawnOptions = process.platform === "win32" ? await getSpawnOptions(input, cwd, { interactive: true }) : undefined;
+    if (spawnAbort.signal.aborted) {
+      throw new Error("Foreground PTY start cancelled during execution cleanup.");
+    }
     const ptyOptions = spawnOptions
       ? (() => {
           const [shell, ...args] = spawnOptions.cmd;
@@ -882,13 +903,23 @@ async function executeWithPty(
       input.command,
       cwd,
       onEvent,
-      abortSignal,
+      spawnAbort.signal,
       80,
       24,
       ptyOptions
     );
-    
-    // Store handle for external access
+
+    const foreground = await registerForegroundProcess({
+      pid: handle.pid,
+      kill: () => killProcessTree(handle.pid),
+      exited: handle.result,
+      admission,
+    });
+    if (!foreground.accepted) {
+      throw new Error("Foreground PTY start cancelled during execution cleanup.");
+    }
+
+    // Store handle for external access after the start reservation is bound.
     activePtyHandles.set(toolCallId, handle);
     Bus.emit(PtyEvents.Started, { toolCallId, pid: handle.pid });
     
@@ -899,11 +930,7 @@ async function executeWithPty(
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           timedOut = true;
-          try {
-            handle.kill();
-          } catch {
-            /* ignore */
-          }
+          void killProcessTree(handle.pid);
           resolve({
             output: lastOutput,
             exitCode: -1,
@@ -967,6 +994,9 @@ async function executeWithPty(
         interactive: true,
       },
     };
+  } finally {
+    abortSignal.removeEventListener("abort", forwardAbort);
+    admission.signal.removeEventListener("abort", forwardAbort);
   }
 }
 
@@ -1020,10 +1050,21 @@ function paginateAndCapBashOutput(
 /**
  * Execute command with standard Bun.spawn (non-interactive, host-shell aware)
  */
-async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResult> {
+async function executeWithSpawn(
+  input: BashInput,
+  cwd: string,
+  admission: ExecutionStartRegistration,
+  sessionSignal?: AbortSignal
+): Promise<ToolResult> {
   const startTime = Date.now();
   const maxLines = 2000;
+  if (admission.signal.aborted) {
+    throw new Error("Foreground command start cancelled during execution cleanup.");
+  }
   const spawnOptions = await getSpawnOptions(input, cwd);
+  if (admission.signal.aborted) {
+    throw new Error("Foreground command start cancelled during execution cleanup.");
+  }
 
   const proc = Bun.spawn({
     cmd: spawnOptions.cmd,
@@ -1032,6 +1073,25 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     stdout: "pipe",
     stderr: "pipe",
   });
+
+  if (admission.signal.aborted) {
+    await killProcessTree(proc.pid);
+    await proc.exited;
+    throw new Error("Foreground command start cancelled during execution cleanup.");
+  }
+
+  const foreground = await registerForegroundProcess({
+    pid: proc.pid,
+    kill: () => killProcessTree(proc.pid),
+    exited: proc.exited,
+    admission,
+  });
+  if (!foreground.accepted) {
+    throw new Error("Foreground command start cancelled during execution cleanup.");
+  }
+
+  const abortForSession = () => { void killProcessTree(proc.pid); };
+  sessionSignal?.addEventListener("abort", abortForSession, { once: true });
 
   const stdoutPromise = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
   const stderrPromise = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
@@ -1045,7 +1105,7 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
     }
 
     timeoutId = setTimeout(() => {
-      proc.kill();
+      void killProcessTree(proc.pid);
       resolve(-1);
     }, timeoutMs);
   });
@@ -1053,6 +1113,8 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
   const exitCode = timeoutMs === undefined
     ? await proc.exited
     : await Promise.race([proc.exited, timeoutPromise]);
+
+  sessionSignal?.removeEventListener("abort", abortForSession);
 
   if (timeoutId) clearTimeout(timeoutId);
 
@@ -1130,56 +1192,84 @@ async function executeWithSpawn(input: BashInput, cwd: string): Promise<ToolResu
  */
 /** Spawn a command as a tracked background job. Shared by executeInBackground and restartBgJob. */
 async function spawnBackgroundJob(command: string, cwd: string): Promise<BgJob> {
-  const spawnOptions = await getSpawnOptions({ command, description: "" } as BashInput, cwd);
-
-  const proc = Bun.spawn({
-    cmd: spawnOptions.cmd,
-    ...(spawnOptions.cwd ? { cwd: spawnOptions.cwd } : {}),
-    ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
-    stdout: "pipe",
-    stderr: "pipe",
+  let cancelSpawned: (() => void | Promise<void>) | undefined;
+  const admission = registerExecutionStart("background", () => {
+    void cancelSpawned?.();
   });
-
-  const job = registerBgJob({
-    command,
-    cwd,
-    pid: proc.pid,
-    kill: () => {
-      if (proc.pid) {
-        void killProcessTree(proc.pid);
-      } else {
-        proc.kill();
-      }
-    },
-  });
-
-  // Drain stdout and stderr asynchronously into the ring buffer
-  async function drainStream(stream: ReadableStream<Uint8Array> | null): Promise<void> {
-    if (!stream) return;
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        appendBgOutput(job.id, decoder.decode(value, { stream: true }));
-      }
-    } catch { /* ignore early close */ } finally {
-      reader.releaseLock();
-    }
+  if (!admission.accepted) {
+    throw new Error("Execution is paused while authority or lifecycle cleanup is changing.");
   }
 
-  void Promise.all([
-    drainStream(proc.stdout as ReadableStream<Uint8Array> | null),
-    drainStream(proc.stderr as ReadableStream<Uint8Array> | null),
-  ]).then(async () => {
-    const exitCode = await proc.exited;
-    markBgJobDone(job.id, exitCode ?? -1);
-  }).catch(() => {
-    markBgJobDone(job.id, -1);
-  });
+  try {
+    const spawnOptions = await getSpawnOptions({ command, description: "" } as BashInput, cwd);
+    if (admission.signal.aborted) {
+      throw new Error("Background command start cancelled during execution cleanup.");
+    }
 
-  return job;
+    const proc = Bun.spawn({
+      cmd: spawnOptions.cmd,
+      ...(spawnOptions.cwd ? { cwd: spawnOptions.cwd } : {}),
+      ...(spawnOptions.env ? { env: spawnOptions.env } : {}),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    cancelSpawned = () => proc.pid ? killProcessTree(proc.pid) : proc.kill();
+    if (admission.signal.aborted) {
+      await cancelSpawned();
+      await proc.exited;
+      throw new Error("Background command start cancelled during execution cleanup.");
+    }
+
+    const job = registerBgJob({
+      command,
+      cwd,
+      pid: proc.pid,
+      admission,
+      kill: async () => {
+        if (proc.pid) {
+          await killProcessTree(proc.pid);
+        } else {
+          proc.kill();
+        }
+      },
+    });
+    admission.complete();
+    if (job.admitted === false) {
+      await cancelSpawned();
+      await proc.exited;
+      throw new Error("Background command start cancelled during execution cleanup.");
+    }
+
+    // Drain stdout and stderr asynchronously into the ring buffer
+    async function drainStream(stream: ReadableStream<Uint8Array> | null): Promise<void> {
+      if (!stream) return;
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          appendBgOutput(job.id, decoder.decode(value, { stream: true }));
+        }
+      } catch { /* ignore early close */ } finally {
+        reader.releaseLock();
+      }
+    }
+
+    void Promise.all([
+      drainStream(proc.stdout as ReadableStream<Uint8Array> | null),
+      drainStream(proc.stderr as ReadableStream<Uint8Array> | null),
+    ]).then(async () => {
+      const exitCode = await proc.exited;
+      markBgJobDone(job.id, exitCode ?? -1);
+    }).catch(() => {
+      markBgJobDone(job.id, -1);
+    });
+
+    return job;
+  } finally {
+    admission.complete();
+  }
 }
 
 async function executeInBackground(input: BashInput, cwd: string): Promise<ToolResult> {
@@ -1202,11 +1292,10 @@ export async function restartBgJob(id: string): Promise<RestartBgJobResult> {
   if (!entry) {
     return { ok: false, error: `No job '${id}'.` };
   }
-  if (entry.status === "running") {
-    const pid = entry.pid;
-    killBgJob(id);
-    if (pid) {
-      await killProcessTree(pid);
+  if (entry.status === "running" || entry.status === "stopping") {
+    const killed = await killBgJob(id);
+    if (!killed) {
+      return { ok: false, error: `Failed to confirm job '${id}' stopped.` };
     }
   }
   try {
@@ -1229,11 +1318,13 @@ let currentAbortController: AbortController | null = null;
 /**
  * Abort current bash execution (called from UI on user cancel)
  */
-export function abortCurrentBashExecution(): void {
+export async function abortCurrentBashExecution(): Promise<boolean> {
   if (currentAbortController) {
     currentAbortController.abort();
     currentAbortController = null;
   }
+  const result = await revokeForegroundProcesses();
+  return result.failedProcessIds.length === 0;
 }
 
 export const bashTool: Tool<BashInput> = Tool.define(
@@ -1242,11 +1333,69 @@ export const bashTool: Tool<BashInput> = Tool.define(
   BashSchema,
   async (input: BashInput): Promise<ToolResult> => {
     const sessionName = normalizeSessionName(input.session);
+    let foregroundAdmission: ExecutionStartRegistration | undefined;
+    const execution = currentExecutionContext();
+
+    if (execution?.runtime && input.background && execution.capabilities?.backgroundProcesses !== true) {
+      return {
+        success: false,
+        output: "Background commands are unavailable in this headless session because they cannot yet be isolated per session.",
+      };
+    }
+    if (execution?.runtime && input.interactive && execution.capabilities?.interactiveTerminal !== true) {
+      return {
+        success: false,
+        output: "Interactive terminal commands are unavailable in this headless session.",
+      };
+    }
+
+    if (execution?.boundary.descriptor.kind === "isolated-preview") {
+      if (input.background || input.interactive) {
+        return {
+          success: false,
+          output: "Preview commands must run in the foreground without an interactive PTY.",
+        };
+      }
+      try {
+        const cwd = input.workdir
+          ? await execution.boundary.resolvePath(input.workdir, "write")
+          : execution.cwd;
+        const started = Date.now();
+        const result = await execution.boundary.run(
+          ["/bin/bash", "-lc", input.command],
+          { cwd }
+        );
+        const output = [result.stdout, result.stderr]
+          .filter((part) => part.trim().length > 0)
+          .join("\n")
+          .trim();
+        return {
+          success: result.exitCode === 0,
+          output: output || "Command completed successfully in isolated preview.",
+          metadata: {
+            type: "bash",
+            command: input.command,
+            description: input.description,
+            output,
+            exitCode: result.exitCode,
+            duration: Date.now() - started,
+            truncated: false,
+            executionBoundary: "isolated-preview",
+            network: "off",
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          output: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
 
     const runBash = async (): Promise<ToolResult> => {
       const baseCwd = input.workdir
         ? await resolveToolPath(input.workdir, "bash")
-        : process.cwd();
+        : execution?.cwd ?? process.cwd();
       const cwd = resolveSessionCwd(sessionName, baseCwd, {
         workdirProvided: !!input.workdir,
         ...(input.resetSession ? { reset: true } : {}),
@@ -1288,7 +1437,9 @@ export const bashTool: Tool<BashInput> = Tool.define(
       }
 
       // Determine if we should use interactive mode
-      const shouldUseInteractive = input.interactive ?? needsInteractiveMode(input.command);
+      const shouldUseInteractive = execution?.runtime
+        ? false
+        : input.interactive ?? needsInteractiveMode(input.command);
       let result: ToolResult;
 
       // Use PTY if interactive mode is requested AND PTY is available
@@ -1297,13 +1448,19 @@ export const bashTool: Tool<BashInput> = Tool.define(
         currentAbortController = new AbortController();
 
         try {
-          result = await executeWithPty(input, toolCallId, currentAbortController.signal, cwd);
+          result = await executeWithPty(
+            input,
+            toolCallId,
+            currentAbortController.signal,
+            cwd,
+            foregroundAdmission!
+          );
         } finally {
           currentAbortController = null;
         }
       } else {
         // Fallback to standard execution
-        result = await executeWithSpawn(input, cwd);
+        result = await executeWithSpawn(input, cwd, foregroundAdmission!, execution?.signal);
       }
 
       updateSessionCwd(sessionName, cwd, input.command);
@@ -1319,6 +1476,16 @@ export const bashTool: Tool<BashInput> = Tool.define(
       }
       return result;
     };
+
+    if (!input.background) {
+      foregroundAdmission = registerExecutionStart("foreground-bash", () => {});
+      if (!foregroundAdmission.accepted) {
+        return {
+          success: false,
+          output: "Execution is paused while authority or lifecycle cleanup is changing.",
+        };
+      }
+    }
 
     try {
       return sessionName
@@ -1365,6 +1532,8 @@ export const bashTool: Tool<BashInput> = Tool.define(
           workdir: input.workdir,
         },
       };
+    } finally {
+      foregroundAdmission?.complete();
     }
   }
 );

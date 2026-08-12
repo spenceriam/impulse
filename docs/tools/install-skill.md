@@ -18,6 +18,6 @@ Install a **single** agent skill via `npx skills@latest add` (non-interactive, `
 
 ## Notes
 
-- Available in PLAN mode without enabling full `bash`
+- Available only in AGENT because installation writes project files and runs the skills CLI
 - Requires permission approval (same as shell commands)
 - After install, read and follow `SKILL.md`; grilling skills must use `question`, not chat markdown

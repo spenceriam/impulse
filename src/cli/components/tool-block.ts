@@ -9,6 +9,7 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import { GUTTER, maxLineWidth, truncateGutterLine } from "../gutter.js";
 import { formatDurationBracketed, formatDurationMs } from "../format-helpers.js";
+import type { PresentationDensity } from "../presentation-density.js";
 
 /** Sub-indent for continuation lines under a tool block (GUTTER + 3 more spaces) */
 const SUB_INDENT = GUTTER + "   ";
@@ -71,6 +72,7 @@ type RenderedResult = {
 
 export type ToolBlockOptions = {
   subagentCodename?: string;
+  presentationDensity?: PresentationDensity;
 };
 
 export type TodoRenderOptions = {
@@ -917,8 +919,10 @@ export class ToolBlock implements Component {
   private state: ToolBlockState;
   private subagentLines: SubagentProgressLine[] = [];
   private todoBlinkEnabled = false;
+  private readonly presentationDensity: PresentationDensity;
 
   constructor(name: string, args: Record<string, unknown>, opts?: ToolBlockOptions) {
+    this.presentationDensity = opts?.presentationDensity ?? "compact";
     const previewTodos = name === "todo_write" ? parseTodosFromArgs(args) : undefined;
     this.state = {
       status: "running",
@@ -1140,14 +1144,21 @@ export class ToolBlock implements Component {
     name: string,
     args: Record<string, unknown>,
     result: RenderedResult,
-    durationMs = 0
+    durationMs = 0,
+    opts?: ToolBlockOptions
   ): ToolBlock {
-    const block = new ToolBlock(name, args);
+    const block = new ToolBlock(name, args, opts);
     block.setDone(result, durationMs);
     return block;
   }
 
   invalidate(): void {}
+
+  private appendBody(lines: string[], body: string[]): void {
+    if (body.length === 0) return;
+    if (this.presentationDensity === "comfy") lines.push("");
+    lines.push(...body);
+  }
 
   render(width: number): string[] {
     if (this.isSilentUnchangedTodo()) {
@@ -1176,8 +1187,9 @@ export class ToolBlock implements Component {
         `  ${duration}`
       );
       const metadata = asToolMetadata(state.result.metadata);
-      lines.push(
-        ...renderMetadata(
+      this.appendBody(
+        lines,
+        renderMetadata(
           metadata,
           state.result.output,
           state.result.success,
@@ -1210,12 +1222,14 @@ export class ToolBlock implements Component {
         width,
         taskSuffix
       );
+      const body: string[] = [];
       if (runningState.previewTodos && runningState.previewTodos.length > 0) {
-        lines.push(...renderTodoListFromTodos(runningState.previewTodos, width, todoRenderOpts));
+        body.push(...renderTodoListFromTodos(runningState.previewTodos, width, todoRenderOpts));
       }
       if (runningState.name === "task" && this.subagentLines.length > 0) {
-        lines.push(...renderSubagentProgressLines(this.subagentLines, width));
+        body.push(...renderSubagentProgressLines(this.subagentLines, width));
       }
+      this.appendBody(lines, body);
       return lines;
     }
 
@@ -1281,8 +1295,9 @@ export class ToolBlock implements Component {
     const tail = `${suffix}  ${duration}`;
     const lines = wrapToolSummaryLine(prefix, state.argsSummary, width, tail);
     const metadata = asToolMetadata(state.result.metadata);
-    lines.push(
-      ...renderMetadata(
+    this.appendBody(
+      lines,
+      renderMetadata(
         metadata,
         state.result.output,
         state.result.success,

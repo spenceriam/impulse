@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { glob as globSync } from "glob";
 import { sanitizePath } from "../util/path";
+import { currentExecutionContext, executionCwd } from "../execution/context.js";
 import { zFilePath, zGlobPattern } from "./schemas/branded";
 import { buildGlobPathNote, prependToolNote } from "./tool-notes";
 
@@ -25,7 +26,10 @@ export const globTool: Tool<GlobInput> = Tool.define(
   GlobSchema,
   async (input: GlobInput): Promise<ToolResult> => {
     try {
-      const basePath = sanitizePath(input.path ?? ".");
+      const execution = currentExecutionContext();
+      const basePath = execution
+        ? await execution.boundary.resolvePath(input.path ?? ".", "read")
+        : sanitizePath(input.path ?? ".");
       const options = {
         cwd: basePath,
         nodir: true, // Only return files, not directories
@@ -41,7 +45,7 @@ export const globTool: Tool<GlobInput> = Tool.define(
         ? `\n\n(Results limited to ${MAX_RESULTS} files. Total matches: ${files.length})`
         : "";
 
-      const pathNote = buildGlobPathNote(input, process.cwd());
+      const pathNote = buildGlobPathNote(input, executionCwd());
       const body = limitedFiles.join("\n") + truncatedNotice;
 
       return {

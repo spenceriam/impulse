@@ -2,6 +2,7 @@ import path from "path";
 import { isWithinBase, sanitizePath, SecurityError } from "../util/path.js";
 import { isAllowAllBypass, ask as askPermission } from "../permission/index.js";
 import { SessionManager } from "../session/manager.js";
+import { currentExecutionContext, executionCwd } from "../execution/context.js";
 
 export class OutsideCwdError extends Error {
   constructor(
@@ -23,8 +24,13 @@ function isOutsideCwd(targetPath: string, cwd: string): boolean {
 export async function resolveToolPath(
   filePath: string,
   toolName: string,
-  baseDir: string = process.cwd()
+  baseDir: string = executionCwd()
 ): Promise<string> {
+  const execution = currentExecutionContext();
+  if (execution) {
+    const operation = ["file_read", "glob", "grep", "ls"].includes(toolName) ? "read" : "write";
+    return execution.boundary.resolvePath(filePath, operation);
+  }
   const resolved = path.isAbsolute(filePath)
     ? path.resolve(filePath)
     : path.resolve(baseDir, filePath);

@@ -26,6 +26,7 @@ import "./task";
 
 // Interactive
 import "./question";
+import "./execution-handoff";
 
 // Session
 import "./set-header";

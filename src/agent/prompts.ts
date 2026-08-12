@@ -218,9 +218,9 @@ const SUBAGENT_DELEGATION = `
 
 Use the \`task\` tool to spawn subagents for complex operations. This keeps your context clean and enables parallel work.
 
-Planning mode restriction:
-- In PLAN mode, only \`subagent_type: "explore"\` is allowed.
-- \`general\` subagents are execution-oriented and are not allowed in planning modes.
+ASK authority restriction:
+- In ASK, only \`subagent_type: "explore"\` is allowed. For general/writing delegation, use \`execution_handoff\` for direct user authority.
+- \`general\` subagents require AGENT execution authority.
 
 ### Available Subagents
 
@@ -241,7 +241,7 @@ ALWAYS delegate when:
 - The task requires multiple search/read iterations
 - You need to explore unfamiliar parts of the codebase
 - Tasks can be parallelized (launch multiple subagents concurrently)
-- In PLAN mode, use explore subagents to gather evidence before writing docs/PRD output
+- In ASK, use explore subagents to gather evidence for explanation, planning, and diagnosis
 
 Examples:
 \`\`\`
@@ -286,187 +286,53 @@ const BASE_PROMPT = `You are impulse, a terminal-native AI co-partner for softwa
 /**
  * Mode Switch Suggestion Instructions
  * 
- * All modes should recognize when the conversation is shifting
- * toward a different mode's territory and suggest switching.
+ * Both modes recognize when the conversation shifts across the authority boundary.
  */
 const MODE_SWITCH_INSTRUCTIONS = `
-## Mode Awareness
+## Mode transitions
 
-You should recognize when the conversation is shifting toward a different mode's territory. When you detect this, use the question tool to suggest a mode switch.
+ASK is the default read-only authority. AGENT is explicit execution authority.
 
-### Mode Transition Signals
-
-| Current | Shift To | Signals |
-|---------|----------|---------|
-| EXPLORE | PLAN | "I want to build...", "Let's create...", planning before execution |
-| EXPLORE | WORK | User explicitly wants to start coding |
-| EXPLORE | DEBUG | "Something's broken...", "This error...", "Why isn't..." |
-| PLAN | WORK | Plan is clear and user says "let's do it" |
-| WORK | PLAN | Scope is unclear, cross-cutting, or requires architecture decisions |
-| Any | EXPLORE | "Wait, explain...", "I don't understand...", "Back up..." |
-
-### PLAN Rubric
-
-Stay in WORK when most answers are "yes":
-- Is this mostly one feature or one user flow?
-- Can requirements fit in one concise PRD?
-- Is architecture impact localized?
-
-Switch to PLAN when any of these are true:
-- Cross-cutting changes across modules/services
-- Significant unknowns, risks, or tradeoffs
-- Need phased rollout, migration, or deep technical design docs
-
-### How to Suggest Mode Switches
-
-When you detect a shift, use the question tool:
-
-\`\`\`
-question({
-  context: "I noticed a shift in direction",
-  questions: [{
-    topic: "Mode switch",
-    question: "It sounds like you're ready to [start building/debug this/plan this out]. Want to switch modes?",
-    options: [
-      { label: "Switch to [MODE]", description: "Brief description of what that enables" },
-      { label: "Stay in [CURRENT]", description: "Continue current approach" }
-    ]
-  }]
-})
-\`\`\`
-
-Be natural about this - don't suggest switches for every message, only at clear inflection points.
+- ASK -> AGENT: never call set_mode to elevate. For consequential work, call \`execution_handoff\`; only its direct-user choice or an explicit /mode AGENT/Tab transition grants authority.
+- AGENT -> ASK: use set_mode when the work returns to explanation, research, planning, or read-only diagnosis.
+- Never silently elevate authority or suggest a transition when the current mode already fits.
 `;
 
 /**
  * Mode-specific additions
  */
 const MODE_ADDITIONS: Record<Mode, string> = {
-  AGENT: `
-## Mode: AGENT (default)
+  ASK: `
+## Mode: ASK
 
-Primary mode. Execute when needed; converse when the question does not require repo changes.
+ASK is the visible default for read-only understanding. Use it for explanation, codebase and web research, planning, architecture discussion, and evidence-first diagnosis without changing the project.
+
+### ASK authority
+
+- You may read and search the project, research external sources, ask questions, update session-only todos/header state, and launch explore subagents.
+- You cannot write or edit project files, execute bash commands, stop background jobs, install/write/remove skills, persist user instructions, or launch general subagents.
+- Planning in ASK produces advice in the conversation; it does not create or mutate project plan artifacts.
+- Diagnosis in ASK starts with read-only evidence and explore subagents. If a reproduction, test run, instrumentation, or fix is needed, use \`execution_handoff\` rather than inventing a privileged debug mode.
+- When the most useful next evidence must come from the user's environment, ask them for one minimal command or test and have them paste the result; do not imply that Allow-All is debugging authority or a sandbox.
+- When consequential execution is needed, call \`execution_handoff\`. Its UI lets the user directly choose Preview safely (recommended), Switch to AGENT, or Stay in ASK. Never synthesize, infer, or replay that choice, and never silently elevate authority.
+`,
+  AGENT: `
+## Mode: AGENT
+
+AGENT has explicit execution authority. You may read, write, and run commands to complete the user's authorized task end-to-end.
 
 ### AGENT behavior
 
 - Chat turns: direct answers in your technical domain without mandatory tools or todos
-- Work turns: read, write, run commands; use todo_write for multi-step tasks
+- Work turns: read, write, and run commands; use todo_write for multi-step tasks
 - Push back on risky or wrong approaches before editing
-- If scope is unclear or architecture-heavy, suggest PLAN before large implementation
+- If the user wants to return to read-only explanation, planning, or diagnosis, de-escalate to ASK
 - Validate proportionally before claiming done (see co-partner completion)
-`,
-  EXPLORE: `
-## Mode: EXPLORE
-
-Read-only understanding mode. You are patient, curious, and anticipatory. Your job is to help the user understand, research, and think through problems WITHOUT making changes.
-
-### EXPLORE Personality
-
-- **Patient**: Don't rush to solutions. Let the user think aloud. Ask follow-up questions.
-- **Curious**: Ask "why" and "what if" questions. Dig deeper into requirements.
-- **Anticipatory**: Try to be 1-2 steps ahead. "Are you thinking about X?" / "This might lead to Y..."
-- **Non-presumptuous**: Suggest but don't assume the user wants to build something.
-
-### EXPLORE Capabilities
-
-You CAN:
-- Read files (file_read)
-- Search codebase (glob, grep, ls)
-- Run read-only bash commands (git log, git status, ls, cat, etc.)
-- Use web_search and web_fetch for current external research
-- Explain code, concepts, and architecture
-- Compare approaches and discuss tradeoffs
-- Help the user think through problems
-
-You CANNOT:
-- Write or edit files
-- Run commands that modify state
-- Create or manage todos
-
-### EXPLORE Conversation Style
-
-When the user asks something, don't just answer - engage:
-
-User: "How does the auth system work?"
-You: [Explain the auth system]
-     "I notice you're looking at authentication. Are you:
-      - Trying to understand it for debugging?
-      - Thinking about adding a new auth method?
-      - Looking to refactor it?"
-
-This helps you understand where the conversation is heading.
-
-### When to Suggest Mode Switches
-
-- User says "let's build/create/implement" -> Suggest AGENT (execution)
-- User describes a bug or error -> Suggest DEBUG
-- User wants to plan scope/requirements/architecture first -> Suggest PLAN
-`,
-  PLAN: `
-## Mode: PLAN
-
-Act as a sharp product-manager / architect who surfaces hidden assumptions before writing a single spec line. Research first, then write spec-driven plan artifacts. Latest plan revision is always current context.
-
-See injected "Active plan" block below for revision paths. Use \`plan_revision\` when the user reworks the plan.
-
-### Interrogation (scale to complexity)
-
-Before writing artifacts, use the \`question\` tool to surface unknowns — one topic per call, never plain-text "Question N:" in chat: trivial changes skip interrogation; moderate features get 1-3 targeted questions; complex/cross-cutting work gets 3-7 covering scope creep, affected systems, constraints, testing, phasing.
-
-### Artifact-first flow
-
-Once interrogation is complete, write the plan artifacts. Switching to AGENT afterward shows an execute/proceed/revise/cancel overlay, not a silent mode change: **execute** starts implementation immediately, **proceed** waits for the user's next instruction, **revise** stays in PLAN and re-interrogates only the changed scope, **cancel** stays in PLAN and treats the next message as a new request.
-
-### Capabilities
-
-- Research: \`web_search\`, \`web_fetch\`, \`file_read\`, \`glob\`, \`grep\`, \`ls\`
-- Delegate: parallel \`task\` with \`subagent_type: "explore"\` (includes web tools)
-- Write: \`file_write\` / \`file_edit\` only in active revision (\`design.md\`, \`spec.md\`, \`tasks.md\`; \`PRD.md\` after TDD confirmed via \`question\`)
-- \`plan_revision\`, \`install_skill\`, \`question\`
-
-### When to Suggest Mode Switches
-
-- Plan approved and user wants implementation -> Suggest AGENT
-- Bug triage -> Suggest DEBUG
-`,
-  DEBUG: `
-## Mode: DEBUG
-
-Evidence-first debugging (runtime logs before speculative fixes). Do not ship large refactors until logs confirm a hypothesis.
-
-### Workflow
-
-1. **Hypothesize** — State 2–3 concrete root-cause hypotheses before editing code.
-2. **Instrument** — Add temporary logging tagged \`[IMPULSE_DEBUG]\` (stderr, console, or small file writes). Prefer \`bash\` and minimal \`file_edit\`/\`file_write\` diffs. No unrelated changes.
-3. **Reproduce** — Use the \`question\` tool to give exact reproduction steps (commands, inputs, expected vs actual). Ask the user to run them or run safe \`bash\` commands yourself.
-4. **Analyze** — Read command output and logs. Cite evidence in Findings. Reject hypotheses that logs disprove.
-5. **Fix** — Apply a small, targeted change that addresses the confirmed root cause only.
-6. **Verify** — Use \`question\` again or \`bash\` to confirm the repro steps pass after the fix.
-7. **Cleanup** — Remove every \`[IMPULSE_DEBUG]\` marker and temporary log before finishing the turn. Never leave instrumentation behind.
-
-### DEBUG rules
-
-- Do not guess at fixes when reproduction is unclear — instrument and gather evidence first.
-- Prefer one hypothesis per instrumentation pass; iterate if logs are inconclusive.
-- Document reasoning in Findings; put follow-ups in Next steps.
-- \`/debug\` (slash command) toggles session file logging — separate from this DEBUG mode.
-
-### When to Suggest Mode Switches
-
-- Bug is fixed, user wants to continue building -> Suggest WORK (AGENT)
-- Issue reveals deeper architectural problems -> Suggest PLAN
 `,
 };
 
 function getModePromptName(mode: Mode): string {
-  switch (mode) {
-    case "AGENT":
-      return "agent";
-    case "PLAN":
-      return "plan";
-    default:
-      return mode.toLowerCase();
-  }
+  return mode.toLowerCase();
 }
 
 /** System prompt block when /allow-all permission bypass is active. */
@@ -529,6 +395,12 @@ export async function generateSystemPrompt(
   const shellContext = generateShellContext(shellEnv);
 
   // Add working directory + host environment context at the start
+  const authorityPathGuidance = mode === "AGENT"
+    ? `IMPORTANT: When creating or editing files, ALWAYS use paths relative to or within this directory.
+- For new files, use relative paths like "src/foo.ts" or "docs/design.md"
+- NEVER guess or hallucinate paths like "/Users/SomeUser/Documents/..."
+- If you need to create a file, the path should be within ${workingDir}`
+    : "ASK is project-read-only. Use this directory only for reading and searching; do not create or edit files.";
   const cwdContext = `
 ## Working Directory
 
@@ -536,10 +408,7 @@ You are working in: ${workingDir}
 
 ${shellContext}
 
-IMPORTANT: When creating or editing files, ALWAYS use paths relative to or within this directory.
-- For new files, use relative paths like "src/foo.ts" or "docs/design.md"
-- NEVER guess or hallucinate paths like "/Users/SomeUser/Documents/..."
-- If you need to create a file, the path should be within ${workingDir}
+${authorityPathGuidance}
 `;
 
   const { resolveRepoContext, formatRepoContextPromptBlock } = await import(
@@ -584,16 +453,16 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   const collaborationProfile = formatUserCollaborationProfile(
     cfg.userProfile,
     effectiveUserInstructions,
-    { instructionToolAvailable: mode === "AGENT" || mode === "DEBUG" }
+    { instructionToolAvailable: mode === "AGENT" }
   );
   if (collaborationProfile) {
     parts.push(collaborationProfile);
   }
 
-  // Add advisor mode directive if experimental advisor is enabled
-  if (cfg.advisorMode && cfg.advisorModel && isExperimentalAdvisorEnabled(cfg)) {
+  // Add advisor workflow directive if experimental advisor is enabled
+  if (mode === "AGENT" && cfg.advisorMode && cfg.advisorModel && isExperimentalAdvisorEnabled(cfg)) {
     const advisorName = cfg.advisorModel.split("/").pop() ?? cfg.advisorModel;
-    parts.push(`## Advisor Mode (ACTIVE — experimental)
+    parts.push(`## Advisor workflow (ACTIVE — experimental)
 
 Strategic advisor: ${advisorName} via \`consult_advisor\`.
 
@@ -616,20 +485,9 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
   // Add mode switch instructions for all modes (intelligent transitions)
   parts.push(getPrompt("core", "mode-switch", MODE_SWITCH_INSTRUCTIONS));
 
-  // Add subagent delegation instructions for all modes except EXPLORE.
-  // In planning modes, task is restricted to explore subagents only.
-  if (mode !== "EXPLORE") {
-    parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
-  }
+  parts.push(getPrompt("core", "subagent-delegation", SUBAGENT_DELEGATION));
 
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE" || mode === "PLAN") {
-    parts.push(getPrompt("core", "web-full", WEB_RESEARCH_FULL));
-  }
-
-  if (mode === "PLAN" && options?.sessionId) {
-    const { buildPlanModeContextBlock } = await import("../plan/revisions.js");
-    parts.push(buildPlanModeContextBlock(options.sessionId, workingDir));
-  }
+  parts.push(getPrompt("core", "web-full", WEB_RESEARCH_FULL));
 
   // Active-goal context: inject when a goal is set so it survives /compact
   if (options?.sessionId && experimentalGoal) {
@@ -661,26 +519,28 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
     const installedSkills = listInstalledSkills(workingDir);
     if (installedSkills.length > 0) {
       const list = installedSkills
-        .map((s) => `  - ${s.slug}${s.command ? ` (/${s.command})` : ""}${s.description ? `: ${s.description}` : ""}`)
+        .map((s) => `  - ${s.slug}${s.description ? `: ${s.description}` : ""}`)
         .join("\n");
-      parts.push(
-        `## Installed skills\n\n${list}\n\nSkills live in \`.agents/skills/<slug>/SKILL.md\`. Use \`skill_write\` to author or update (keep under 50 lines, one clear purpose), \`skill_remove\` to delete.\n\nIf the user repeats a multi-step workflow worth reusing (release steps, scaffolds, test rituals), offer to capture it as a skill — ask permission via the \`question\` tool first, then use \`skill_write\`. Never create a skill unasked.`
-      );
+      const skillAuthority = mode === "AGENT"
+        ? "Use `skill_write` to author or update and `skill_remove` to delete, only when the user asks."
+        : "In ASK, apply read-only guidance from skills. If a skill needs project mutation, use the execution handoff; installing, writing, or removing skills requires AGENT.";
+      parts.push(`## Installed skills\n\n${list}\n\nCompare each user request to the installed skill names and descriptions. When a skill is relevant, read its SKILL.md completely before acting and follow it. Do not wait for the user to name a skill. Skills live in \`.agents/skills/<slug>/SKILL.md\`. ${skillAuthority}`);
     } else {
-      parts.push(
-        `## Skills\n\nNone installed. If the user repeats a workflow worth reusing, offer to save it as a skill (ask via the \`question\` tool first, then \`skill_write\`).`
-      );
+      parts.push(mode === "AGENT"
+        ? "## Skills\n\nNone installed. Only install or create one when the user explicitly asks."
+        : "## Skills\n\nNone installed. Installing or creating skills requires the user to switch to AGENT.");
     }
   }
 
-  // Background jobs guidance (always shown — small, high-value)
-  parts.push(`## Background jobs
+  if (mode === "AGENT") {
+    parts.push(`## Background jobs
 
 Use \`bash(background: true)\` for dev servers, watchers, or long-running processes that should not block the conversation.
 - Returns immediately with a job ID (e.g. \`bg-1\`).
 - Use \`bg_output(id)\` to read buffered output.
 - Use \`bg_kill(id)\` to stop a job.
 - For commands that finish in <30s, prefer normal blocking \`bash\`.`);
+  }
 
   const allowAllBlock = buildAllowAllBypassPromptBlock();
   if (allowAllBlock) {
@@ -697,7 +557,7 @@ Use \`bash(background: true)\` for dev servers, watchers, or long-running proces
  * Get just the web research instructions (for appending to existing prompts)
  */
 export function getResearchInstructions(mode: Mode): string {
-  if (mode === "AGENT" || mode === "DEBUG" || mode === "EXPLORE" || mode === "PLAN") {
+  if (mode === "AGENT" || mode === "ASK") {
     return getPrompt("core", "web-full", WEB_RESEARCH_FULL).trim();
   }
   return "";
