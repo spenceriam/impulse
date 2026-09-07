@@ -14,8 +14,6 @@ import { resolveToolPath } from "./resolve-tool-path.js";
 import { ask as askPermission } from "../permission";
 import { validateWritePath } from "./mode-state";
 import { SessionManager } from "../session/manager";
-import { Bus } from "../bus";
-import { FileEvents } from "../format/events";
 import { zCodeEdit, zFilePath } from "./schemas/branded";
 import { isWithinBase } from "../util/path.js";
 import {
@@ -167,12 +165,6 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         newContent,
         existingMode !== undefined ? { mode: existingMode } : undefined
       );
-
-      // Emit file edited event for formatters
-      Bus.publish(FileEvents.Edited, { 
-        file: safePath, 
-        isNew: false 
-      });
 
       const fallbackNote = usedFallback
         ? "\nNote: matched with whitespace-normalized fallback."

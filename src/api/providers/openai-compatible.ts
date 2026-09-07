@@ -6,6 +6,8 @@
  * without duplicating boilerplate.
  */
 
+import OpenAI from "openai";
+import { ProviderAuthError, ProviderError, ProviderRateLimitError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
 import { modelSupportsVisionFallback } from "../capabilities";
 
@@ -52,4 +54,75 @@ export async function discoverOpenAIModelCapabilities(
     lower.startsWith("o4");
 
   return { vision, reasoning, source: "provider-api", discoveredAt: Date.now() };
+}
+
+// --- Shared OpenAI-SDK retry scaffolding (zai, openai, nous, groq, gemini) ---
+
+export const MAX_RETRIES = 3;
+export const INITIAL_BACKOFF_MS = 1000;
+export const MAX_BACKOFF_MS = 16000;
+export const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+
+export function sleep(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+}
+
+export function calculateBackoff(attempt: number): number {
+  const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+  const jitter = Math.random() * 0.3 * backoff;
+  return Math.min(backoff + jitter, MAX_BACKOFF_MS);
+}
+
+export function isRetryableError(error: unknown): boolean {
+  if (error instanceof OpenAI.APIError) {
+    return RETRYABLE_STATUS_CODES.has(error.status);
+  }
+  if (error instanceof Error && error.message.includes("fetch")) {
+    return true;
+  }
+  return false;
+}
+
+export async function executeWithRetry<T>(
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+  attempt: number = 0
+): Promise<T> {
+  try {
+    if (signal?.aborted) {
+      throw new ProviderError("Request aborted", "aborted");
+    }
+    return await operation();
+  } catch (error) {
+    // Don't retry auth errors
+    if (error instanceof OpenAI.AuthenticationError) {
+      throw new ProviderAuthError(error.message);
+    }
+
+    // Handle rate limiting
+    if (error instanceof OpenAI.RateLimitError) {
+      const retryAfter = parseInt(
+        (error as unknown as { headers?: { "retry-after"?: string } }).headers?.["retry-after"] ?? "60",
+        10
+      );
+
+      if (attempt === MAX_RETRIES - 1) {
+        throw new ProviderRateLimitError(error.message, retryAfter);
+      }
+
+      await sleep(retryAfter * 1000);
+      return executeWithRetry(operation, signal, attempt + 1);
+    }
+
+    // Only retry on retryable errors
+    if (!isRetryableError(error) || attempt === MAX_RETRIES - 1) {
+      throw error;
+    }
+
+    const backoff = calculateBackoff(attempt);
+    await sleep(backoff);
+    return executeWithRetry(operation, signal, attempt + 1);
+  }
 }

@@ -7,21 +7,17 @@
 import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
-import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import { ProviderAuthError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
 import { toApiUsageFields } from "../usage-helpers.js";
-import { discoverOpenAIModelCapabilities } from "./openai-compatible";
+import { discoverOpenAIModelCapabilities, executeWithRetry } from "./openai-compatible";
 
 // Z.AI Coding Plan API endpoint
 const BASE_URL = "https://api.z.ai/api/coding/paas/v4/";
 
 // Retry configuration
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 16000;
 
 // Retryable HTTP status codes
-const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 export class ZAIProvider implements AIProvider {
   readonly name = "z.ai";
@@ -59,72 +55,10 @@ export class ZAIProvider implements AIProvider {
     return this.client;
   }
   
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-  
-  private calculateBackoff(attempt: number): number {
-    const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-    const jitter = Math.random() * 0.3 * backoff;
-    return Math.min(backoff + jitter, MAX_BACKOFF_MS);
-  }
-  
-  private isRetryableError(error: unknown): boolean {
-    if (error instanceof OpenAI.APIError) {
-      return RETRYABLE_STATUS_CODES.has(error.status);
-    }
-    if (error instanceof Error && error.message.includes("fetch")) {
-      return true;
-    }
-    return false;
-  }
-  
-  private async executeWithRetry<T>(
-    operation: () => Promise<T>,
-    signal?: AbortSignal,
-    attempt: number = 0
-  ): Promise<T> {
-    try {
-      if (signal?.aborted) {
-        throw new ProviderError("Request aborted", "aborted");
-      }
-      return await operation();
-    } catch (error) {
-      // Don't retry auth errors
-      if (error instanceof OpenAI.AuthenticationError) {
-        throw new ProviderAuthError(error.message);
-      }
-      
-      // Handle rate limiting
-      if (error instanceof OpenAI.RateLimitError) {
-        const retryAfter = parseInt(
-          (error as unknown as { headers?: { "retry-after"?: string } }).headers?.["retry-after"] ?? "60",
-          10
-        );
-        
-        if (attempt === MAX_RETRIES - 1) {
-          throw new ProviderRateLimitError(error.message, retryAfter);
-        }
-        
-        await this.sleep(retryAfter * 1000);
-        return this.executeWithRetry(operation, signal, attempt + 1);
-      }
-      
-      // Only retry on retryable errors
-      if (!this.isRetryableError(error) || attempt === MAX_RETRIES - 1) {
-        throw error;
-      }
-      
-      const backoff = this.calculateBackoff(attempt);
-      await this.sleep(backoff);
-      return this.executeWithRetry(operation, signal, attempt + 1);
-    }
-  }
-  
   async complete(options: CompletionOptions): Promise<ChatCompletionResponse> {
     const client = await this.getClient();
     
-    const response = await this.executeWithRetry(
+    const response = await executeWithRetry(
       async () => {
         const request: OpenAI.ChatCompletionCreateParamsNonStreaming = {
           model: options.model ?? this.config.defaultModel,
@@ -160,7 +94,7 @@ export class ZAIProvider implements AIProvider {
   async *stream(options: StreamCompletionOptions): AsyncGenerator<ChatCompletionChunk, void, unknown> {
     const client = await this.getClient();
     
-    const stream = await this.executeWithRetry(
+    const stream = await executeWithRetry(
       async () => {
         const request: OpenAI.ChatCompletionCreateParamsStreaming = {
           model: options.model ?? this.config.defaultModel,

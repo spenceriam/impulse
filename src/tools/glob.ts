@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
-import { glob as globSync } from "glob";
+import { Glob } from "bun";
 import { sanitizePath } from "../util/path";
 import { currentExecutionContext, executionCwd } from "../execution/context.js";
 import { zFilePath, zGlobPattern } from "./schemas/branded";
@@ -30,21 +30,21 @@ export const globTool: Tool<GlobInput> = Tool.define(
       const basePath = execution
         ? await execution.boundary.resolvePath(input.path ?? ".", "read")
         : sanitizePath(input.path ?? ".");
-      const options = {
+      const matches: string[] = [];
+      for await (const match of new Glob(input.pattern).scan({
         cwd: basePath,
-        nodir: true, // Only return files, not directories
-      };
-
-      const files = await globSync(input.pattern, options);
+        onlyFiles: true, // Only return files, not directories
+      })) {
+        matches.push(match);
+      }
 
       // Limit results for efficiency (no expensive mtime sorting)
-      const limitedFiles = files.slice(0, MAX_RESULTS);
-      const wasTruncated = files.length > MAX_RESULTS;
+      const limitedFiles = matches.slice(0, MAX_RESULTS);
+      const wasTruncated = matches.length > MAX_RESULTS;
 
       const truncatedNotice = wasTruncated
-        ? `\n\n(Results limited to ${MAX_RESULTS} files. Total matches: ${files.length})`
+        ? `\n\n(Results limited to ${MAX_RESULTS} files. Total matches: ${matches.length})`
         : "";
-
       const pathNote = buildGlobPathNote(input, executionCwd());
       const body = limitedFiles.join("\n") + truncatedNotice;
 
@@ -56,8 +56,7 @@ export const globTool: Tool<GlobInput> = Tool.define(
           pattern: input.pattern,
           path: input.path,
           matchCount: limitedFiles.length,
-          totalMatches: files.length,
-          truncated: wasTruncated,
+          totalMatches: matches.length,
         },
       };
     } catch (error) {

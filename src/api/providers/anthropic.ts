@@ -19,6 +19,7 @@ import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../pro
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk, ToolDefinition } from "../types";
 import type { ModelCapabilities } from "../capabilities";
 import { levelToBudgetTokens } from "./capabilities.js";
+import { calculateBackoff, MAX_RETRIES, sleep } from "./openai-compatible.js";
 import { shouldApplySessionCache } from "../../harness/prompt-cache-key.js";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
@@ -26,9 +27,6 @@ const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_MAX_TOKENS = 4096;
 
 // Retry configuration
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 16000;
 
 // ── Anthropic-specific wire types ───────────────────────────────────────────
 
@@ -325,16 +323,6 @@ export class AnthropicProvider implements AIProvider {
     return request;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private calculateBackoff(attempt: number): number {
-    const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-    const jitter = Math.random() * 0.3 * backoff;
-    return Math.min(backoff + jitter, MAX_BACKOFF_MS);
-  }
-
   private async executeWithRetry<T>(
     operation: () => Promise<T>,
     signal?: AbortSignal,
@@ -362,7 +350,7 @@ export class AnthropicProvider implements AIProvider {
         if (attempt === MAX_RETRIES - 1) {
           throw new ProviderRateLimitError("Rate limited", retryAfter);
         }
-        await this.sleep(retryAfter * 1000);
+        await sleep(retryAfter * 1000);
         return this.executeWithRetry(operation, signal, attempt + 1);
       }
 
@@ -370,8 +358,8 @@ export class AnthropicProvider implements AIProvider {
         throw error instanceof Error ? error : new ProviderError(String(error));
       }
 
-      const backoff = this.calculateBackoff(attempt);
-      await this.sleep(backoff);
+      const backoff = calculateBackoff(attempt);
+      await sleep(backoff);
       return this.executeWithRetry(operation, signal, attempt + 1);
     }
   }

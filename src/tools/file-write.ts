@@ -14,8 +14,6 @@ import {
   MAX_DIFF_INPUT_BYTES,
   MAX_DIFF_PATCH_BYTES,
 } from "../util/compact-diff";
-import { Bus } from "../bus";
-import { FileEvents } from "../format/events";
 import { zFilePath } from "./schemas/branded";
 import { isWithinBase } from "../util/path.js";
 import { SessionManager } from "../session/manager";
@@ -175,12 +173,6 @@ export const fileWrite: Tool<WriteInput> = Tool.define(
           diff = createPatch(fileName, existingContent, input.content, "", "");
         }
       }
-
-      // Emit file edited event for formatters
-      Bus.publish(FileEvents.Edited, { 
-        file: safePath, 
-        isNew: isNewFile 
-      });
 
       return {
         success: true,

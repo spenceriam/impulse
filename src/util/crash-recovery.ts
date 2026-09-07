@@ -2,14 +2,6 @@ import fs from "fs";
 import path from "path";
 import { Global } from "../global";
 
-const MAX_LAG_SAMPLES = 100;
-
-export interface LagSample {
-  timestamp: string;
-  lagMs: number;
-  intervalMs: number;
-}
-
 interface CrashArtifact {
   timestamp: string;
   type: "uncaughtException" | "unhandledRejection";
@@ -23,23 +15,10 @@ interface CrashArtifact {
   bunVersion: string | null;
   uptimeSeconds: number;
   memoryRssBytes: number;
-  recentLagSamples: LagSample[];
 }
 
-const recentLagSamples: LagSample[] = [];
 let handlersRegistered = false;
 let fatalHandled = false;
-
-export function recordLagSample(sample: LagSample): void {
-  recentLagSamples.push(sample);
-  if (recentLagSamples.length > MAX_LAG_SAMPLES) {
-    recentLagSamples.splice(0, recentLagSamples.length - MAX_LAG_SAMPLES);
-  }
-}
-
-export function getRecentLagSamples(): LagSample[] {
-  return [...recentLagSamples];
-}
 
 function toErrorInfo(reason: unknown): { errorName: string; message: string; stack?: string } {
   if (reason instanceof Error) {
@@ -77,7 +56,6 @@ export function captureCrashArtifact(type: "uncaughtException" | "unhandledRejec
     bunVersion: process.versions.bun ?? null,
     uptimeSeconds: process.uptime(),
     memoryRssBytes: process.memoryUsage().rss,
-    recentLagSamples: getRecentLagSamples(),
   };
 
   const artifactPath = path.join(crashDir, "last-crash.json");

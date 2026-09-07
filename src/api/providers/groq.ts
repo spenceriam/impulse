@@ -15,17 +15,13 @@
 import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
-import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import { ProviderAuthError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
-import { discoverOpenAIModelCapabilities } from "./openai-compatible";
+import { discoverOpenAIModelCapabilities, executeWithRetry } from "./openai-compatible";
 import { toApiUsageFields } from "../usage-helpers.js";
 
 const BASE_URL = "https://api.groq.com/openai/v1";
 
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 16000;
-const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 // Groq-supported models (for reference)
 export const GROQ_MODELS = [
@@ -70,65 +66,10 @@ export class GroqProvider implements AIProvider {
     return this.client;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private calculateBackoff(attempt: number): number {
-    const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-    return Math.min(backoff + Math.random() * 0.3 * backoff, MAX_BACKOFF_MS);
-  }
-
-  private isRetryableError(error: unknown): boolean {
-    if (error instanceof OpenAI.APIError) {
-      return RETRYABLE_STATUS_CODES.has(error.status);
-    }
-    if (error instanceof Error && error.message.includes("fetch")) {
-      return true;
-    }
-    return false;
-  }
-
-  private async executeWithRetry<T>(
-    operation: () => Promise<T>,
-    signal?: AbortSignal,
-    attempt: number = 0
-  ): Promise<T> {
-    try {
-      if (signal?.aborted) {
-        throw new ProviderError("Request aborted", "aborted");
-      }
-      return await operation();
-    } catch (error) {
-      if (error instanceof OpenAI.AuthenticationError) {
-        throw new ProviderAuthError((error as Error).message);
-      }
-
-      if (error instanceof OpenAI.RateLimitError) {
-        const retryAfter = parseInt(
-          (error as unknown as { headers?: Record<string, string> }).headers?.["retry-after"] ?? "60",
-          10
-        );
-        if (attempt === MAX_RETRIES - 1) {
-          throw new ProviderRateLimitError((error as Error).message, retryAfter);
-        }
-        await this.sleep(retryAfter * 1000);
-        return this.executeWithRetry(operation, signal, attempt + 1);
-      }
-
-      if (!this.isRetryableError(error) || attempt === MAX_RETRIES - 1) {
-        throw error;
-      }
-
-      await this.sleep(this.calculateBackoff(attempt));
-      return this.executeWithRetry(operation, signal, attempt + 1);
-    }
-  }
-
   async complete(options: CompletionOptions): Promise<ChatCompletionResponse> {
     const client = await this.getClient();
 
-    const response = await this.executeWithRetry(
+    const response = await executeWithRetry(
       async () => {
         const request: OpenAI.ChatCompletionCreateParamsNonStreaming = {
           model: options.model ?? this.config.defaultModel ?? "llama-3.3-70b-versatile",
@@ -158,7 +99,7 @@ export class GroqProvider implements AIProvider {
   async *stream(options: StreamCompletionOptions): AsyncGenerator<ChatCompletionChunk, void, unknown> {
     const client = await this.getClient();
 
-    const stream = await this.executeWithRetry(
+    const stream = await executeWithRetry(
       async () => {
         const request: OpenAI.ChatCompletionCreateParamsStreaming = {
           model: options.model ?? this.config.defaultModel ?? "llama-3.3-70b-versatile",

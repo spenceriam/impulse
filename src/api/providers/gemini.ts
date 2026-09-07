@@ -14,9 +14,9 @@
 import OpenAI from "openai";
 import type { AIProvider, CompletionOptions, StreamCompletionOptions, ProviderConfig } from "../provider";
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
-import { ProviderAuthError, ProviderRateLimitError, ProviderError } from "../provider";
+import { ProviderAuthError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
-import { discoverOpenAIModelCapabilities } from "./openai-compatible";
+import { discoverOpenAIModelCapabilities, executeWithRetry } from "./openai-compatible";
 import { toApiUsageFields } from "../usage-helpers.js";
 
 // Gemini API base
@@ -26,10 +26,6 @@ const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 // This provider uses the OpenAI SDK with a special baseURL + apiKey format
 // to get OpenAI-compatible response shapes, which we then normalize.
 
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 16000;
-const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini";
@@ -65,65 +61,6 @@ export class GeminiProvider implements AIProvider {
     return this.client;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private calculateBackoff(attempt: number): number {
-    const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-    return Math.min(backoff + Math.random() * 0.3 * backoff, MAX_BACKOFF_MS);
-  }
-
-  private isRetryableError(error: unknown): boolean {
-    if (error instanceof OpenAI.APIError) {
-      return RETRYABLE_STATUS_CODES.has(error.status);
-    }
-    if (error instanceof Error && error.message.includes("fetch")) {
-      return true;
-    }
-    return false;
-  }
-
-  private async executeWithRetry<T>(
-    operation: () => Promise<T>,
-    signal?: AbortSignal,
-    attempt: number = 0
-  ): Promise<T> {
-    try {
-      if (signal?.aborted) {
-        throw new ProviderError("Request aborted", "aborted");
-      }
-      return await operation();
-    } catch (error) {
-      if (error instanceof OpenAI.AuthenticationError) {
-        throw new ProviderAuthError((error as Error).message);
-      }
-
-      if (error instanceof OpenAI.RateLimitError) {
-        const retryAfter = parseInt(
-          (error as unknown as { headers?: Record<string, string> }).headers?.["retry-after"] ?? "60",
-          10
-        );
-        if (attempt === MAX_RETRIES - 1) {
-          throw new ProviderRateLimitError((error as Error).message, retryAfter);
-        }
-        await this.sleep(retryAfter * 1000);
-        return this.executeWithRetry(operation, signal, attempt + 1);
-      }
-
-      if (!this.isRetryableError(error) || attempt === MAX_RETRIES - 1) {
-        throw error;
-      }
-
-      await this.sleep(this.calculateBackoff(attempt));
-      return this.executeWithRetry(operation, signal, attempt + 1);
-    }
-  }
-
-  /**
-   * Convert our generic ChatMessage format to Gemini's format.
-   * Gemini via OpenAI compat layer supports a subset.
-   */
   private toGeminiMessages(messages: ChatMessage[]): OpenAI.ChatCompletionMessageParam[] {
     // Pass through — Gemini OpenAI compat layer handles conversion
     return messages as OpenAI.ChatCompletionMessageParam[];
@@ -142,7 +79,7 @@ export class GeminiProvider implements AIProvider {
     const client = await this.getClient();
     const model = options.model ?? this.config.defaultModel ?? "gemini-2.0-flash";
 
-    const response = await this.executeWithRetry(
+    const response = await executeWithRetry(
       async () => {
         // Gemini OpenAI compat: model param must be just the model ID without "models/" prefix
         // but the endpoint is pre-set to include it
@@ -178,7 +115,7 @@ export class GeminiProvider implements AIProvider {
     const client = await this.getClient();
     const model = options.model ?? this.config.defaultModel ?? "gemini-2.0-flash";
 
-    const stream = await this.executeWithRetry(
+    const stream = await executeWithRetry(
       async () => {
         const geminiModel = this.normalizeModel(model).replace(/^models\//, "");
 
