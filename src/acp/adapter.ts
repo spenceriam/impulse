@@ -22,7 +22,7 @@ export interface ImpulseAcpAgentOptions {
 
 const MODES: acp.SessionModeState["availableModes"] = [
   { id: "ASK", name: "ASK", description: "Read-only analysis and guidance" },
-  { id: "AGENT", name: "AGENT", description: "Execute tools within the active execution boundary" },
+  { id: "AGENT", name: "AGENT", description: "Execute tools and commands with user-granted authority" },
 ];
 
 function selectOption(

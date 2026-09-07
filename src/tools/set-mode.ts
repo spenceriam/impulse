@@ -43,7 +43,7 @@ export const setMode: Tool<SetModeInput> = Tool.define(
       if (currentMode === "ASK" && mode === "AGENT") {
         return {
           success: false,
-          output: "User confirmation is required to switch to AGENT. Use execution_handoff so the user can choose Preview safely, Switch to AGENT, or Stay in ASK; do not silently elevate authority.",
+          output: "User confirmation is required to switch to AGENT. Use execution_handoff so the user can choose Switch to AGENT or Stay in ASK; do not silently elevate authority.",
           metadata: {
             mode: currentMode,
             requestedMode: mode,

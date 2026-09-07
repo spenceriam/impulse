@@ -130,7 +130,6 @@ import { LoopCheckinOverlay } from "./components/loop-checkin-overlay.js";
 import type { LoopCheckinChoice } from "./components/loop-checkin-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { ExecutionHandoffOverlay } from "./components/execution-handoff-overlay.js";
-import { PreviewReviewOverlay } from "./components/preview-review-overlay.js";
 import { SessionPickerOverlay } from "./components/session-picker-overlay.js";
 import { ProfileOverlay } from "./components/profile-overlay.js";
 import {
@@ -295,11 +294,6 @@ import {
   USER_HANDOFF_AUTHORITY,
   type ExecutionHandoffChoice,
 } from "../tools/execution-handoff.js";
-import { PreviewManager, type PreviewReview } from "../preview/manager.js";
-import {
-  PreviewApplyController,
-  USER_PREVIEW_APPLY_AUTHORITY,
-} from "../preview/apply-controller.js";
 import {
   getCurrentMode,
   restoreAgentAuthorityAfterLifecycle,
@@ -452,13 +446,9 @@ export class ImpulseRenderer {
   private startupResumeError: Error | null = null;
   private readonly allowAllOnStartup: boolean;
   private readonly defaultSkillScaffolding: DefaultSkillScaffolding;
-  private readonly previewManager: PreviewManager;
-  private readonly previewApplyController: PreviewApplyController;
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
   private welcomeChildCount = 0;
-
-
   // Layout components
   private chat!: Container;
   private spinnerText!: Text;
@@ -923,100 +913,7 @@ export class ImpulseRenderer {
       return;
     }
 
-    await this.runSafePreviewRequest(input.request, input.description);
     resolveExecutionHandoff(input.id, choice, USER_HANDOFF_AUTHORITY);
-  }
-
-  private async runSafePreviewRequest(
-    request: string,
-    description: string
-  ): Promise<boolean> {
-    this.addChatLine(clr.dim("PREVIEW · probing bubblewrap · network off"));
-    this.syncApprovalPolicyUi("PREVIEW");
-    this.tui.requestRender();
-    let result;
-    try {
-      result = await this.previewManager.preview({ prompt: request, description });
-    } catch (error) {
-      this.addChatLine(clr.warn(
-        `Safe preview failed: ${error instanceof Error ? error.message : String(error)}`
-      ));
-      this.addChatLine(clr.dim("Stayed in ASK · no host fallback was used"));
-      return false;
-    } finally {
-      this.syncApprovalPolicyUi("HOST");
-    }
-
-    if (result.status !== "ready") {
-      this.addChatLine(clr.warn(result.notice));
-      if (result.status === "unavailable" && result.remediation) {
-        this.addChatLine(clr.dim(result.remediation));
-      }
-      this.addChatLine(clr.dim("Stayed in ASK · use /mode AGENT only for explicit host execution"));
-      this.tui.requestRender();
-      return false;
-    }
-
-    this.addChatLine(clr.dim("PREVIEW · bubblewrap · network off · process cleanup confirmed"));
-    this.addChatLine(clr.dim(
-      result.changedFiles.length > 0
-        ? `Changed: ${result.changedFiles.join(", ")}`
-        : "Changed: no files"
-    ));
-    if (result.diffStat) this.addChatLine(clr.dim(result.diffStat));
-    for (const line of result.agentSummary.slice(0, 3)) this.addChatLine(clr.dim(line));
-    this.showPreviewReviewOverlay(result);
-    this.tui.requestRender();
-    return true;
-  }
-
-  private dismissPreviewReviewOverlay(): void {
-    this.previewReviewOverlayHandle?.hide();
-    this.previewReviewOverlayHandle = null;
-    this.tui?.setFocus(this.promptInput);
-    this.tui?.requestRender();
-  }
-
-  private showPreviewReviewOverlay(review: PreviewReview): void {
-    const overlay = new PreviewReviewOverlay(review);
-    overlay.onDecision = (decision) => {
-      this.dismissPreviewReviewOverlay();
-      void this.handlePreviewReviewDecision(review, decision);
-    };
-    this.previewReviewOverlayHandle = this.showContentSizedOverlay(overlay, {
-      maxHeight: overlayViewportMaxHeight(this.tui.terminal?.rows ?? this.terminal.rows ?? 24),
-    });
-    this.tui.requestRender();
-  }
-
-  private async handlePreviewReviewDecision(
-    review: PreviewReview,
-    decision: "apply" | "discard" | "keep"
-  ): Promise<void> {
-    if (decision === "discard") {
-      const result = await this.previewManager.discard(review.id);
-      this.addChatLine(result.ok ? clr.dim(result.notice) : clr.warn(result.notice));
-      this.tui.requestRender();
-      return;
-    }
-    if (decision === "keep") {
-      const kept = this.previewManager.keep(review.id);
-      this.addChatLine(clr.dim(`Preview kept: ${kept.path}`));
-      this.addChatLine(clr.dim(`Cleanup: ${kept.cleanupCommand}`));
-      this.tui.requestRender();
-      return;
-    }
-
-    const result = await this.previewApplyController.apply(
-      review.id,
-      USER_PREVIEW_APPLY_AUTHORITY
-    );
-    if (result.ok) {
-      this.addChatLine(clr.dim(`Applied reviewed preview: ${result.changedFiles.join(", ") || "no files"}`));
-    } else {
-      this.addChatLine(clr.warn(result.notice));
-    }
-    this.tui.requestRender();
   }
 
   private overlayMin(): number {
@@ -1864,7 +1761,6 @@ export class ImpulseRenderer {
   private loopCheckinOverlayHandle: OverlayHandle | null = null;
   private questionOverlayHandle: OverlayHandle | null = null;
   private executionHandoffOverlayHandle: OverlayHandle | null = null;
-  private previewReviewOverlayHandle: OverlayHandle | null = null;
   private sessionPickerHandle: OverlayHandle | null = null;
   private modelPickerHandle: OverlayHandle | null = null;
   private modelSetupOverlayHandle: OverlayHandle | null = null;
@@ -1932,15 +1828,6 @@ export class ImpulseRenderer {
     this.startupResumeReason = options?.resumeReason ?? null;
     this.allowAllOnStartup = options?.allowAllOnStartup ?? false;
     this.defaultSkillScaffolding = new DefaultSkillScaffolding(process.cwd());
-    this.previewManager = new PreviewManager({ activeWorkspace: process.cwd() });
-    this.previewApplyController = new PreviewApplyController({
-      checkApply: (id) => this.previewManager.checkApply(id),
-      apply: (id) => this.previewManager.apply(id),
-      transition: (mode) => this.applyModeChange(mode, {
-        prev: this.mode,
-        source: "explicit-user-transition",
-      }),
-    });
   }
 
   /** Submit a plain-text message after the TUI is running (CLI initial arg). */
@@ -3443,7 +3330,7 @@ export class ImpulseRenderer {
     planPath: string;
     summary: string;
     planMarkdown: string;
-  }): Promise<"preview" | "agent" | "revise" | "stay"> {
+  }): Promise<"agent" | "revise" | "stay"> {
     if (!this.tui) return "stay";
 
     const shortPath = input.planPath.replace(
@@ -3459,7 +3346,7 @@ export class ImpulseRenderer {
       mode: this.mode,
     });
 
-    return new Promise<"preview" | "agent" | "revise" | "stay">((resolve) => {
+    return new Promise<"agent" | "revise" | "stay">((resolve) => {
       this.dismissPlanApprovalOverlay();
 
       const handle = this.tui.showOverlay(overlay, {
@@ -3477,13 +3364,7 @@ export class ImpulseRenderer {
       overlay.onDecision = (decision) => {
         void (async () => {
         this.dismissPlanApprovalOverlay();
-        if (decision === "preview") {
-          await this.runSafePreviewRequest(
-            `Implement this reviewed plan:\n\n${input.planMarkdown}`,
-            input.summary
-          );
-          this.addChatLine(advisorStatusLine("Plan sent to isolated preview"));
-        } else if (decision === "agent") {
+        if (decision === "agent") {
           const changed = await this.applyModeChange("AGENT", {
             prev: this.mode,
             source: "explicit-user-transition",
@@ -5757,13 +5638,12 @@ export class ImpulseRenderer {
     this.addChatLine(`  ${clr.error("!")} ${result.error}`);
   }
 
-  private syncApprovalPolicyUi(boundary: "HOST" | "SANDBOX" | "PREVIEW" = "HOST"): void {
+  private syncApprovalPolicyUi(): void {
     this.syncContextBar({
       allowAllBypass: isAllowAllBypass(),
       approvalPolicy: effectiveApprovalPolicy() === "allow-all" ? "ALLOW-ALL" : "PROMPT",
-      executionBoundary: boundary,
+      executionBoundary: "HOST",
     });
-    this.tui?.requestRender();
   }
 
   private syncSpeedoUi(): void {

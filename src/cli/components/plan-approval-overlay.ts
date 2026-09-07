@@ -17,7 +17,7 @@ import {
   OVERLAY_SELECT_FG,
 } from "./overlay-theme.js";
 
-export type PlanApprovalDecision = "preview" | "agent" | "revise" | "stay";
+export type PlanApprovalDecision = "agent" | "revise" | "stay";
 
 export interface PlanApprovalOverlayInput {
   planPath?: string;
@@ -32,11 +32,6 @@ const OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    decision: "preview",
-    label: "Preview safely (recommended)",
-    description: "Run the plan in an isolated preview; review before any apply.",
-  },
   {
     decision: "agent",
     label: "Switch to AGENT",
@@ -64,7 +59,7 @@ export class PlanApprovalOverlay implements Component {
   private readonly planPath: string | undefined;
   private readonly summary: string;
   private readonly planMarkdown: string;
-  private selected = 0;
+  private selected = OPTIONS.length - 1;
   private readonly presentationDensity: PresentationDensity;
   private readonly mode: Mode;
 

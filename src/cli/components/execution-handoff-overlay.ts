@@ -11,11 +11,6 @@ import {
 
 const OPTIONS: Array<{ choice: ExecutionHandoffChoice; label: string; description: string }> = [
   {
-    choice: "preview",
-    label: "Preview safely (recommended)",
-    description: "Run in an isolated temporary worktree with network off; review before apply.",
-  },
-  {
     choice: "agent",
     label: "Switch to AGENT",
     description: "Grant host execution authority for this session.",
@@ -34,7 +29,7 @@ const ansi = {
 };
 
 export class ExecutionHandoffOverlay implements Component {
-  private selected = 0;
+  private selected = OPTIONS.length - 1;
   onDecision?: (choice: ExecutionHandoffChoice) => void;
 
   constructor(private readonly input: { request: string; description: string }) {}

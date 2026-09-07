@@ -6,18 +6,17 @@ function plain(lines: string[]): string {
 }
 
 describe("ExecutionHandoffOverlay", () => {
-  test("renders exact choices and defaults to safe preview", () => {
+  test("renders exact choices and defaults to staying in ASK", () => {
     const overlay = new ExecutionHandoffOverlay({
       request: "Write the feature",
       description: "Project changes are consequential",
     });
     const output = plain(overlay.render(90));
-    expect(output).toContain("Preview safely (recommended)");
     expect(output).toContain("Switch to AGENT");
     expect(output).toContain("Stay in ASK");
     let choice = "";
-    overlay.onDecision = (next) => { choice = next; };
+    overlay.onDecision = (value) => { choice = value; };
     overlay.handleInput("\r");
-    expect(choice).toBe("preview");
+    expect(choice).toBe("stay");
   });
 });

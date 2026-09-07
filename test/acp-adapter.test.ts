@@ -519,7 +519,6 @@ describe("ACP v1 adapter seam", () => {
       })).stopReason).toBe("end_turn");
 
       expect(requests).toHaveLength(1);
-      expect(JSON.stringify(requests[0]?.requestedSchema)).toContain("Preview safely");
       expect(JSON.stringify(requests[0]?.requestedSchema)).toContain("Switch to AGENT");
       expect(JSON.stringify(requests[0]?.requestedSchema)).toContain("Stay in ASK");
       expect(handoffOutput).toContain("Execution authority is now enabled");

@@ -14,7 +14,7 @@ import {
   reopenExecutionAdmissionAfterFailure,
   setAskExecutionAdmission,
 } from "./execution-admission.js";
-import { currentExecutionContext, isIsolatedMutationContext } from "../execution/context.js";
+import { currentExecutionContext } from "../execution/context.js";
 type Mode = typeof MODES[number];
 
 let currentMode: Mode = DEFAULT_MODE;
@@ -61,19 +61,8 @@ export function canWriteFiles(): boolean {
   return getCurrentMode() === "AGENT";
 }
 
-/**
- * Validate if a file path is allowed for the current mode
- * Returns an error message if not allowed, null if allowed
- */
 export function validateWritePath(filePath: string): string | null {
-  const mode = getCurrentMode();
-  
-  // Execution modes can write anywhere
-  if (mode === "AGENT") {
-    return null;
-  }
-
-  if (isIsolatedMutationContext()) {
+  if (getCurrentMode() === "AGENT") {
     return null;
   }
 

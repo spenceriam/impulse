@@ -10,5 +10,5 @@ Switches between the two operating modes: ASK and AGENT.
 ## Usage
 
 - The model may de-escalate AGENT to ASK.
-- ASK to AGENT requires direct user authority. For consequential work, use `execution_handoff` so the user can choose Preview safely, Switch to AGENT, or Stay in ASK.
+- ASK to AGENT requires direct user authority. For consequential work, use `execution_handoff` so the user can choose Switch to AGENT or Stay in ASK.
 - Never infer, replay, or synthesize an elevation choice.

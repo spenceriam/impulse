@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("ASK execution handoff", () => {
-  test("advertises exactly the three direct-user choices", async () => {
+  test("advertises exactly the two direct-user choices", async () => {
     setCurrentMode("ASK");
     let payload: unknown;
     const unsubscribe = Bus.subscribe((event) => {
@@ -27,13 +27,14 @@ describe("ASK execution handoff", () => {
       request: "Implement the change",
       description: "Needs project writes",
     });
-    await Bun.sleep(0);
+    if (!payload || typeof payload !== "object" || !("id" in payload) || typeof payload.id !== "string") {
+      throw new Error("handoff event was not published");
+    }
     expect(payload).toMatchObject({
-      choices: ["Preview safely", "Switch to AGENT", "Stay in ASK"],
-      recommended: "Preview safely",
+      choices: ["Switch to AGENT", "Stay in ASK"],
     });
-    const id = (payload as { id: string }).id;
-    expect(resolveExecutionHandoff(id, "preview", Symbol("model replay"))).toBe(false);
+    const id = payload.id;
+    expect(resolveExecutionHandoff(id, "agent", Symbol("model replay"))).toBe(false);
     expect(hasPendingExecutionHandoff()).toBe(true);
     expect(resolveExecutionHandoff(id, "stay", USER_HANDOFF_AUTHORITY)).toBe(true);
     expect(resolveExecutionHandoff(id, "agent", USER_HANDOFF_AUTHORITY)).toBe(false);

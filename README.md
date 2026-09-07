@@ -13,7 +13,7 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 
 - **Custom provider support** — Any OpenAI-compatible or Anthropic-compatible endpoint. Unlimited custom providers with automatic model discovery, reasoning capability probing, and persistent configuration
 - **2 modes** — ASK (default, read-only) for research, planning, and diagnosis; AGENT for explicit execution (Tab to toggle)
-- **Safe execution handoff** — when ASK reaches an action, choose an isolated preview, switch explicitly to AGENT, or remain read-only
+- **Safe execution handoff** — when ASK reaches an action, the user explicitly chooses to grant AGENT execution or stay read-only; nothing elevates implicitly
 - **Shell commands** — in AGENT, `! ls` or `!ls` runs a command and shows output in the chat history (each run is its own block); `@ <question>` asks the agent to interpret the last shell output with full session context
 - **Mid-turn queue** — Messages sent while the agent is working are queued above the prompt; press `↑` on an empty input to edit the next queued message
 - **Turn steering** — `/steer <instruction>` redirects the current turn at the next tool step; `/side <question>` opens an isolated side prompt overlay while the main agent works
@@ -33,7 +33,7 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 - **Ollama provider** — Full integration with capability discovery via `/api/show`
 - **Session management** — `impulse --list-sessions`, `--enrich-session-titles`; `/resume` picker with titles; empty sessions hidden
 - **Full-width pickers** — `/model`, `/resume`, and provider setup use arrow-key overlays with wrapped labels
-- **Evidence-first debugging** — diagnosis begins read-only in ASK; execution uses safe preview or an explicit switch to AGENT. `/debug` only toggles the session log file
+- **Evidence-first debugging** — diagnosis begins read-only in ASK; execution requires an explicit switch to AGENT. `/debug` only toggles the session log file
 - **Profile** — `/user` overlay to view and edit preferences
 - **Parallel sub-agents** — the `task` tool runs up to **8** sub-agents at once (extra tasks queue); batches of **9+** `general` tasks show one approval dialog; per-task progress rows in chat
 
@@ -93,7 +93,7 @@ impulse --version
 
 | Mode | Purpose |
 |------|---------|
-| **ASK** | Default read-only research, planning, and evidence-first diagnosis; offers an isolated preview or explicit handoff when execution is needed |
+| **ASK** | Default read-only research, planning, and evidence-first diagnosis; offers an explicit AGENT handoff when execution is needed |
 | **AGENT** | Explicit execution with mutating tools and permission policy enforcement |
 
 Press `Tab` to toggle ASK and AGENT. Press `Shift+Tab` to cycle reasoning levels.

@@ -10,13 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.10.0] - 2026-08-12
 
   **Type:** minor
-  **Title:** Two-mode authority, safe previews, ACP, and terminal UX overhaul
+  **Title:** Two-mode authority, ACP, and terminal UX overhaul
 
   ### Added
   - ASK and AGENT are now the only user-visible modes, with every new and resumed session defaulting safely to read-only ASK and consequential work requiring an explicit handoff
-  - ASK can delegate read-only investigation to explore subagents, request one minimal user-run diagnostic when local evidence is unavailable, or offer the exact `Preview safely` / `Switch to AGENT` / `Stay in ASK` execution choices
-  - Safe Preview runs proposed changes in an isolated temporary Git checkout under a capability-probed Bubblewrap sandbox, then requires an explicit Apply, Discard, or Keep decision before the active worktree can change
-  - `/settings` now includes a persisted global approval policy (`Prompt` or `Allow-All`) and presentation density (`Compact` or `Comfy`); Allow-All carries a concise warning and remains explicitly separate from sandbox protection
+  - ASK can delegate read-only investigation to explore subagents, request one minimal user-run diagnostic when local evidence is unavailable, or offer the exact `Switch to AGENT` / `Stay in ASK` execution choices
+  - `/settings` now includes a persisted global approval policy (`Prompt` or `Allow-All`) and presentation density (`Compact` or `Comfy`); Allow-All skips permission prompts and carries a concise warning
   - Stable Agent Client Protocol v1 support via `impulse --acp`, including independent sessions, streaming, tools, permissions, plans, cancellation, configuration, and owned stdio MCP servers over the same session-scoped runtime used by the TUI
   - `/skills` now owns progressive skill discovery through a submenu, while the agent proactively identifies and loads relevant on-disk skills without flooding top-level slash autocomplete
   - **#128** -- New `ls` directory-listing tool, available in every mode alongside `file_read`/`glob`/`grep`, with reciprocal "did you mean" guidance between `file_read` and `ls` on directory/file mismatches

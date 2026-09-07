@@ -23,17 +23,17 @@ function makeOverlay(): {
 }
 
 describe("ASK plan review", () => {
-  test("defaults Enter to safe preview and Escape stays in ASK", () => {
+  test("defaults Enter to staying in ASK and Escape stays in ASK", () => {
     const first = makeOverlay();
     first.overlay.handleInput("\r");
-    expect(first.decisions).toEqual(["preview"]);
+    expect(first.decisions).toEqual(["stay"]);
 
     const second = makeOverlay();
     second.overlay.handleInput("\x1b");
     expect(second.decisions).toEqual(["stay"]);
   });
 
-  test("offers preview, explicit AGENT switch, revise, and stay", () => {
+  test("offers explicit AGENT switch, revise, and stay", () => {
     const { overlay, decisions } = makeOverlay();
     overlay.handleInput("\x1b[B");
     overlay.handleInput("\r");
@@ -41,7 +41,6 @@ describe("ASK plan review", () => {
 
     const text = overlay.render(80).map(stripAnsi).join("\n");
     expect(text).toContain("ASK · READ-ONLY");
-    expect(text).toContain("Preview safely (recommended)");
     expect(text).toContain("Switch to AGENT");
     expect(text).toContain("Revise plan");
     expect(text).toContain("Stay in ASK");

@@ -5,11 +5,7 @@ import type { MODES } from "../constants";
 import { getCurrentMode } from "./mode-state";
 import { validateToolInput } from "./input-repair";
 import { buildRepairNote, prependToolNote } from "./tool-notes";
-import {
-  currentExecutionContext,
-  isIsolatedMutationContext,
-} from "../execution/context.js";
-
+import { currentExecutionContext } from "../execution/context.js";
 type Mode = typeof MODES[number];
 
 export interface ToolResult {
@@ -131,11 +127,6 @@ function isCategoryAllowedForMode(category: ToolCategory, mode: Mode, toolName: 
 
 export function isToolAllowedForMode(name: string, mode: Mode): boolean {
   return isCategoryAllowedForMode(getToolCategory(name), mode, name);
-}
-
-function isToolAllowedForCurrentExecution(name: string, mode: Mode): boolean {
-  if (isToolAllowedForMode(name, mode)) return true;
-  return isIsolatedMutationContext() && ["file_write", "file_edit", "bash"].includes(name);
 }
 
 const tools = new Map<string, Tool<unknown>>();
@@ -309,7 +300,7 @@ export namespace Tool {
       return { success: false, output: `Tool not found: ${name}` };
     }
 
-    if (!isToolAllowedForCurrentExecution(name, currentMode)) {
+    if (!isToolAllowedForMode(name, currentMode)) {
       return {
         success: false,
         output: `Tool "${name}" is not allowed in ${currentMode} mode. Ask the user to switch to AGENT before proceeding.`,

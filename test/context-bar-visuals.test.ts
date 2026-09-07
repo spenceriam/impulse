@@ -153,7 +153,7 @@ describe("context bar allow-all indicator", () => {
 });
 
 describe("context bar execution boundary and approval policy", () => {
-  test("visible densities distinguish HOST/PREVIEW and PROMPT/ALLOW-ALL", () => {
+  test("visible densities show HOST and PROMPT/ALLOW-ALL", () => {
     for (const visual of ["full", "reduced", "minimal"] as const) {
       const host = new ContextBarComponent({
         ...BASE_STATE,
@@ -161,16 +161,16 @@ describe("context bar execution boundary and approval policy", () => {
         executionBoundary: "HOST",
         approvalPolicy: "PROMPT",
       });
-      const preview = new ContextBarComponent({
+      const allowAll = new ContextBarComponent({
         ...BASE_STATE,
         bottomBarVisual: visual,
-        executionBoundary: "PREVIEW",
+        executionBoundary: "HOST",
         approvalPolicy: "ALLOW-ALL",
       });
       expect(stripAnsi(host.render(120).join("\n"))).toContain("HOST");
       expect(stripAnsi(host.render(120).join("\n"))).toContain("PROMPT");
-      expect(stripAnsi(preview.render(120).join("\n"))).toContain("PREVIEW");
-      expect(stripAnsi(preview.render(120).join("\n"))).toContain("ALLOW-ALL");
+      expect(stripAnsi(allowAll.render(120).join("\n"))).toContain("HOST");
+      expect(stripAnsi(allowAll.render(120).join("\n"))).toContain("ALLOW-ALL");
     }
   });
 });

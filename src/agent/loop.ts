@@ -146,7 +146,7 @@ export interface LoopEvents {
     planPath: string;
     summary: string;
     planMarkdown: string;
-  }) => Promise<"preview" | "agent" | "revise" | "stay">;
+  }) => Promise<"agent" | "revise" | "stay">;
   /** Tool call lifecycle */
   onToolStart(id: string, name: string, args: Record<string, unknown>): void;
   onToolEnd(
@@ -1019,7 +1019,7 @@ export class AgentLoop {
 
             const advisorResult = advisorInvocation.value;
 
-            let userDecision: "preview" | "agent" | "revise" | "stay" | undefined;
+            let userDecision: "agent" | "revise" | "stay" | undefined;
             if (
               advisorResult.success &&
               advisorResult.planPath &&

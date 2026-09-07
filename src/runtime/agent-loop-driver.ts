@@ -117,7 +117,6 @@ export class AgentLoopTurnDriver implements RuntimeTurnDriver {
         const answer = await context.requestQuestion({
           prompt: `${input.summary}\n\nHow should Impulse continue with this plan?`,
           choices: [
-            { id: "preview", label: "Preview safely" },
             { id: "agent", label: "Switch to AGENT" },
             { id: "revise", label: "Revise" },
             { id: "stay", label: "Stay in ASK" },
@@ -125,7 +124,7 @@ export class AgentLoopTurnDriver implements RuntimeTurnDriver {
         });
         if (answer.outcome !== "answered") return "stay";
         const value = answer.values[0];
-        return value === "preview" || value === "agent" || value === "revise" ? value : "stay";
+        return value === "agent" || value === "revise" ? value : "stay";
       },
       onToolStart: (id, name, args) => {
         const locations = toolLocations(args, context.session.cwd);

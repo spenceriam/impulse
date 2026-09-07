@@ -21,8 +21,8 @@
 ### v1.10.0 development branch (2026-08-12)
 
 - [x] ASK is the default read-only mode; AGENT is the only user-visible execution mode
-- [x] ASK offers isolated Preview safely, explicit Switch to AGENT, or Stay in ASK when execution is needed
-- [x] Approval policy is independent of sandboxing; persisted Allow-All carries a concise, truthful warning
+- [x] ASK offers an explicit Switch to AGENT or Stay in ASK handoff when execution is needed; execution never elevates implicitly
+- [x] Approval policy is independent of mode; persisted Allow-All carries a concise, truthful warning and never implies isolation
 - [x] Compact/comfy density, stable streaming tables, coherent thinking/tool/permission/settings presentation, and restored production user prompts
 - [x] `/skills` owns progressive skill discovery while prompts proactively match and load relevant skills
 - [x] Session-scoped runtime shared by Pi-TUI and the stable ACP v1 stdio adapter
@@ -465,11 +465,10 @@ Users can always override AI agent version decisions:
 
 Only ASK and AGENT are user-visible. `Tab` toggles between them and `/mode ASK|AGENT` is the explicit command surface.
 
-- ASK never silently acquires write authority. When an ASK turn reaches consequential execution, use `execution_handoff` to offer **Preview safely**, **Switch to AGENT**, or **Stay in ASK**.
-- Preview safely uses a temporary Git worktree plus a capability-probed OS sandbox, denies network, protects repository metadata, and requires an explicit Apply/Discard/Keep decision.
+- ASK never silently acquires write authority. When an ASK turn reaches consequential execution, use `execution_handoff` to offer **Switch to AGENT** or **Stay in ASK**.
 - Diagnosis stays evidence-first and read-only in ASK. An explore subagent may extend investigation without elevating the main session.
 - AGENT to ASK revokes and settles active mutating work before the mode change is reported.
-- Approval policy (`prompt` or persisted `allow-all`) is separate from mode and sandboxing. Allow-All never implies isolation.
+- Approval policy (`prompt` or persisted `allow-all`) is separate from mode. Allow-All never implies isolation.
 
 ### ASK Personality
 

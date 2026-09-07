@@ -22,8 +22,4 @@ A mode transition initiated directly by the user through an authority control. I
 
 ### Approval policy
 
-The rule governing when Impulse asks the user before an action. Approval policy describes consent, not the technical boundary on what a process can access.
-
-### Execution boundary
-
-The enforced limit on files, network access, processes, and other system capabilities available during execution. An execution boundary remains meaningful even when individual actions do not require approval.
+The rule governing when Impulse asks the user before an action. Approval policy describes consent, not capability; Allow-All skips prompts but grants no extra execution power beyond the active mode.

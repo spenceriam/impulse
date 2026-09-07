@@ -124,11 +124,9 @@ export const ExecutionHandoffEvents = {
       request: z.string(),
       description: z.string(),
       choices: z.tuple([
-        z.literal("Preview safely"),
         z.literal("Switch to AGENT"),
         z.literal("Stay in ASK"),
       ]),
-      recommended: z.literal("Preview safely"),
     })
   ),
 };

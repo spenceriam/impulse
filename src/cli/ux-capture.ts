@@ -19,7 +19,6 @@ import { PermissionOverlay } from "./components/permission-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
 import { QuestionOverlay } from "./components/question-overlay.js";
 import { ExecutionHandoffOverlay } from "./components/execution-handoff-overlay.js";
-import { PreviewReviewOverlay } from "./components/preview-review-overlay.js";
 import { SettingsOverlay } from "./components/settings-overlay.js";
 import { ThinkingBlock } from "./components/thinking-block.js";
 import { ToolBlock } from "./components/tool-block.js";
@@ -261,14 +260,6 @@ function renderExecutionHandoff(width: number): string[] {
   }), width);
 }
 
-function renderPreviewReview(width: number): string[] {
-  return renderComponent(new PreviewReviewOverlay({
-    changedFiles: ["src/execution/boundary.ts", "test/safe-preview.test.ts"],
-    diffStat: "2 files changed, 48 insertions(+), 3 deletions(-)",
-    agentSummary: ["Focused preview tests passed", "Active worktree remains unchanged"],
-  }), width);
-}
-
 function renderHelp(width: number): string[] {
   const overlay = new HelpOverlay({
     opts: {
@@ -401,7 +392,6 @@ export const UX_CAPTURE_SCENARIOS: readonly UxCaptureScenario[] = [
   { id: "allow-all-disclaimer", title: "Allow-all disclaimer", render: renderAllowAllDisclaimer },
   { id: "question", title: "Question overlay", render: renderQuestion },
   { id: "execution-handoff", title: "ASK execution handoff", render: renderExecutionHandoff },
-  { id: "preview-review", title: "Isolated preview review", render: renderPreviewReview },
   { id: "help", title: "Slash command help", render: renderHelp },
   { id: "slash-autocomplete", title: "Slash autocomplete", render: renderSlashAutocomplete },
   { id: "skills-compact", title: "Compact skills discovery and actions", render: (width) => renderSkillsDiscovery(width, "compact") },

@@ -63,8 +63,3 @@ export function currentExecutionContext(): ExecutionContext | undefined {
 export function executionCwd(): string {
   return storage.getStore()?.cwd ?? process.cwd();
 }
-
-export function isIsolatedMutationContext(): boolean {
-  const kind = storage.getStore()?.boundary.descriptor.kind;
-  return kind === "isolated-preview" || kind === "workspace-sandbox";
-}

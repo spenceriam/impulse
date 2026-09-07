@@ -26,7 +26,7 @@ describe("mode prompts", () => {
     expect(ask).toContain("diagnosis");
     expect(ask).toContain("cannot write or edit project files");
     expect(ask).toContain("execution_handoff");
-    expect(ask).toContain("Preview safely (recommended)");
+    expect(ask).toContain("Switch to AGENT or Stay in ASK");
     expect(ask).toContain("read-only evidence and explore subagents");
     expect(ask).toContain("one minimal command or test");
     expect(ask).toContain("Allow-All is debugging authority or a sandbox");

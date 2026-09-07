@@ -1349,49 +1349,6 @@ export const bashTool: Tool<BashInput> = Tool.define(
       };
     }
 
-    if (execution?.boundary.descriptor.kind === "isolated-preview") {
-      if (input.background || input.interactive) {
-        return {
-          success: false,
-          output: "Preview commands must run in the foreground without an interactive PTY.",
-        };
-      }
-      try {
-        const cwd = input.workdir
-          ? await execution.boundary.resolvePath(input.workdir, "write")
-          : execution.cwd;
-        const started = Date.now();
-        const result = await execution.boundary.run(
-          ["/bin/bash", "-lc", input.command],
-          { cwd }
-        );
-        const output = [result.stdout, result.stderr]
-          .filter((part) => part.trim().length > 0)
-          .join("\n")
-          .trim();
-        return {
-          success: result.exitCode === 0,
-          output: output || "Command completed successfully in isolated preview.",
-          metadata: {
-            type: "bash",
-            command: input.command,
-            description: input.description,
-            output,
-            exitCode: result.exitCode,
-            duration: Date.now() - started,
-            truncated: false,
-            executionBoundary: "isolated-preview",
-            network: "off",
-          },
-        };
-      } catch (error) {
-        return {
-          success: false,
-          output: error instanceof Error ? error.message : String(error),
-        };
-      }
-    }
-
     const runBash = async (): Promise<ToolResult> => {
       const baseCwd = input.workdir
         ? await resolveToolPath(input.workdir, "bash")
