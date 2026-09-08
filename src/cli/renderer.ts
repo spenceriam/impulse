@@ -2492,8 +2492,8 @@ export class ImpulseRenderer {
     return config.defaultProvider;
   }
 
-  private findCachedContextWindow(providerKey: string, modelId: string): number | undefined {
-    const cached = getCachedModelInfos(providerKey);
+  private findCachedContextWindow(providerKey: string, modelId: string, apiKey?: string): number | undefined {
+    const cached = getCachedModelInfos(providerKey, apiKey);
     if (!cached) return undefined;
 
     const bare = modelId.startsWith(`${providerKey}/`)
@@ -2520,7 +2520,7 @@ export class ImpulseRenderer {
     opts?: { discover?: boolean }
   ): Promise<number | undefined> {
     const providerKey = this.providerKeyForModel(modelId, config);
-    const cached = this.findCachedContextWindow(providerKey, modelId);
+    const cached = this.findCachedContextWindow(providerKey, modelId, providerConfig(config, providerKey).apiKey);
     if (cached && cached > 0) return cached;
 
     if (opts?.discover) {

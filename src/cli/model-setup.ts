@@ -212,7 +212,7 @@ async function discoverModelsOnce(
       return { success: result.success, message: result.message, models: [] };
     }
     const infos = await enrichDiscoveredModelsOrFallback(catalogKey, result.models);
-    if (infos.length > 0) setCachedModelInfos(provider.key, infos);
+    if (infos.length > 0) setCachedModelInfos(provider.key, infos, apiKey);
     return {
       success: true,
       message: `Connected - ${infos.length} model${infos.length === 1 ? "" : "s"} available.`,
@@ -338,7 +338,7 @@ async function discoverModelsOnce(
         }
 
         const infos = await enrichDiscoveredModelsOrFallback(catalogKey, ids, apiRows);
-        if (infos.length > 0) setCachedModelInfos(provider.key, infos);
+        if (infos.length > 0) setCachedModelInfos(provider.key, infos, apiKey);
 
         return {
           success: true,
@@ -552,13 +552,22 @@ export function setModelAutocomplete(editor: Editor, models: string[]): void {
 
 // ── Model list cache ────────────────────────────────────────────────────────
 
-const modelCache = new Map<string, { infos: ModelInfo[]; fetchedAt: number }>();
+const modelCache = new Map<string, { infos: ModelInfo[]; fetchedAt: number; keyFp: string }>();
 const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-/** Get cached enriched models for a provider, if fresh enough */
-export function getCachedModelInfos(providerKey: string): ModelInfo[] | undefined {
+/** Fingerprint of the API key so a changed or typo'd key never serves the old list. */
+function keyFingerprint(apiKey: string | undefined): string {
+  if (!apiKey) return "";
+  let h = 0;
+  for (let i = 0; i < apiKey.length; i++) h = (h * 31 + apiKey.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+/** Get cached enriched models fetched with the SAME API key, if fresh enough. */
+export function getCachedModelInfos(providerKey: string, apiKey?: string): ModelInfo[] | undefined {
   const entry = modelCache.get(providerKey);
   if (!entry) return undefined;
+  if (entry.keyFp !== keyFingerprint(apiKey)) return undefined;
   if (Date.now() - entry.fetchedAt > MODEL_CACHE_TTL) {
     modelCache.delete(providerKey);
     return undefined;
@@ -573,24 +582,11 @@ export function getCachedModels(providerKey: string): string[] | undefined {
   return infos?.map((i) => i.id);
 }
 
-export function setCachedModelInfos(providerKey: string, infos: ModelInfo[]): void {
+export function setCachedModelInfos(providerKey: string, infos: ModelInfo[], apiKey?: string): void {
   if (infos.length === 0) return;
-  modelCache.set(providerKey, { infos, fetchedAt: Date.now() });
+  modelCache.set(providerKey, { infos, fetchedAt: Date.now(), keyFp: keyFingerprint(apiKey) });
 }
 
-/** @deprecated Use setCachedModelInfos */
-export function setCachedModels(providerKey: string, models: string[]): void {
-  if (models.length === 0) return;
-  modelCache.set(providerKey, {
-    infos: models.map((id) => ({
-      id,
-      vendor: "—",
-      displayName: id,
-      pickerLine: id,
-    })),
-    fetchedAt: Date.now(),
-  });
-}
 
 /** Clear model cache for all or specific provider */
 export function clearModelCache(providerKey?: string): void {

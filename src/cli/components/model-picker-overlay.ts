@@ -116,7 +116,7 @@ export async function buildModelPickerState(
   for (const key of listConfiguredCustomProviderKeys(config)) {
     const stored = providerConfig(config, key);
     if (!stored.apiKey) continue;
-    const cached = getCachedModelInfos(key);
+    const cached = getCachedModelInfos(key, stored.apiKey);
     entries.push({
       provider: resolveCustomProviderOption(key, config),
       providerKey: key,
@@ -131,7 +131,7 @@ export async function buildModelPickerState(
 
     const stored = providerConfig(config, mp.key);
     if (!stored.apiKey) continue;
-    const cached = getCachedModelInfos(mp.key);
+    const cached = getCachedModelInfos(mp.key, stored.apiKey);
     entries.push({
       provider: mp,
       providerKey: mp.key,
@@ -186,7 +186,7 @@ export async function buildModelPickerState(
             stored.baseUrl
           );
           entry.infos = result.success
-            ? (getCachedModelInfos(entry.providerKey) ?? [])
+            ? (getCachedModelInfos(entry.providerKey, stored.apiKey) ?? [])
             : [];
           entry.loading = false;
           if (!result.success) entry.error = result.message;
