@@ -39,7 +39,6 @@ export interface SettingsValues {
   useSubagentModel: boolean;
   workerModel: string;
   subagentModel?: string;
-  visionModelOverride?: string;
   compactToolOutput: boolean;
   bottomBarVisual: BottomBarVisual;
 }
@@ -56,7 +55,6 @@ export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boole
     a.useSubagentModel === b.useSubagentModel &&
     a.workerModel.trim() === b.workerModel.trim() &&
     (a.subagentModel?.trim() ?? "") === (b.subagentModel?.trim() ?? "") &&
-    (a.visionModelOverride?.trim() ?? "") === (b.visionModelOverride?.trim() ?? "") &&
     a.compactToolOutput === b.compactToolOutput &&
     a.bottomBarVisual === b.bottomBarVisual
   );
@@ -66,11 +64,11 @@ export interface SettingsOverlayOptions {
   values: SettingsValues;
 }
 
-type RowKind = "cycle" | "bool" | "vision" | "workerModel" | "subagentModel";
+type RowKind = "cycle" | "bool" | "workerModel" | "subagentModel";
 
 type SettingsRow = {
   key: keyof SettingsValues;
-  group: "Presentation" | "Execution" | "Agents" | "Model" | "Vision" | "Status";
+  group: "Presentation" | "Execution" | "Agents" | "Model" | "Status";
   label: string;
   hint: string;
   kind: RowKind;
@@ -178,13 +176,6 @@ export class SettingsOverlay implements Component {
       kind: "subagentModel",
     },
     {
-      key: "visionModelOverride",
-      group: "Vision",
-      label: "Vision override",
-      hint: "Model for images when main model lacks vision",
-      kind: "vision",
-    },
-    {
       key: "compactToolOutput",
       group: "Status",
       label: "Compact tool rows",
@@ -210,8 +201,6 @@ export class SettingsOverlay implements Component {
   onPickSubagentModel?: () => void;
   onPickWorkerModel?: () => void;
   onEnableSubagentModel?: () => void;
-  onPickVisionOverride?: () => void;
-  onClearVisionOverride?: () => void;
   onSubmit?: (values: SettingsValues) => void;
   onAbort?: () => void;
 
@@ -226,14 +215,6 @@ export class SettingsOverlay implements Component {
   setSubagentModel(model: string): void {
     this.values.subagentModel = model;
     this.values.useSubagentModel = true;
-  }
-
-  setVisionModelOverride(model: string | undefined): void {
-    if (model === undefined) {
-      delete this.values.visionModelOverride;
-    } else {
-      this.values.visionModelOverride = model;
-    }
   }
 
   setMeasureTerminalWidth(cols: number): void {
@@ -286,11 +267,6 @@ export class SettingsOverlay implements Component {
           : formatBool(false);
       case "workerModel":
         return formatCycleValue(row.label, this.values.workerModel || "(pick model)");
-      case "visionModelOverride":
-        return formatCycleValue(
-          row.label,
-          this.values.visionModelOverride?.trim() || "(automatic)"
-        );
       default:
         return "";
     }
@@ -313,14 +289,6 @@ export class SettingsOverlay implements Component {
       }
       if (row.key === "workerModel") {
         this.onPickWorkerModel?.();
-        return;
-      }
-      if (row.key === "visionModelOverride") {
-        if (this.values.visionModelOverride?.trim()) {
-          this.onClearVisionOverride?.();
-        } else {
-          this.onPickVisionOverride?.();
-        }
         return;
       }
       this.onSubmit?.({ ...this.values });
@@ -407,13 +375,6 @@ export class SettingsOverlay implements Component {
       }
       case "workerModel":
         this.onPickWorkerModel?.();
-        break;
-      case "visionModelOverride":
-        if (this.values.visionModelOverride?.trim()) {
-          delete this.values.visionModelOverride;
-        } else {
-          this.onPickVisionOverride?.();
-        }
         break;
     }
   }

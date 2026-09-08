@@ -7,7 +7,6 @@ import {
   type SelectableListRow,
   type SelectableListTableCells,
 } from "./selectable-list-overlay.js";
-import { visionStatusSuffix } from "../symbols.js";
 
 const PROVIDER_PREFIX =
   /^(ollama|openrouter|openai|z\.ai|anthropic|groq|gemini|nous)\//;
@@ -27,7 +26,6 @@ function sessionModelLabel(s: Session, defaultModel?: string): string {
   else if (defaultModel) label = stripProviderPrefix(defaultModel);
   else label = "—";
   if (s.advisorMode) label += " (adv)";
-  if (s.visionMode) label += visionStatusSuffix();
   return label;
 }
 

@@ -64,15 +64,6 @@ const ConfigSchema = z.object({
   /** Advisor workflow toggle for the advisor/executor pattern (legacy key retained). */
   advisorMode: z.boolean().default(false).describe("Whether the advisor workflow is active"),
 
-  /** Vision model — optional separate model for image understanding */
-  visionModel: z.string().optional().describe("Vision model for image interpretation"),
-
-  /** Vision provider key — provider configured for vision model */
-  visionProvider: z.string().optional().describe("Provider key for vision model"),
-
-  /** Vision mode — toggle for automatic image→text translation */
-  visionMode: z.boolean().default(false).describe("Whether vision translation is active"),
-
   /** Main-agent thinking display: off | summary (Thought for…) | full stream */
   thinkingDisplay: ThinkingDisplaySchema.default("summary"),
 
@@ -137,9 +128,6 @@ const ConfigSchema = z.object({
 
   /** Show session summary on /exit and double Ctrl+C */
   statsOnExit: z.boolean().default(false),
-
-  /** Optional vision model override when main model lacks native vision */
-  visionModelOverride: z.string().optional(),
 
   /** Dim one-liner for read-only tool success rows */
   compactToolOutput: z.boolean().default(true),
@@ -290,7 +278,7 @@ export async function load(options?: { refresh?: boolean }): Promise<Config> {
     cachedConfigFingerprint === currentFingerprint
   ) {
     return applyRuntimeSessionConfig(
-      applySessionVision(applySessionAdvisor({ ...cachedConfig }))
+      applySessionAdvisor({ ...cachedConfig })
     );
   }
 
@@ -334,7 +322,7 @@ export async function load(options?: { refresh?: boolean }): Promise<Config> {
   cachedConfig = parsed;
   cachedConfigFingerprint = await configFileFingerprint();
   return applyRuntimeSessionConfig(
-    applySessionVision(applySessionAdvisor({ ...cachedConfig }))
+    applySessionAdvisor({ ...cachedConfig })
   );
 }
 
@@ -389,19 +377,6 @@ export function applySessionAdvisor(config: Config): Config {
     };
   }
   return { ...config, advisorMode: false };
-}
-
-/** Session-scoped vision: active only when toggled in-session or restored on resume. */
-export function applySessionVision(config: Config): Config {
-  const session = SessionManager.getCurrentSession();
-  if (session?.visionMode === true) {
-    return {
-      ...config,
-      visionMode: true,
-      visionModel: session.visionModel ?? config.visionModel,
-    };
-  }
-  return { ...config, visionMode: false };
 }
 
 /**

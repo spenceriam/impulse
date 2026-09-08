@@ -1782,7 +1782,6 @@ export class ImpulseRenderer {
   private contextTokens = 0;
   private contextWindow = 128_000;
   private advisorModel: string | undefined;
-  private visionModel: string | undefined;
   private helpOverlayHandle: OverlayHandle | null = null;
   private sideOverlayHandle: OverlayHandle | null = null;
   private sideOverlay: SideOverlay | null = null;
@@ -2051,6 +2050,7 @@ export class ImpulseRenderer {
 
     // 4. Prompt input (just ? , no mode label)
     this.promptInput = new PromptInput(this.tui, EDITOR_THEME);
+    this.promptInput.onImagePasted = (startIndex) => this.rejectImagesWithoutVision(startIndex);
     this.restorePromptAutocomplete();
     this.promptInput.onSubmit = (payload) => {
       this.autocompleteText.setText("");
@@ -2205,7 +2205,6 @@ export class ImpulseRenderer {
       executionBoundary: "HOST",
       approvalPolicy: effectiveApprovalPolicy() === "allow-all" ? "ALLOW-ALL" : "PROMPT",
     });
-    this.syncVisionFromConfig(config);
     this.syncSpeedoUi();
     this.tui.addChild(this.contextBar);
 
@@ -2250,17 +2249,12 @@ export class ImpulseRenderer {
     clearTerminalForTuiStart(this.terminal);
     this.tui.start();
     if (this.allowAllOnStartup && config.approvalPolicy !== "allow-all") {
-      const agreed = await this.showAllowAllDisclaimer();
-      if (agreed) {
-        configureApprovalPolicy({
-          persisted: config.approvalPolicy,
-          launchOverride: "allow-all",
-        });
-        this.syncApprovalPolicyUi();
-        this.addChatLine(clr.warn("ALLOW-ALL for this launch · HOST"));
-      } else {
-        this.addChatLine(clr.dim("Allow-all not enabled."));
-      }
+      configureApprovalPolicy({
+        persisted: config.approvalPolicy,
+        launchOverride: "allow-all",
+      });
+      this.syncApprovalPolicyUi();
+      this.addChatLine(clr.dim("Risk accepted (--aa) · allow-all for this launch · HOST"));
       this.tui.requestRender();
     } else if (effectiveApprovalPolicy() === "allow-all") {
       this.addChatLine(clr.warn("ALLOW-ALL persisted · HOST"));
@@ -2905,33 +2899,12 @@ export class ImpulseRenderer {
     this.thinkingStartedAt = 0;
     this.thinkingElapsedMs = 0;
     this.resetLiveMetrics();
-    this.loop.setImages(
-      payload.orderedImages.map((i) => ({ uri: i.uri, display: i.display }))
-    );
     this.syncContextBar({
       isRunning: true,
       mode: this.mode,
       contextTokens: this.contextTokens,
       contextWindow: this.contextWindow,
     });
-
-    const cfgForVision = config;
-    if (payload.orderedImages.length > 0) {
-      const sessionModel =
-        SessionManager.getCurrentSession()?.model?.trim() ||
-        cfgForVision.defaultModel?.trim() ||
-        "";
-      const visionAvailable =
-        modelSupportsVisionCached(sessionModel) ||
-        (cfgForVision.visionMode === true && Boolean(cfgForVision.visionModel));
-      if (!visionAvailable) {
-        this.addChatLine(
-          clr.dim("Images attached — vision unavailable for this model. Use /model for a vision-capable model.")
-        );
-      } else if (cfgForVision.visionMode && cfgForVision.visionModel) {
-        this.setBusyStatus("Translating images ...", BUSY_PROCESSING);
-      }
-    }
 
     const events: LoopEvents = {
       onTurnStart: () => {
@@ -3665,7 +3638,6 @@ export class ImpulseRenderer {
       showConfigAliasHint: () => r.showConfigAliasHint(),
       cmdUpdate: () => r.cmdUpdate(),
       cmdModel: (arg) => r.cmdModel(arg),
-      showVisionHint: () => r.showVisionHint(),
       cmdMode: (arg) => r.cmdMode(arg),
       showReasoningHint: () => r.showReasoningHint(),
       cmdUsage: () => r.cmdUsage(),
@@ -3702,10 +3674,6 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private showVisionHint(): void {
-    this.addChatLine(clr.dim("Vision is automatic — configure override in /settings"));
-    this.tui.requestRender();
-  }
 
   private showReasoningHint(): void {
     this.addChatLine(clr.dim("Reasoning level: /settings"));
@@ -3722,7 +3690,21 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private showThinkingSettingsHint(): void {
+  /** Drop just-pasted images when the active model lacks vision; keep the text draft. */
+  private async rejectImagesWithoutVision(startIndex: number): Promise<void> {
+    const sessionModel =
+      SessionManager.getCurrentSession()?.model?.trim() ||
+      (await loadConfig()).defaultModel?.trim() ||
+      "";
+    if (modelSupportsVisionCached(sessionModel)) return;
+    this.promptInput.removeImagePastesFrom(startIndex);
+    this.addChatLine(
+      clr.error(`Image dropped — ${sessionModel || "this model"} lacks vision. Pick a vision-capable model with /model.`)
+    );
+    this.tui?.requestRender();
+  }
+
+  showThinkingSettingsHint(): void {
     this.addChatLine(clr.dim("Use /settings → Thinking display"));
     this.tui.requestRender();
   }
@@ -4230,38 +4212,6 @@ export class ImpulseRenderer {
 
     const purpose = this.setupPurpose(state);
 
-    if (purpose === "vision") {
-      const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
-      providers[effectiveKey] = {
-        ...(state.existing ?? {}),
-        ...(apiKey ? { apiKey } : {}),
-        ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
-        ...(provider.customType ? { type: provider.customType } : {}),
-      };
-      state.config.providers = providers as Config["providers"];
-      state.config.visionModel = selectedModel;
-      state.config.visionMode = true;
-      await saveConfig(state.config);
-      await saveHomeEnv(provider, apiKey, state.baseUrl);
-      await this.persistSessionVision(true, selectedModel);
-      resetProviderManager();
-      this.syncVisionFromConfig(await loadConfig());
-      if (this.modelSetupInputListener) {
-        this.modelSetupInputListener();
-        this.modelSetupInputListener = null;
-      }
-      this.restorePromptAutocomplete();
-      this.modelSetup = null;
-      this.modelSetupText.setText("");
-      this.promptInput.setSecretMode(false);
-      this.promptInput.clear();
-      this.addChatLine(
-        clr.dim(`Vision ON  --  ${selectedModel.split("/").pop() ?? selectedModel}`)
-      );
-      this.requestLayoutRefresh();
-      return;
-    }
-
     if (purpose === "subagent") {
       const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
       providers[effectiveKey] = {
@@ -4557,16 +4507,11 @@ export class ImpulseRenderer {
   }): Promise<void> {
     try {
       const config = await loadConfig();
-      const { buildModelPickerState, buildVisionModelPickerState, parseModelPickerSelection } =
+      const { buildModelPickerState, parseModelPickerSelection } =
         await import("./components/model-picker-overlay.js");
 
-      const state =
-        opts.purpose === "vision"
-          ? await buildVisionModelPickerState(config, {
-              maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-            })
-          : await buildModelPickerState(config, {
-              maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      const state = await buildModelPickerState(config, {
+            maxHeight: LIST_OVERLAY_MAX_HEIGHT,
             });
 
       if (state.configuredProviderCount === 0) {
@@ -4587,19 +4532,7 @@ export class ImpulseRenderer {
           ? parsed.modelId
           : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
 
-        if (opts.purpose === "vision") {
-          const cfg = await loadConfig();
-          cfg.visionModel = fullModel;
-          cfg.visionMode = true;
-          await saveConfig(cfg);
-          await this.persistSessionVision(true, fullModel);
-          this.syncVisionFromConfig(await loadConfig());
-          this.addChatLine(
-            clr.dim(
-              `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
-            )
-          );
-        } else if (opts.purpose === "subagent") {
+        if (opts.purpose === "subagent") {
           const cfg = await loadConfig();
           cfg.subagentModel = fullModel;
           cfg.useSubagentModel = true;
@@ -4758,11 +4691,6 @@ export class ImpulseRenderer {
       config.defaultModel = "";
       config.modelExplicitlySet = false;
     }
-    if (modelUsesProvider(config.visionModel, providerKey)) {
-      config.visionModel = undefined;
-      config.visionMode = false;
-      await this.persistSessionVision(false);
-    }
     if (modelUsesProvider(config.advisorModel, providerKey)) {
       config.advisorModel = undefined;
       config.advisorMode = false;
@@ -4771,12 +4699,9 @@ export class ImpulseRenderer {
     await saveConfig(config);
     resetProviderManager();
     this.syncAdvisorFromConfig(config);
-    this.syncVisionFromConfig(config);
     this.syncContextBar({
       workerModel: config.defaultModel,
       advisorModel: this.advisorModel,
-      visionModel: this.visionModel,
-      visionMode: config.visionMode ?? false,
     });
   }
 
@@ -5335,9 +5260,6 @@ export class ImpulseRenderer {
       compactToolOutput: config.compactToolOutput ?? true,
       bottomBarVisual: config.bottomBarVisual ?? "full",
       ...(config.subagentModel !== undefined ? { subagentModel: config.subagentModel } : {}),
-      ...(config.visionModelOverride !== undefined
-        ? { visionModelOverride: config.visionModelOverride }
-        : {}),
     };
 
     const overlay = new SettingsOverlay({ values: initialValues });
@@ -5359,7 +5281,6 @@ export class ImpulseRenderer {
       config.useSubagentModel = values.useSubagentModel;
       config.compactToolOutput = values.compactToolOutput;
       config.bottomBarVisual = values.bottomBarVisual;
-      config.visionModelOverride = values.visionModelOverride;
       if (values.subagentModel !== undefined) {
         config.subagentModel = values.subagentModel;
       }
@@ -5450,29 +5371,6 @@ export class ImpulseRenderer {
       overlay.onEnableSubagentModel = openSubagentPicker;
       overlay.onPickSubagentModel = openSubagentPicker;
       overlay.onPickWorkerModel = openWorkerPicker;
-
-      overlay.onPickVisionOverride = () => {
-        void (async () => {
-          await applySettingsValues(overlay.getValues());
-          this.dismissSettingsOverlay();
-          finish();
-          await this.openModelPicker({
-            purpose: "vision",
-            onComplete: async () => {
-              const cfg = await loadConfig();
-              if (cfg.visionModel?.trim()) {
-                cfg.visionModelOverride = cfg.visionModel;
-                await saveConfig(cfg);
-                void this.emitStatusEvent(`Vision override: ${cfg.visionModel}`);
-              }
-            },
-          });
-        })();
-      };
-
-      overlay.onClearVisionOverride = () => {
-        overlay.setVisionModelOverride(undefined);
-      };
 
       overlay.onSubmit = (values) => {
         void (async () => {
@@ -5993,15 +5891,6 @@ export class ImpulseRenderer {
     this.advisorModel = active ? config.advisorModel : undefined;
   }
 
-  private syncVisionFromConfig(config: Config): void {
-    const active = config.visionMode && Boolean(config.visionModel?.trim());
-    this.visionModel = active ? config.visionModel : undefined;
-    this.syncContextBar({
-      visionModel: this.visionModel,
-      visionMode: config.visionMode ?? false,
-    });
-  }
-
   private async persistSessionAdvisor(
     advisorMode: boolean,
     advisorModel?: string
@@ -6010,17 +5899,6 @@ export class ImpulseRenderer {
     await SessionManager.update({
       advisorMode,
       advisorModel: advisorMode ? advisorModel : undefined,
-    });
-  }
-
-  private async persistSessionVision(
-    visionMode: boolean,
-    visionModel?: string
-  ): Promise<void> {
-    if (!SessionManager.getCurrentSession()) return;
-    await SessionManager.update({
-      visionMode,
-      visionModel: visionMode ? visionModel : undefined,
     });
   }
 
@@ -6335,7 +6213,6 @@ export class ImpulseRenderer {
     this.loadGoalFromSession(session);
     void loadConfig().then(async (cfg) => {
       this.syncAdvisorFromConfig(cfg);
-      this.syncVisionFromConfig(cfg);
       await this.refreshActiveContextWindow(cfg, { discover: true });
       this.contextTokens = this.estimateCurrentSessionTokens();
       this.syncContextBar({
@@ -6343,8 +6220,6 @@ export class ImpulseRenderer {
         contextTokens: this.contextTokens,
         contextWindow: this.contextWindow,
         advisorModel: this.advisorModel,
-        visionModel: this.visionModel,
-        visionMode: cfg.visionMode ?? false,
         ...(session.model ? { workerModel: session.model } : {}),
       });
       this.tui.requestRender();
@@ -6733,7 +6608,6 @@ export class ImpulseRenderer {
 
   private async runSkillAgentTurn(userMessage: string, displayLabel: string): Promise<void> {
     this.isRunning = true;
-    this.loop.setImages([]);
     this.addSectionGap();
     this.addChatLine(`${A.fg(36, this.userName)}`);
     this.addChatLine(displayLabel);
@@ -6824,7 +6698,6 @@ export class ImpulseRenderer {
     ].join("\n");
 
     this.isRunning = true;
-    this.loop.setImages([]);
     this.addSectionGap();
     this.addChatLine(`${A.fg(36, this.userName)}`);
     this.addChatLine(`@ ${question}`);

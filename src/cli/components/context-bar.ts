@@ -262,8 +262,6 @@ export interface ContextBarState {
   workerModel: string;
   impulseVersion: string;
   advisorModel?: string | undefined;
-  visionModel?: string | undefined;
-  visionMode?: boolean;
   contextTokens: number;
   contextWindow: number;
   mode: string;
@@ -387,7 +385,7 @@ export class ContextBarComponent implements Component {
 
     let statsFull = "";
     if (s.executionBoundary || s.approvalPolicy) {
-      statsFull = [s.executionBoundary, s.approvalPolicy].filter(Boolean).join(" · ");
+      statsFull = [s.executionBoundary, s.approvalPolicy === "ALLOW-ALL" ? "[AA]" : s.approvalPolicy].filter(Boolean).join(" · ");
     } else if (s.allowAllBypass) {
       statsFull = c.fg(214, visual === "full" ? "Allow-All" : "AA");
     } else if (visual === "full" && s.showTurnSpeed) {

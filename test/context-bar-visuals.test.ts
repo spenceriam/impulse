@@ -170,7 +170,7 @@ describe("context bar execution boundary and approval policy", () => {
       expect(stripAnsi(host.render(120).join("\n"))).toContain("HOST");
       expect(stripAnsi(host.render(120).join("\n"))).toContain("PROMPT");
       expect(stripAnsi(allowAll.render(120).join("\n"))).toContain("HOST");
-      expect(stripAnsi(allowAll.render(120).join("\n"))).toContain("ALLOW-ALL");
+      expect(stripAnsi(allowAll.render(120).join("\n"))).toContain("[AA]");
     }
   });
 });

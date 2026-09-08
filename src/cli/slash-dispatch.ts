@@ -16,7 +16,6 @@ export interface SlashDispatchHost {
   showConfigAliasHint(): void;
   cmdUpdate(): Promise<void>;
   cmdModel(arg: string): Promise<void>;
-  showVisionHint(): void;
   cmdMode(arg: string): Promise<void>;
   showReasoningHint(): void;
   cmdUsage(): Promise<void>;
@@ -55,7 +54,6 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   config: (h) => h.showConfigAliasHint(),
   update: (h) => h.cmdUpdate(),
   model: (h, arg) => h.cmdModel(arg),
-  vision: (h) => h.showVisionHint(),
   mode: (h, arg) => h.cmdMode(arg),
   reasoning: (h) => h.showReasoningHint(),
   reason: (h) => h.showReasoningHint(),

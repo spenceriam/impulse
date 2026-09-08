@@ -3,7 +3,7 @@ import type { Mode } from "../constants.js";
 import type { RuntimeConfig, RuntimeSessionSnapshot, RuntimeTurnDriver, RuntimeTurnDriverContext, RuntimeTurnResult } from "./types.js";
 import { HeadlessRuntime, type RuntimeSession } from "./session.js";
 
-type TuiLoop = Pick<AgentLoop, "abort" | "run" | "setImages" | "setSteer">;
+type TuiLoop = Pick<AgentLoop, "abort" | "run" | "setSteer">;
 
 interface PendingTuiTurn {
   events: LoopEvents;
@@ -94,9 +94,6 @@ export class TuiRuntimeController {
     return this.session.snapshot();
   }
 
-  setImages(images: Array<{ uri: string; display: string }>): void {
-    this.driver.loop.setImages(images);
-  }
 
   setSteer(text: string): void {
     this.driver.loop.setSteer(text);

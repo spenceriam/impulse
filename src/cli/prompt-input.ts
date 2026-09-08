@@ -196,6 +196,8 @@ export class PromptInput implements Component, Focusable {
   onExit?: () => void;
   onEscape?: () => void;
   onChange?: (value: string) => void;
+  /** Fired after image paste groups were added starting at `startIndex`. */
+  onImagePasted?: (startIndex: number) => void;
   onArrowUp?: (() => void) | null;
   onArrowDown?: (() => void) | null;
   onArrowLeft?: (() => void) | null;
@@ -239,6 +241,25 @@ export class PromptInput implements Component, Focusable {
     }
     return buildSubmitPayload(displayed, this._pasteGroups);
   }
+
+  /** Remove image paste groups created at/after `fromIndex` and their tokens. */
+  removeImagePastesFrom(fromIndex: number): void {
+    const kept: PasteGroup[] = [];
+    let text = this.editor.getText();
+    for (const group of this._pasteGroups) {
+      if (group.kind === "image" && (group.imageIndex ?? 0) >= fromIndex) {
+        if (group.display && text.includes(group.display)) {
+          text = text.replace(group.display, "");
+        }
+        continue;
+      }
+      kept.push(group);
+    }
+    this._pasteGroups = kept;
+    this.editor.setText(text);
+    this.onChange?.(this.editor.getText());
+  }
+
 
   clear(): void {
     this.editor.setText("");
@@ -717,6 +738,7 @@ export class PromptInput implements Component, Focusable {
         labels += label;
       }
       this._nextImageIndex = startIndex + imageCount;
+      this.onImagePasted?.(startIndex);
       this.editor.handleInput(labels);
     } else if (lines.length > 1) {
       const seq = this._nextTextPasteSeq++;

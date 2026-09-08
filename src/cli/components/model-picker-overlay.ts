@@ -217,18 +217,6 @@ export async function buildModelPickerState(
   return state;
 }
 
-/** Vision-only model picker. */
-export async function buildVisionModelPickerState(
-  config: Config,
-  opts?: { maxHeight?: number }
-): Promise<ModelPickerState> {
-  return buildModelPickerState(config, {
-    ...opts,
-    visionOnly: true,
-    title: "Switch vision model",
-    emptyMessage: "  No vision-capable models for configured providers",
-  });
-}
 
 /** @deprecated Use buildModelPickerState */
 export class ModelPickerOverlay implements Component {

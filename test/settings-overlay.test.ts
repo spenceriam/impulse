@@ -16,7 +16,6 @@ const baseValues = {
   useSubagentModel: false,
   workerModel: "openai/gpt-5",
   subagentModel: "ollama/foo",
-  visionModelOverride: undefined,
   compactToolOutput: true,
   bottomBarVisual: "full" as const,
 };
@@ -48,7 +47,7 @@ describe("SettingsOverlay render", () => {
     overlay.handleInput("\x1b[F");
     const lines = overlay.render(100);
     assertFooterNeverClipped(lines, 14);
-    expect(lines.map(stripAnsi).some((l) => l.includes("Vision override"))).toBe(
+    expect(lines.map(stripAnsi).some((l) => l.includes("Compact tool rows"))).toBe(
       true
     );
   });
@@ -70,7 +69,7 @@ describe("SettingsOverlay render", () => {
     const lines = overlay.render(100);
     const plain = lines.map(stripAnsi);
     expect(plain.some((l) => l.includes("Thinking display"))).toBe(true);
-    expect(plain.some((l) => l.includes("Vision override"))).toBe(true);
+    expect(plain.some((l) => l.includes("Subagent model"))).toBe(true);
     expect(plain.some((l) => l.includes("Approval policy"))).toBe(true);
     expect(plain.some((l) => l.includes("Presentation"))).toBe(true);
     expect(plain.some((l) => l.includes("Execution"))).toBe(true);

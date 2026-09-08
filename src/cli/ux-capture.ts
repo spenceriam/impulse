@@ -337,7 +337,6 @@ function renderSettings(width: number, density: PresentationDensity): string[] {
       useSubagentModel: true,
       workerModel: "openai/gpt-5",
       subagentModel: "openai/gpt-5-mini",
-      visionModelOverride: "openai/gpt-5-mini",
       compactToolOutput: true,
       bottomBarVisual: "full",
     },

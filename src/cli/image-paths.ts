@@ -16,7 +16,6 @@ export const SLASH_COMMAND_NAMES = new Set([
   "advisor",
   "update",
   "model",
-  "vision",
   "mode",
   "reasoning",
   "think",

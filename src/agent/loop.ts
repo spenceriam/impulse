@@ -14,7 +14,7 @@
  *  - Abort via AbortController
  */
 
-import type { ChatMessage, ToolDefinition } from "../api/types";
+import type { ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
 import { runAdvisorConsultation } from "./advisor.js";
@@ -30,7 +30,6 @@ import { Global } from "../global.js";
 import { Tool } from "../tools/registry";
 import { formatToolArgParseError, parseToolCallArguments } from "../tools/parse-tool-args.js";
 import { type Message } from "../session/store";
-import { buildVisionTranslatePrompt, buildVisionSelfKnowledge } from "./vision-prompt.js";
 
 // ── Debug logging ────────────────────────────────────────────────────────────
 const debugLogPath = path.join(Global.Path.logs, "debug.log");
@@ -202,18 +201,12 @@ export class AgentLoop {
   private abortController: AbortController | null = null;
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
-  private pendingImages: Array<{ uri: string; display: string }> = [];
-  private pendingUserRequest = "";
   /** Injected before the next model call in the same turn (latest wins). */
   private pendingSteer: string | null = null;
   /** One wrap-up inject per agent turn when context is high. */
   private contextWrapupInjected = false;
 
   /** Images to translate before next turn (uri + display label for tool UI). */
-  setImages(images: Array<{ uri: string; display: string }>): void {
-    this.pendingImages = images;
-  }
-
   /** Redirect current turn at the next tool-loop boundary. */
   setSteer(text: string): void {
     this.pendingSteer = text.trim();
@@ -292,7 +285,6 @@ export class AgentLoop {
       setCurrentCanonicalModelId(canonicalImpulseModelId(model, config.defaultProvider));
 
       const displayMessage = turnOptions?.displayMessage ?? userMessage;
-      this.pendingUserRequest = displayMessage;
       const segments = turnOptions?.segments;
       const nativeVision = await modelSupportsVision(
           model,
@@ -340,13 +332,6 @@ export class AgentLoop {
                   : part
               );
 
-      const orderedImages =
-        segments && segments.length > 0
-          ? segments
-              .filter((s): s is Extract<PromptSegment, { kind: "image" }> => s.kind === "image")
-              .sort((a, b) => a.index - b.index)
-              .map((s) => ({ uri: s.uri, display: s.display }))
-          : [...this.pendingImages];
 
       const hasTextPaste = segments?.some((s) => s.kind === "paste") ?? false;
       const rawTranscript =
@@ -364,20 +349,6 @@ export class AgentLoop {
       await SessionManager.addMessage(userMsg);
       session = SessionManager.getCurrentSession()!;
 
-      if (orderedImages.length > 0 && !nativeVision) {
-        const visionModel =
-          config.visionModelOverride?.trim() || config.visionModel?.trim();
-        if (visionModel) {
-          this.pendingImages = orderedImages;
-          await this.translateImages(
-            { ...config, visionModel, visionMode: true },
-            events,
-            signal,
-            this.pendingUserRequest
-          );
-        }
-      }
-      this.pendingImages = [];
 
       // ── Tool definitions ───────────────────────────────────────────────────
       // Reassigned after a model-requested AGENT -> ASK de-escalation so later
@@ -435,12 +406,7 @@ export class AgentLoop {
         const baseSystemPrompt = await generateSystemPrompt(mode, undefined, config, {
           sessionId: session.id,
         });
-        const visionSelfKnowledge = buildVisionSelfKnowledge({
-          nativeVision,
-          visionModeEnabled: config.visionMode ?? false,
-          visionModel: config.visionModel,
-        });
-        const systemPrompt = baseSystemPrompt + "\n\n" + visionSelfKnowledge;
+        const systemPrompt = baseSystemPrompt;
         lastSystemPrompt = systemPrompt;
         const { pinSystemPromptForTurn } = await import("../harness/session-cache.js");
         pinSystemPromptForTurn(systemPrompt);
@@ -1420,13 +1386,6 @@ export class AgentLoop {
     this.abortController?.abort();
   }
 
-  /** Vision translator model when session vision is on (explicit /vision setup only). */
-  private async findVisionModel(config: Awaited<ReturnType<typeof loadConfig>>): Promise<string | null> {
-    if (config.visionMode && config.visionModel) {
-      return config.visionModel;
-    }
-    return null;
-  }
 
   /** One text-only model call after loop-guard fires — tools disabled. */
   private async runForcedFinalTurn(params: {
@@ -1493,86 +1452,5 @@ export class AgentLoop {
     return accumulatedText;
   }
 
-  /** Translate images via vision model, inject as tool calls in session */
-  private async translateImages(
-    config: Awaited<ReturnType<typeof loadConfig>>,
-    events: LoopEvents,
-    signal: AbortSignal,
-    userRequest: string
-  ): Promise<void> {
-    const visionModel = await this.findVisionModel(config);
-    if (!visionModel) {
-      // No vision model available — inject a warning
-      const warningMsg: Message = {
-        role: "assistant" as any,
-        content: "[Image detected but vision is not configured. Run /vision to set a vision model and enable translation.]",
-        timestamp: new Date().toISOString(),
-      } as unknown as Message;
-      await SessionManager.addMessage(warningMsg);
-      return;
-    }
-
-    const manager = await getProviderManager();
-
-    for (let i = 0; i < this.pendingImages.length; i++) {
-      const { uri: imageUrl, display: imageLabel } = this.pendingImages[i]!;
-      const toolId = `vision_${Date.now()}_${i}`;
-
-      events.onToolStart(toolId, "vision_translate", { image: imageLabel });
-
-      try {
-        const visionMessages: ChatMessage[] = [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: buildVisionTranslatePrompt(userRequest) },
-              { type: "image_url", image_url: { url: imageUrl } },
-            ] as any,
-          },
-        ];
-
-        let result = "";
-        for await (const chunk of manager.stream({ model: visionModel, messages: visionMessages, stream: true, signal })) {
-          if (signal.aborted) break;
-          result += chunk.choices[0]?.delta?.content ?? "";
-        }
-
-        const description = result.trim() || "(no description)";
-
-        // Add assistant message with tool_call before the tool result
-        const assistantMsg: Message = {
-          role: "assistant" as any,
-          content: null,
-          tool_calls: [{
-            id: toolId,
-            tool: "vision_translate",
-            arguments: { image: imageLabel },
-            timestamp: new Date().toISOString(),
-          }],
-          timestamp: new Date().toISOString(),
-        } as unknown as Message;
-        await SessionManager.addMessage(assistantMsg);
-
-        const toolMsg: Message = {
-          role: "tool",
-          content: `[${imageLabel}]: ${description}`,
-          tool_call_id: toolId,
-          timestamp: new Date().toISOString(),
-        };
-        await SessionManager.addMessage(toolMsg);
-
-        events.onToolEnd(toolId, "vision_translate", {
-          success: true,
-          output: `[${imageLabel}]: ${description.slice(0, 200)}`,
-        }, 0);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        events.onToolEnd(toolId, "vision_translate", {
-          success: false,
-          output: `Vision translation failed: ${errMsg}`,
-        }, 0);
-      }
-    }
-  }
 
 }
