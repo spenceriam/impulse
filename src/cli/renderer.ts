@@ -20,6 +20,8 @@ import {
   Container,
   Text,
   Spacer,
+  visibleWidth,
+  wrapTextWithAnsi,
   type Component,
   type OverlayHandle,
 } from "@mariozechner/pi-tui";
@@ -137,6 +139,7 @@ import {
   type SelectableListRow,
 } from "./components/selectable-list-overlay.js";
 import { PlanApprovalOverlay } from "./components/plan-approval-overlay.js";
+import { TurnReceipt, receiptStatusFor } from "./components/turn-receipt.js";
 import { AllowAllDisclaimerOverlay } from "./components/allow-all-disclaimer-overlay.js";
 import { ExperimentalOverlay } from "./components/experimental-overlay.js";
 import {
@@ -166,8 +169,9 @@ import {
   MANUAL_MODEL_ROW_ID,
 } from "./model-setup-rows.js";
 import { sessionHasResumeableContent } from "../session/session-content.js";
-import type { LoopEvents } from "../agent/loop.js";
 import { TuiRuntimeController } from "../runtime/tui-controller.js";
+import type { LoopEvents } from "../agent/loop.js";
+import { formatSubagentToolLabel } from "../agent/task-runner.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
 import {
   load as loadConfig,
@@ -1723,6 +1727,7 @@ export class ImpulseRenderer {
 
   // Streaming state: current assistant text block (updated in-place)
   private streamingText: MarkdownTextBlock | null = null;
+  private turnReceipt: TurnReceipt | null = null;
   private streamingRaw = "";
   /** Separator appended before the next frozen segment in currentTurnAssistantText; a
    *  line-cut rotation sets this to "\n" for one segment so /copy stays byte-faithful. */
@@ -2887,9 +2892,10 @@ export class ImpulseRenderer {
     this.addSectionGap();
     this.lastBandWasTool = false;
     this.lastBandToolHadBody = false;
-    this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(transcript);
-    this.addSectionGap();
+    this.addUserPromptBlock(transcript);
+    this.turnReceipt = new TurnReceipt();
+    this.chat.addChild(this.turnReceipt);
+    this.hasTrailingGap = false;
 
     this.streamingRaw = "";
     this.streamingText = null;
@@ -2926,6 +2932,7 @@ export class ImpulseRenderer {
         this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
       },
       onToken: (text) => {
+        this.turnReceipt?.update("Responding", "");
         if (!this.streamBusyPhraseSet) {
           this.setBusyStatus("Responding ...", BUSY_PROCESSING);
           this.streamBusyPhraseSet = true;
@@ -2952,6 +2959,7 @@ export class ImpulseRenderer {
         this.scheduleStreamRender();
       },
       onThinking: (text) => {
+        this.turnReceipt?.update("Thinking…", "");
         debugLog(`onThinking: ${text.length} chars`);
         this.appendWorkerThinking(text);
         this.scheduleStreamRender();
@@ -2969,6 +2977,7 @@ export class ImpulseRenderer {
       onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
       onLoopCheckin: (input) => this.showLoopCheckin(input),
       onSubagentTaskStatus: (id, status) => {
+        this.turnReceipt?.update("Delegating work", `${id} ${status}`);
         const block = this.toolBlocks.get(id);
         if (block) {
           block.setSubagentTaskStatus(status);
@@ -2982,6 +2991,7 @@ export class ImpulseRenderer {
           return;
         }
 
+        this.turnReceipt?.update(receiptStatusFor(name), formatSubagentToolLabel(name, args));
         this.closeThinking();
         this.finalizeStreamingAtSafeBoundary(false);
         this.preToolSpacing = {
@@ -3123,6 +3133,7 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
+        this.removeTurnReceipt();
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
@@ -3167,6 +3178,7 @@ export class ImpulseRenderer {
         }
       },
       onAbort: () => {
+        this.removeTurnReceipt();
         this.abortCurrentTurn();
       },
       onError: (err) => {
@@ -3276,6 +3288,16 @@ export class ImpulseRenderer {
     }
   }
 
+
+  /** Receipts vanish when the turn ends; permanent history lives in the transcript. */
+  private removeTurnReceipt(): void {
+    const receipt = this.turnReceipt;
+    if (!receipt) return;
+    this.turnReceipt = null;
+    const children = (this.chat as Container & { children: Component[] }).children;
+    const index = children.indexOf(receipt);
+    if (index !== -1) children.splice(index, 1);
+  }
   private addChatLine(text: string): void {
     const lines = wrapGutterLines(text, this.terminal.columns);
     for (const line of lines) {
@@ -3286,6 +3308,27 @@ export class ImpulseRenderer {
     this.lastBandToolHadBody = false;
   }
 
+  /** Echo a user prompt as a tinted block: ▄ top edge, gray-bg rows, ▀ bottom edge. */
+  private addUserPromptBlock(text: string): void {
+    const width = this.terminal.columns || 80;
+    const inner = Math.max(20, width - 4);
+    const bg = (s: string) => `\x1b[48;5;236m${s}\x1b[0m`;
+    const pad = (s: string) => " ".repeat(Math.max(0, width - visibleWidth(s)));
+    const header = `${A.fg(36, this.userName)}${" ".repeat(
+      Math.max(1, inner - this.userName.length - 8)
+    )}${clr.dim(new Date().toLocaleTimeString([], { hour12: false }))}`;
+
+    const bodyLines = wrapTextWithAnsi(text, inner);
+    this.chat.addChild(new Text(clr.dim("▄".repeat(width)), 0, 0));
+    this.chat.addChild(new Text(bg(` ${header}${pad(header)} `), 0, 0));
+    for (const line of bodyLines) {
+      this.chat.addChild(new Text(bg(` ${line}${pad(line)} `), 0, 0));
+    }
+    this.chat.addChild(new Text(clr.dim("▀".repeat(width)), 0, 0));
+    this.hasTrailingGap = false;
+    this.lastBandWasTool = false;
+    this.lastBandToolHadBody = false;
+  }
   private addSectionGap(): Spacer | null {
     if (this.presentationDensity === "compact") {
       this.hasTrailingGap = false;
@@ -6249,9 +6292,7 @@ export class ImpulseRenderer {
         break;
       case "user":
         this.addSectionGap();
-        this.addChatLine(`${A.fg(36, this.userName)}`);
-        this.addChatLine(step.text);
-        this.addSectionGap();
+        this.addUserPromptBlock(step.text);
         break;
       case "injected":
         this.addSectionGap();
@@ -6609,9 +6650,7 @@ export class ImpulseRenderer {
   private async runSkillAgentTurn(userMessage: string, displayLabel: string): Promise<void> {
     this.isRunning = true;
     this.addSectionGap();
-    this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(displayLabel);
-    this.addSectionGap();
+    this.addUserPromptBlock(displayLabel);
 
     this.streamingRaw = "";
     this.streamingText = null;
@@ -6655,6 +6694,7 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
       onAbort: () => {
+        this.removeTurnReceipt();
         this.spinStop();
         this.isRunning = false;
         this.syncContextBar({ isRunning: false });
@@ -6699,9 +6739,7 @@ export class ImpulseRenderer {
 
     this.isRunning = true;
     this.addSectionGap();
-    this.addChatLine(`${A.fg(36, this.userName)}`);
-    this.addChatLine(`@ ${question}`);
-    this.addSectionGap();
+    this.addUserPromptBlock(`@ ${question}`);
 
     this.streamingRaw = "";
     this.streamingText = null;
@@ -6745,6 +6783,7 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
       onAbort: () => {
+        this.removeTurnReceipt();
         this.spinStop();
         this.isRunning = false;
         this.syncContextBar({ isRunning: false });
