@@ -69,6 +69,7 @@ export class TerminalBox implements Component {
     if (this.finished) {
       const ok = this.exitCode === 0;
       const tail = lastNonEmpty(this.lines) ?? (ok ? "completed" : `exit ${this.exitCode}`);
+      const paint = (s: string) => padTo(bg(ok ? SUCCESS_BG : FAIL_BG, s), width);
       const label = ok ? "✓ TERMINAL" : `✗ TERMINAL exit ${this.exitCode}`;
       return [paint(` ${label}  ${truncateToWidth(tail, Math.max(4, width - visibleWidth(label) - 12))}  ${elapsed} `)];
     }

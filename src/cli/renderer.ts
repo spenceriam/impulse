@@ -173,6 +173,7 @@ import { TuiRuntimeController } from "../runtime/tui-controller.js";
 import type { LoopEvents } from "../agent/loop.js";
 import { formatSubagentToolLabel } from "../agent/task-runner.js";
 import { TerminalBox } from "./components/terminal-box.js";
+import { TranscriptOverlay, transcriptEntriesFromMessages } from "./components/transcript-overlay.js";
 import { setTerminalOutputTap } from "../tools/bash.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
 import {
@@ -1731,6 +1732,8 @@ export class ImpulseRenderer {
   private streamingText: MarkdownTextBlock | null = null;
   private turnReceipt: TurnReceipt | null = null;
   private activeTerminal: TerminalBox | null = null;
+  private transcriptOverlayHandle: OverlayHandle | null = null;
+  private transcriptInputCleanup: (() => void) | null = null;
   private streamingRaw = "";
   /** Separator appended before the next frozen segment in currentTurnAssistantText; a
    *  line-cut rotation sets this to "\n" for one segment so /copy stays byte-faithful. */
@@ -2250,7 +2253,11 @@ export class ImpulseRenderer {
         this.requestLayoutRefresh();
         return { consume: true };
       }
-      if (data === "\x05") {
+      if (data === "\\x14") {
+        this.showTranscriptOverlay();
+        return { consume: true };
+      }
+      if (data === "\\x05") {
         if (this.activeTerminal && !this.activeTerminal.isFinished) {
           this.activeTerminal.toggleExpanded();
           this.tui.requestRender();
@@ -3329,6 +3336,34 @@ export class ImpulseRenderer {
     }
   }
 
+
+  private showTranscriptOverlay(): void {
+    if (!this.tui || this.transcriptOverlayHandle) return;
+    const session = SessionManager.getCurrentSession();
+    const entries = transcriptEntriesFromMessages(
+      (session?.messages ?? []) as unknown as Array<Record<string, unknown>>,
+      this.userName
+    );
+    const maxHeight = overlayViewportMaxHeight(this.tui.terminal?.rows ?? this.terminal.rows ?? 24);
+    const overlay = new TranscriptOverlay(entries, maxHeight);
+    overlay.onCancel = () => this.dismissTranscriptOverlay();
+    this.transcriptOverlayHandle = this.showContentSizedOverlay(overlay, { maxHeight });
+    this.transcriptInputCleanup = this.tui.addInputListener((data: string) => {
+      overlay.handleInput(data);
+      this.tui.requestRender();
+      return { consume: true };
+    });
+    this.tui.requestRender();
+  }
+
+  private dismissTranscriptOverlay(): void {
+    this.transcriptInputCleanup?.();
+    this.transcriptInputCleanup = null;
+    this.transcriptOverlayHandle?.hide();
+    this.transcriptOverlayHandle = null;
+    this.tui?.setFocus(this.promptInput);
+    this.tui?.requestRender();
+  }
 
   private clearActiveTerminal(): void {
     if (!this.activeTerminal) return;
