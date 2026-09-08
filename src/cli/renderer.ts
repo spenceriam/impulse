@@ -174,6 +174,7 @@ import type { LoopEvents } from "../agent/loop.js";
 import { formatSubagentToolLabel } from "../agent/task-runner.js";
 import { TerminalBox } from "./components/terminal-box.js";
 import { TranscriptOverlay, transcriptEntriesFromMessages } from "./components/transcript-overlay.js";
+import { ProviderSetupOverlay } from "./components/provider-setup-overlay.js";
 import { setTerminalOutputTap } from "../tools/bash.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
 import {
@@ -1782,6 +1783,8 @@ export class ImpulseRenderer {
   private sessionPickerHandle: OverlayHandle | null = null;
   private modelPickerHandle: OverlayHandle | null = null;
   private modelSetupOverlayHandle: OverlayHandle | null = null;
+  private providerSetupOverlay: ProviderSetupOverlay | null = null;
+  private providerSetupOverlayHandle: OverlayHandle | null = null;
   private profileOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private branchWatcher: GitBranchWatcher | null = null;
@@ -3987,6 +3990,7 @@ export class ImpulseRenderer {
   private renderModelSetup(): void {
     const state = this.modelSetup;
     if (!state) {
+      this.dismissProviderSetupOverlay();
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       return;
@@ -4121,8 +4125,32 @@ export class ImpulseRenderer {
       this.promptInput.setSecretMode(state.step === "apiKey");
     }
 
-    this.modelSetupText.setText(lines.map(l => GUTTER + l).join("\n"));
+    this.renderProviderSetupOverlay(lines);
     this.requestLayoutRefresh();
+  }
+
+  /** Setup steps render in a modal box; the composer stays the text surface. */
+  private renderProviderSetupOverlay(lines: string[]): void {
+    if (!this.tui) return;
+    if (!this.providerSetupOverlay) {
+      this.providerSetupOverlay = new ProviderSetupOverlay();
+      this.providerSetupOverlayHandle = this.tui.showOverlay(this.providerSetupOverlay, {
+        anchor: "bottom-center",
+        offsetY: -4,
+        width: this.overlayMin(),
+        minWidth: this.overlayMin(),
+        maxHeight: overlayViewportMaxHeight(this.tui.terminal?.rows ?? this.terminal.rows ?? 24),
+        margin: this.listOverlayMargin(),
+      });
+    }
+    this.providerSetupOverlay.setLines(lines);
+    this.tui.requestRender();
+  }
+
+  private dismissProviderSetupOverlay(): void {
+    this.providerSetupOverlayHandle?.hide();
+    this.providerSetupOverlayHandle = null;
+    this.providerSetupOverlay = null;
   }
 
   private async selectModelSetupProvider(
@@ -4202,6 +4230,7 @@ export class ImpulseRenderer {
   }
 
   private cancelModelSetup(): void {
+    this.dismissProviderSetupOverlay();
     this.dismissModelSetupOverlay();
     if (this.modelSetupInputListener) {
       this.modelSetupInputListener();
@@ -4365,6 +4394,7 @@ export class ImpulseRenderer {
       }
       this.restorePromptAutocomplete();
       this.modelSetup = null;
+      this.dismissProviderSetupOverlay();
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
@@ -4400,6 +4430,7 @@ export class ImpulseRenderer {
       }
       this.restorePromptAutocomplete();
       this.modelSetup = null;
+      this.dismissProviderSetupOverlay();
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
@@ -4434,6 +4465,7 @@ export class ImpulseRenderer {
       }
       this.restorePromptAutocomplete();
       this.modelSetup = null;
+      this.dismissProviderSetupOverlay();
       this.modelSetupText.setText("");
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
