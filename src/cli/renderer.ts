@@ -172,6 +172,8 @@ import { sessionHasResumeableContent } from "../session/session-content.js";
 import { TuiRuntimeController } from "../runtime/tui-controller.js";
 import type { LoopEvents } from "../agent/loop.js";
 import { formatSubagentToolLabel } from "../agent/task-runner.js";
+import { TerminalBox } from "./components/terminal-box.js";
+import { setTerminalOutputTap } from "../tools/bash.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
 import {
   load as loadConfig,
@@ -1728,6 +1730,7 @@ export class ImpulseRenderer {
   // Streaming state: current assistant text block (updated in-place)
   private streamingText: MarkdownTextBlock | null = null;
   private turnReceipt: TurnReceipt | null = null;
+  private activeTerminal: TerminalBox | null = null;
   private streamingRaw = "";
   /** Separator appended before the next frozen segment in currentTurnAssistantText; a
    *  line-cut rotation sets this to "\n" for one segment so /copy stays byte-faithful. */
@@ -2245,6 +2248,18 @@ export class ImpulseRenderer {
         this.shellTakeoverActive = true;
         this.activeShellBlock?.setTakeoverActive(true);
         this.requestLayoutRefresh();
+        return { consume: true };
+      }
+      if (data === "\x05") {
+        if (this.activeTerminal && !this.activeTerminal.isFinished) {
+          this.activeTerminal.toggleExpanded();
+          this.tui.requestRender();
+          return { consume: true };
+        }
+      }
+      if (data === "\x1b" && this.activeTerminal?.isExpanded) {
+        this.activeTerminal.collapse();
+        this.tui.requestRender();
         return { consume: true };
       }
       return undefined;
@@ -2992,6 +3007,18 @@ export class ImpulseRenderer {
         }
 
         this.turnReceipt?.update(receiptStatusFor(name), formatSubagentToolLabel(name, args));
+        if (name === "bash" && args["background"] !== true) {
+          this.finalizeStreamingAtSafeBoundary(true);
+          const box = new TerminalBox(typeof args["command"] === "string" ? args["command"] : "");
+          this.activeTerminal = box;
+          setTerminalOutputTap((chunk) => box.appendOutput(chunk));
+          this.chat.addChild(box);
+          this.hasTrailingGap = false;
+          this.lastBandWasTool = true;
+          this.lastBandToolHadBody = false;
+          this.requestRenderForPhase("tool_start");
+          return;
+        }
         this.closeThinking();
         this.finalizeStreamingAtSafeBoundary(false);
         this.preToolSpacing = {
@@ -3038,6 +3065,18 @@ export class ImpulseRenderer {
         this.requestRenderForPhase("tool_start");
       },
       onToolEnd: (id, _name, result, durationMs) => {
+        if (_name === "bash" && result.metadata?.["type"] === "bash" && this.activeTerminal) {
+          setTerminalOutputTap(undefined);
+          const exitCode = typeof result.metadata["exitCode"] === "number" ? result.metadata["exitCode"] : result.success ? 0 : 1;
+          this.activeTerminal.finish(exitCode);
+          this.turnReceipt?.update("Ran command", exitCode === 0 ? "command succeeded" : `command failed (exit ${exitCode})`);
+          this.activeTerminal = null;
+          this.lastBandWasTool = false;
+          this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+          this.updateLiveMetrics(result.output.length, true);
+          this.tui.requestRender();
+          return;
+        }
         if (SILENT_TOOLS.has(_name)) {
           return;
         }
@@ -3134,6 +3173,7 @@ export class ImpulseRenderer {
       },
       onTurnEnd: (usage) => {
         this.removeTurnReceipt();
+        this.clearActiveTerminal();
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
@@ -3179,6 +3219,7 @@ export class ImpulseRenderer {
       },
       onAbort: () => {
         this.removeTurnReceipt();
+        this.clearActiveTerminal();
         this.abortCurrentTurn();
       },
       onError: (err) => {
@@ -3288,6 +3329,13 @@ export class ImpulseRenderer {
     }
   }
 
+
+  private clearActiveTerminal(): void {
+    if (!this.activeTerminal) return;
+    setTerminalOutputTap(undefined);
+    this.activeTerminal.finish(1);
+    this.activeTerminal = null;
+  }
 
   /** Receipts vanish when the turn ends; permanent history lives in the transcript. */
   private removeTurnReceipt(): void {
@@ -6695,6 +6743,7 @@ export class ImpulseRenderer {
       },
       onAbort: () => {
         this.removeTurnReceipt();
+        this.clearActiveTerminal();
         this.spinStop();
         this.isRunning = false;
         this.syncContextBar({ isRunning: false });
@@ -6784,6 +6833,7 @@ export class ImpulseRenderer {
       },
       onAbort: () => {
         this.removeTurnReceipt();
+        this.clearActiveTerminal();
         this.spinStop();
         this.isRunning = false;
         this.syncContextBar({ isRunning: false });

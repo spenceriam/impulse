@@ -1047,9 +1047,31 @@ function paginateAndCapBashOutput(
   return { output, truncated: wasTruncated };
 }
 
-/**
- * Execute command with standard Bun.spawn (non-interactive, host-shell aware)
- */
+/** Live stdout tap for the TUI terminal box; one foreground command at a time. */
+export let terminalOutputTap: ((chunk: string) => void) | undefined;
+
+export function setTerminalOutputTap(tap: ((chunk: string) => void) | undefined): void {
+  terminalOutputTap = tap;
+}
+
+async function collectStream(
+  stream: ReadableStream<Uint8Array> | null,
+  tap: ((chunk: string) => void) | undefined
+): Promise<string> {
+  if (!stream) return "";
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = decoder.decode(value, { stream: true });
+    accumulated += text;
+    tap?.(text);
+  }
+  return accumulated;
+}
+
 async function executeWithSpawn(
   input: BashInput,
   cwd: string,
@@ -1093,8 +1115,8 @@ async function executeWithSpawn(
   const abortForSession = () => { void killProcessTree(proc.pid); };
   sessionSignal?.addEventListener("abort", abortForSession, { once: true });
 
-  const stdoutPromise = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
-  const stderrPromise = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
+  const stdoutPromise = collectStream(proc.stdout, terminalOutputTap);
+  const stderrPromise = collectStream(proc.stderr, undefined);
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   // timeout:0 means no limit; undefined falls back to the 120s default (matching PTY path)
