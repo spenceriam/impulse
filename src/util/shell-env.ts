@@ -413,6 +413,8 @@ export function generateShellContext(env: ShellEnvironment): string {
   return parts.join("\n");
 }
 import { detectWindowsCommandShell, type WindowsCommandShellType } from "./windows-shell.js";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 
 // ---------------------------------------------------------------------------
 // Tool-availability probe (#118 item 3 / #115 shared)
@@ -425,7 +427,10 @@ export interface ToolAvailability {
 
 let cachedToolAvailability: Promise<ToolAvailability> | undefined;
 
-const COMMON_TOOLS = ["git", "node", "npm", "bun", "python", "docker", "rg", "jq", "curl"];
+const COMMON_TOOLS = [
+  "git", "node", "npm", "bun", "pnpm", "yarn", "python", "python3",
+  "docker", "rg", "jq", "curl", "gh", "cargo", "go", "make", "uv",
+];
 const WINDOWS_EXTRA = ["wsl"];
 
 async function probeOneTool(name: string): Promise<string | null> {
@@ -478,7 +483,46 @@ export function formatToolAvailabilityBlock(avail: ToolAvailability): string {
     lines.push(`Available: ${avail.available.join(", ")}`);
   }
   if (avail.unavailable.length > 0) {
-    lines.push(`Not found: ${avail.unavailable.join(", ")}`);
+    lines.push(`Not found: ${avail.unavailable.join(", ")} — do not call these; use an available alternative instead of guessing`);
+  }
+  const pm = detectPackageManager(process.cwd());
+  if (pm) {
+    lines.push(`Project package manager: ${pm} (run ${pm === "npm" ? "npm run" : pm} <script>, install with ${pm} install)`);
+  }
+  const scripts = detectProjectScripts(process.cwd());
+  if (scripts.length > 0) {
+    lines.push(`Project scripts: ${scripts.join(", ")}`);
   }
   return lines.join("\n");
+}
+
+const LOCKFILES: Array<[string, string]> = [
+  ["bun.lock", "bun"],
+  ["bun.lockb", "bun"],
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["package-lock.json", "npm"],
+  ["Cargo.toml", "cargo"],
+  ["go.mod", "go"],
+  ["pyproject.toml", "uv"],
+  ["requirements.txt", "pip"],
+  ["Makefile", "make"],
+];
+
+export function detectPackageManager(cwd: string): string | null {
+  for (const [file, pm] of LOCKFILES) {
+    if (existsSync(join(cwd, file))) return pm;
+  }
+  return null;
+}
+
+function detectProjectScripts(cwd: string): string[] {
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    return Object.keys(pkg.scripts ?? {}).slice(0, 12);
+  } catch {
+    return [];
+  }
 }

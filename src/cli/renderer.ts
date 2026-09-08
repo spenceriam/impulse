@@ -1326,6 +1326,13 @@ export class ImpulseRenderer {
     this.updateQueuePreview();
     this.requestLayoutRefresh();
     this.tui.requestRender();
+    // Safety net: a submit racing turn-end can enqueue AFTER the turn's
+    // final drain already ran (isRunning flips false between Enter and the
+    // enqueue). Re-check shortly; without this the message sits queued with
+    // nothing left to drain it and the user must resend.
+    setTimeout(() => {
+      if (!this.isRunning) this.drainTurnQueue();
+    }, 80);
   }
 
   private drainTurnQueue(): void {

@@ -20,6 +20,7 @@ import { capBashOutputLines } from "../util/tool-output-cap.js";
 import { isWithinBase } from "../util/path.js";
 import { detectWindowsCommandShell, detectWslShell } from "../util/windows-shell.js";
 import { load as loadConfig } from "../util/config.js";
+import { probeToolAvailability } from "../util/shell-env.js";
 import { killProcessTree } from "../util/process-tree.js";
 import {
   registerForegroundProcess,
@@ -1000,6 +1001,101 @@ async function executeWithPty(
   }
 }
 
+// ─── Command pre-flight: fail unknown binaries before spawning ──────────────
+
+const BASH_BUILTINS_AND_WRAPPERS = new Set([
+  "cd", "echo", "exit", "export", "source", ".", "alias", "bg", "bind", "break",
+  "builtin", "caller", "command", "compgen", "complete", "compopt", "continue",
+  "declare", "dirs", "disown", "enable", "eval", "exec", "false", "fc", "fg",
+  "getopts", "hash", "help", "history", "jobs", "kill", "let", "local",
+  "logout", "mapfile", "popd", "printf", "pushd", "pwd", "read", "readarray",
+  "readonly", "return", "set", "shift", "shopt", "suspend", "test", "times",
+  "trap", "true", "type", "typeset", "ulimit", "umask", "unalias", "unset",
+  "wait", "[", "[[", "time", "sudo", "env", "nohup", "nice", "xargs", "which",
+  "watch", "yes", "man", "ls", "cat", "grep", "sed", "awk", "cut", "sort",
+  "uniq", "head", "tail", "tr", "tee", "wc", "find", "mkdir", "rm", "cp", "mv",
+  "touch", "chmod", "chown", "ln", "dirname", "basename", "date", "sleep",
+  "ps", "top", "du", "df", "tar", "gzip", "gunzip", "zip", "unzip", "ssh",
+  "scp", "rsync", "diff", "patch", "less", "more", "vi", "vim", "nano",
+]);
+const BASH_KEYWORDS = new Set([
+  "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done",
+  "case", "esac", "function", "in", "select", "coproc", "{", "}", "!", "&",
+]);
+
+/** Head tokens of every command segment, after env-prefix/wrapper stripping. */
+export function commandHeads(command: string): string[] {
+  return command
+    .split(/&&|\|\||;|\||\n/)
+    .map((segment) => {
+      let tokens = segment.trim().replace(/^\(+/, "").split(/\s+/).filter(Boolean);
+      while (
+        tokens.length > 0 &&
+        (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]!) ||
+          ["sudo", "env", "nohup", "nice", "time", "command", "builtin", "exec", "xargs"].includes(tokens[0]!))
+      ) {
+        tokens = tokens.slice(1);
+      }
+      return tokens[0] ?? "";
+    })
+    .filter(
+      (head) =>
+        head.length > 1 &&
+        !head.startsWith("-") &&
+        !head.startsWith("$") &&
+        !head.startsWith("<") &&
+        !head.startsWith(">") &&
+        !head.includes("/") &&
+        !head.startsWith("#") &&
+        !BASH_BUILTINS_AND_WRAPPERS.has(head) &&
+        !BASH_KEYWORDS.has(head)
+    );
+}
+
+/** Sync: head tokens that are not on PATH. Empty means the command is runnable. */
+export function findMissingCommandHeads(command: string): string[] {
+  return commandHeads(command).filter((head) => !Bun.which(head));
+}
+
+/** Build the rejection message for missing binaries, with nearest-match hints. */
+export async function validateCommandAvailable(missing: string[]): Promise<string> {
+  const available = (await probeToolAvailability()).available.map(
+    (entry) => entry.split(" ")[0] ?? entry
+  );
+  const hints = missing.map((name) => {
+    let best = "";
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of available) {
+      const distance = levenshtein(name, candidate);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = candidate;
+      }
+    }
+    return bestDistance <= 2 ? `${name}: did you mean '${best}'?` : name;
+  });
+  return `Command not found on this system: ${missing.join(", ")}. ${hints.join(" ")} Check the available CLI tools block in your context before running commands — do not guess. Available tools include: ${available.slice(0, 12).join(", ")}.`;
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(
+        (previous[j] ?? 0) + 1,
+        (current[j - 1] ?? 0) + 1,
+        (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length] ?? 0;
+}
+
 function paginateAndCapBashOutput(
   combinedOutput: string,
   input: Pick<BashInput, "offset" | "limit">,
@@ -1354,6 +1450,13 @@ export const bashTool: Tool<BashInput> = Tool.define(
   DESCRIPTION,
   BashSchema,
   async (input: BashInput): Promise<ToolResult> => {
+    // Interactive sessions are long-lived REPLs (python, psql, ssh) and may
+    // route through PTY runtimes; pre-flight targets one-shot script commands.
+    const missingHeads = input.interactive ? [] : findMissingCommandHeads(input.command);
+    if (missingHeads.length > 0) {
+      // Reject before reserving execution admission or spawning anything.
+      return { success: false, output: await validateCommandAvailable(missingHeads) };
+    }
     const sessionName = normalizeSessionName(input.session);
     let foregroundAdmission: ExecutionStartRegistration | undefined;
     const execution = currentExecutionContext();
