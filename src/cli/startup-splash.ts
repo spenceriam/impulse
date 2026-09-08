@@ -40,14 +40,14 @@ export async function printStartupSplash(options?: StartupSplashOptions): Promis
   printStdoutLogo();
   printWelcomeMeta(version);
 
-  const update = await checkForUpdate();
-  if (update) {
-    console.log(
-      dimSplashLine(
-        `Update available: v${update.currentVersion} → v${update.latestVersion}  (${update.updateCommand})`
-      )
-    );
-  }
+  // Update check runs in the background: a 5s network timeout should
+  // never delay the first paint. Results publish on the Bus for the
+  // TUI to surface once interactive.
+  void checkForUpdate().then((update) => {
+    if (update) {
+      console.log(dimSplashLine(`Update available: v${update.latestVersion} — run /update`));
+    }
+  });
 
   const configPath = `${Global.Path.home}/config.json`;
   console.log(dimSplashLine(`Loading config from ${configPath}`));
