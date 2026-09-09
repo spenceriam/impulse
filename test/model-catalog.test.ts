@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { defaultContextWindowForModel, enrichModelId } from "../src/cli/model-catalog.js";
+import {
+  defaultContextWindowForModel,
+  enrichModelId,
+  recordSupportsVision,
+  warmVisionCapabilitiesFromCatalog,
+  type CatalogData,
+  type ModelsDevRecord,
+} from "../src/cli/model-catalog.js";
+import {
+  clearModelCapabilities,
+  getModelCapabilities,
+  modelSupportsVisionCached,
+  setModelCapabilities,
+} from "../src/api/capabilities.js";
 
 describe("defaultContextWindowForModel", () => {
   test("uses 128k for typical flagship models", () => {
@@ -78,5 +91,121 @@ describe("model catalog context resolution", () => {
     const info = enrichModelId("openai", "gpt-4", catalog);
 
     expect(info.contextTokens).toBeUndefined();
+  });
+});
+
+describe("recordSupportsVision (models.dev capability fields)", () => {
+  test("glm-5.3-flash attachment:true → vision (regression for #132)", () => {
+    const record: ModelsDevRecord = {
+      id: "glm-5.3-flash",
+      name: "GLM-5.3-Flash",
+      family: "glm",
+      attachment: true,
+    };
+    expect(recordSupportsVision(record)).toBe(true);
+  });
+
+  test("image modalities input implies vision", () => {
+    const record: ModelsDevRecord = {
+      id: "some-model",
+      modalities: { input: ["text", "image"], output: ["text"] },
+    };
+    expect(recordSupportsVision(record)).toBe(true);
+  });
+
+  test("text-only record is a negative", () => {
+    const record: ModelsDevRecord = {
+      id: "glm-5.1",
+      attachment: false,
+      modalities: { input: ["text"], output: ["text"] },
+    };
+    expect(recordSupportsVision(record)).toBe(false);
+  });
+
+  test("record without capability data is unknown (undefined)", () => {
+    const record: ModelsDevRecord = { id: "mystery", name: "Mystery" };
+    expect(recordSupportsVision(record)).toBeUndefined();
+    expect(recordSupportsVision(undefined)).toBeUndefined();
+  });
+});
+
+describe("warmVisionCapabilitiesFromCatalog", () => {
+  const catalog: CatalogData = {
+    "ollama-cloud": {
+      models: {
+        "glm-5.3-flash": {
+          id: "glm-5.3-flash",
+          name: "GLM-5.3-Flash",
+          family: "glm",
+          attachment: true,
+          reasoning: true,
+          limit: { context: 200_000 },
+        },
+        "glm-5.1": {
+          id: "glm-5.1",
+          attachment: false,
+          limit: { context: 200_000 },
+        },
+      },
+    },
+  };
+
+  test("writes catalog vision capability into cache and picker sees it", () => {
+    const modelId = "ollama/glm-5.3-flash";
+    clearModelCapabilities(modelId);
+    try {
+      // Pre-seed the poisoned state from #132: a stale heuristic negative.
+      setModelCapabilities(modelId, {
+        vision: false,
+        reasoning: false,
+        source: "heuristic",
+      });
+
+      warmVisionCapabilitiesFromCatalog([modelId], catalog);
+
+      const cached = getModelCapabilities(modelId);
+      expect(cached?.source).toBe("catalog");
+      expect(cached?.vision).toBe(true);
+      expect(modelSupportsVisionCached(modelId)).toBe(true);
+    } finally {
+      clearModelCapabilities(modelId);
+    }
+  });
+
+  test("text-only catalog models get vision:false", () => {
+    const modelId = "ollama/glm-5.1";
+    clearModelCapabilities(modelId);
+    try {
+      warmVisionCapabilitiesFromCatalog([modelId], catalog);
+      expect(getModelCapabilities(modelId)?.vision).toBe(false);
+    } finally {
+      clearModelCapabilities(modelId);
+    }
+  });
+
+  test("never clobbers user-override or provider-api entries", () => {
+    const modelId = "ollama/glm-5.3-flash";
+    clearModelCapabilities(modelId);
+    try {
+      setModelCapabilities(modelId, {
+        vision: false,
+        reasoning: true,
+        source: "user-override",
+      });
+
+      warmVisionCapabilitiesFromCatalog([modelId], catalog);
+
+      const cached = getModelCapabilities(modelId);
+      expect(cached?.source).toBe("user-override");
+      expect(cached?.vision).toBe(false);
+    } finally {
+      clearModelCapabilities(modelId);
+    }
+  });
+
+  test("models the catalog cannot resolve are skipped", () => {
+    const before = getModelCapabilities("ollama/totally-unknown-xyz");
+    warmVisionCapabilitiesFromCatalog(["ollama/totally-unknown-xyz"], catalog);
+    expect(getModelCapabilities("ollama/totally-unknown-xyz")).toBe(before);
   });
 });

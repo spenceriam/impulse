@@ -21,7 +21,6 @@ import type {
 import type { ChatMessage, ChatCompletionResponse, ChatCompletionChunk } from "../types";
 import { ProviderAuthError, ProviderError } from "../provider";
 import type { ModelCapabilities } from "../capabilities";
-import { modelSupportsVisionFallback } from "../capabilities";
 import type { ReasoningLevel } from "../../util/config";
 import { toApiUsageFields } from "../usage-helpers.js";
 
@@ -307,19 +306,30 @@ export class OllamaProvider implements AIProvider {
 
   async discoverModelCapabilities(model: string): Promise<ModelCapabilities | undefined> {
     const base = (this.config.baseUrl || OLLAMA_DEFAULT_BASE_URL).replace(/\/\/$/, "");
+    const clean = stripPrefix(model);
+
+    // First-party capability data from /api/show (vision + thinking flags).
+    const { discoverOllamaVision } = await import("./capabilities.js");
+    const visionFromApi = await discoverOllamaVision(base, clean, this.config.apiKey);
+    if (visionFromApi !== undefined) {
+      const lower = clean.toLowerCase();
+      const reasoning = lower.includes("think") || lower.includes("reason");
+      return {
+        vision: visionFromApi,
+        reasoning,
+        source: "provider-api",
+        discoveredAt: Date.now(),
+      };
+    }
+
+    // /api/show unavailable — verify the model exists, then report nothing so
+    // callers fall through to the catalog/manifest layers instead of caching a
+    // name-pattern guess as fact.
     const result = await testOllamaConnection(base, this.config.apiKey);
     if (!result.success) return undefined;
-
-    const clean = stripPrefix(model);
     const available = result.models.find((m) => m === clean || m.endsWith(`/${clean}`));
     if (!available) return undefined;
-
-    // Ollama model IDs are unpredictable — rely on heuristic fallback.
-    const vision = modelSupportsVisionFallback(clean);
-    const lower = clean.toLowerCase();
-    const reasoning = lower.includes("think") || lower.includes("reason");
-
-    return { vision, reasoning, source: "heuristic", discoveredAt: Date.now() };
+    return undefined;
   }
 }
 

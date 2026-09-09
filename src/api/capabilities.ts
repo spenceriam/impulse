@@ -20,8 +20,8 @@ export interface ModelCapabilities {
   reasoning: boolean;
   contextLength?: number;
   maxOutputTokens?: number;
-  discoveredAt: number; // timestamp
-  source: "provider-api" | "heuristic" | "user-override";
+    discoveredAt: number; // timestamp
+    source: "provider-api" | "heuristic" | "user-override" | "catalog";
 }
 
 let cache: Map<string, ModelCapabilities> | null = null;
@@ -73,6 +73,15 @@ export function setModelCapabilities(
   saveCache();
 }
 
+/**
+ * Remove a cached capability entry (e.g. stale heuristic results that
+ * shadow better data). No-op when the model has no cached entry.
+ */
+export function clearModelCapabilities(model: string): void {
+  const c = loadCache();
+  if (c.delete(model.toLowerCase())) saveCache();
+}
+
 /** Get cached capability or undefined. */
 export function getModelCapabilities(model: string): ModelCapabilities | undefined {
   return loadCache().get(model.toLowerCase());
@@ -95,9 +104,10 @@ export async function modelSupportsVision(
   probe?: () => Promise<boolean | undefined>
 ): Promise<boolean> {
   const cached = getModelCapabilities(model);
-  if (cached) return cached.vision;
 
-  // 1. Try provider API discovery (e.g. /v1/models, /api/show)
+  // 1. Try provider API discovery (e.g. /v1/models, /api/show).
+  // A cached heuristic guess must not shadow authoritative discovery, so
+  // discovery runs even when the cache has an entry.
   if (discover) {
     const found = await discover();
     if (found) {
@@ -106,22 +116,26 @@ export async function modelSupportsVision(
     }
   }
 
-  // 2. Runtime probe: send a tiny image and see if the model responds to it
-  if (probe) {
-    const result = await probe();
-    if (result !== undefined) {
-      setModelCapabilities(model, {
-        vision: result,
-        reasoning: false, // probe doesn't discover reasoning
-        source: "provider-api",
-      });
-      return result;
-    }
-  }
+  if (cached) return cached.vision;
 
-  // 3. Last resort: name-pattern heuristic
-  return modelSupportsVisionFallback(model);
-}
+    // 2. Runtime probe: send a tiny image and see if the model responds to it
+    if (probe) {
+      const result = await probe();
+      if (result !== undefined) {
+        setModelCapabilities(model, {
+          vision: result,
+          reasoning: false, // probe doesn't discover reasoning
+          source: "provider-api",
+        });
+        return result;
+      }
+    }
+
+    // 3. Last resort: name-pattern heuristic — computed, never cached.
+    // (Caching heuristic guesses is what let wrong results shadow correct
+    //  catalog data for the 7-day cache TTL.)
+    return modelSupportsVisionFallback(model);
+  }
 
 /** Best-effort fallback: well-known naming patterns.
  *  Do NOT treat as authoritative — this is a last resort when the provider API
