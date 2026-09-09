@@ -689,7 +689,9 @@ export class PromptInput implements Component, Focusable {
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (lines.length === 1 && isImagePathCandidate(lines[0]!)) {
-      this.editor.setText(lines[0]!.trim());
+      // Insert at the cursor — never replace typed composer text (#133 feedback).
+      const label = `[Pasted image #${this._nextImageIndex}]`;
+      this.editor.handleInput(label);
       void this.attachImagePathsFromEditor().then(() => {
         this.onChange?.(this.editor.getText());
       });

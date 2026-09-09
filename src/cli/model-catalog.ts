@@ -454,17 +454,23 @@ export async function enrichDiscoveredModels(
   modelIds: string[],
   apiEntries?: ProviderModelEntry[]
 ): Promise<ModelInfo[]> {
-  const catalog = await loadModelsDevCatalog();
-  const byId = new Map(apiEntries?.map((e) => [e.id, e]) ?? []);
+  let infos: ModelInfo[];
+  let catalog: CatalogData | null = null;
+  try {
+    catalog = await loadModelsDevCatalog();
+    infos = modelIds.map((id) =>
+      enrichModelId(impulseProviderKey, id, catalog!, apiEntries?.find((e) => e.id === id.replace(/^[^/]+\//, "")))
+    );
+  } catch {
+    // models.dev unreachable — still surface model rows. Capability cache is
+    // NOT touched: unknown stays unknown so the runtime probe / heuristic
+    // can decide at turn time instead of a negative guess sticking for days.
+    infos = fallbackModelInfosFromIds(modelIds);
+  }
 
-  const infos = modelIds.map((id) =>
-    enrichModelId(impulseProviderKey, id, catalog, byId.get(id))
-  );
-
-  // Warm the vision capability cache from the models.dev catalog so the
-  // model picker / setup wizard see authoritative data without an async probe.
-  // Never clobbers user-override or provider-api entries.
-  warmVisionCapabilitiesFromCatalog(modelIds, catalog);
+  if (catalog) {
+    warmVisionCapabilitiesFromCatalog(modelIds, catalog);
+  }
 
   return sortModelInfos(infos);
 }
@@ -493,12 +499,24 @@ export function warmVisionCapabilitiesFromCatalog(
     ) {
       continue;
     }
-    const caps: Omit<import("../api/capabilities.js").ModelCapabilities, "discoveredAt"> = {
-      vision,
-      reasoning: record?.reasoning ?? existing?.reasoning ?? false,
-      source: "catalog",
-    };
-    if (record?.limit?.context !== undefined) caps.contextLength = record.limit.context;
-    setModelCapabilities(id, caps);
+      const caps: Omit<import("../api/capabilities.js").ModelCapabilities, "discoveredAt"> = {
+        vision,
+        reasoning: record?.reasoning ?? existing?.reasoning ?? false,
+        source: "catalog",
+      };
+      if (record?.limit?.context !== undefined) caps.contextLength = record.limit.context;
+      setModelCapabilities(id, caps);
+      // UI checks may use the prefixed form (session model id) while
+      // discovery warms bare ids — store both so lookups always hit.
+      if (providerKey && id === bare) {
+        const existingPrefixed = getModelCapabilities(`${providerKey}/${id}`);
+        if (
+          !existingPrefixed ||
+          (existingPrefixed.source !== "user-override" &&
+            existingPrefixed.source !== "provider-api")
+        ) {
+          setModelCapabilities(`${providerKey}/${id}`, caps);
+        }
+      }
+    }
   }
-}

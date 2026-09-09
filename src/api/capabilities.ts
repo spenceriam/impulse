@@ -88,11 +88,20 @@ export function getModelCapabilities(model: string): ModelCapabilities | undefin
 }
 
 /**
- * Sync vision check for UI paths (model picker, setup wizard).
- * Uses cache when available, otherwise name-pattern heuristic only — no async probe.
+ * Sync vision check for UI paths (model picker, setup wizard, paste guard).
+ * The cache stores both bare ("glm-5.3-flash") and prefixed
+ * ("ollama/glm-5.3-flash") ids depending on which layer warmed it, so the
+ * lookup normalizes: try the given key, then its bare form, then its
+ * provider-prefixed form. Falls back to name-pattern heuristic only.
  */
 export function modelSupportsVisionCached(model: string): boolean {
-  const cached = getModelCapabilities(model);
+  const c = loadCache();
+  const key = model.toLowerCase();
+  const cached =
+    c.get(key) ??
+    (model.includes("/")
+      ? c.get(key.slice(key.indexOf("/") + 1)) ?? c.get(`ollama/${key.slice(key.indexOf("/") + 1)}`)
+      : undefined);
   if (cached) return cached.vision;
   return modelSupportsVisionFallback(model);
 }
