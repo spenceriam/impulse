@@ -694,11 +694,30 @@ export class PromptInput implements Component, Focusable {
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (lines.length === 1 && isImagePathCandidate(lines[0]!)) {
-      // Insert the path at the cursor — never replace typed composer text —
-      // then let attachImagePathsFromEditor resolve it into a token backed by
-      // the actual image data (#133 feedback).
-      this.editor.handleInput(lines[0]!.trim());
-      void this.attachImagePathsFromEditor().then(() => {
+      // Resolve the pasted path directly into a [Pasted image #N] token
+      // inserted at the cursor — typed composer text is never replaced, and
+      // the token is backed by real image data without relying on editor
+      // text scanning (which misses paths embedded after typed text).
+      const raw = lines[0]!.trim();
+      void resolveImagePath(raw).then((resolved) => {
+        if (resolved.ok) {
+          const idx = this._nextImageIndex++;
+          const label = `[Pasted image #${idx}]`;
+          this._detectedImages.push(resolved.uri);
+          this._pasteGroups.push({
+            display: label,
+            content: resolved.uri,
+            originalDisplay: label,
+            kind: "image",
+            imageIndex: idx,
+          });
+          this.editor.handleInput(label);
+          this._syncPasteGroupsAfterEdit();
+        } else {
+          // Resolution failed — keep the path visible as text so the user
+          // sees what happened instead of a phantom token.
+          this.editor.handleInput(raw);
+        }
         this.onChange?.(this.editor.getText());
       });
       return;
