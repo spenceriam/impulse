@@ -10,9 +10,6 @@ import {
   type Focusable,
 } from "@mariozechner/pi-tui";
 import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } from "./gutter.js";
-import * as fsSync from "fs";
-import * as os from "os";
-import * as pathMod from "path";
 import {
   extractImagePathRefs,
   filePathInPasteRegex,
@@ -692,16 +689,6 @@ export class PromptInput implements Component, Focusable {
     this._isPasting = false;
     const content = normalizePasteContent(this._pasteBuffer);
     this._pasteBuffer = "";
-    // TEMP DIAGNOSTIC: raw paste buffer capture
-    try {
-      const diagDir = pathMod.join(os.homedir(), ".impulse", "cache");
-      fsSync.mkdirSync(diagDir, { recursive: true });
-      fsSync.writeFileSync(
-        pathMod.join(diagDir, "last-paste-debug.txt"),
-        JSON.stringify({ at: new Date().toISOString(), length: content.length, content }),
-        "utf-8"
-      );
-    } catch { /* ignore */ }
 
     const lines = content.split("\n").filter((l) => l.length > 0);
 
