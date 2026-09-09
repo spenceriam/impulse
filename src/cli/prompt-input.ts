@@ -13,7 +13,6 @@ import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } f
 import {
   extractImagePathRefs,
   filePathInPasteRegex,
-  isImagePathCandidate,
   resolveImagePath,
 } from "./image-paths.js";
 
@@ -693,33 +692,42 @@ export class PromptInput implements Component, Focusable {
 
     const lines = content.split("\n").filter((l) => l.length > 0);
 
-    if (lines.length === 1 && isImagePathCandidate(lines[0]!)) {
-      // Resolve the pasted path directly into a [Pasted image #N] token
-      // inserted at the cursor — typed composer text is never replaced, and
-      // the token is backed by real image data without relying on editor
-      // text scanning (which misses paths embedded after typed text).
-      const raw = lines[0]!.trim();
-      void resolveImagePath(raw).then((resolved) => {
-        if (resolved.ok) {
-          const idx = this._nextImageIndex++;
-          const label = `[Pasted image #${idx}]`;
-          this._detectedImages.push(resolved.uri);
-          this._pasteGroups.push({
-            display: label,
-            content: resolved.uri,
-            originalDisplay: label,
-            kind: "image",
-            imageIndex: idx,
+    // Paste consisting purely of image paths (one or many, possibly quoted /
+    // space-separated / multi-line) → resolve each path directly and insert
+    // one [Pasted image #N] token per image at the cursor. Prose that merely
+    // CONTAINS a path stays text (transcript exports must not hijack).
+    const pathRefs = extractImagePathRefs(content);
+    const nonPathText = pathRefs
+      .reduce((acc, ref) => acc.replace(ref.raw, ""), content)
+      .replace(/[\s"']+/g, "");
+    if (pathRefs.length > 0 && nonPathText.length === 0) {
+      void Promise.all(pathRefs.map((ref) => resolveImagePath(ref.path))).then(
+        (results) => {
+          let labels = "";
+          results.forEach((resolved) => {
+            if (!resolved.ok) return;
+            const idx = this._nextImageIndex++;
+            const label = `[Pasted image #${idx}]`;
+            this._detectedImages.push(resolved.uri);
+            this._pasteGroups.push({
+              display: label,
+              content: resolved.uri,
+              originalDisplay: label,
+              kind: "image",
+              imageIndex: idx,
+            });
+            labels += label;
           });
-          this.editor.handleInput(label);
-          this._syncPasteGroupsAfterEdit();
-        } else {
-          // Resolution failed — keep the path visible as text so the user
-          // sees what happened instead of a phantom token.
-          this.editor.handleInput(raw);
+          if (labels.length > 0) {
+            this.editor.handleInput(labels);
+            this._syncPasteGroupsAfterEdit();
+          } else {
+            // Nothing resolved — keep the raw paste visible as text.
+            this.editor.handleInput(content.trim());
+          }
+          this.onChange?.(this.editor.getText());
         }
-        this.onChange?.(this.editor.getText());
-      });
+      );
       return;
     }
 
