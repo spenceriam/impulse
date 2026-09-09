@@ -312,7 +312,10 @@ export class PromptInput implements Component, Focusable {
     return errors;
   }
 
-  private _detectImages(content: string): number {
+  private _detectImages(
+    content: string,
+    opts: { pathsAsImages?: boolean } = {}
+  ): number {
     let found = 0;
     const base64Regex = /data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[A-Za-z0-9+/=]+/gi;
     const base64Matches = content.match(base64Regex);
@@ -325,13 +328,15 @@ export class PromptInput implements Component, Focusable {
       }
     }
 
-    const fileRegex = filePathInPasteRegex();
-    const fileMatches = content.match(fileRegex);
-    if (fileMatches) {
-      for (const match of fileMatches) {
-        if (!this._detectedImages.includes(match)) {
-          this._detectedImages.push(match);
-          found++;
+    if (opts.pathsAsImages !== false) {
+      const fileRegex = filePathInPasteRegex();
+      const fileMatches = content.match(fileRegex);
+      if (fileMatches) {
+        for (const match of fileMatches) {
+          if (!this._detectedImages.includes(match)) {
+            this._detectedImages.push(match);
+            found++;
+          }
         }
       }
     }
@@ -689,9 +694,10 @@ export class PromptInput implements Component, Focusable {
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     if (lines.length === 1 && isImagePathCandidate(lines[0]!)) {
-      // Insert at the cursor — never replace typed composer text (#133 feedback).
-      const label = `[Pasted image #${this._nextImageIndex}]`;
-      this.editor.handleInput(label);
+      // Insert the path at the cursor — never replace typed composer text —
+      // then let attachImagePathsFromEditor resolve it into a token backed by
+      // the actual image data (#133 feedback).
+      this.editor.handleInput(lines[0]!.trim());
       void this.attachImagePathsFromEditor().then(() => {
         this.onChange?.(this.editor.getText());
       });
@@ -699,7 +705,9 @@ export class PromptInput implements Component, Focusable {
     }
 
     const imagesBefore = this._detectedImages.length;
-    const imageCount = this._detectImages(content);
+    // Only data URIs count as images here — file paths in pasted TEXT stay
+    // text (transcript exports contain .png paths that must not hijack).
+    const imageCount = this._detectImages(content, { pathsAsImages: false });
 
     if (imageCount > 0) {
       const startIndex = this._nextImageIndex;
