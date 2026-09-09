@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth, type Component } from "@mariozechner/pi-tui";
+import { GUTTER, innerWidth } from "../gutter.js";
 
 /**
  * Live terminal-command surface.
@@ -64,27 +65,30 @@ export class TerminalBox implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
+    const inner = innerWidth(width);
     const elapsed = formatElapsed(Date.now() - this.startedAt);
 
     if (this.finished) {
       const ok = this.exitCode === 0;
       const tail = lastNonEmpty(this.lines) ?? (ok ? "completed" : `exit ${this.exitCode}`);
-      const paint = (s: string) => padTo(bg(ok ? SUCCESS_BG : FAIL_BG, s), width);
+      const paint = (s: string) => { const painted = bg(ok ? SUCCESS_BG : FAIL_BG, s); const pad = Math.max(0, inner - visibleWidth(s)); return painted + (pad > 0 ? " ".repeat(pad) : "") + "\x1b[0m"; };
       const label = ok ? "✓ TERMINAL" : `✗ TERMINAL exit ${this.exitCode}`;
-      return [paint(` ${label}  ${truncateToWidth(tail, Math.max(4, width - visibleWidth(label) - 12))}  ${elapsed} `)];
+      const tailWidth = Math.max(4, inner - visibleWidth(label) - 12);
+      return [GUTTER + paint(` ${label}  ${truncateToWidth(tail, tailWidth)}  ${elapsed} `) + GUTTER];
     }
 
     if (!this.expanded && Date.now() - this.startedAt < AUTO_EXPAND_MS) {
       const cmd = truncateToWidth(this.command, Math.max(10, width - 22));
-      return [`${ACCENT("◌")} ${DIM("TERMINAL")} ${cmd}${" ".repeat(Math.max(1, width - 12 - visibleWidth(cmd) - 6))}${DIM(elapsed)}`];
+      const pad = " ".repeat(Math.max(1, inner - 12 - visibleWidth(cmd) - 6));
+      return [GUTTER + `${ACCENT("◌")} ${DIM("TERMINAL")} ${cmd}${pad}${DIM(elapsed)}` + GUTTER];
     }
 
-    const inner = Math.max(10, width - 4);
-    const head = `┌ TERMINAL ${"─".repeat(Math.max(0, inner - 20))} ${elapsed} ┐`;
+    const boxInner = Math.max(10, inner - 4);
+    const head = GUTTER + `┌ TERMINAL ${"─".repeat(Math.max(0, boxInner - 20))} ${elapsed} ┐` + GUTTER;
     const rows = this.lines.slice(-BOX_ROWS);
     while (rows.length < BOX_ROWS) rows.unshift("");
-    const body = rows.map((line) => padTo(bg(RUNNING_BG, ` ${truncateToWidth(line, inner)}`), width));
-    const foot = `└${"─".repeat(width - 2)}┘`;
+    const body = rows.map((line) => GUTTER + bg(RUNNING_BG, ` ${truncateToWidth(line, boxInner)}`) + GUTTER);
+    const foot = GUTTER + `└${"─".repeat(inner - 2)}┘` + GUTTER;
     return [head, ...body, foot];
   }
 }
@@ -96,10 +100,6 @@ function lastNonEmpty(lines: string[]): string | undefined {
   return undefined;
 }
 
-function padTo(s: string, width: number): string {
-  const pad = Math.max(0, width - visibleWidth(s));
-  return pad === 0 ? s : `${s}${" ".repeat(pad)}${RESET}`;
-}
 
 function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);

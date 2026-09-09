@@ -53,6 +53,7 @@ import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
 import {
   GUTTER,
   GUTTER_WIDTH,
+  innerWidth,
   gutterContent,
   gutterSeparator,
   wrapGutterLines,
@@ -3403,21 +3404,20 @@ export class ImpulseRenderer {
 
   /** Echo a user prompt as a tinted block: ▄ top edge, gray-bg rows, ▀ bottom edge. */
   private addUserPromptBlock(text: string): void {
-    const width = this.terminal.columns || 80;
-    const inner = Math.max(20, width - 4);
-    const bg = (s: string) => `\x1b[48;5;236m${s}\x1b[0m`;
-    const pad = (s: string) => " ".repeat(Math.max(0, width - visibleWidth(s)));
-    const header = `${A.fg(36, this.userName)}${" ".repeat(
-      Math.max(1, inner - this.userName.length - 8)
-    )}${clr.dim(new Date().toLocaleTimeString([], { hour12: false }))}`;
+    const totalWidth = this.terminal.columns || 80;
+    const inner = innerWidth(totalWidth);
+    const bg = (s: string) => "\x1b[48;5;236m" + s + "\x1b[0m";
+    const pad = (s: string) => " ".repeat(Math.max(0, inner - visibleWidth(s)));
+    const stamp = new Date().toLocaleTimeString([], { hour12: false });
+    const header = this.userName + " ".repeat(Math.max(1, inner - this.userName.length - stamp.length)) + stamp;
 
     const bodyLines = wrapTextWithAnsi(text, inner);
-    this.chat.addChild(new Text(clr.dim("▄".repeat(width)), 0, 0));
-    this.chat.addChild(new Text(bg(` ${header}${pad(header)} `), 0, 0));
+    this.chat.addChild(new Text(GUTTER + `${A.dim}${"▄".repeat(inner)}${A.reset}` + GUTTER, 0, 0));
+    this.chat.addChild(new Text(GUTTER + bg(" " + header + pad(header)) + GUTTER, 0, 0));
     for (const line of bodyLines) {
-      this.chat.addChild(new Text(bg(` ${line}${pad(line)} `), 0, 0));
+      this.chat.addChild(new Text(GUTTER + bg(" " + line + pad(line)) + GUTTER, 0, 0));
     }
-    this.chat.addChild(new Text(clr.dim("▀".repeat(width)), 0, 0));
+    this.chat.addChild(new Text(GUTTER + `${A.dim}${"▀".repeat(inner)}${A.reset}` + GUTTER, 0, 0));
     this.hasTrailingGap = false;
     this.lastBandWasTool = false;
     this.lastBandToolHadBody = false;

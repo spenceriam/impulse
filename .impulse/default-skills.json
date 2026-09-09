@@ -1,0 +1,15 @@
+{
+  "domain-modeling": "1.0.0",
+  "diagnosing-bugs": "1.0.0",
+  "code-review": "1.0.0",
+  "improve-codebase-architecture": "1.0.0",
+  "codebase-design": "1.0.0",
+  "triage": "1.0.0",
+  "prototype": "1.0.0",
+  "to-issues": "1.0.0",
+  "resolving-merge-conflicts": "1.0.0",
+  "grill-with-docs": "1.0.0",
+  "implement": "1.0.0",
+  "tdd": "1.0.0",
+  "to-prd": "1.0.0"
+}
