@@ -20,8 +20,8 @@ export interface ModelCapabilities {
   reasoning: boolean;
   contextLength?: number;
   maxOutputTokens?: number;
-  discoveredAt: number; // timestamp
-  source: "provider-api" | "heuristic" | "user-override";
+    discoveredAt: number; // timestamp
+  source: "provider-api" | "heuristic" | "user-override" | "catalog";
 }
 
 let cache: Map<string, ModelCapabilities> | null = null;
@@ -73,17 +73,35 @@ export function setModelCapabilities(
   saveCache();
 }
 
+/**
+ * Remove a cached capability entry (e.g. stale heuristic results that
+ * shadow better data). No-op when the model has no cached entry.
+ */
+export function clearModelCapabilities(model: string): void {
+  const c = loadCache();
+  if (c.delete(model.toLowerCase())) saveCache();
+}
+
 /** Get cached capability or undefined. */
 export function getModelCapabilities(model: string): ModelCapabilities | undefined {
   return loadCache().get(model.toLowerCase());
 }
 
 /**
- * Sync vision check for UI paths (model picker, setup wizard).
- * Uses cache when available, otherwise name-pattern heuristic only — no async probe.
+ * Sync vision check for UI paths (model picker, setup wizard, paste guard).
+ * The cache stores both bare ("glm-5.3-flash") and prefixed
+ * ("ollama/glm-5.3-flash") ids depending on which layer warmed it, so the
+ * lookup normalizes: try the given key, then its bare form, then its
+ * provider-prefixed form. Falls back to name-pattern heuristic only.
  */
 export function modelSupportsVisionCached(model: string): boolean {
-  const cached = getModelCapabilities(model);
+  const c = loadCache();
+  const key = model.toLowerCase();
+  const cached =
+    c.get(key) ??
+    (model.includes("/")
+      ? c.get(key.slice(key.indexOf("/") + 1)) ?? c.get(`ollama/${key.slice(key.indexOf("/") + 1)}`)
+      : undefined);
   if (cached) return cached.vision;
   return modelSupportsVisionFallback(model);
 }
@@ -95,9 +113,10 @@ export async function modelSupportsVision(
   probe?: () => Promise<boolean | undefined>
 ): Promise<boolean> {
   const cached = getModelCapabilities(model);
-  if (cached) return cached.vision;
 
-  // 1. Try provider API discovery (e.g. /v1/models, /api/show)
+  // 1. Try provider API discovery (e.g. /v1/models, /api/show).
+  // A cached heuristic guess must not shadow authoritative discovery, so
+  // discovery runs even when the cache has an entry.
   if (discover) {
     const found = await discover();
     if (found) {
@@ -105,6 +124,8 @@ export async function modelSupportsVision(
       return found.vision;
     }
   }
+
+  if (cached) return cached.vision;
 
   // 2. Runtime probe: send a tiny image and see if the model responds to it
   if (probe) {
@@ -119,7 +140,9 @@ export async function modelSupportsVision(
     }
   }
 
-  // 3. Last resort: name-pattern heuristic
+  // 3. Last resort: name-pattern heuristic — computed, never cached.
+  // (Caching heuristic guesses is what let wrong results shadow correct
+  //  catalog data for the 7-day cache TTL.)
   return modelSupportsVisionFallback(model);
 }
 

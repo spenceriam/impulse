@@ -13,7 +13,6 @@ import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } f
 import {
   extractImagePathRefs,
   filePathInPasteRegex,
-  isImagePathCandidate,
   resolveImagePath,
 } from "./image-paths.js";
 
@@ -312,7 +311,10 @@ export class PromptInput implements Component, Focusable {
     return errors;
   }
 
-  private _detectImages(content: string): number {
+  private _detectImages(
+    content: string,
+    opts: { pathsAsImages?: boolean } = {}
+  ): number {
     let found = 0;
     const base64Regex = /data:image\/(png|jpeg|jpg|gif|webp|bmp);base64,[A-Za-z0-9+/=]+/gi;
     const base64Matches = content.match(base64Regex);
@@ -325,13 +327,15 @@ export class PromptInput implements Component, Focusable {
       }
     }
 
-    const fileRegex = filePathInPasteRegex();
-    const fileMatches = content.match(fileRegex);
-    if (fileMatches) {
-      for (const match of fileMatches) {
-        if (!this._detectedImages.includes(match)) {
-          this._detectedImages.push(match);
-          found++;
+    if (opts.pathsAsImages !== false) {
+      const fileRegex = filePathInPasteRegex();
+      const fileMatches = content.match(fileRegex);
+      if (fileMatches) {
+        for (const match of fileMatches) {
+          if (!this._detectedImages.includes(match)) {
+            this._detectedImages.push(match);
+            found++;
+          }
         }
       }
     }
@@ -688,16 +692,49 @@ export class PromptInput implements Component, Focusable {
 
     const lines = content.split("\n").filter((l) => l.length > 0);
 
-    if (lines.length === 1 && isImagePathCandidate(lines[0]!)) {
-      this.editor.setText(lines[0]!.trim());
-      void this.attachImagePathsFromEditor().then(() => {
-        this.onChange?.(this.editor.getText());
-      });
+    // Paste consisting purely of image paths (one or many, possibly quoted /
+    // space-separated / multi-line) → resolve each path directly and insert
+    // one [Pasted image #N] token per image at the cursor. Prose that merely
+    // CONTAINS a path stays text (transcript exports must not hijack).
+    const pathRefs = extractImagePathRefs(content);
+    const nonPathText = pathRefs
+      .reduce((acc, ref) => acc.replace(ref.raw, ""), content)
+      .replace(/[\s"']+/g, "");
+    if (pathRefs.length > 0 && nonPathText.length === 0) {
+      void Promise.all(pathRefs.map((ref) => resolveImagePath(ref.path))).then(
+        (results) => {
+          let labels = "";
+          results.forEach((resolved) => {
+            if (!resolved.ok) return;
+            const idx = this._nextImageIndex++;
+            const label = `[Pasted image #${idx}]`;
+            this._detectedImages.push(resolved.uri);
+            this._pasteGroups.push({
+              display: label,
+              content: resolved.uri,
+              originalDisplay: label,
+              kind: "image",
+              imageIndex: idx,
+            });
+            labels += label;
+          });
+          if (labels.length > 0) {
+            this.editor.handleInput(labels);
+            this._syncPasteGroupsAfterEdit();
+          } else {
+            // Nothing resolved — keep the raw paste visible as text.
+            this.editor.handleInput(content.trim());
+          }
+          this.onChange?.(this.editor.getText());
+        }
+      );
       return;
     }
 
     const imagesBefore = this._detectedImages.length;
-    const imageCount = this._detectImages(content);
+    // Only data URIs count as images here — file paths in pasted TEXT stay
+    // text (transcript exports contain .png paths that must not hijack).
+    const imageCount = this._detectImages(content, { pathsAsImages: false });
 
     if (imageCount > 0) {
       const startIndex = this._nextImageIndex;

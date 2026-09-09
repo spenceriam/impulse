@@ -5,6 +5,10 @@
 import fs from "fs/promises";
 import path from "path";
 import { Global } from "../global.js";
+import {
+  getModelCapabilities,
+  setModelCapabilities,
+} from "../api/capabilities.js";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const CACHE_FILE = path.join(Global.Path.cache, "models-dev.json");
@@ -60,6 +64,25 @@ export interface ModelsDevRecord {
   last_updated?: string;
   knowledge?: string;
   limit?: { context?: number; input?: number; output?: number };
+  /** models.dev marks image-input models with attachment: true */
+  attachment?: boolean;
+  /** models.dev modality list; image input implies vision */
+  modalities?: { input?: string[]; output?: string[] };
+  reasoning?: boolean;
+}
+
+/** Derive vision capability from a models.dev record (provider-agnostic). */
+export function recordSupportsVision(record?: ModelsDevRecord): boolean | undefined {
+  if (!record) return undefined;
+  if (record.attachment === true) return true;
+  const inputs = record.modalities?.input;
+  if (Array.isArray(inputs) && inputs.some((m) => m.toLowerCase() === "image")) {
+    return true;
+  }
+  // Record found but no image-input signal — treat as authoritative negative
+  // only when the record explicitly carries capability data.
+  if (record.attachment === false) return false;
+  return undefined;
 }
 
 export interface ModelInfo {
@@ -431,11 +454,69 @@ export async function enrichDiscoveredModels(
   modelIds: string[],
   apiEntries?: ProviderModelEntry[]
 ): Promise<ModelInfo[]> {
-  const catalog = await loadModelsDevCatalog();
-  const byId = new Map(apiEntries?.map((e) => [e.id, e]) ?? []);
+  let infos: ModelInfo[];
+  let catalog: CatalogData | null = null;
+  try {
+    catalog = await loadModelsDevCatalog();
+    infos = modelIds.map((id) =>
+      enrichModelId(impulseProviderKey, id, catalog!, apiEntries?.find((e) => e.id === id.replace(/^[^/]+\//, "")))
+    );
+  } catch {
+    // models.dev unreachable — still surface model rows. Capability cache is
+    // NOT touched: unknown stays unknown so the runtime probe / heuristic
+    // can decide at turn time instead of a negative guess sticking for days.
+    infos = fallbackModelInfosFromIds(modelIds);
+  }
 
-  const infos = modelIds.map((id) =>
-    enrichModelId(impulseProviderKey, id, catalog, byId.get(id))
-  );
+  if (catalog) {
+    warmVisionCapabilitiesFromCatalog(modelIds, catalog);
+  }
+
   return sortModelInfos(infos);
+}
+
+/**
+ * Write vision capabilities derived from models.dev records into the
+ * capability cache (source: "catalog"). Skips models the catalog cannot
+ * resolve, and skips entries already known from a stronger source
+ * (user-override, provider-api). Re-caching catalog results is idempotent.
+ */
+export function warmVisionCapabilitiesFromCatalog(
+  modelIds: string[],
+  catalog: CatalogData
+): void {
+  for (const id of modelIds) {
+    const providerKey = id.includes("/") ? id.split("/")[0]! : "";
+    const effectiveKey = CATALOG_ALIASES[providerKey] ? providerKey : providerKey || id;
+    const bare = stripImpulseProviderPrefix(effectiveKey, id);
+    const record = resolveModelsDevRecord(effectiveKey, bare, catalog);
+    const vision = recordSupportsVision(record);
+    if (vision === undefined) continue;
+    const existing = getModelCapabilities(id);
+    if (
+      existing &&
+      (existing.source === "user-override" || existing.source === "provider-api")
+    ) {
+      continue;
+    }
+    const caps: Omit<import("../api/capabilities.js").ModelCapabilities, "discoveredAt"> = {
+      vision,
+      reasoning: record?.reasoning ?? existing?.reasoning ?? false,
+      source: "catalog",
+    };
+    if (record?.limit?.context !== undefined) caps.contextLength = record.limit.context;
+    setModelCapabilities(id, caps);
+    // UI checks may use the prefixed form (session model id) while
+    // discovery warms bare ids — store both so lookups always hit.
+    if (providerKey && id === bare) {
+      const existingPrefixed = getModelCapabilities(`${providerKey}/${id}`);
+      if (
+        !existingPrefixed ||
+        (existingPrefixed.source !== "user-override" &&
+          existingPrefixed.source !== "provider-api")
+      ) {
+        setModelCapabilities(`${providerKey}/${id}`, caps);
+      }
+    }
+  }
 }

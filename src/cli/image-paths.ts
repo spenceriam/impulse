@@ -162,6 +162,33 @@ function wholeLinePathRef(text: string): ImagePathRef | null {
 export function extractImagePathRefs(text: string): ImagePathRef[] {
   const whole = wholeLinePathRef(text);
   if (whole && !overlapsToken(text, whole.start, whole.end)) {
+    const pathStarts = whole.raw.match(/(?:~\/|\.\.?\/|[A-Za-z]:[\\/]|\/)\S*/g) ?? [];
+    if (pathStarts.length <= 1) {
+      return [whole];
+    }
+    // Greedy whole-line / with-spaces patterns swallowed several paths into
+    // one candidate (e.g. two files copied from Explorer). Re-scan the blob
+    // with the non-greedy PATH_BODY pattern (stops at whitespace) and emit
+    // one ref per distinct path.
+    const splitRe = new RegExp(PATH_BODY_RE.source, "gi");
+    const refs: ImagePathRef[] = [];
+    const seen = new Set<string>();
+    let searchFrom = 0;
+    for (const m of whole.raw.matchAll(splitRe)) {
+      const raw = m[0]!;
+      const at = whole.raw.indexOf(raw, searchFrom);
+      searchFrom = at + raw.length;
+      const normalized = normalizePathString(raw);
+      if (!isImagePathCandidate(normalized) || seen.has(normalized)) continue;
+      seen.add(normalized);
+      refs.push({
+        start: whole.start + at,
+        end: whole.start + at + raw.length,
+        raw,
+        path: normalized,
+      });
+    }
+    if (refs.length > 1) return refs;
     return [whole];
   }
 

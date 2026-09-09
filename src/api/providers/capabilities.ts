@@ -13,7 +13,6 @@
  */
 
 import type { ReasoningLevel } from "../../util/config";
-import { modelSupportsVisionFallback } from "../capabilities";
 
 export type ReasoningStyle = "binary" | "effort" | "budget" | "none";
 
@@ -175,13 +174,16 @@ export async function discoverOllamaReasoning(
 }
 
 /**
- * Query Ollama /api/show for vision capability; fall back to naming heuristics.
+ * Query Ollama /api/show for vision capability.
+ * Returns `undefined` when the endpoint is unavailable or gives no
+ * capability data — callers fall through to catalog/probe layers rather
+ * than treating a name-pattern guess as authoritative.
  */
 export async function discoverOllamaVision(
   baseUrl: string,
   modelName: string,
   apiKey?: string
-): Promise<boolean> {
+): Promise<boolean | undefined> {
   const root = baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
@@ -204,7 +206,7 @@ export async function discoverOllamaVision(
     // fall through
   }
 
-  return modelSupportsVisionFallback(modelName);
+  return undefined;
 }
 
 /**

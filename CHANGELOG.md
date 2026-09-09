@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-09-24
+
+  **Type:** patch
+  **Title:** Provider-agnostic vision model detection
+
+  ### Fixed
+  - **#132** -- Vision capability detection now uses the models.dev catalog (`attachment` / `modalities.input`) as the provider-agnostic primary source; `ollama/glm-5.3-flash` and other multimodal models are no longer misdetected as text-only.
+  - **#132** -- Name-heuristic vision guesses are no longer written to the capability cache, so stale `vision: false` entries stop shadowing correct catalog data for the 7-day cache TTL.
+  - **#132** -- Cached heuristic guesses no longer block authoritative provider discovery in `modelSupportsVision` — provider API data wins over cache.
+  - **#132** -- Ollama `/api/show` vision capability is now wired in (was dead code), giving first-party vision data for Ollama endpoints that expose it.
+
+
 ## [1.9.1] - 2026-07-31
 
   **Type:** patch
