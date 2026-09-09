@@ -46,7 +46,7 @@ interface AnthropicMessage {
 type AnthropicContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string }
+  | { type: "tool_result"; tool_use_id: string; content: string | AnthropicContentBlock[] }
   | { type: "thinking"; thinking: string; signature: string }
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
 
@@ -180,14 +180,41 @@ function convertMessages(messages: ChatMessage[]): {
 
     if (msg.role === "tool") {
       // Tool result -> tool_result block (must follow an assistant message with tool_use)
-      const content = typeof msg.content === "string" ? msg.content : "";
+      // Images in the tool result become Anthropic image blocks inside the
+      // tool_result content array (supported since tool-result images shipped).
+      let resultContent: string | AnthropicContentBlock[] =
+        typeof msg.content === "string" ? msg.content : "";
+      if (Array.isArray(msg.content)) {
+        const blocks: AnthropicContentBlock[] = [];
+        let text = "";
+        for (const part of msg.content) {
+          if (part.type === "text") {
+            text += (text ? "\n" : "") + part.text;
+          } else if (part.type === "image_url") {
+            if (text) {
+              blocks.push({ type: "text", text });
+              text = "";
+            }
+            blocks.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: extractMediaType(part.image_url.url),
+                data: extractBase64(part.image_url.url),
+              },
+            });
+          }
+        }
+        if (text) blocks.push({ type: "text", text });
+        resultContent = blocks;
+      }
       const target = anthropicMessages[anthropicMessages.length - 1];
       if (target && target.role === "user") {
         // Anthropic expects tool_result as a user message
         target.content.push({
           type: "tool_result",
           tool_use_id: msg.tool_call_id ?? "",
-          content,
+          content: resultContent,
         });
       } else {
         // Create a new user message with the tool result
@@ -196,7 +223,7 @@ function convertMessages(messages: ChatMessage[]): {
           content: [{
             type: "tool_result",
             tool_use_id: msg.tool_call_id ?? "",
-            content,
+            content: resultContent,
           }],
         });
       }

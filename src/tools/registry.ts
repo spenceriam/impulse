@@ -11,6 +11,11 @@ export interface ToolResult {
   success: boolean;
   output: string;
   metadata?: Record<string, unknown>;
+  /** Data URIs of images the model should see alongside the text output
+   *  (e.g. file_read on an image when the model is vision-capable). The
+   *  loop attaches them to the tool-result message; providers serialize
+   *  per API shape. Text-only models strip these at buildChatMessages. */
+  imageUris?: string[];
 }
 
 export interface Tool<TInput = unknown> {
