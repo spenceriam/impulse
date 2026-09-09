@@ -499,24 +499,24 @@ export function warmVisionCapabilitiesFromCatalog(
     ) {
       continue;
     }
-      const caps: Omit<import("../api/capabilities.js").ModelCapabilities, "discoveredAt"> = {
-        vision,
-        reasoning: record?.reasoning ?? existing?.reasoning ?? false,
-        source: "catalog",
-      };
-      if (record?.limit?.context !== undefined) caps.contextLength = record.limit.context;
-      setModelCapabilities(id, caps);
-      // UI checks may use the prefixed form (session model id) while
-      // discovery warms bare ids — store both so lookups always hit.
-      if (providerKey && id === bare) {
-        const existingPrefixed = getModelCapabilities(`${providerKey}/${id}`);
-        if (
-          !existingPrefixed ||
-          (existingPrefixed.source !== "user-override" &&
-            existingPrefixed.source !== "provider-api")
-        ) {
-          setModelCapabilities(`${providerKey}/${id}`, caps);
-        }
+    const caps: Omit<import("../api/capabilities.js").ModelCapabilities, "discoveredAt"> = {
+      vision,
+      reasoning: record?.reasoning ?? existing?.reasoning ?? false,
+      source: "catalog",
+    };
+    if (record?.limit?.context !== undefined) caps.contextLength = record.limit.context;
+    setModelCapabilities(id, caps);
+    // UI checks may use the prefixed form (session model id) while
+    // discovery warms bare ids — store both so lookups always hit.
+    if (providerKey && id === bare) {
+      const existingPrefixed = getModelCapabilities(`${providerKey}/${id}`);
+      if (
+        !existingPrefixed ||
+        (existingPrefixed.source !== "user-override" &&
+          existingPrefixed.source !== "provider-api")
+      ) {
+        setModelCapabilities(`${providerKey}/${id}`, caps);
       }
     }
   }
+}

@@ -21,7 +21,7 @@ export interface ModelCapabilities {
   contextLength?: number;
   maxOutputTokens?: number;
     discoveredAt: number; // timestamp
-    source: "provider-api" | "heuristic" | "user-override" | "catalog";
+  source: "provider-api" | "heuristic" | "user-override" | "catalog";
 }
 
 let cache: Map<string, ModelCapabilities> | null = null;
@@ -127,24 +127,24 @@ export async function modelSupportsVision(
 
   if (cached) return cached.vision;
 
-    // 2. Runtime probe: send a tiny image and see if the model responds to it
-    if (probe) {
-      const result = await probe();
-      if (result !== undefined) {
-        setModelCapabilities(model, {
-          vision: result,
-          reasoning: false, // probe doesn't discover reasoning
-          source: "provider-api",
-        });
-        return result;
-      }
+  // 2. Runtime probe: send a tiny image and see if the model responds to it
+  if (probe) {
+    const result = await probe();
+    if (result !== undefined) {
+      setModelCapabilities(model, {
+        vision: result,
+        reasoning: false, // probe doesn't discover reasoning
+        source: "provider-api",
+      });
+      return result;
     }
-
-    // 3. Last resort: name-pattern heuristic — computed, never cached.
-    // (Caching heuristic guesses is what let wrong results shadow correct
-    //  catalog data for the 7-day cache TTL.)
-    return modelSupportsVisionFallback(model);
   }
+
+  // 3. Last resort: name-pattern heuristic — computed, never cached.
+  // (Caching heuristic guesses is what let wrong results shadow correct
+  //  catalog data for the 7-day cache TTL.)
+  return modelSupportsVisionFallback(model);
+}
 
 /** Best-effort fallback: well-known naming patterns.
  *  Do NOT treat as authoritative — this is a last resort when the provider API
