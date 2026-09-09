@@ -62,3 +62,4 @@ Library/
 stress-test-output/
 test_folder/
 tmp_test/
+.impulse/
