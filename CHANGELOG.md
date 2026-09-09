@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-09-24
+
+  **Type:** minor
+  **Title:** Clipboard multi-file paste + agent image reads
+
+  ### Added
+  - **#134** -- Clipboard file-list paste: copying N files (Explorer/Finder) and pasting injects N `[Pasted image #N]` tokens — impulse now reads the platform clipboard file list directly (Windows `FileDropList`, macOS `NSFilenamesPboardType`, Linux `x-special/gnome-copied-files`) instead of relying on the terminal text buffer, which only carries the first file's path.
+  - **#134** -- Agent image reads: `file_read` on a PNG/JPEG/GIF/WebP returns the image as content the model can see (when the model is vision-capable) instead of refusing "Cannot read binary file". Text-only models keep a clear text fallback.
+
+  ### Changed
+  - **#134** -- Tool-result messages can carry image content; providers serialize per API shape (OpenAI-compatible `image_url` parts, Anthropic base64 `image` blocks inside `tool_result` content).
+
 ## [1.9.2] - 2026-09-24
 
   **Type:** patch

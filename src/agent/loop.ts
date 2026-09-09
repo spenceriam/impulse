@@ -476,7 +476,9 @@ export class AgentLoop {
         lastSystemPrompt = systemPrompt;
         const { pinSystemPromptForTurn } = await import("../harness/session-cache.js");
         pinSystemPromptForTurn(systemPrompt);
-        let chatMessages = buildChatMessages(currentMessages, systemPrompt);
+        let chatMessages = buildChatMessages(currentMessages, systemPrompt, {
+          includeToolImages: nativeVision,
+        });
 
         // Check compaction before each iteration using the same request shape
         // sent to the provider: system prompt, history, preserved reasoning,
@@ -500,7 +502,9 @@ export class AgentLoop {
           // Refresh session after compaction
           session = SessionManager.getCurrentSession()!;
           const compactedMessages = session.messages ?? [];
-          chatMessages = buildChatMessages(compactedMessages, systemPrompt);
+          chatMessages = buildChatMessages(compactedMessages, systemPrompt, {
+            includeToolImages: nativeVision,
+          });
           const compactedEstimatedTokens = estimateRequestTokens(chatMessages, toolDefs);
           if (result.compacted) {
             events.onCompacted(
@@ -526,7 +530,9 @@ export class AgentLoop {
           const emergency = await CompactManager.compact(session.id, false, { force: true });
           session = SessionManager.getCurrentSession()!;
           const postEmergencyMessages = session.messages ?? [];
-          chatMessages = buildChatMessages(postEmergencyMessages, systemPrompt);
+          chatMessages = buildChatMessages(postEmergencyMessages, systemPrompt, {
+            includeToolImages: nativeVision,
+          });
           const postEmergencyTokens = estimateRequestTokens(chatMessages, toolDefs);
           if (emergency.compacted) {
             events.onCompacted(
@@ -557,7 +563,9 @@ export class AgentLoop {
             timestamp: new Date().toISOString(),
           });
           session = SessionManager.getCurrentSession()!;
-          chatMessages = buildChatMessages(session.messages ?? [], systemPrompt);
+          chatMessages = buildChatMessages(session.messages ?? [], systemPrompt, {
+            includeToolImages: nativeVision,
+          });
         }
 
         // Hard cutoff: skip API request if safety-adjusted estimate still exceeds window
@@ -760,17 +768,27 @@ export class AgentLoop {
         let subagentThinkingEnabled: boolean | undefined;
         let subagentModelResolved: string | undefined;
 
-        const persistToolResult = async (
-          toolCallId: string,
-          output: string
-        ): Promise<void> => {
-          await SessionManager.addMessage({
-            role: "tool",
-            content: capToolResultContent(output),
-            tool_call_id: toolCallId,
-            timestamp: new Date().toISOString(),
-          });
-        };
+          const persistToolResult = async (
+            toolCallId: string,
+            output: string,
+            imageUris?: string[]
+          ): Promise<void> => {
+            const msg: Message = {
+              role: "tool",
+              content: capToolResultContent(output),
+              tool_call_id: toolCallId,
+              timestamp: new Date().toISOString(),
+            };
+            if (imageUris && imageUris.length > 0) {
+              msg.apiContent = [
+                ...(imageUris.map((uri) => ({
+                  type: "image_url" as const,
+                  image_url: { url: uri },
+                }))),
+              ];
+            }
+            await SessionManager.addMessage(msg);
+          };
 
         const flushTaskBatch = async (): Promise<void> => {
           if (pendingTaskBatch.length === 0) return;
@@ -1177,6 +1195,12 @@ export class AgentLoop {
             tool_call_id: tc.id,
             timestamp: new Date().toISOString(),
           };
+          if (result.imageUris && result.imageUris.length > 0) {
+            toolResultMsg.apiContent = result.imageUris.map((uri) => ({
+              type: "image_url" as const,
+              image_url: { url: uri },
+            }));
+          }
           await SessionManager.addMessage(toolResultMsg);
           events.onToolEnd(tc.id, tc.name, result, durationMs);
 
