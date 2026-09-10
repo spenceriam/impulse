@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#136** -- `github_issue` and `semantic_search` work again on those providers; they were the two tools using an exclusive bound (`.positive()`), and all tools now share one normalization path.
 
 
-## [1.9.2] - 2026-09-24
+## [1.9.2] - 2026-09-09
 
   **Type:** patch
   **Title:** Provider-agnostic vision model detection
