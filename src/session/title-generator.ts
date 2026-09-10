@@ -1,11 +1,18 @@
 import { getProviderManager } from "../api/manager.js";
+import { fileError } from "../util/logger.js";
+import {
+  clampGeneratedTitle,
+  TITLE_MAX_LENGTH,
+  TITLE_MAX_WORDS,
+  TITLE_MIN_WORDS,
+} from "../util/title-policy.js";
 import type { Message } from "./store.js";
 import type { ChatMessage } from "../api/types.js";
 
-const TITLE_MAX_LENGTH = 60;
-
 const TITLE_SYSTEM_PROMPT =
-  `Generate a concise session title (max ${TITLE_MAX_LENGTH} chars) based on this conversation. ` +
+  `Generate a session title of ${TITLE_MIN_WORDS}-${TITLE_MAX_WORDS} words (max ${TITLE_MAX_LENGTH} characters) that identifies what this conversation is actually about. ` +
+  "Be specific — name the subject, file, feature, or problem. " +
+  "Never return a generic label like \"Code help\", \"Question\", or \"Discussion\". " +
   "Return ONLY the title text — no quotes, no prefixes, no explanation.";
 
 /**
@@ -26,7 +33,8 @@ export async function generateTitle(
 
     if (titleMessages.length === 0) return null;
 
-    const response = await manager.getProvider(model).complete({
+    const response = await manager.complete({
+      model,
       messages: [
         { role: "system", content: TITLE_SYSTEM_PROMPT },
         ...titleMessages,
@@ -42,18 +50,22 @@ export async function generateTitle(
     if (!text) return null;
 
     // Clean up common wrapping artifacts
-    let title = text
+    const cleaned = text
       .replace(/^["']|["']$/g, "")
       .replace(/^(title|session|summary):?\s*/i, "")
       .trim();
 
-    if (title.length > TITLE_MAX_LENGTH) {
-      title = title.slice(0, TITLE_MAX_LENGTH - 3) + "...";
-    }
+    const title = clampGeneratedTitle(cleaned);
 
     return title || null;
   } catch (error) {
-    console.error("Failed to generate session title:", error);
+    // Log to file only — stderr is owned by the TUI while a session is open,
+    // so console output here corrupts rendered chat output.
+    void fileError(
+      `Failed to generate session title: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return null;
   }
 }
