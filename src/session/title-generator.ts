@@ -1,4 +1,5 @@
 import { getProviderManager } from "../api/manager.js";
+import { fileError } from "../util/logger.js";
 import type { Message } from "./store.js";
 import type { ChatMessage } from "../api/types.js";
 
@@ -26,7 +27,8 @@ export async function generateTitle(
 
     if (titleMessages.length === 0) return null;
 
-    const response = await manager.getProvider(model).complete({
+    const response = await manager.complete({
+      model,
       messages: [
         { role: "system", content: TITLE_SYSTEM_PROMPT },
         ...titleMessages,
@@ -53,7 +55,13 @@ export async function generateTitle(
 
     return title || null;
   } catch (error) {
-    console.error("Failed to generate session title:", error);
+    // Log to file only — stderr is owned by the TUI while a session is open,
+    // so console output here corrupts rendered chat output.
+    void fileError(
+      `Failed to generate session title: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return null;
   }
 }

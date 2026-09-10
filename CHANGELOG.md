@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-09-10
+
+  **Type:** patch
+  **Title:** Side calls send bare model ids
+
+  ### Fixed
+  - **#145** -- DeepSeek sessions no longer fail with `400 The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed deepseek/deepseek-flash.` Background calls (session titles, goal judging, vision discovery and probe) handed the provider the `provider/model` form; they now resolve the bare model id first.
+  - **#145** -- Custom providers work when they are not the configured default. `deepseek/deepseek-flash` is recognized as a provider-prefixed model id instead of being passed upstream verbatim.
+  - **#145** -- A failed session-title call no longer writes a raw error into the chat view. Title failures are logged to the impulse log file, so rendered assistant text is no longer overwritten.
+
 ## [1.9.3] - 2026-09-10
 
   **Type:** patch

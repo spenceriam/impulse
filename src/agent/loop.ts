@@ -294,9 +294,9 @@ export class AgentLoop {
           // discover: try provider API first
           async () => {
             try {
-              const provider = manager.getProvider(model);
+              const { provider, model: modelId } = manager.resolveModel(model);
               return provider.discoverModelCapabilities
-                ? await provider.discoverModelCapabilities(model)
+                ? await provider.discoverModelCapabilities(modelId)
                 : undefined;
             } catch {
               return undefined;
@@ -305,11 +305,11 @@ export class AgentLoop {
           // probe: send a tiny image to verify vision support
           async () => {
             try {
-              const provider = manager.getProvider(model);
+              const { provider, model: modelId } = manager.resolveModel(model);
               const { probeVisionCapability } = await import('../api/vision-probe.js');
               return probeVisionCapability(
                 (opts) => provider.complete({ ...opts, stream: false }),
-                model
+                modelId
               );
             } catch {
               return undefined;
