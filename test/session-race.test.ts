@@ -17,14 +17,27 @@ const assistantWithToolCalls = {
 };
 
 describe("session clobbering race", () => {
+  let sessionID: string | null = null;
+
   beforeEach(async () => {
     SessionStoreInstance.setSaveDelay(60_000);
     await SessionManager.createNew("session-race-test");
+    sessionID = SessionManager.getCurrentSession()!.id;
   });
 
+  // Titles must be unique per project, so a leftover session from a previous
+  // run would push these titles to "… (2)" and break the asserts.
   afterEach(async () => {
     SessionStoreInstance.setSaveDelay(1000);
     await SessionManager.exitCurrent();
+    if (sessionID) {
+      try {
+        await SessionStoreInstance.delete(sessionID);
+      } catch {
+        /* already gone */
+      }
+      sessionID = null;
+    }
   });
 
   test("update({ todos }) preserves debounced messages in memory", async () => {

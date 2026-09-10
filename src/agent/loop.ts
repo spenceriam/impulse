@@ -52,7 +52,7 @@ import {
 } from "../util/debug-log.js";
 import { bashRepeatNote, todoUnchangedRepeatNote } from "./repeat-notes.js";
 import { SessionManager } from "../session/manager";
-import { generateTitle } from "../session/title-generator.js";
+import { manageSessionTitle } from "../session/manage-session-title.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
 import { Bus, HeaderEvents } from "../bus/index.js";
 import {
@@ -1368,18 +1368,23 @@ export class AgentLoop {
         // with all messages through the completed AI response.
         await SessionManager.save();
 
-        // Generate title after the first completed assistant reply.
-        const userCount = session.messages.filter((m) => m.role === "user").length;
-        const hasAssistant = session.messages.some((m) => m.role === "assistant");
-        if (!session.headerTitle && userCount >= 1 && hasAssistant) {
+        // Title management (#139). Invisible to the user: this runs after the
+        // turn's UI events and emits no tool row, no status line, no chat line.
+        // Generation waits until the purpose is firm (2nd substantive user
+        // turn); an existing auto title is reconsidered only at 10-turn
+        // boundaries.
+        {
           const config = await loadConfig();
-          const model = resolveTitleModel(session, config);
-          if (model) {
-            const title = await generateTitle(session.messages, model);
-            if (title) {
-              await SessionManager.setHeaderTitle(title);
-              Bus.publish(HeaderEvents.Updated, { title });
-            }
+          const titleModel = resolveTitleModel(session, config);
+          const titleResult = await manageSessionTitle({
+            messages: session.messages,
+            ...(session.headerTitle ? { currentTitle: session.headerTitle } : {}),
+            ...(session.titleMeta ? { meta: session.titleMeta } : {}),
+            model: titleModel,
+          });
+
+          if (titleResult.updated && titleResult.title) {
+            Bus.publish(HeaderEvents.Updated, { title: titleResult.title });
           }
         }
       }

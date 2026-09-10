@@ -10,12 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.9.4] - 2026-09-10
 
   **Type:** patch
-  **Title:** Side calls send bare model ids
+  **Title:** Reliable DeepSeek calls and trustworthy session titles
 
   ### Fixed
   - **#145** -- DeepSeek sessions no longer fail with `400 The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed deepseek/deepseek-flash.` Background calls (session titles, goal judging, vision discovery and probe) handed the provider the `provider/model` form; they now resolve the bare model id first.
   - **#145** -- Custom providers work when they are not the configured default. `deepseek/deepseek-flash` is recognized as a provider-prefixed model id instead of being passed upstream verbatim.
   - **#145** -- A failed session-title call no longer writes a raw error into the chat view. Title failures are logged to the impulse log file, so rendered assistant text is no longer overwritten.
+  - **#139** -- Session titles are no longer generated from the first exchange. Generation waits for a second user turn that did real work, so a throwaway opener no longer locks in a meaningless title.
+  - **#139** -- Titles are capped at 40 characters (was 60) and must be 2-5 words. Generic labels ("Code help", "Question", "Discussion") are now rejected, not just numeric or sub-3-character titles.
+  - **#139** -- Two sessions in the same project can no longer share a title. Collisions are disambiguated deterministically with a ` (2)` suffix so `/resume` entries stay distinguishable.
+  - **#139** -- A conversation whose topic moves can now be re-titled. The title is reconsidered at 10-turn boundaries and replaced only when the new subject genuinely differs, bounded to 3 automatic retitles per session.
+  - **#139** -- `set_header`, the automatic generator, and `--enrich-session-titles` now share one policy instead of two independent code paths with only a length constant in common.
+  - **#139** -- A title set with `set_header` is marked manual and is never overwritten by the automatic generator.
+
+  ### Notes
+  - **#139** -- Title management stays completely invisible: it runs after the turn's UI events and emits no tool call, tool row, status line, or chat line.
 
 ## [1.9.3] - 2026-09-10
 
