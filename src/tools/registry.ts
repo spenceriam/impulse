@@ -132,6 +132,67 @@ export function isToolAllowedForMode(name: string, mode: Mode): boolean {
   return isCategoryAllowedForMode(getToolCategory(name), mode, name);
 }
 
+/**
+ * Convert draft-04 boolean exclusive bounds into the numeric form required by
+ * JSON Schema 2019-09+.
+ *
+ * `zod-to-json-schema`'s `openApi3` target renders `.positive()`, `.negative()`,
+ * `.gt()` and `.lt()` the OpenAPI 3.0 way — a boolean flag next to an inclusive
+ * bound:
+ *
+ *   { minimum: M, exclusiveMinimum: true }  ->  { exclusiveMinimum: M }
+ *   { maximum: M, exclusiveMaximum: true }  ->  { exclusiveMaximum: M }
+ *
+ * Strict function-calling validators (OpenAI-compatible endpoints) enforce the
+ * numeric form and reject the whole request on the boolean one.
+ */
+function normalizeExclusiveBounds(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const child of node) normalizeExclusiveBounds(child);
+    return;
+  }
+  if (typeof node !== "object" || node === null) return;
+
+  const obj = node as Record<string, unknown>;
+
+  if (obj["exclusiveMinimum"] === true) {
+    if (typeof obj["minimum"] === "number") obj["exclusiveMinimum"] = obj["minimum"];
+    else delete obj["exclusiveMinimum"];
+    delete obj["minimum"];
+  } else if (obj["exclusiveMinimum"] === false) {
+    delete obj["exclusiveMinimum"];
+  }
+
+  if (obj["exclusiveMaximum"] === true) {
+    if (typeof obj["maximum"] === "number") obj["exclusiveMaximum"] = obj["maximum"];
+    else delete obj["exclusiveMaximum"];
+    delete obj["maximum"];
+  } else if (obj["exclusiveMaximum"] === false) {
+    delete obj["exclusiveMaximum"];
+  }
+
+  for (const value of Object.values(obj)) normalizeExclusiveBounds(value);
+}
+
+/**
+ * Zod schema -> API-ready JSON Schema parameters.
+ *
+ * Both definition builders share this so the exclusive-bound normalization
+ * cannot be applied on one path and forgotten on the other.
+ */
+function toToolParameters(schema: z.ZodTypeAny): Record<string, unknown> {
+  const jsonSchema = zodToJsonSchema(schema, {
+    $refStrategy: "none",
+    target: "openApi3",
+  });
+
+  normalizeExclusiveBounds(jsonSchema);
+
+  // Remove $schema key if present (API doesn't need it)
+  const { $schema, ...parameters } = jsonSchema as Record<string, unknown>;
+  return parameters;
+}
+
 const tools = new Map<string, Tool<unknown>>();
 
 export namespace Tool {
@@ -167,25 +228,14 @@ export namespace Tool {
    * for passing to provider streaming APIs.
    */
   export function getAPIDefinitions(): ToolDefinition[] {
-    return Array.from(tools.values()).map((tool) => {
-      // Convert Zod schema to JSON Schema
-      const jsonSchema = zodToJsonSchema(tool.schema, {
-        $refStrategy: "none",
-        target: "openApi3",
-      });
-
-      // Remove $schema key if present (API doesn't need it)
-      const { $schema, ...parameters } = jsonSchema as Record<string, unknown>;
-
-      return {
-        type: "function" as const,
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: parameters as Record<string, unknown>,
-        },
-      };
-    });
+    return Array.from(tools.values()).map((tool) => ({
+      type: "function" as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: toToolParameters(tool.schema),
+      },
+    }));
   }
   
   /**
@@ -200,15 +250,6 @@ export namespace Tool {
     return Array.from(tools.values())
       .filter((tool) => isToolAllowedForMode(tool.name, mode))
       .map((tool) => {
-        // Convert Zod schema to JSON Schema
-        const jsonSchema = zodToJsonSchema(tool.schema, {
-          $refStrategy: "none",
-          target: "openApi3",
-        });
-
-        // Remove $schema key if present (API doesn't need it)
-        const { $schema, ...parameters } = jsonSchema as Record<string, unknown>;
-        
         // For PLAN, modify tool descriptions to note restrictions
         let description = tool.description;
         if (
@@ -230,7 +271,7 @@ export namespace Tool {
           function: {
             name: tool.name,
             description,
-            parameters: parameters as Record<string, unknown>,
+            parameters: toToolParameters(tool.schema),
           },
         };
       });
