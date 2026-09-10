@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-09-10
+
+  **Type:** patch
+  **Title:** Valid tool schemas on strict providers
+
+  ### Fixed
+  - **#136** -- Prompts no longer fail with `400 Invalid schema for function 'github_issue'`. Tool definitions now carry a numeric `exclusiveMinimum`/`exclusiveMaximum` instead of the draft-04 boolean form, so providers that validate function schemas strictly accept the request.
+  - **#136** -- `github_issue` and `semantic_search` work again on those providers; they were the two tools using an exclusive bound (`.positive()`), and all tools now share one normalization path.
+
+
 ## [1.9.2] - 2026-09-24
 
   **Type:** patch
