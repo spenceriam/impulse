@@ -230,22 +230,38 @@ describe("turn counting and substantive detection", () => {
 });
 
 describe("title action policy", () => {
-  const substantiveTurn = [user("first"), assistant("ok"), user("second"), assistant("", 1), toolResult()];
+  const firstSubstantiveTurn = [user("only one"), assistant("", 1), toolResult()];
+  const secondSubstantiveTurn = [
+    user("first"),
+    assistant("ok"),
+    user("second"),
+    assistant("", 1),
+    toolResult(),
+  ];
 
-  test("waits for the second user turn", () => {
-    expect(
-      decideTitleAction({ messages: [user("only one"), assistant("", 1), toolResult()] })
-    ).toEqual({ action: "skip" });
+  test("generates after one substantive user turn", () => {
+    expect(decideTitleAction({ messages: firstSubstantiveTurn })).toEqual({
+      action: "generate",
+      userTurns: 1,
+    });
   });
 
-  test("generates on the second substantive turn", () => {
-    expect(decideTitleAction({ messages: substantiveTurn })).toEqual({
+  test("generates on a later substantive turn when still untitled", () => {
+    expect(decideTitleAction({ messages: secondSubstantiveTurn })).toEqual({
       action: "generate",
       userTurns: 2,
     });
   });
 
-  test("waits when the second turn was not substantive", () => {
+  test("skips a short non-substantive opener", () => {
+    expect(
+      decideTitleAction({
+        messages: [user("hi"), assistant("sure!")],
+      })
+    ).toEqual({ action: "skip" });
+  });
+
+  test("skips when the last turn was not substantive", () => {
     expect(
       decideTitleAction({
         messages: [user("first"), assistant("ok"), user("second"), assistant("sure!")],

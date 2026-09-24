@@ -62,11 +62,14 @@ describe("manageSessionTitle", () => {
 
   afterEach(cleanup);
 
-  test("does not call the model before the purpose is firm", async () => {
+  test("does not call the model for a short non-substantive opener", async () => {
     const stub = stubTitle("Heartbeat reconnect loop");
 
     const result = await manageSessionTitle({
-      messages: turn("just one message"),
+      messages: [
+        { role: "user", content: "hi", timestamp: new Date().toISOString() },
+        { role: "assistant", content: "sure!", timestamp: new Date().toISOString() },
+      ],
       model: "deepseek/deepseek-flash",
       generate: stub.fn,
     });
@@ -76,11 +79,11 @@ describe("manageSessionTitle", () => {
     expect(SessionManager.getCurrentSession()?.headerTitle).toBeUndefined();
   });
 
-  test("generates once the second substantive turn lands", async () => {
+  test("generates once the first substantive turn lands", async () => {
     const stub = stubTitle("Heartbeat reconnect loop");
 
     const result = await manageSessionTitle({
-      messages: turns(2),
+      messages: turns(1),
       model: "deepseek/deepseek-flash",
       generate: stub.fn,
     });
