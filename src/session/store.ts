@@ -51,6 +51,15 @@ export interface Session {
   context_window: number
   cost: number
   headerTitle?: string  // AI-generated session header title
+  /** Retitle bookkeeping for the header title (#139). Local only. */
+  titleMeta?: {
+    /** User-turn count at the last title generation or replacement. */
+    lastTitleUserTurns?: number
+    /** Automatic replacements so far. */
+    retitleCount?: number
+    /** Who owns the current title. Manual titles are never auto-replaced. */
+    source?: "auto" | "manual"
+  }
   /** Per-session advisor toggle (restored on /resume). */
   advisorMode?: boolean
   /** Advisor model used when this session had advisor on. */

@@ -2,28 +2,29 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import { Bus, HeaderEvents } from "../bus";
 import { SessionManager } from "../session/manager.js";
-import { isWeakHeaderTitle } from "../util/header-title.js";
-
-/**
- * Maximum length for header title (context portion only, not including "[impulse] | ")
- */
-const MAX_TITLE_LENGTH = 60;
+import {
+  applyTitlePolicy,
+  TITLE_MAX_LENGTH,
+  TITLE_MAX_WORDS,
+  TITLE_MIN_WORDS,
+} from "../util/title-policy.js";
 
 /**
  * Tool description for AI
  */
 const DESCRIPTION = `Set the session header title for session management (/resume lists).
 
-Required: title (max ${MAX_TITLE_LENGTH} chars) — short human description (e.g. "Math question", "API client refactor").
-Do NOT use answer echoes, numbers only, or "# 625".
+Required: title (${TITLE_MIN_WORDS}-${TITLE_MAX_WORDS} words, max ${TITLE_MAX_LENGTH} chars) — a specific description of what this conversation is about (e.g. "Heartbeat reconnect loop", "DeepSeek model id fix").
+Do NOT use answer echoes, numbers only, "# 625", or generic labels like "Code help" / "Question" / "Discussion".
+Titles must be unique within the project; a collision is disambiguated automatically.
 Use only on substantive work turns, not trivial Q&A.
 See docs/tools/set-header.md for guidelines.`;
 
 const SetHeaderSchema = z.object({
   title: z
     .string()
-    .max(MAX_TITLE_LENGTH, `Title must be ${MAX_TITLE_LENGTH} characters or less`)
-    .describe("Concise description of current task/conversation context"),
+    .max(TITLE_MAX_LENGTH, `Title must be ${TITLE_MAX_LENGTH} characters or less`)
+    .describe("Specific description of the current task/conversation (2-5 words)"),
 });
 
 type SetHeaderInput = z.infer<typeof SetHeaderSchema>;
@@ -35,7 +36,7 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
   async (input: SetHeaderInput): Promise<ToolResult> => {
     try {
       const title = input.title.trim();
-      
+
       if (!title) {
         return {
           success: false,
@@ -43,34 +44,47 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
         };
       }
 
-      if (isWeakHeaderTitle(title)) {
+      // Same policy the automatic generator uses (#139) — one gate, not two.
+      const policy = applyTitlePolicy(title);
+      if (!policy.ok) {
         return {
           success: false,
           output:
-            "Title must be a short descriptive phrase (e.g. 'Math question'), not an answer or number only.",
+            policy.reason ??
+            "Title must be a specific 2-5 word phrase (e.g. 'Heartbeat reconnect loop'), not a generic label, answer, or number.",
         };
       }
 
-      const currentTitle = SessionManager.getCurrentSession()?.headerTitle;
-      if (currentTitle === title) {
+      const result = await SessionManager.setHeaderTitle(title, { source: "manual" });
+
+      if (result.unchanged) {
         return {
           success: true,
           output: "Header unchanged.",
           metadata: {
-            title,
+            title: result.title,
             unchanged: true,
           },
         };
       }
 
-      await SessionManager.setHeaderTitle(title);
-      Bus.publish(HeaderEvents.Updated, { title });
+      if (result.rejected) {
+        return {
+          success: false,
+          output: result.reason ?? "Title rejected by policy.",
+        };
+      }
+
+      Bus.publish(HeaderEvents.Updated, { title: result.title });
 
       return {
         success: true,
-        output: `Header updated to: [impulse] | ${title}`,
+        output: result.disambiguated
+          ? `Header updated to: [impulse] | ${result.title} (renamed to avoid a duplicate title in this project)`
+          : `Header updated to: [impulse] | ${result.title}`,
         metadata: {
-          title,
+          title: result.title,
+          ...(result.disambiguated ? { disambiguated: true } : {}),
         },
       };
     } catch (error) {

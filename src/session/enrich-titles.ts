@@ -9,6 +9,7 @@ import {
   type Session,
 } from "./store.js";
 import { generateTitle, hasTitleSource } from "./title-generator.js";
+import { applyTitlePolicy } from "../util/title-policy.js";
 
 export interface EnrichTitlesOptions {
   /** All projects on machine (default) vs current cwd project only */
@@ -112,6 +113,23 @@ export async function enrichSessionTitles(
   const batch = toProcess.slice(0, limit);
   const delayMs = opts.delayMs ?? 400;
 
+  // Seed per-project taken titles from everything already on disk so the
+  // backfill produces the same uniqueness guarantee as live titling (#139).
+  const takenByProject = new Map<string, Set<string>>();
+  const takenFor = (projectID: string): Set<string> => {
+    let set = takenByProject.get(projectID);
+    if (!set) {
+      set = new Set<string>();
+      for (const s of allSessions) {
+        if (s.projectID !== projectID) continue;
+        const existing = s.headerTitle?.trim();
+        if (existing) set.add(existing.toLowerCase());
+      }
+      takenByProject.set(projectID, set);
+    }
+    return set;
+  };
+
   let done = 0;
   for (const session of batch) {
     const model = resolveTitleModel(session, config)!;
@@ -123,8 +141,11 @@ export async function enrichSessionTitles(
     }
 
     try {
-      const title = await generateTitle(session.messages, model);
-      if (!title) {
+      const candidate = await generateTitle(session.messages, model);
+      const taken = takenFor(session.projectID);
+      const policy = applyTitlePolicy(candidate ?? "", taken);
+
+      if (!policy.ok || !policy.title) {
         result.failed++;
         opts.onProgress?.(done, batch.length, session.id);
         await sleep(delayMs);
@@ -132,9 +153,13 @@ export async function enrichSessionTitles(
       }
 
       await SessionStoreInstance.read(session.id, session.projectID);
-      await SessionStoreInstance.update(session.id, { headerTitle: title });
+      await SessionStoreInstance.update(session.id, {
+        headerTitle: policy.title,
+        titleMeta: { source: "auto" },
+      });
+      taken.add(policy.title.toLowerCase());
       result.updated++;
-      opts.onProgress?.(done, batch.length, session.id, title);
+      opts.onProgress?.(done, batch.length, session.id, policy.title);
     } catch (err) {
       result.failed++;
       console.error(`  Failed ${session.id}:`, err);

@@ -50,6 +50,7 @@ export const PROVIDER_PREFIXES = [
   "nous",
   "minimax",
   "ollama",
+  "deepseek",
 ] as const;
 
 // Aliases — maps prefix strings to their canonical provider key
@@ -279,6 +280,25 @@ export class ProviderManager {
    */
   parseModel(model: string): ModelInfo {
     return parseModelString(model, this.config.defaultProvider);
+  }
+
+  /**
+   * Resolve a model string to the provider that serves it plus the bare model
+   * id that provider expects.
+   *
+   * Provider clients receive `CompletionOptions.model` verbatim, so callers
+   * must never hand them the "provider/model" form. Prefer this (or the
+   * `complete`/`stream` wrappers) over `getProvider()` for any direct provider
+   * call.
+   *
+   *   const { provider, model: modelId } = manager.resolveModel("deepseek/deepseek-flash");
+   *   await provider.complete({ messages, model: modelId });
+   */
+  resolveModel(model: string): { provider: AIProvider; model: string } {
+    return {
+      provider: this.getProvider(model),
+      model: this.parseModel(model).model,
+    };
   }
 
   /**

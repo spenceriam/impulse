@@ -68,10 +68,10 @@ export async function judgeGoal(
 
   try {
     const manager = await getProviderManager();
-    const provider = manager.getProvider(model);
+    const { provider, model: modelId } = manager.resolveModel(model);
     const messages = buildJudgeMessages(goal, lastAssistantText, opts?.planTasksMarkdown);
     const response = await provider.complete({
-      model,
+      model: modelId,
       messages,
       stream: false,
       max_tokens: 200,

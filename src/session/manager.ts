@@ -10,6 +10,21 @@ import { CheckpointManager } from "./checkpoint";
 import { CompactManager } from "./compact";
 import type { OptionalPatch } from "../util/omit-undefined.js";
 import { writeActiveSessionMarker } from "../util/active-session-marker.js";
+import { applyTitlePolicy, normalizeTitle, sameTitleBase } from "../util/title-policy.js";
+import type { TitleMeta } from "./title-decision.js";
+
+export interface SetHeaderTitleResult {
+  /** The title actually stored (disambiguated when it collided). */
+  title: string;
+  /** True when the policy rejected the candidate. */
+  rejected: boolean;
+  /** Why it was rejected, for the tool-facing error message. */
+  reason?: string;
+  /** True when a collision forced a discriminator suffix. */
+  disambiguated: boolean;
+  /** True when the stored title did not change. */
+  unchanged: boolean;
+}
 
 interface SessionManagerOptions {
   defaultModel?: string
@@ -148,9 +163,103 @@ class SessionManagerImpl {
     return updated;
   }
 
-  async setHeaderTitle(title: string): Promise<void> {
-    if (!this.currentSession) return;
-    await this.update({ headerTitle: title });
+  /**
+   * Compute the stored title while guaranteeing:
+   *  - the shared length / specificity policy is enforced (#139), and
+   *  - no two sessions in the same project share an identical title.
+   *
+   * Reads sibling sessions from the store, so a rejected result costs one list.
+   */
+  async resolveHeaderTitle(title: string): Promise<SetHeaderTitleResult> {
+    const normalized = normalizeTitle(title);
+    const current = this.currentSession?.headerTitle;
+
+    // Preserve the same-title no-op before policy checks: a session whose title
+    // was set before this policy existed must still be able to repeat it, and a
+    // title stored with a discriminator ("X (2)") is still "X" to its setter.
+    if (current && sameTitleBase(current, normalized)) {
+      return {
+        title: current,
+        rejected: false,
+        disambiguated: false,
+        unchanged: true,
+      };
+    }
+
+    const taken = await this.siblingTitles();
+    const policy = applyTitlePolicy(normalized, taken);
+    if (!policy.ok || !policy.title) {
+      return {
+        title: normalized,
+        rejected: true,
+        ...(policy.reason ? { reason: policy.reason } : {}),
+        disambiguated: false,
+        unchanged: false,
+      };
+    }
+
+    return {
+      title: policy.title,
+      rejected: false,
+      disambiguated: policy.title.toLowerCase() !== normalized.toLowerCase(),
+      unchanged: false,
+    };
+  }
+
+  /**
+   * Titles already used by other sessions in this project. Titles currently
+   * in use are what matter for `/resume` readability.
+   */
+  async siblingTitles(): Promise<string[]> {
+    if (!this.currentSession) return [];
+    try {
+      const sessions = await SessionStoreInstance.listByProject(
+        this.currentSession.projectID
+      );
+      return sessions
+        .filter((s) => s.id !== this.currentSession!.id)
+        .map((s) => s.headerTitle ?? "")
+        .filter((t) => t.trim().length > 0);
+    } catch {
+      // A listing failure must not block titling.
+      return [];
+    }
+  }
+
+  /**
+   * Store a header title. Returns the enforcement result instead of throwing so
+   * the silent automatic path can skip and the tool can surface the reason.
+   *
+   * @param source "manual" for set_header (never auto-replaced), "auto" for the
+   *               generator.
+   * @param meta   Retitle bookkeeping to persist with the new title.
+   */
+  async setHeaderTitle(
+    title: string,
+    opts?: { source?: "auto" | "manual"; meta?: TitleMeta }
+  ): Promise<SetHeaderTitleResult> {
+    if (!this.currentSession) {
+      return {
+        title,
+        rejected: true,
+        reason: "No active session",
+        disambiguated: false,
+        unchanged: false,
+      };
+    }
+
+    const resolved = await this.resolveHeaderTitle(title);
+    if (resolved.rejected || resolved.unchanged) return resolved;
+
+    const source = opts?.source ?? "manual";
+    const meta: TitleMeta =
+      source === "manual"
+        ? { source: "manual" }
+        : { source: "auto", ...opts?.meta };
+
+    await this.update({ headerTitle: resolved.title, titleMeta: meta });
+
+    return resolved;
   }
 
   async appendSideExchange(exchange: SideExchange): Promise<void> {
