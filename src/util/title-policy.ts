@@ -10,6 +10,17 @@
 /** Hard character cap. Deliberately well under the former 60. */
 export const TITLE_MAX_LENGTH = 40;
 
+/**
+ * Completion ceiling for the title LLM call (#150).
+ *
+ * Display clamp is {@link TITLE_MAX_LENGTH} — never pass that as `max_tokens`.
+ * Some backends (GLM on Ollama Cloud) still emit thinking despite
+ * `reasoningLevel: "off"`, so a 50-token budget starves `message.content`.
+ * This is a ceiling, not a target: happy-path titles still finish in a handful
+ * of tokens.
+ */
+export const TITLE_GEN_MAX_TOKENS = 1024;
+
 /** Target word range. Outside this band a title is rejected, not silently trimmed. */
 export const TITLE_MIN_WORDS = 2;
 export const TITLE_MAX_WORDS = 5;
