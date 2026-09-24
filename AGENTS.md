@@ -726,8 +726,15 @@ Dynamic header line at the top of the session screen showing context about the c
 AI uses the `set_header` tool to update the header. Guidelines:
 - Set at meaningful milestones (initial understanding, phase changes)
 - Do NOT update constantly
-- Keep titles concise (max 50 characters)
+- Keep titles concise (max `TITLE_MAX_LENGTH` = 40 characters)
 - Let the description naturally indicate the action
+
+### Auto title generation (#150)
+
+- **`TITLE_GEN_MAX_TOKENS = 1024`** — completion ceiling for the title LLM call (not a target). Never pass `TITLE_MAX_LENGTH` as `max_tokens`; GLM backends can burn a tight budget on thinking even with `reasoningLevel: "off"`.
+- **`TITLE_MAX_LENGTH = 40`** — display/content clamp only (shared with `set_header`).
+- Before clamp: strip think/thinking/reasoning tag envelopes, fenced thinking dumps, and OpenCode redacted-thinking blocks; drop leading thinking-process prose; then quote/prefix cleanup + `clampGeneratedTitle`.
+- Empty/weak cleaned output → `fileError` (file log only, with usage + finish/stop reason when available); leave date placeholder; retitle-at-10 / max-3 unchanged.
 
 ### Persistence
 
@@ -1014,6 +1021,10 @@ This ensures:
 - Use `src/cli/layout.ts` helpers for overlay sizing on narrow split panes
 - Bottom chrome (prompt + context bar) stays pinned via scroll anchoring
 
+### Session titles
+- **Title-gen budget ≠ display clamp (#150)** — `TITLE_GEN_MAX_TOKENS` (1024) is the completion ceiling; `TITLE_MAX_LENGTH` (40) is display-only. Do not wire the char cap into `max_tokens` (GLM thinking starves content).
+- Empty/weak title responses log via `fileError` only (no TUI stderr); placeholder stays until a later eligible boundary.
+
 ### Turn control (cancel / steer / nudges)
 - **Esc cancel** persists an interruption marker plus synthetic `Cancelled by user.` tool results for dangling `tool_calls` — the model must not "resume" a cancelled flow unless asked
 - **`/steer`** injects at the next tool-loop boundary (not instantly); pending steer suppresses planning and allow-all nudges for that iteration
@@ -1064,6 +1075,7 @@ This ensures:
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 09-24-2026 | Title-gen `TITLE_GEN_MAX_TOKENS=1024` ≠ `TITLE_MAX_LENGTH` | GLM (and similar) can burn a tight `max_tokens` on thinking despite `reasoningLevel: "off"`; ceiling ≠ target; strip leaked thinking before clamp; empty → `fileError` (#150) |
 | 06-10-2026 | Tool UX hardening bundle | `file_edit` trimmed fallback; optional question descriptions; `injected` replay tagging; silent todo gap removal; `/copy`; queue preview dim + header |
 | 06-10-2026 | Cancel / steer / nudge priority | Interruption marker on abort; steer overrides nudges; progress-aware todo counters; duplicate-bash removed from planning nudge trigger |
 | 06-10-2026 | Todo sliding-window UI | Circle glyphs (◉/○/●) without color accents; 20-row cap anchored on active item; `(N additional tasks)` footer; slow blink on latest block; silent unchanged rows |
