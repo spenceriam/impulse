@@ -40,6 +40,24 @@ const LEADING_PROSE_THINKING_PREAMBLE_RE =
 const ONLY_PROSE_THINKING_PREAMBLE_RE =
   /^[ \t]*(?:(?:here(?:['’]s| is)[ \t]+(?:a|the|my)[ \t]+)|my[ \t]+)?(?:thinking|thought|reasoning)[ \t]+process[ \t]*:?[ \t]*$/i;
 
+/**
+ * Explicit "Title:" / "a good title would be:" markers. Last match wins so a
+ * trailing title after unmarked thinking prose is preferred. May appear
+ * mid-sentence after meta prose.
+ */
+const TITLE_MARKER_RE =
+  /(?:(?:a\s+)?(?:good\s+)?title(?:\s+would\s+be)?|session\s+title|i(?:['’]ll| will)\s+(?:go\s+with|use))\s*[:\-–—]\s*(.+)$/gi;
+
+/**
+ * Leading meta / unmarked-thinking lines that are not the title itself.
+ * Applied per line / sentence before salvage.
+ */
+const META_LINE_RE =
+  /^(?:okay|ok|alright|sure)[,!.]?\s*$|^(?:okay|ok|alright|sure)[,!.]?\s+|^(?:the\s+user)\b|^(?:i\s+(?:need|should|will|am|want|think|consider|'m))\b|^(?:let\s+me)\b|^(?:looking\s+at)\b|^(?:based\s+on)\b|^(?:considering)\b|^(?:here(?:['’]s| is))\b|^(?:thinking|thought|reasoning)\b|^(?:a\s+good\s+title)\b/i;
+
+/** Max chars of rejected title text embedded in fileError (JSON-stringified). */
+export const TITLE_REJECT_LOG_MAX = 160;
+
 /** OpenCode thinking tag name (literal kept as a plain string). */
 const OPENCODE_THINK_TAG = "redacted_thinking";
 
@@ -82,9 +100,55 @@ function stripUnclosedThinkingTags(text: string): string {
   );
 }
 
+function finalizeCleanup(text: string): string {
+  return text
+    .replace(/^["']|["']$/g, "")
+    // Require the colon so "Session title gen fix" is not stripped to "title gen fix".
+    .replace(/^(title|session|summary):\s*/i, "")
+    .trim();
+}
+
+function isStrongTitleCandidate(text: string): boolean {
+  const finalized = finalizeCleanup(text);
+  if (!finalized) return false;
+  const clamped = clampGeneratedTitle(finalized);
+  return Boolean(clamped) && !isWeakHeaderTitle(clamped);
+}
+
+function pickStrongCandidate(parts: string[]): string | null {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]!.trim();
+    if (!part) continue;
+    if (META_LINE_RE.test(part) && !isStrongTitleCandidate(part)) continue;
+    if (isStrongTitleCandidate(part)) return finalizeCleanup(part);
+  }
+  return null;
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function extractMarkedTitle(text: string): string | null {
+  TITLE_MARKER_RE.lastIndex = 0;
+  let match: RegExpExecArray | null = TITLE_MARKER_RE.exec(text);
+  let last: string | null = null;
+  while (match !== null) {
+    last = match[1] ?? null;
+    match = TITLE_MARKER_RE.exec(text);
+  }
+  if (!last) return null;
+  const finalized = finalizeCleanup(last);
+  return isStrongTitleCandidate(finalized) ? finalized : null;
+}
+
 /**
  * Strip leaked thinking envelopes / fences / OpenCode blocks and leading
- * thinking-process prose, then the existing quote/prefix cleanup. Does not
+ * thinking-process / meta prose, then salvage a title-like line or sentence
+ * when the model dumped unmarked thinking before the real title. Does not
  * clamp — callers run {@link clampGeneratedTitle} next.
  */
 export function cleanGeneratedTitleText(raw: string): string {
@@ -106,11 +170,34 @@ export function cleanGeneratedTitleText(raw: string): string {
     return "";
   }
 
-  // Existing wrapping-artifact cleanup.
-  return text
-    .replace(/^["']|["']$/g, "")
-    .replace(/^(title|session|summary):?\s*/i, "")
-    .trim();
+  const marked = extractMarkedTitle(text);
+  if (marked) return marked;
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const fromLines = pickStrongCandidate(lines);
+  if (fromLines) return fromLines;
+
+  const collapsed = text.replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+  const fromSentences = pickStrongCandidate(splitSentences(collapsed));
+  if (fromSentences) return fromSentences;
+
+  const withoutMeta = lines.filter((l) => !META_LINE_RE.test(l));
+  const fromStrippedLines = pickStrongCandidate(withoutMeta);
+  if (fromStrippedLines) return fromStrippedLines;
+
+  if (withoutMeta.length > 0) {
+    const joined = withoutMeta.join(" ");
+    const fromJoined = pickStrongCandidate(splitSentences(joined));
+    if (fromJoined) return fromJoined;
+    // Leave the last non-meta remnant so weak-reject logs show what survived.
+    return finalizeCleanup(withoutMeta[withoutMeta.length - 1]!);
+  }
+
+  return finalizeCleanup(collapsed);
 }
 
 function formatTitleUsage(usage: Usage | undefined): string {
@@ -118,14 +205,62 @@ function formatTitleUsage(usage: Usage | undefined): string {
   return `usage=prompt:${usage.prompt_tokens} completion:${usage.completion_tokens} total:${usage.total_tokens}`;
 }
 
+/** Truncate + JSON-quote rejected title text for safe file-only logging. */
+export function formatRejectedTitleForLog(
+  text: string | null | undefined
+): string | undefined {
+  if (text == null) return undefined;
+  const safe = text.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!safe) return 'rejected=""';
+  const clipped =
+    safe.length > TITLE_REJECT_LOG_MAX
+      ? `${safe.slice(0, TITLE_REJECT_LOG_MAX)}…`
+      : safe;
+  return `rejected=${JSON.stringify(clipped)}`;
+}
+
+/** Pure builder for the title-gen reject fileError message (testable). */
+export function formatTitleRejectLogMessage(
+  reason: string,
+  opts: {
+    finishReason?: string | null;
+    usage?: Usage;
+    rejected?: string | null;
+    raw?: string | null;
+  } = {}
+): string {
+  const bits = [
+    `finish_reason=${opts.finishReason ?? "n/a"}`,
+    formatTitleUsage(opts.usage),
+  ];
+  const rejected = formatRejectedTitleForLog(opts.rejected);
+  if (rejected) bits.push(rejected);
+  if (opts.raw != null && opts.raw.trim() && !(opts.rejected && opts.rejected.trim())) {
+    const rawSafe = opts.raw
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, TITLE_REJECT_LOG_MAX);
+    bits.push(`raw=${JSON.stringify(rawSafe)}`);
+  }
+  return `Session title generation ${reason} (${bits.join("; ")})`;
+}
+
 function logEmptyOrWeakTitle(
   reason: string,
   choice: ChatCompletionChoice | undefined,
-  usage: Usage | undefined
+  usage: Usage | undefined,
+  opts: { rejected?: string | null; raw?: string | null } = {}
 ): void {
-  const finish = choice?.finish_reason ?? "n/a";
   void fileError(
-    `Session title generation ${reason} (finish_reason=${finish}; ${formatTitleUsage(usage)})`
+    formatTitleRejectLogMessage(reason, {
+      ...(choice?.finish_reason != null
+        ? { finishReason: choice.finish_reason }
+        : {}),
+      ...(usage ? { usage } : {}),
+      ...(opts.rejected !== undefined ? { rejected: opts.rejected } : {}),
+      ...(opts.raw !== undefined ? { raw: opts.raw } : {}),
+    })
   );
 }
 
@@ -169,13 +304,18 @@ export async function generateTitle(
 
     const cleaned = cleanGeneratedTitleText(text);
     if (!cleaned) {
-      logEmptyOrWeakTitle("empty after thinking cleanup", choice, usage);
+      logEmptyOrWeakTitle("empty after thinking cleanup", choice, usage, {
+        rejected: "",
+        raw: text,
+      });
       return null;
     }
 
     const title = clampGeneratedTitle(cleaned);
     if (!title || isWeakHeaderTitle(title)) {
-      logEmptyOrWeakTitle("weak or empty after clamp", choice, usage);
+      logEmptyOrWeakTitle("weak or empty after clamp", choice, usage, {
+        rejected: title || cleaned,
+      });
       return null;
     }
 

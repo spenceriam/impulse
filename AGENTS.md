@@ -733,8 +733,8 @@ AI uses the `set_header` tool to update the header. Guidelines:
 
 - **`TITLE_GEN_MAX_TOKENS = 1024`** — completion ceiling for the title LLM call (not a target). Never pass `TITLE_MAX_LENGTH` as `max_tokens`; GLM backends can burn a tight budget on thinking even with `reasoningLevel: "off"`.
 - **`TITLE_MAX_LENGTH = 40`** — display/content clamp only (shared with `set_header`).
-- Before clamp: strip think/thinking/reasoning tag envelopes, fenced thinking dumps, and OpenCode redacted-thinking blocks; drop leading thinking-process prose; then quote/prefix cleanup + `clampGeneratedTitle`.
-- Empty/weak cleaned output → `fileError` (file log only, with usage + finish/stop reason when available); leave date placeholder; retitle-at-10 / max-3 unchanged.
+- Before clamp: strip think/thinking/reasoning tag envelopes, fenced thinking dumps, and OpenCode redacted-thinking blocks; drop leading thinking-process / meta prose; salvage a trailing title-like line, sentence, or `Title:` / `a good title would be:` marker when unmarked thinking precedes the real title; then quote/prefix cleanup + `clampGeneratedTitle`.
+- Empty/weak cleaned output → `fileError` (file log only) with usage, finish/stop reason, and rejected cleaned title text (truncated); leave date placeholder; retitle-at-10 / max-3 unchanged.
 
 ### Persistence
 
@@ -1023,7 +1023,8 @@ This ensures:
 
 ### Session titles
 - **Title-gen budget ≠ display clamp (#150)** — `TITLE_GEN_MAX_TOKENS` (1024) is the completion ceiling; `TITLE_MAX_LENGTH` (40) is display-only. Do not wire the char cap into `max_tokens` (GLM thinking starves content).
-- Empty/weak title responses log via `fileError` only (no TUI stderr); placeholder stays until a later eligible boundary.
+- Unmarked thinking prose is stripped/salvaged before clamp (prefer trailing title-like line/sentence or `Title:` marker); pure meta dumps still reject.
+- Empty/weak title responses log via `fileError` only (no TUI stderr) including the rejected cleaned title text; placeholder stays until a later eligible boundary.
 
 ### Turn control (cancel / steer / nudges)
 - **Esc cancel** persists an interruption marker plus synthetic `Cancelled by user.` tool results for dangling `tool_calls` — the model must not "resume" a cancelled flow unless asked
@@ -1075,7 +1076,7 @@ This ensures:
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 09-24-2026 | Title-gen `TITLE_GEN_MAX_TOKENS=1024` ≠ `TITLE_MAX_LENGTH` | GLM (and similar) can burn a tight `max_tokens` on thinking despite `reasoningLevel: "off"`; ceiling ≠ target; strip leaked thinking before clamp; empty → `fileError` (#150) |
+| 09-24-2026 | Title-gen `TITLE_GEN_MAX_TOKENS=1024` ≠ `TITLE_MAX_LENGTH` | GLM (and similar) can burn a tight `max_tokens` on thinking despite `reasoningLevel: "off"`; ceiling ≠ target; strip leaked thinking + salvage trailing title from unmarked prose before clamp; empty/weak → `fileError` with rejected text (#150) |
 | 06-10-2026 | Tool UX hardening bundle | `file_edit` trimmed fallback; optional question descriptions; `injected` replay tagging; silent todo gap removal; `/copy`; queue preview dim + header |
 | 06-10-2026 | Cancel / steer / nudge priority | Interruption marker on abort; steer overrides nudges; progress-aware todo counters; duplicate-bash removed from planning nudge trigger |
 | 06-10-2026 | Todo sliding-window UI | Circle glyphs (◉/○/●) without color accents; 20-row cap anchored on active item; `(N additional tasks)` footer; slow blink on latest block; silent unchanged rows |
