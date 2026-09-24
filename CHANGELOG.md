@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.5] - 2026-09-24
+
+  **Type:** patch
+  **Title:** Title sessions after the first substantive turn
+
+  ### Fixed
+  - **#148** -- Live auto-title now runs after one substantive user↔assistant exchange instead of waiting for a second user turn. Short openers ("hi", "ok") still skip via the substantive-last-turn check; quality rules, retitle-at-10, and max-3 retitles are unchanged. Provider-agnostic policy gate only.
+
 ## [1.9.4] - 2026-09-10
 
   **Type:** patch

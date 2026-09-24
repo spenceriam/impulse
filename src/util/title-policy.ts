@@ -15,7 +15,7 @@ export const TITLE_MIN_WORDS = 2;
 export const TITLE_MAX_WORDS = 5;
 
 /** How many user turns must exist before the first title is generated. */
-export const TITLE_MIN_USER_TURNS = 2;
+export const TITLE_MIN_USER_TURNS = 1;
 
 /** Reconsider an existing title only at multiples of this user-turn count. */
 export const TITLE_RETITLE_INTERVAL = 10;
