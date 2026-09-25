@@ -52,20 +52,24 @@ function toolResult(content = "ok"): Message {
 }
 
 describe("title hard cap", () => {
-  test("cap is materially lower than the former 60", () => {
-    expect(TITLE_MAX_LENGTH).toBe(40);
+  test("cap is 80 characters", () => {
+    expect(TITLE_MAX_LENGTH).toBe(80);
   });
 
   test("clamps to whole words inside the cap", () => {
-    const long = "Refactor the session title generation pipeline completely";
+    const long =
+      "Refactor the session title generation pipeline completely across every provider adapter layer today";
+    expect(long.length).toBeGreaterThan(TITLE_MAX_LENGTH);
     const clamped = clampGeneratedTitle(long);
     expect(clamped.length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
-    expect(clamped).toBe("Refactor the session title generation");
+    expect(clamped).toBe(
+      "Refactor the session title generation pipeline completely across every provider"
+    );
     expect(clamped.endsWith(" ")).toBe(false);
   });
 
   test("clamps a single over-long token by character", () => {
-    const clamped = clampGeneratedTitle("a".repeat(80));
+    const clamped = clampGeneratedTitle("a".repeat(TITLE_MAX_LENGTH + 40));
     expect(clamped).toHaveLength(TITLE_MAX_LENGTH);
   });
 
@@ -100,19 +104,22 @@ describe("weak and generic title rejection", () => {
     }
   });
 
-  test("rejects one-word and six-plus-word labels", () => {
+  test("rejects one-word and eleven-plus-word labels", () => {
     expect(isWeakHeaderTitle("Refactor")).toBe(true);
     expect(
-      isWeakHeaderTitle("Refactor the entire session title generation pipeline")
-    ).toBe(true);
+      isWeakHeaderTitle(
+        "Refactor the entire session title generation pipeline across every provider today"
+      )
+    ).toBe(true); // 11 words
   });
 
-  test("accepts specific two-to-five word titles", () => {
+  test("accepts specific two-to-ten word titles", () => {
     for (const good of [
       "Heartbeat reconnect loop",
       "DeepSeek model id fix",
       "Round 2 smoke test",
       "Session title policy",
+      "GLM title gen budget for Ollama Cloud",
     ]) {
       expect(isWeakHeaderTitle(good)).toBe(false);
     }
@@ -121,6 +128,30 @@ describe("weak and generic title rejection", () => {
   test("normalizes wrapping artifacts before judging", () => {
     expect(normalizeTitle('## "Session title policy"')).toBe("Session title policy");
     expect(isWeakHeaderTitle("# DeepSeek model id fix")).toBe(false);
+  });
+
+  test("strips markdown leftovers before clamp / weak-check (Defiant dogfood)", () => {
+    expect(normalizeTitle("2. **Storage snapshots** as a")).toBe(
+      "Storage snapshots as a"
+    );
+    expect(normalizeTitle("WAL + periodic snapshots**")).toBe(
+      "WAL + periodic snapshots"
+    );
+    expect(normalizeTitle("* bullet title here")).toBe("bullet title here");
+    expect(normalizeTitle("- another bullet title")).toBe("another bullet title");
+    expect(normalizeTitle("1) Numbered title words")).toBe("Numbered title words");
+    expect(normalizeTitle("`DeepSeek model id fix`")).toBe("DeepSeek model id fix");
+    expect(normalizeTitle("_italic title here_")).toBe("italic title here");
+    expect(normalizeTitle("__bold underline words__")).toBe("bold underline words");
+    // Clean prose unchanged.
+    expect(normalizeTitle("DeepSeek model id fix")).toBe("DeepSeek model id fix");
+
+    expect(isWeakHeaderTitle(clampGeneratedTitle("2. **Storage snapshots** as a"))).toBe(
+      false
+    );
+    expect(isWeakHeaderTitle(clampGeneratedTitle("WAL + periodic snapshots**"))).toBe(
+      false
+    );
   });
 });
 
@@ -156,7 +187,7 @@ describe("uniqueness", () => {
 
   test("disambiguated result still respects the cap", () => {
     // Exactly at the cap, so the " (2)" suffix must displace the tail.
-    const base = "Refactor the session title generationxxx";
+    const base = "x".repeat(TITLE_MAX_LENGTH);
     expect(base.length).toBe(TITLE_MAX_LENGTH);
 
     const unique = makeTitleUnique(base, [base]);
@@ -174,9 +205,7 @@ describe("uniqueness", () => {
   });
 
   test("applyTitlePolicy rejects an over-cap candidate", () => {
-    const result = applyTitlePolicy(
-      "Refactor the entire session title generation pipeline"
-    );
+    const result = applyTitlePolicy("x".repeat(TITLE_MAX_LENGTH + 1));
     expect(result.ok).toBe(false);
     expect(result.reason).toContain(String(TITLE_MAX_LENGTH));
   });

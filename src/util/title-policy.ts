@@ -7,12 +7,23 @@
  * two identical titles make sessions indistinguishable.
  */
 
-/** Hard character cap. Deliberately well under the former 60. */
-export const TITLE_MAX_LENGTH = 40;
+/** Hard character display/content clamp (shared with set_header). */
+export const TITLE_MAX_LENGTH = 80;
+
+/**
+ * Completion ceiling for the title LLM call (#150).
+ *
+ * Display clamp is {@link TITLE_MAX_LENGTH} — never pass that as `max_tokens`.
+ * Some backends (GLM on Ollama Cloud) still emit thinking despite
+ * `reasoningLevel: "off"`, so a 50-token budget starves `message.content`.
+ * This is a ceiling, not a target: happy-path titles still finish in a handful
+ * of tokens.
+ */
+export const TITLE_GEN_MAX_TOKENS = 1024;
 
 /** Target word range. Outside this band a title is rejected, not silently trimmed. */
 export const TITLE_MIN_WORDS = 2;
-export const TITLE_MAX_WORDS = 5;
+export const TITLE_MAX_WORDS = 10;
 
 /** How many user turns must exist before the first title is generated. */
 export const TITLE_MIN_USER_TURNS = 1;
@@ -47,22 +58,36 @@ export function isWeakHeaderTitle(title: string): boolean {
   const lower = t.toLowerCase();
   if (GENERIC_TITLE_PATTERNS.some((re) => re.test(lower))) return true;
 
-  // Word band. A one-word label cannot identify a conversation; six-plus words
-  // is a sentence, which is what the old 60-char cap invited.
+  // Word band. A one-word label cannot identify a conversation; titles past
+  // TITLE_MAX_WORDS are treated as sentences, not session labels.
   const words = splitTitleWords(t);
   if (words.length < TITLE_MIN_WORDS || words.length > TITLE_MAX_WORDS) return true;
 
   return false;
 }
 
-/** Collapse whitespace and strip list/heading/quote artifacts from a candidate. */
+/** Collapse whitespace and strip list/heading/quote/markdown artifacts from a candidate. */
 export function normalizeTitle(title: string): string {
-  return title
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/^[#>*\-\s]+/, "")
-    .replace(/["'`]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  let t = title.replace(/[\r\n\t]+/g, " ");
+
+  // Leading numbered / bulleted list prefixes: "2. ", "1) ", "- ", "* ", "+ ".
+  t = t.replace(/^(?:\s*(?:[-*+]|\d+[.)])\s+)+/, "");
+
+  // Heading / blockquote / leftover bullet lead-in.
+  t = t.replace(/^[#>*\-\s]+/, "");
+
+  // Bold / underline markers, then orphan `*` from partial bold (e.g. "snapshots**").
+  t = t.replace(/\*\*/g, "").replace(/__/g, "");
+  t = t.replace(/\*/g, "");
+
+  // Italic underscores: unwrap _word_ but keep snake_case identifiers.
+  t = t.replace(/(^|[^A-Za-z0-9])_([^_\s]+)_(?=[^A-Za-z0-9]|$)/g, "$1$2");
+  t = t.replace(/^_+|_+$/g, "");
+
+  // Quotes / backticks (whole-title wrappers and leftovers).
+  t = t.replace(/["'`]+/g, "");
+
+  return t.replace(/\s+/g, " ").trim();
 }
 
 function splitTitleWords(title: string): string[] {

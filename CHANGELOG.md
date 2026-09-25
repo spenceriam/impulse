@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.6] - 2026-09-24
+
+  **Type:** patch
+  **Title:** Title-gen budget must not equal display length
+
+  ### Fixed
+  - **#150** -- Auto session titles no longer use `max_tokens: 50` (the old display-length-ish budget). Generation now uses `TITLE_GEN_MAX_TOKENS = 1024` while `TITLE_MAX_LENGTH` (80) remains the display/content clamp only, so GLM 5.3 / GLM 5.3 Flash on Ollama Cloud can finish thinking and still emit a real title. Word band is 2–10 (`TITLE_MAX_WORDS = 10`) so clearer multi-word titles are not rejected after the longer clamp.
+  - **#150** -- Title cleanup strips leaked think/thinking/reasoning tag envelopes, fenced thinking dumps, and OpenCode redacted-thinking blocks; drops leading thinking-process / meta prose; and salvages a trailing title-like line, sentence, or `Title:` marker when the model dumps unmarked thinking before the real title. `Title:` / `Session:` prefix strip requires a colon so titles like "Session title gen fix" are preserved. Markdown leftovers (`**`, `*`, `__`, `_`, leading `1. `/`- ` bullets, wrapping backticks) are stripped in `normalizeTitle` before clamp / weak-check.
+  - **#150** -- Empty or weak title responses log usage, finish/stop reason, and the rejected cleaned title text (truncated) to the impulse log file only (no TUI stderr); leave the date placeholder; keep retitle-at-10 / max-3 unchanged.
+
 ## [1.9.5] - 2026-09-24
 
   **Type:** patch
