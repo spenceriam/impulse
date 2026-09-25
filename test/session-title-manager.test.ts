@@ -96,7 +96,7 @@ describe("session title enforcement", () => {
 
   test("rejects an over-cap title", async () => {
     const result = await SessionManager.setHeaderTitle(
-      "Refactor the entire session title generation pipeline today",
+      "x".repeat(TITLE_MAX_LENGTH + 1),
       { source: "auto" }
     );
 

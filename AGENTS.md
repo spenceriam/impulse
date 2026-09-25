@@ -726,13 +726,14 @@ Dynamic header line at the top of the session screen showing context about the c
 AI uses the `set_header` tool to update the header. Guidelines:
 - Set at meaningful milestones (initial understanding, phase changes)
 - Do NOT update constantly
-- Keep titles concise (max `TITLE_MAX_LENGTH` = 40 characters)
+- Keep titles concise (max `TITLE_MAX_LENGTH` = 80 characters)
 - Let the description naturally indicate the action
 
 ### Auto title generation (#150)
 
 - **`TITLE_GEN_MAX_TOKENS = 1024`** — completion ceiling for the title LLM call (not a target). Never pass `TITLE_MAX_LENGTH` as `max_tokens`; GLM backends can burn a tight budget on thinking even with `reasoningLevel: "off"`.
-- **`TITLE_MAX_LENGTH = 40`** — display/content clamp only (shared with `set_header`).
+- **`TITLE_MAX_LENGTH = 80`** — display/content clamp only (shared with `set_header`).
+- **`TITLE_MAX_WORDS = 10`** / **`TITLE_MIN_WORDS = 2`** — word band for auto and `set_header` titles.
 - Before clamp: strip think/thinking/reasoning tag envelopes, fenced thinking dumps, and OpenCode redacted-thinking blocks; drop leading thinking-process / meta prose; salvage a trailing title-like line, sentence, or `Title:` / `a good title would be:` marker when unmarked thinking precedes the real title; then quote/prefix cleanup + `clampGeneratedTitle`. `normalizeTitle` also strips markdown leftovers (`**`/`*`/`__`/`_`, leading numbered/bulleted prefixes, wrapping backticks) so auto titles are plain prose.
 - Empty/weak cleaned output → `fileError` (file log only) with usage, finish/stop reason, and rejected cleaned title text (truncated); leave date placeholder; retitle-at-10 / max-3 unchanged.
 
@@ -1022,7 +1023,7 @@ This ensures:
 - Bottom chrome (prompt + context bar) stays pinned via scroll anchoring
 
 ### Session titles
-- **Title-gen budget ≠ display clamp (#150)** — `TITLE_GEN_MAX_TOKENS` (1024) is the completion ceiling; `TITLE_MAX_LENGTH` (40) is display-only. Do not wire the char cap into `max_tokens` (GLM thinking starves content).
+- **Title-gen budget ≠ display clamp (#150)** — `TITLE_GEN_MAX_TOKENS` (1024) is the completion ceiling; `TITLE_MAX_LENGTH` (80) is display-only. Do not wire the char cap into `max_tokens` (GLM thinking starves content). Word band is 2–10 (`TITLE_MIN_WORDS` / `TITLE_MAX_WORDS`).
 - Unmarked thinking prose is stripped/salvaged before clamp (prefer trailing title-like line/sentence or `Title:` marker); pure meta dumps still reject. Markdown leftovers (`**`, list prefixes, wrapping backticks) are stripped in `normalizeTitle`.
 - Empty/weak title responses log via `fileError` only (no TUI stderr) including the rejected cleaned title text; placeholder stays until a later eligible boundary.
 

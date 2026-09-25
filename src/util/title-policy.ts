@@ -7,8 +7,8 @@
  * two identical titles make sessions indistinguishable.
  */
 
-/** Hard character cap. Deliberately well under the former 60. */
-export const TITLE_MAX_LENGTH = 40;
+/** Hard character display/content clamp (shared with set_header). */
+export const TITLE_MAX_LENGTH = 80;
 
 /**
  * Completion ceiling for the title LLM call (#150).
@@ -23,7 +23,7 @@ export const TITLE_GEN_MAX_TOKENS = 1024;
 
 /** Target word range. Outside this band a title is rejected, not silently trimmed. */
 export const TITLE_MIN_WORDS = 2;
-export const TITLE_MAX_WORDS = 5;
+export const TITLE_MAX_WORDS = 10;
 
 /** How many user turns must exist before the first title is generated. */
 export const TITLE_MIN_USER_TURNS = 1;
@@ -58,8 +58,8 @@ export function isWeakHeaderTitle(title: string): boolean {
   const lower = t.toLowerCase();
   if (GENERIC_TITLE_PATTERNS.some((re) => re.test(lower))) return true;
 
-  // Word band. A one-word label cannot identify a conversation; six-plus words
-  // is a sentence, which is what the old 60-char cap invited.
+  // Word band. A one-word label cannot identify a conversation; titles past
+  // TITLE_MAX_WORDS are treated as sentences, not session labels.
   const words = splitTitleWords(t);
   if (words.length < TITLE_MIN_WORDS || words.length > TITLE_MAX_WORDS) return true;
 

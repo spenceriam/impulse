@@ -24,7 +24,9 @@ const SetHeaderSchema = z.object({
   title: z
     .string()
     .max(TITLE_MAX_LENGTH, `Title must be ${TITLE_MAX_LENGTH} characters or less`)
-    .describe("Specific description of the current task/conversation (2-5 words)"),
+    .describe(
+      `Specific description of the current task/conversation (${TITLE_MIN_WORDS}-${TITLE_MAX_WORDS} words)`
+    ),
 });
 
 type SetHeaderInput = z.infer<typeof SetHeaderSchema>;
@@ -51,7 +53,7 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
           success: false,
           output:
             policy.reason ??
-            "Title must be a specific 2-5 word phrase (e.g. 'Heartbeat reconnect loop'), not a generic label, answer, or number.",
+            `Title must be a specific ${TITLE_MIN_WORDS}-${TITLE_MAX_WORDS} word phrase (e.g. 'Heartbeat reconnect loop'), not a generic label, answer, or number.`,
         };
       }
 
