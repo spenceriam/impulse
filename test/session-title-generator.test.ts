@@ -149,6 +149,16 @@ describe("cleanGeneratedTitleText", () => {
     expect(clampGeneratedTitle(real).length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
     expect(isWeakHeaderTitle(clampGeneratedTitle(real))).toBe(false);
   });
+
+  test("markdown leftovers in model output normalize to plain titles", () => {
+    expect(
+      acceptCleaned("2. **Storage snapshots** as a")
+    ).toBe("Storage snapshots as a");
+    expect(acceptCleaned("WAL + periodic snapshots**")).toBe(
+      "WAL + periodic snapshots"
+    );
+    expect(acceptCleaned("`DeepSeek model id fix`")).toBe("DeepSeek model id fix");
+  });
 });
 
 describe("title reject logging", () => {

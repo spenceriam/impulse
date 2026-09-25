@@ -122,6 +122,30 @@ describe("weak and generic title rejection", () => {
     expect(normalizeTitle('## "Session title policy"')).toBe("Session title policy");
     expect(isWeakHeaderTitle("# DeepSeek model id fix")).toBe(false);
   });
+
+  test("strips markdown leftovers before clamp / weak-check (Defiant dogfood)", () => {
+    expect(normalizeTitle("2. **Storage snapshots** as a")).toBe(
+      "Storage snapshots as a"
+    );
+    expect(normalizeTitle("WAL + periodic snapshots**")).toBe(
+      "WAL + periodic snapshots"
+    );
+    expect(normalizeTitle("* bullet title here")).toBe("bullet title here");
+    expect(normalizeTitle("- another bullet title")).toBe("another bullet title");
+    expect(normalizeTitle("1) Numbered title words")).toBe("Numbered title words");
+    expect(normalizeTitle("`DeepSeek model id fix`")).toBe("DeepSeek model id fix");
+    expect(normalizeTitle("_italic title here_")).toBe("italic title here");
+    expect(normalizeTitle("__bold underline words__")).toBe("bold underline words");
+    // Clean prose unchanged.
+    expect(normalizeTitle("DeepSeek model id fix")).toBe("DeepSeek model id fix");
+
+    expect(isWeakHeaderTitle(clampGeneratedTitle("2. **Storage snapshots** as a"))).toBe(
+      false
+    );
+    expect(isWeakHeaderTitle(clampGeneratedTitle("WAL + periodic snapshots**"))).toBe(
+      false
+    );
+  });
 });
 
 describe("uniqueness", () => {

@@ -66,14 +66,28 @@ export function isWeakHeaderTitle(title: string): boolean {
   return false;
 }
 
-/** Collapse whitespace and strip list/heading/quote artifacts from a candidate. */
+/** Collapse whitespace and strip list/heading/quote/markdown artifacts from a candidate. */
 export function normalizeTitle(title: string): string {
-  return title
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/^[#>*\-\s]+/, "")
-    .replace(/["'`]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  let t = title.replace(/[\r\n\t]+/g, " ");
+
+  // Leading numbered / bulleted list prefixes: "2. ", "1) ", "- ", "* ", "+ ".
+  t = t.replace(/^(?:\s*(?:[-*+]|\d+[.)])\s+)+/, "");
+
+  // Heading / blockquote / leftover bullet lead-in.
+  t = t.replace(/^[#>*\-\s]+/, "");
+
+  // Bold / underline markers, then orphan `*` from partial bold (e.g. "snapshots**").
+  t = t.replace(/\*\*/g, "").replace(/__/g, "");
+  t = t.replace(/\*/g, "");
+
+  // Italic underscores: unwrap _word_ but keep snake_case identifiers.
+  t = t.replace(/(^|[^A-Za-z0-9])_([^_\s]+)_(?=[^A-Za-z0-9]|$)/g, "$1$2");
+  t = t.replace(/^_+|_+$/g, "");
+
+  // Quotes / backticks (whole-title wrappers and leftovers).
+  t = t.replace(/["'`]+/g, "");
+
+  return t.replace(/\s+/g, " ").trim();
 }
 
 function splitTitleWords(title: string): string[] {
