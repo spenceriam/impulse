@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#134** -- Tool-result messages can carry image content; providers serialize per API shape (OpenAI-compatible `image_url` parts, Anthropic base64 `image` blocks inside `tool_result` content).
 
   ### Fixed
-  - **#134** -- Windows multi-file clipboard paste now uses `[System.Windows.Forms.Clipboard]::GetFileDropList()` (DataFormats.FileDrop). The previous script checked the non-existent format string `'FileDropList'`, so Explorer copies returned `present: true` with zero paths and only the first file pasted.
+  - **#134** -- Windows-only: multi-file clipboard paste now uses `[System.Windows.Forms.Clipboard]::GetFileDropList()` (DataFormats.FileDrop). The previous script checked the non-existent format string `'FileDropList'`, so Explorer copies returned `present: true` with zero paths and only the first file pasted. macOS (`osascript` / furl) and Linux (`wl-paste` / `xclip` gnome-copied-files) readers are unchanged.
 
 ## [1.9.6] - 2026-09-24
 

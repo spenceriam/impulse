@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import {
   readClipboardFileList,
   WINDOWS_CLIPBOARD_FILELIST_SCRIPT,
 } from "../src/cli/clipboard-files.js";
+
+const clipboardFilesSrc = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../src/cli/clipboard-files.ts"),
+  "utf8"
+);
 
 describe("readClipboardFileList (#134)", () => {
   test("returns a well-formed result on every platform without throwing", async () => {
@@ -15,6 +23,10 @@ describe("readClipboardFileList (#134)", () => {
       expect(typeof f).toBe("string");
       expect(f.length).toBeGreaterThan(0);
     }
+  });
+
+  test("still exports the shared readClipboardFileList entry point", () => {
+    expect(typeof readClipboardFileList).toBe("function");
   });
 });
 
@@ -41,5 +53,24 @@ describe("WINDOWS_CLIPBOARD_FILELIST_SCRIPT (#134 FileDrop)", () => {
       "GetData('FileDropList')"
     );
     expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).not.toContain("$_.FullName");
+  });
+});
+
+describe("macOS + Linux clipboard readers unchanged (#134 Windows-only)", () => {
+  // Windows dogfood fix must not rewrite darwin/Linux. Contract-check the
+  // source so CI (Linux VM) still guards Finder / X11 / Wayland paths.
+  test("macOS path still uses osascript NSFilenames / furl list", () => {
+    expect(clipboardFilesSrc).toContain("async function readMacFileList");
+    expect(clipboardFilesSrc).toContain("osascript");
+    expect(clipboardFilesSrc).toContain("the clipboard as «class furl» list");
+    expect(clipboardFilesSrc).toContain("p.replace(/^file:");
+  });
+
+  test("Linux path still uses wl-paste then xclip gnome-copied-files", () => {
+    expect(clipboardFilesSrc).toContain("async function readLinuxFileList");
+    expect(clipboardFilesSrc).toContain("x-special/gnome-copied-files");
+    expect(clipboardFilesSrc).toContain('cmd: "wl-paste"');
+    expect(clipboardFilesSrc).toContain('cmd: "xclip"');
+    expect(clipboardFilesSrc).toContain('"-selection", "clipboard"');
   });
 });
