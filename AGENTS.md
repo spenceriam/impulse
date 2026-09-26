@@ -20,7 +20,7 @@
 
 ### v1.10.0 (2026-09-24)
 
-- [x] Clipboard file-list paste (#134) — `src/cli/clipboard-files.ts` reads platform file lists (Windows `FileDropList`, macOS `NSFilenamesPboardType`, Linux `x-special/gnome-copied-files`); pasting N copied image files injects N `[Pasted image #N]` tokens (terminal text buffer only carries the first path)
+- [x] Clipboard file-list paste (#134) — `src/cli/clipboard-files.ts` reads platform file lists (Windows `GetFileDropList` / DataFormats.FileDrop, macOS `NSFilenamesPboardType`, Linux `x-special/gnome-copied-files`); pasting N copied image files injects N `[Pasted image #N]` tokens (terminal text buffer only carries the first path)
 - [x] Agent image reads (#134) — `file_read` on PNG/JPEG/GIF/WebP returns a data URI via `ToolResult.imageUris` instead of the binary refusal; vision models see the image, text-only models keep a clear text fallback
 - [x] Tool-result image channel (#134) — `buildChatMessages({ includeToolImages })` passes `image_url` parts when `nativeVision`; Anthropic serializes base64 `image` blocks inside `tool_result` content
 

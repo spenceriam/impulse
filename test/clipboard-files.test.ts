@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readClipboardFileList } from "../src/cli/clipboard-files.js";
+import {
+  readClipboardFileList,
+  WINDOWS_CLIPBOARD_FILELIST_SCRIPT,
+} from "../src/cli/clipboard-files.js";
 
 describe("readClipboardFileList (#134)", () => {
   test("returns a well-formed result on every platform without throwing", async () => {
@@ -12,5 +15,31 @@ describe("readClipboardFileList (#134)", () => {
       expect(typeof f).toBe("string");
       expect(f.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("WINDOWS_CLIPBOARD_FILELIST_SCRIPT (#134 FileDrop)", () => {
+  test("uses GetFileDropList and prints raw path strings", () => {
+    // Regression: Explorer multi-file copy uses DataFormats.FileDrop
+    // (CF_HDROP). The broken script checked GetDataPresent('FileDropList')
+    // (always False) and then $_.FullName on what would have been strings.
+    expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).toContain(
+      "[System.Windows.Forms.Clipboard]::GetFileDropList()"
+    );
+    expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).toContain(
+      "$l | ForEach-Object { $_ }"
+    );
+    expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).toContain(
+      "if ($null -eq $l) { exit 1 }"
+    );
+
+    // Must not contain the dogfood-broken patterns.
+    expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).not.toContain(
+      "GetDataPresent('FileDropList')"
+    );
+    expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).not.toContain(
+      "GetData('FileDropList')"
+    );
+    expect(WINDOWS_CLIPBOARD_FILELIST_SCRIPT).not.toContain("$_.FullName");
   });
 });
