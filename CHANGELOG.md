@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-09-24
+
+  **Type:** minor
+  **Title:** Clipboard multi-file paste + agent image reads
+
+  ### Added
+  - **#134** -- Clipboard file-list paste: copying N files (Explorer/Finder) and pasting injects N `[Pasted image #N]` tokens — impulse now reads the platform clipboard file list directly (Windows `GetFileDropList` / DataFormats.FileDrop, macOS `NSFilenamesPboardType`, Linux `x-special/gnome-copied-files`) instead of relying on the terminal text buffer, which only carries the first file's path.
+  - **#134** -- Agent image reads: `file_read` on a PNG/JPEG/GIF/WebP returns the image as content the model can see (when the model is vision-capable) instead of refusing "Cannot read binary file". Text-only models keep a clear text fallback.
+
+  ### Changed
+  - **#134** -- Tool-result messages can carry image content; providers serialize per API shape (OpenAI-compatible `image_url` parts, Anthropic base64 `image` blocks inside `tool_result` content).
+
+  ### Fixed
+  - **#134** -- Windows-only: multi-file clipboard paste now uses `[System.Windows.Forms.Clipboard]::GetFileDropList()` (DataFormats.FileDrop). The previous script checked the non-existent format string `'FileDropList'`, so Explorer copies returned `present: true` with zero paths and only the first file pasted. macOS (`osascript` / furl) and Linux (`wl-paste` / `xclip` gnome-copied-files) readers are unchanged.
+
 ## [1.9.6] - 2026-09-24
 
   **Type:** patch

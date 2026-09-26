@@ -10,6 +10,9 @@ import {
   type Focusable,
 } from "@mariozechner/pi-tui";
 import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } from "./gutter.js";
+import { readClipboardFileList } from "./clipboard-files.js";
+import { IMAGE_EXTENSIONS } from "./image-paths.js";
+import * as pathMod from "path";
 import {
   extractImagePathRefs,
   filePathInPasteRegex,
@@ -690,6 +693,53 @@ export class PromptInput implements Component, Focusable {
     const content = normalizePasteContent(this._pasteBuffer);
     this._pasteBuffer = "";
 
+    // Multi-file clipboard copy (Explorer/Finder "Copy") puts a file list on
+    // the clipboard while terminals deliver only the FIRST path as text.
+    // Check the platform clipboard file list first; when it holds more files
+    // than the text suggests, inject one token per file (#134).
+    void readClipboardFileList().then((clip) => {
+      if (clip.present && clip.files.length > 1) {
+        const imageFiles = clip.files.filter((f) =>
+          IMAGE_EXTENSIONS.includes(
+            pathMod.extname(f).slice(1).toLowerCase() as (typeof IMAGE_EXTENSIONS)[number]
+          )
+        );
+        if (imageFiles.length > 1) {
+          void this._attachClipboardFiles(imageFiles);
+          return;
+        }
+      }
+      this._finalizePasteText(content);
+    });
+  }
+
+  /** Resolve clipboard file-list entries into image tokens at the cursor. */
+  private async _attachClipboardFiles(files: string[]): Promise<void> {
+    const results = await Promise.all(files.map((f) => resolveImagePath(f)));
+    let labels = "";
+    for (const resolved of results) {
+      if (!resolved.ok) continue;
+      const idx = this._nextImageIndex++;
+      const label = `[Pasted image #${idx}]`;
+      this._detectedImages.push(resolved.uri);
+      this._pasteGroups.push({
+        display: label,
+        content: resolved.uri,
+        originalDisplay: label,
+        kind: "image",
+        imageIndex: idx,
+      });
+      labels += label;
+    }
+    if (labels.length > 0) {
+      this.editor.handleInput(labels);
+      this._syncPasteGroupsAfterEdit();
+    }
+    this.onChange?.(this.editor.getText());
+  }
+
+  /** Original text-buffer paste handling (single- or multi-path, text). */
+  private _finalizePasteText(content: string): void {
     const lines = content.split("\n").filter((l) => l.length > 0);
 
     // Paste consisting purely of image paths (one or many, possibly quoted /
