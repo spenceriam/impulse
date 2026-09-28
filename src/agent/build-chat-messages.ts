@@ -12,10 +12,13 @@ function isCompactSummaryMessage(m: Message): boolean {
   );
 }
 
-/** Build provider chat messages from session history (includes preserved reasoning). */
+/** Build provider chat messages from session history (includes preserved reasoning).
+ *  When `includeToolImages` is false (text-only model), image content on tool
+ *  results is stripped to text — providers reject images on some shapes. */
 export function buildChatMessages(
   sessionMessages: Message[],
-  systemPrompt: string
+  systemPrompt: string,
+  opts?: { includeToolImages?: boolean }
 ): ChatMessage[] {
   const compactSummaries = sessionMessages
     .filter(isCompactSummaryMessage)
@@ -48,9 +51,12 @@ export function buildChatMessages(
       }
       result.push(msg);
     } else if (m.role === "tool" && m.tool_call_id) {
+      const includeImages = opts?.includeToolImages !== false;
+      const apiContent =
+        includeImages && m.apiContent !== undefined ? m.apiContent : undefined;
       result.push({
         role: "tool",
-        content: m.content,
+        content: apiContent ?? m.content,
         tool_call_id: m.tool_call_id,
       });
     }

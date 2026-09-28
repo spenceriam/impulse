@@ -9,14 +9,20 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.5.0
+- **Version:** v1.10.0
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.5.0 (2026-06-06) — UX simplification, tiered feedback, harness plumbing, provider-neutral capabilities, post-review hardening
+**Status:** v1.10.0 (2026-09-24) — Clipboard multi-file paste + agent image reads (#134)
+
+### v1.10.0 (2026-09-24)
+
+- [x] Clipboard file-list paste (#134) — `src/cli/clipboard-files.ts` reads platform file lists (Windows `GetFileDropList` / DataFormats.FileDrop, macOS `NSFilenamesPboardType`, Linux `x-special/gnome-copied-files`); pasting N copied image files injects N `[Pasted image #N]` tokens (terminal text buffer only carries the first path)
+- [x] Agent image reads (#134) — `file_read` on PNG/JPEG/GIF/WebP returns a data URI via `ToolResult.imageUris` instead of the binary refusal; vision models see the image, text-only models keep a clear text fallback
+- [x] Tool-result image channel (#134) — `buildChatMessages({ includeToolImages })` passes `image_url` parts when `nativeVision`; Anthropic serializes base64 `image` blocks inside `tool_result` content
 
 ### v1.5.0 (2026-06-06)
 
@@ -223,7 +229,7 @@
 - [x] Command autocomplete de-duplicates aliased commands
 - [x] Processing indicators avoid duplicate global/tool placeholders
 - [x] Active task/question calls show specific processing labels
-- [x] Pasted text tokens render inline; image paste remains attachment-style
+- [x] Pasted text tokens render inline; image paste remains attachment-style; multi-file clipboard paste injects N `[Pasted image #N]` tokens via OS file-list (#134 / v1.10.0)
 - [x] Self-check renders only in DEBUG or verbose mode
 - [x] Non-English (Chinese) responses auto-retry in English
 - [x] Chat auto-scroll stays pinned during streaming updates
@@ -1027,6 +1033,11 @@ This ensures:
 - Unmarked thinking prose is stripped/salvaged before clamp (prefer trailing title-like line/sentence or `Title:` marker); pure meta dumps still reject. Markdown leftovers (`**`, list prefixes, wrapping backticks) are stripped in `normalizeTitle`.
 - Empty/weak title responses log via `fileError` only (no TUI stderr) including the rejected cleaned title text; placeholder stays until a later eligible boundary.
 
+### Clipboard paste + agent image reads (#134)
+- **Multi-file paste** — terminals only deliver the first copied file path as text. Paste handling calls `readClipboardFileList()` (`src/cli/clipboard-files.ts`) first; when the OS clipboard holds multiple image files, inject one `[Pasted image #N]` token per file. Text-buffer path parsing remains the fallback when no file list is present (2s timeout, best-effort).
+- **`file_read` images** — PNG/JPEG/GIF/WebP sniff returns success + `ToolResult.imageUris` (data URI); other binaries still refuse with "Cannot read binary file".
+- **Vision gate** — `buildChatMessages({ includeToolImages: nativeVision })` keeps image parts for vision-capable models and strips them to plain text for text-only models. Anthropic maps `image_url` tool-result parts to base64 `image` blocks inside `tool_result` content.
+
 ### Turn control (cancel / steer / nudges)
 - **Esc cancel** persists an interruption marker plus synthetic `Cancelled by user.` tool results for dangling `tool_calls` — the model must not "resume" a cancelled flow unless asked
 - **`/steer`** injects at the next tool-loop boundary (not instantly); pending steer suppresses planning and allow-all nudges for that iteration
@@ -1062,6 +1073,7 @@ This ensures:
   - Correct format: `assistant (with tool_calls array)` -> `tool (results)` -> `assistant (continuation)`
   - Conversation history is built via `buildChatMessages()` in `src/agent/build-chat-messages.ts` (called from `src/agent/loop.ts`)
   - Tool results use `role: "tool"` with `tool_call_id` matching the original call
+  - Tool results may include `image_url` parts when `file_read` returned `imageUris` and the model is vision-capable (`includeToolImages`)
 
 ### Streaming
 - pi-tui re-renders on each update; keep component state updates batched where possible
@@ -1077,6 +1089,7 @@ This ensures:
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 09-24-2026 | Clipboard file-list paste + agent image reads | Terminal text paste only carries the first copied path; read OS file-list formats for N→N image tokens. `file_read` returns viewable images via `imageUris` instead of binary refusal; tool-result images gated by `nativeVision` / `includeToolImages` (#134 / v1.10.0) |
 | 09-24-2026 | Title-gen `TITLE_GEN_MAX_TOKENS=1024` ≠ `TITLE_MAX_LENGTH` | GLM (and similar) can burn a tight `max_tokens` on thinking despite `reasoningLevel: "off"`; ceiling ≠ target; strip leaked thinking + salvage trailing title from unmarked prose before clamp; empty/weak → `fileError` with rejected text (#150) |
 | 06-10-2026 | Tool UX hardening bundle | `file_edit` trimmed fallback; optional question descriptions; `injected` replay tagging; silent todo gap removal; `/copy`; queue preview dim + header |
 | 06-10-2026 | Cancel / steer / nudge priority | Interruption marker on abort; steer overrides nudges; progress-aware todo counters; duplicate-bash removed from planning nudge trigger |

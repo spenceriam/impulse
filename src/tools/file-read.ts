@@ -40,6 +40,26 @@ const BINARY_SIGNATURES: Array<[string, number[]]> = [
   ["PE binary",    [0x4d, 0x5a]],
 ];
 
+/** Magic bytes of viewable image formats + their data-URI mime types. */
+const IMAGE_SIGNATURES: Array<[string, number[], string]> = [
+  ["PNG image",  [0x89, 0x50, 0x4e, 0x47], "image/png"],
+  ["JPEG image", [0xff, 0xd8, 0xff],       "image/jpeg"],
+  ["GIF image",  [0x47, 0x49, 0x46],       "image/gif"],
+  ["WebP image", [0x52, 0x49, 0x46, 0x46], "image/webp"], // RIFF....WEBP
+];
+
+/** Return a data URI when the file is a viewable image, else null. */
+async function readImageAsDataUri(filePath: string, label: string): Promise<string | null> {
+  try {
+    const mime =
+      IMAGE_SIGNATURES.find(([lbl]) => lbl === label)?.[2] ?? "image/png";
+    const buf = await readFile(filePath);
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 function detectBinaryOrEncoding(filePath: string): { isBinary: true; label: string } | { isBinary: false; hasBOM: boolean; bomNote?: string } | null {
   let fd: number;
   try {
@@ -215,6 +235,18 @@ export const fileRead: Tool<ReadInput> = Tool.define(
         // Sniff for binary/BOM before attempting UTF-8 read
         const encoding = detectBinaryOrEncoding(safePath);
         if (encoding?.isBinary) {
+          // Image files: return the image as content alongside text. The
+          // loop strips it for text-only models (buildChatMessages flag).
+          if (IMAGE_SIGNATURES.some(([lbl]) => lbl === encoding.label)) {
+            const uri = await readImageAsDataUri(safePath, encoding.label);
+            if (uri) {
+              return {
+                success: true,
+                output: `Image file: ${input.filePath} (${encoding.label}). View the image content attached alongside this text. If no image content is present, the current model cannot see images — read the file path with bash-based tooling or ask the user to describe it.`,
+                imageUris: [uri],
+              };
+            }
+          }
           return {
             success: false,
             output: `Cannot read binary file: ${input.filePath} (detected: ${encoding.label}). Use bash tool to inspect or process binary files.`,
