@@ -6,6 +6,7 @@ You have access to READ-ONLY tools:
 - file_read: Read files
 - glob: Find files by pattern
 - grep: Search file contents
+- ls: List directory contents
 - web_search: Discover current external sources
 - web_fetch: Read exact URLs from search results
 

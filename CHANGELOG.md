@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-09-28
+
+  **Type:** patch
+  **Title:** Formatting + tool guardrails salvage (#127, #128)
+
+  ### Added
+  - **#128** -- New `ls` tool lists directory entries (files + subdirs) in every mode alongside `file_read` / `glob` / `grep`, with compact tool-row metadata and reciprocal guidance when `file_read` hits a directory or `ls` hits a file.
+  - **#127** -- Assistant markdown now bolds H1–H6 headings (was capped at H1–H4).
+
+  ### Changed
+  - **#128** -- `file_read` on a directory returns a corrective listing + "use ls/glob/grep" message instead of a raw EISDIR; image reads from #134 are unchanged.
+  - Tool-calling transparency — auto-repaired tool args, truncated output, and malformed JSON now surface actionable `Note:` / retry recipes; permission denials (including sub-agent batch deny/cancel) tell the model what to do next via the question tool.
+
+  ### Fixed
+  - **#127** -- Mode switches no longer dump colored transition lines into the chat transcript (mode stays on the context bar / prompt accent).
+  - Git branch-change chat notes dedupe when command-driven detection and the `.git/HEAD` watcher both fire for one switch.
+
 ## [1.10.0] - 2026-09-24
 
   **Type:** minor

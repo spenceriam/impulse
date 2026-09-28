@@ -92,7 +92,7 @@ import {
   resetAllowAllBypass,
   setAllowAllBypass,
 } from "../permission/index.js";
-import { ContextBarComponent } from "./components/context-bar.js";
+import { ContextBarComponent, gitBranch } from "./components/context-bar.js";
 import { clearActiveSessionMarker } from "../util/active-session-marker.js";
 import {
   isCosmeticTodoRewrite,
@@ -278,7 +278,6 @@ import {
   A,
   advisorStatusLine,
   clr,
-  MODE_ARROW,
   MODE_COLORS,
   modelStatusLine,
 } from "./ansi-theme.js";
@@ -1559,6 +1558,10 @@ export class ImpulseRenderer {
   private profileOverlayHandle: OverlayHandle | null = null;
   private busUnsubscribe: (() => void) | null = null;
   private branchWatcher: GitBranchWatcher | null = null;
+  /** Last branch name actually announced in chat — dedupes redundant BranchEvents.Changed
+   *  fires from the two independent detection sources (command-driven + fs.watch), which
+   *  each debounce/cache on their own but can still both legitimately fire for one switch. */
+  private lastAnnouncedGitBranch: string | undefined;
   private liveTurnStartedAt = 0;
   private liveGeneratedChars = 0;
   private lastLiveMetricsAt = 0;
@@ -1610,7 +1613,6 @@ export class ImpulseRenderer {
   private speedoEnabled = false;
   private slashTabCycle: SlashCompleteCycle | null = null;
   private userName = "you"; // User's display name (loaded from config)
-  private modeChangeText: Text | null = null; // Track mode change line for in-place updates
 
   constructor(options?: ImpulseRendererOptions) {
     this.startupResume = options?.resume ?? null;
@@ -1747,6 +1749,16 @@ export class ImpulseRenderer {
       }
 
       if (event.type === BranchEvents.Changed.name) {
+        // Command-driven detection and the fs.watch source each debounce/cache
+        // independently, so one real switch can legitimately publish this event
+        // more than once. Re-read the branch fresh and only act if it actually
+        // differs from what was last announced — the real fix for the redundant
+        // "Git branch changed" repeats, not a bug in either upstream source.
+        const currentBranch = gitBranch(process.cwd());
+        if (currentBranch === this.lastAnnouncedGitBranch) {
+          return;
+        }
+        this.lastAnnouncedGitBranch = currentBranch;
         this.contextBar.invalidate();
         // Session state is intentionally untouched on branch changes (#78) —
         // surface a small note so users know why version/behavior may differ.
@@ -1961,6 +1973,7 @@ export class ImpulseRenderer {
     // Start git branch filesystem watcher to catch external branch switches
     this.branchWatcher = new GitBranchWatcher(process.cwd());
     this.branchWatcher.start();
+    this.lastAnnouncedGitBranch = gitBranch(process.cwd());
 
     // ?? Start TUI (takes over terminal raw mode) ??????????????????????????
     this.syncModeColor(); // set initial arrow color
@@ -2045,44 +2058,8 @@ export class ImpulseRenderer {
     if (SessionManager.getCurrentSession()) {
       void SessionManager.update({ mode: next });
     }
-
-    if (options?.transition) {
-      const prevNorm = normalizeMode(prev);
-      const nextNorm = normalizeMode(next);
-      let modeLine = "";
-      if (isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-        modeLine = `${GUTTER}${A.fg(MODE_COLORS[nextNorm] ?? 34, displayModeLabel(nextNorm))}`;
-      } else if (!isDefaultMode(prevNorm) && isDefaultMode(nextNorm)) {
-        modeLine = `${GUTTER}${A.fg(MODE_COLORS[prevNorm] ?? 34, displayModeLabel(prevNorm))}${MODE_ARROW}`;
-      } else if (!isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-        const prevLabel = displayModeLabel(prevNorm);
-        const nextLabel = displayModeLabel(nextNorm);
-        modeLine = `${GUTTER}${A.fg(MODE_COLORS[prevNorm] ?? 34, prevLabel)}${MODE_ARROW}${A.fg(MODE_COLORS[nextNorm] ?? 34, nextLabel)}`;
-      }
-      if (modeLine.length > 0) {
-        if (options.transition === "inline") {
-          if (this.modeChangeText) {
-            this.modeChangeText.setText(modeLine);
-          } else {
-            this.addChatLine("");
-            this.modeChangeText = new Text(modeLine, 0, 0);
-            this.chat.addChild(this.modeChangeText);
-          }
-        } else {
-          const prevLabel = displayModeLabel(prevNorm);
-          const nextLabel = displayModeLabel(nextNorm);
-          if (isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-            this.addChatLine(`  ${A.fg(MODE_COLORS[nextNorm] ?? 34, nextLabel)}`);
-          } else if (!isDefaultMode(prevNorm) && isDefaultMode(nextNorm)) {
-            this.addChatLine(`  ${A.fg(MODE_COLORS[prevNorm] ?? 34, prevLabel)}${MODE_ARROW}`);
-          } else if (!isDefaultMode(prevNorm) && !isDefaultMode(nextNorm)) {
-            this.addChatLine(
-              `  ${A.fg(MODE_COLORS[prevNorm] ?? 34, prevLabel)}${MODE_ARROW}${A.fg(MODE_COLORS[nextNorm] ?? 34, nextLabel)}`
-            );
-          }
-        }
-      }
-    }
+    // Mode stays visible via the context bar and prompt accent color — do not
+    // write colored mode-transition lines into the chat transcript (#127).
   }
 
   private cycleMode(dir: 1 | -1): void {
@@ -2507,7 +2484,6 @@ export class ImpulseRenderer {
     this.recordSubmittedPrompt(transcript);
 
     this.isRunning = true;
-    this.modeChangeText = null;
     this.turnShowsImpulseHeader = false;
 
     this.addSectionGap();
@@ -5495,7 +5471,6 @@ export class ImpulseRenderer {
       children.pop();
     }
     this.hasTrailingGap = false;
-    this.modeChangeText = null;
     this.lastHeaderLineTitle = null;
   }
 

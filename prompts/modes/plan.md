@@ -31,7 +31,7 @@ Once interrogation is complete, produce `design.md`, `spec.md`, and `tasks.md` i
 
 ### PLAN capabilities
 
-- Read-only codebase exploration: `file_read`, `glob`, `grep`
+- Read-only codebase exploration: `file_read`, `glob`, `grep`, `ls`
 - External research: `web_search`, `web_fetch`, `github_issue` (when GitHub CLI is available)
 - GitHub issues: for "issue #N" in this repo, use Repository context — never blind `web_search` for issue numbers
 - Parallel research: `task` with `subagent_type: "explore"` (explore agents also have web tools)

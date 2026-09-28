@@ -150,7 +150,7 @@ export const grepTool: Tool<GrepInput> = Tool.define(
       const totalFound = matches.length;
       const truncatedNotice =
         totalFound >= MAX_RESULTS
-          ? `\n\n(Results limited to ${MAX_RESULTS}. Use ripgrep directly for full results.)`
+          ? `\n\n[Results limited to ${MAX_RESULTS} matches; more may exist. Narrow with a tighter pattern, a specific path, or an include filter (e.g. include: "*.ts") to see the rest.]`
           : "";
 
       const pathNote = buildGrepPathNote(input, process.cwd());
