@@ -19,6 +19,11 @@ export type QuietRecapEvent = {
   name: string;
   arg: string;
   outcome: QuietToolOutcome;
+  /**
+   * Concrete Recap noun phrase (preferred). Built from tool result metadata
+   * at tool-end — never vague filler like "looking at files".
+   */
+  fact?: string;
 };
 
 const QUIET_VERBS: Record<string, string> = {
@@ -89,7 +94,9 @@ export function shortQuietArg(name: string, args: Record<string, unknown>): stri
     return truncateArg(command.replace(/\s+/g, " ").trim());
   }
   if (name === "ls") {
-    const p = typeof args["path"] === "string" ? String(args["path"]) : ".";
+    const p = typeof args["path"] === "string" ? String(args["path"]).trim() : "";
+    // Prefer "." over cwd basename mush (e.g. "impulse-pr154") when listing root.
+    if (!p || p === "." || p === "./") return ".";
     return truncateArg(shortPath(p));
   }
 
@@ -117,6 +124,26 @@ function truncateArg(text: string, max = 40): string {
   const t = text.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, Math.max(1, max - 1))}…`;
+}
+
+/** True when ls targeted repo root / cwd — use "top-level entries", not folder mush. */
+function isLsRootScope(arg: string, metaPath: string): boolean {
+  const candidates = [arg, metaPath].map((s) => s.trim()).filter(Boolean);
+  if (candidates.length === 0) return true;
+  for (const raw of candidates) {
+    if (raw === "." || raw === "./" || raw === "") return true;
+    try {
+      if (path.resolve(raw) === path.resolve(process.cwd())) return true;
+    } catch {
+      /* ignore */
+    }
+    // Bare cwd basename (e.g. agent passed folder name as path) → treat as root.
+    if (!raw.includes("/") && !raw.includes("\\") && raw === path.basename(process.cwd())) {
+      return true;
+    }
+  }
+  // If every candidate looks like root, yes; if any is a real subpath, no.
+  return candidates.every((raw) => raw === "." || raw === "./");
 }
 
 export function quietToolVerb(name: string): string {
@@ -184,8 +211,182 @@ const QUIET_OUTCOME_VERBS: Record<string, string> = {
   vision_translate: "translated",
 };
 
+/** Ban list — never emit these as Recap nouns (ambiguous / filler). */
+const VAGUE_RECAP_ARGS = new Set([
+  "",
+  ".",
+  "..",
+  "command",
+  "pattern",
+  "subagent",
+  "files",
+  "file",
+  "repo",
+  "the repo",
+  "things",
+  "stuff",
+]);
+
+const VAGUE_RECAP_PHRASES = [
+  /^looking at\b/i,
+  /^working on\b/i,
+  /^listing things\b/i,
+  /^reading files\b/i,
+  /^exploring\b/i,
+];
+
 export function quietOutcomeVerb(name: string): string {
   return QUIET_OUTCOME_VERBS[name] ?? name.replace(/_/g, " ");
+}
+
+/** True when an arg/fact is too mushy for Recap. */
+export function isVagueRecapNoun(text: string | null | undefined): boolean {
+  if (text == null) return true;
+  const t = text.trim();
+  if (!t) return true;
+  if (VAGUE_RECAP_ARGS.has(t.toLowerCase())) return true;
+  if (VAGUE_RECAP_PHRASES.some((re) => re.test(t))) return true;
+  return false;
+}
+
+/**
+ * Build one concrete Recap fact from a completed tool.
+ * Prefers result metadata (counts, paths, exit) over bare args.
+ * Returns null when nothing specific can be said (caller skips the event).
+ */
+export function buildQuietRecapFact(
+  name: string,
+  arg: string,
+  result: {
+    success: boolean;
+    output: string;
+    metadata?: Record<string, unknown>;
+  }
+): string | null {
+  const meta = result.metadata ?? {};
+  const outcome = classifyQuietOutcome(result);
+  const statusSuffix =
+    outcome === "failed" || outcome === "blocked" || outcome === "aborted"
+      ? ` ${outcome}`
+      : "";
+
+  switch (name) {
+    case "ls": {
+      const total =
+        typeof meta["totalEntries"] === "number" ? meta["totalEntries"] : null;
+      const shown =
+        typeof meta["entryCount"] === "number" ? meta["entryCount"] : null;
+      const truncated = meta["truncated"] === true;
+      if (total === null) return null;
+      const n = truncated && shown !== null ? shown : total;
+      const metaPath =
+        typeof meta["path"] === "string" ? meta["path"].trim() : "";
+      const scope = isLsRootScope(arg, metaPath)
+        ? "top-level entries"
+        : `entries in ${truncateArg(arg || shortPath(metaPath), 28)}`;
+      if (truncated && shown !== null && shown < total) {
+        return `listed ${shown} of ${total} ${scope}`;
+      }
+      return `listed ${n} ${scope}`;
+    }
+    case "glob": {
+      const n =
+        typeof meta["matchCount"] === "number"
+          ? meta["matchCount"]
+          : typeof meta["totalMatches"] === "number"
+            ? meta["totalMatches"]
+            : null;
+      const pattern =
+        (typeof meta["pattern"] === "string" && meta["pattern"]) ||
+        (!isVagueRecapNoun(arg) ? arg : "");
+      if (n === null) {
+        return pattern ? `found ${truncateArg(pattern, 28)}` : null;
+      }
+      if (pattern) {
+        return `found ${n} matching ${truncateArg(pattern, 24)}`;
+      }
+      return `found ${n} files`;
+    }
+    case "grep": {
+      const n = typeof meta["matchCount"] === "number" ? meta["matchCount"] : null;
+      const pattern =
+        (typeof meta["pattern"] === "string" && meta["pattern"]) ||
+        (!isVagueRecapNoun(arg) ? arg : "");
+      if (!pattern) return null;
+      const p = truncateArg(pattern, 28);
+      if (n === null) return `searched ${p}${statusSuffix}`;
+      if (n === 0) return `searched ${p} (0 matches)`;
+      return `searched ${p} (${n} match${n === 1 ? "" : "es"})`;
+    }
+    case "file_read": {
+      if (isVagueRecapNoun(arg)) return null;
+      const lines =
+        typeof meta["linesRead"] === "number"
+          ? meta["linesRead"]
+          : typeof meta["returnedLines"] === "number"
+            ? meta["returnedLines"]
+            : null;
+      if (lines !== null && lines > 0) {
+        return `read ${arg} (${lines} line${lines === 1 ? "" : "s"})`;
+      }
+      return `read ${arg}`;
+    }
+    case "file_edit": {
+      if (isVagueRecapNoun(arg)) return null;
+      return `edited ${arg}${statusSuffix}`;
+    }
+    case "file_write": {
+      if (isVagueRecapNoun(arg)) return null;
+      return `wrote ${arg}${statusSuffix}`;
+    }
+    case "bash": {
+      const cmd =
+        (typeof meta["command"] === "string" && meta["command"].trim()) ||
+        arg;
+      const short = truncateArg(cmd.replace(/\s+/g, " ").trim(), 40);
+      if (isVagueRecapNoun(short)) return null;
+      return `ran ${short}${statusSuffix}`;
+    }
+    case "web_search": {
+      if (isVagueRecapNoun(arg)) return null;
+      return `searched web for ${truncateArg(arg, 32)}`;
+    }
+    case "web_fetch": {
+      if (isVagueRecapNoun(arg)) return null;
+      return `fetched ${truncateArg(arg, 36)}`;
+    }
+    case "task": {
+      if (isVagueRecapNoun(arg) || arg === "subagent") return null;
+      return `delegated ${truncateArg(arg, 36)}${statusSuffix}`;
+    }
+    case "question": {
+      if (outcome === "failed" || outcome === "blocked" || outcome === "aborted") {
+        const topic = !isVagueRecapNoun(arg) ? arg : "question";
+        return `asked ${truncateArg(topic, 32)} (unanswered)`;
+      }
+      if (!isVagueRecapNoun(arg)) return `asked ${truncateArg(arg, 32)}`;
+      return null;
+    }
+    case "todo_write":
+    case "todo_read":
+      // Todos feed Next; skip as Recap mush unless we have nothing else.
+      return null;
+    case "github_issue": {
+      if (isVagueRecapNoun(arg)) return `filed issue${statusSuffix}`;
+      return `filed issue ${truncateArg(arg, 32)}${statusSuffix}`;
+    }
+    case "plan_revision":
+      return "revised plan";
+    case "install_skill": {
+      if (isVagueRecapNoun(arg)) return null;
+      return `installed skill ${truncateArg(arg, 28)}`;
+    }
+    default: {
+      const verb = quietOutcomeVerb(name);
+      if (!isVagueRecapNoun(arg)) return `${verb} ${truncateArg(arg, 36)}${statusSuffix}`;
+      return null;
+    }
+  }
 }
 
 /** Optional Next signals — omit `· Next:` when none are available (never invent). */
@@ -194,21 +395,26 @@ export type QuietRecapNextHints = {
   pendingTodo?: string | null;
   /** Short label from last failed/blocked tool */
   lastFailure?: string | null;
+  /** Cancelled/unanswered question topic */
+  unansweredAsk?: string | null;
   /** First open unchecked plan task */
   openPlanItem?: string | null;
 };
 
 /**
- * Pick one concrete Next clause. Priority: pending/in-progress todo → last failure → open plan.
- * Returns null when nothing usable (caller omits `· Next:`).
+ * Pick one concrete Next clause only when open work remains.
+ * Priority: pending todo → last failure → unanswered ask → open plan.
+ * Returns null when the turn left nothing open (caller omits `· Next:`).
  */
 export function pickQuietRecapNext(hints: QuietRecapNextHints = {}): string | null {
   const todo = hints.pendingTodo?.trim();
-  if (todo) return truncateArg(todo, 48);
+  if (todo && !isVagueRecapNoun(todo)) return truncateArg(todo, 48);
   const fail = hints.lastFailure?.trim();
-  if (fail) return truncateArg(fail, 48);
+  if (fail && !isVagueRecapNoun(fail)) return truncateArg(fail, 48);
+  const ask = hints.unansweredAsk?.trim();
+  if (ask && !isVagueRecapNoun(ask)) return truncateArg(ask, 48);
   const plan = hints.openPlanItem?.trim();
-  if (plan) return truncateArg(plan, 48);
+  if (plan && !isVagueRecapNoun(plan)) return truncateArg(plan, 48);
   return null;
 }
 
@@ -217,7 +423,7 @@ export function extractOpenPlanItem(tasksMarkdown: string | null | undefined): s
   if (!tasksMarkdown) return null;
   const match = tasksMarkdown.match(/^\s*[-*]\s+\[\s\]\s+(.+)$/m);
   const item = match?.[1]?.trim();
-  return item ? item : null;
+  return item && !isVagueRecapNoun(item) ? item : null;
 }
 
 /** Build last-failure Next label from events (most recent failed/blocked). */
@@ -225,16 +431,98 @@ export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i]!;
     if (ev.outcome !== "failed" && ev.outcome !== "blocked") continue;
-    if (ev.arg) return `retry ${ev.arg}`;
+    // Prefer concrete retry target from fact/arg
+    if (ev.arg && !isVagueRecapNoun(ev.arg)) return `retry ${truncateArg(ev.arg, 40)}`;
+    if (ev.fact) {
+      const m = ev.fact.match(/^ran (.+?)(?: failed| blocked| aborted)?$/);
+      if (m?.[1]) return `retry ${m[1]}`;
+    }
     return `retry ${quietOutcomeVerb(ev.name)}`;
   }
   return null;
 }
 
+/** Unanswered ask Next from cancelled/failed question tools. */
+export function unansweredAskNextLabel(events: QuietRecapEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i]!;
+    if (ev.name !== "question") continue;
+    if (ev.outcome !== "failed" && ev.outcome !== "blocked" && ev.outcome !== "aborted") {
+      continue;
+    }
+    if (ev.arg && !isVagueRecapNoun(ev.arg)) return `answer ${truncateArg(ev.arg, 40)}`;
+    return "answer open question";
+  }
+  return null;
+}
+
+/** Resolve a concrete fact string for one event, or null if mush. */
+function resolveRecapFact(ev: QuietRecapEvent): string | null {
+  const pre = ev.fact?.trim();
+  if (pre && !isVagueRecapNoun(pre)) return pre;
+
+  if (ev.outcome === "success") {
+    if (ev.arg && !isVagueRecapNoun(ev.arg)) {
+      return `${quietOutcomeVerb(ev.name)} ${ev.arg}`;
+    }
+    return null;
+  }
+
+  const status = ev.outcome;
+  if (ev.arg && !isVagueRecapNoun(ev.arg)) {
+    return `${quietOutcomeVerb(ev.name)} ${ev.arg} ${status}`;
+  }
+  return `${quietOutcomeVerb(ev.name)} ${status}`;
+}
+
+/**
+ * Coalesce multiple successful file_read/edit/write of distinct paths into one fact.
+ * e.g. read AGENTS.md, quiet-status.ts
+ */
+function coalesceFileFacts(events: QuietRecapEvent[]): {
+  facts: string[];
+  consumed: Set<number>;
+} {
+  const consumed = new Set<number>();
+  const facts: string[] = [];
+  const groups: Array<"file_read" | "file_edit" | "file_write"> = [
+    "file_read",
+    "file_edit",
+    "file_write",
+  ];
+
+  for (const name of groups) {
+    const idxs: number[] = [];
+    const files: string[] = [];
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i]!;
+      if (ev.name !== name || ev.outcome !== "success") continue;
+      if (!ev.arg || isVagueRecapNoun(ev.arg)) continue;
+      if (files.includes(ev.arg)) {
+        consumed.add(i);
+        continue;
+      }
+      idxs.push(i);
+      files.push(ev.arg);
+    }
+    if (files.length === 0) continue;
+    if (files.length === 1) continue; // leave as single event fact
+    const verb = quietOutcomeVerb(name);
+    const shown = files.slice(0, 3);
+    const extra = files.length - shown.length;
+    const noun =
+      extra > 0 ? `${shown.join(", ")} (+${extra} more)` : shown.join(", ");
+    facts.push(`${verb} ${noun}`);
+    for (const i of idxs) consumed.add(i);
+  }
+
+  return { facts, consumed };
+}
+
 /**
  * Event-sourced done→next Recap.
- * Shape: `Recap: edited auth.ts, ran tests ✓ · Next: token-refresh test`
- * Omits `· Next:` when no next signal. Never invents Next. No LLM.
+ * Shape: `Recap: read AGENTS.md; listed 27 top-level entries · Next: token-refresh test`
+ * Concrete facts only; omits `· Next:` when no open work. Never invents. No LLM.
  */
 export function formatQuietRecap(
   events: QuietRecapEvent[],
@@ -242,35 +530,54 @@ export function formatQuietRecap(
 ): string | null {
   if (events.length === 0) return null;
 
-  const parts: string[] = [];
-  const seen = new Set<string>();
-  let successCount = 0;
+  const { facts: coalesced, consumed } = coalesceFileFacts(events);
+  const parts: string[] = [...coalesced];
+  const seen = new Set(parts.map((p) => p.toLowerCase()));
+  let anySuccess = false;
+  const failed = events.filter((e) => e.outcome === "failed" || e.outcome === "blocked");
 
-  for (const ev of events) {
-    if (ev.outcome !== "success") continue;
-    const verb = quietOutcomeVerb(ev.name);
-    const key = ev.arg ? `${verb}:${ev.arg}` : verb;
+  for (let i = 0; i < events.length; i++) {
+    if (consumed.has(i)) continue;
+    const ev = events[i]!;
+    if (ev.outcome === "success") anySuccess = true;
+    // Failures appended after successes so pass/fail stays clear
+    if (ev.outcome === "failed" || ev.outcome === "blocked") continue;
+
+    const fact = resolveRecapFact(ev);
+    if (!fact) continue;
+    const key = fact.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    parts.push(ev.arg ? `${verb} ${ev.arg}` : verb);
-    successCount++;
-    if (parts.length >= 3) break;
+    parts.push(fact);
   }
 
-  const failed = events.filter((e) => e.outcome === "failed" || e.outcome === "blocked");
-  if (parts.length === 0 && failed.length === 0) {
-    return null;
-  }
-
-  let done = parts.join(", ");
+  // Append most recent failure as a concrete status fact
   if (failed.length > 0) {
+    anySuccess = events.some((e) => e.outcome === "success") || anySuccess;
     const f = failed[failed.length - 1]!;
-    const status = f.outcome === "blocked" ? "blocked" : "failed";
-    const failBit = f.arg
-      ? `${quietOutcomeVerb(f.name)} ${f.arg} ${status}`
-      : `${quietOutcomeVerb(f.name)} ${status}`;
-    done = done ? `${done}; ${failBit}` : failBit;
-  } else if (successCount > 0) {
+    const failFact = resolveRecapFact(f);
+    if (failFact) {
+      const key = failFact.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        parts.push(failFact);
+      }
+    }
+  }
+
+  if (parts.length === 0) return null;
+
+  // Cap to 3 concrete facts (keep last failure if capped)
+  let capped = parts.slice(0, 3);
+  if (parts.length > 3 && failed.length > 0) {
+    const lastFail = resolveRecapFact(failed[failed.length - 1]!);
+    if (lastFail && !capped.some((p) => p.toLowerCase() === lastFail.toLowerCase())) {
+      capped = [...capped.slice(0, 2), lastFail];
+    }
+  }
+
+  let done = capped.join("; ");
+  if (failed.length === 0 && anySuccess) {
     done = `${done} ✓`;
   }
 
@@ -278,10 +585,15 @@ export function formatQuietRecap(
     nextHints.lastFailure !== undefined
       ? nextHints.lastFailure
       : lastFailureNextLabel(events);
+  const unansweredAsk =
+    nextHints.unansweredAsk !== undefined
+      ? nextHints.unansweredAsk
+      : unansweredAskNextLabel(events);
 
   const next = pickQuietRecapNext({
     pendingTodo: nextHints.pendingTodo ?? null,
-    lastFailure,
+    lastFailure: lastFailure ?? null,
+    unansweredAsk: unansweredAsk ?? null,
     openPlanItem: nextHints.openPlanItem ?? null,
   });
 

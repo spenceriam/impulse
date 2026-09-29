@@ -1,16 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import path from "path";
 import {
   QuietWorkGroupTracker,
+  buildQuietRecapFact,
   classifyQuietOutcome,
   extractOpenPlanItem,
   formatQuietLiveStatus,
   formatQuietRecap,
   formatWorkedFor,
   isQuietBreakOutcome,
+  isVagueRecapNoun,
   lastFailureNextLabel,
   pickQuietRecapNext,
   quietThinkingPhrase,
   shortQuietArg,
+  unansweredAskNextLabel,
   wrapQuietRecapLines,
 } from "../src/cli/quiet-status.js";
 
@@ -77,48 +81,173 @@ describe("quiet-status", () => {
     ).toBe(false);
   });
 
-  test("Recap done→next: outcome facts + ✓ when all succeed", () => {
-    const line = formatQuietRecap([
-      { name: "file_edit", arg: "auth.ts", outcome: "success" },
-      { name: "bash", arg: "tests", outcome: "success" },
-    ]);
-    expect(line).toBe("Recap: edited auth.ts, ran tests ✓");
+  test("buildQuietRecapFact: concrete nouns with counts (no path mush)", () => {
+    // Root / cwd basename → "top-level entries" (never "listed impulse-pr154")
+    expect(
+      buildQuietRecapFact("ls", ".", {
+        success: true,
+        output: "ok",
+        metadata: { type: "ls", totalEntries: 27, entryCount: 27, truncated: false },
+      })
+    ).toBe("listed 27 top-level entries");
+    expect(
+      buildQuietRecapFact("ls", path.basename(process.cwd()), {
+        success: true,
+        output: "ok",
+        metadata: {
+          type: "ls",
+          path: process.cwd(),
+          totalEntries: 27,
+          entryCount: 27,
+          truncated: false,
+        },
+      })
+    ).toBe("listed 27 top-level entries");
+    expect(
+      buildQuietRecapFact("ls", "src", {
+        success: true,
+        output: "ok",
+        metadata: {
+          type: "ls",
+          path: "src",
+          totalEntries: 10,
+          entryCount: 10,
+          truncated: false,
+        },
+      })
+    ).toBe("listed 10 entries in src");
+    expect(
+      buildQuietRecapFact("file_read", "AGENTS.md", {
+        success: true,
+        output: "ok",
+        metadata: { type: "file_read", linesRead: 120 },
+      })
+    ).toBe("read AGENTS.md (120 lines)");
+    expect(
+      buildQuietRecapFact("grep", "Recap", {
+        success: true,
+        output: "ok",
+        metadata: { type: "grep", pattern: "Recap", matchCount: 5 },
+      })
+    ).toBe("searched Recap (5 matches)");
+    expect(
+      buildQuietRecapFact("bash", "bun test", {
+        success: true,
+        output: "ok",
+        metadata: { type: "bash", command: "bun test" },
+      })
+    ).toBe("ran bun test");
+    // Vague / no-metadata → null (skip mush)
+    expect(
+      buildQuietRecapFact("ls", "impulse-pr154", { success: true, output: "ok" })
+    ).toBeNull();
+    expect(isVagueRecapNoun("looking at files")).toBe(true);
+    expect(isVagueRecapNoun("AGENTS.md")).toBe(false);
   });
 
-  test("Recap done→next: appends Next from pending todo", () => {
+  test("Recap facts are specific + semicolon-joined + ✓ when all succeed", () => {
+    const line = formatQuietRecap([
+      {
+        name: "file_read",
+        arg: "AGENTS.md",
+        outcome: "success",
+        fact: "read AGENTS.md (120 lines)",
+      },
+      {
+        name: "ls",
+        arg: ".",
+        outcome: "success",
+        fact: "listed 27 top-level entries",
+      },
+      {
+        name: "bash",
+        arg: "bun test",
+        outcome: "success",
+        fact: "ran bun test",
+      },
+    ]);
+    expect(line).toBe(
+      "Recap: read AGENTS.md (120 lines); listed 27 top-level entries; ran bun test ✓"
+    );
+    expect(line).not.toMatch(/looking at|working on|listing things/i);
+  });
+
+  test("Recap done→next: Next only when open work (pending todo)", () => {
     const line = formatQuietRecap(
       [
-        { name: "file_edit", arg: "auth.ts", outcome: "success" },
-        { name: "bash", arg: "tests", outcome: "success" },
+        {
+          name: "file_edit",
+          arg: "auth.ts",
+          outcome: "success",
+          fact: "edited auth.ts",
+        },
+        {
+          name: "bash",
+          arg: "bun test",
+          outcome: "success",
+          fact: "ran bun test",
+        },
       ],
       { pendingTodo: "token-refresh test" }
     );
-    expect(line).toBe("Recap: edited auth.ts, ran tests ✓ · Next: token-refresh test");
+    expect(line).toBe(
+      "Recap: edited auth.ts; ran bun test ✓ · Next: token-refresh test"
+    );
   });
 
-  test("Recap omits Next when no next signal", () => {
-    const line = formatQuietRecap([
-      { name: "file_read", arg: "AGENTS.md", outcome: "success" },
-    ]);
+  test("Recap omits Next when turn complete (no open work)", () => {
+    const line = formatQuietRecap(
+      [
+        {
+          name: "file_read",
+          arg: "AGENTS.md",
+          outcome: "success",
+          fact: "read AGENTS.md",
+        },
+      ],
+      {
+        pendingTodo: null,
+        lastFailure: null,
+        unansweredAsk: null,
+        openPlanItem: null,
+      }
+    );
     expect(line).toBe("Recap: read AGENTS.md ✓");
     expect(line).not.toContain("Next:");
   });
 
-  test("Recap Next prefers todo over last failure", () => {
-    const line = formatQuietRecap(
-      [
-        { name: "bash", arg: "bun test", outcome: "failed" },
-      ],
-      { pendingTodo: "fix CI", lastFailure: "retry bun test" }
+  test("Recap skips vague facts; coalesces multiple file reads", () => {
+    const line = formatQuietRecap([
+      { name: "file_read", arg: "AGENTS.md", outcome: "success" },
+      { name: "file_read", arg: "quiet-status.ts", outcome: "success" },
+      { name: "todo_write", arg: "", outcome: "success" }, // skipped
+      {
+        name: "ls",
+        arg: "impulse-pr154",
+        outcome: "success",
+        // no fact + vague path alone would be mush — with fact it's concrete
+        fact: "listed 27 top-level entries",
+      },
+    ]);
+    expect(line).toBe(
+      "Recap: read AGENTS.md, quiet-status.ts; listed 27 top-level entries ✓"
     );
-    expect(line).toBe("Recap: ran bun test failed · Next: fix CI");
   });
 
-  test("Recap Next falls back to last failure then plan item", () => {
+  test("Recap Next prefers todo over failure over unanswered ask over plan", () => {
+    expect(
+      pickQuietRecapNext({
+        pendingTodo: "fix CI",
+        lastFailure: "retry bun test",
+        unansweredAsk: "answer Platform",
+        openPlanItem: "ship Quiet",
+      })
+    ).toBe("fix CI");
     expect(
       pickQuietRecapNext({
         pendingTodo: null,
         lastFailure: "retry bun test",
+        unansweredAsk: "answer Platform",
         openPlanItem: "ship Quiet",
       })
     ).toBe("retry bun test");
@@ -126,19 +255,40 @@ describe("quiet-status", () => {
       pickQuietRecapNext({
         pendingTodo: null,
         lastFailure: null,
+        unansweredAsk: "answer Platform",
+        openPlanItem: "ship Quiet",
+      })
+    ).toBe("answer Platform");
+    expect(
+      pickQuietRecapNext({
+        pendingTodo: null,
+        lastFailure: null,
+        unansweredAsk: null,
         openPlanItem: "ship Quiet",
       })
     ).toBe("ship Quiet");
     expect(pickQuietRecapNext({})).toBeNull();
+    expect(
+      pickQuietRecapNext({
+        pendingTodo: "looking at files",
+        lastFailure: null,
+        openPlanItem: null,
+      })
+    ).toBeNull();
   });
 
-  test("lastFailureNextLabel and extractOpenPlanItem are event-sourced", () => {
+  test("lastFailure / unansweredAsk / plan extractors are event-sourced", () => {
     expect(
       lastFailureNextLabel([
         { name: "file_edit", arg: "a.ts", outcome: "success" },
         { name: "bash", arg: "bun test", outcome: "failed" },
       ])
     ).toBe("retry bun test");
+    expect(
+      unansweredAskNextLabel([
+        { name: "question", arg: "Platform", outcome: "failed" },
+      ])
+    ).toBe("answer Platform");
     expect(extractOpenPlanItem("- [x] done\n- [ ] token-refresh test\n")).toBe(
       "token-refresh test"
     );
@@ -146,31 +296,95 @@ describe("quiet-status", () => {
   });
 
   test("Recap includes blocked tools without inventing Next", () => {
-    const line = formatQuietRecap([
-      { name: "bash", arg: "rm -rf /", outcome: "blocked" },
-    ], { lastFailure: null, pendingTodo: null, openPlanItem: null });
-    // Explicit nulls suppress auto lastFailure — no Next invented
+    const line = formatQuietRecap(
+      [
+        {
+          name: "bash",
+          arg: "rm -rf /",
+          outcome: "blocked",
+          fact: "ran rm -rf / blocked",
+        },
+      ],
+      {
+        lastFailure: null,
+        pendingTodo: null,
+        unansweredAsk: null,
+        openPlanItem: null,
+      }
+    );
     expect(line).toBe("Recap: ran rm -rf / blocked");
     expect(line).not.toContain("Next:");
   });
 
-  test("Recap auto-Next from failure when hints omitted", () => {
+  test("Recap auto-Next from failure when open work remains", () => {
     const line = formatQuietRecap([
-      { name: "bash", arg: "bun test", outcome: "failed" },
+      {
+        name: "bash",
+        arg: "bun test",
+        outcome: "failed",
+        fact: "ran bun test failed",
+      },
     ]);
     expect(line).toBe("Recap: ran bun test failed · Next: retry bun test");
   });
 
-  test("Recap null when no events", () => {
+  test("Recap Next absent when hints explicitly cleared (turn complete)", () => {
+    const line = formatQuietRecap(
+      [
+        {
+          name: "bash",
+          arg: "bun test",
+          outcome: "failed",
+          fact: "ran bun test failed",
+        },
+      ],
+      {
+        pendingTodo: null,
+        lastFailure: null,
+        unansweredAsk: null,
+        openPlanItem: null,
+      }
+    );
+    expect(line).toBe("Recap: ran bun test failed");
+    expect(line).not.toContain("Next:");
+  });
+
+  test("Recap null when no events or only mush", () => {
     expect(formatQuietRecap([])).toBeNull();
+    expect(
+      formatQuietRecap([
+        { name: "todo_write", arg: "", outcome: "success" },
+        { name: "ls", arg: ".", outcome: "success" }, // no fact, vague
+      ])
+    ).toBeNull();
   });
 
   test("Recap wrap is at most 3 lines with ellipsis", () => {
     const long = formatQuietRecap([
-      { name: "file_read", arg: "a-very-long-filename-aaaaaaaa.md", outcome: "success" },
-      { name: "file_edit", arg: "b-very-long-filename-bbbbbbbb.ts", outcome: "success" },
-      { name: "grep", arg: "c-very-long-pattern-cccccccccc", outcome: "success" },
-      { name: "bash", arg: "d-very-long-command-dddddddddd", outcome: "success" },
+      {
+        name: "file_read",
+        arg: "a-very-long-filename-aaaaaaaa.md",
+        outcome: "success",
+        fact: "read a-very-long-filename-aaaaaaaa.md (80 lines)",
+      },
+      {
+        name: "file_edit",
+        arg: "b-very-long-filename-bbbbbbbb.ts",
+        outcome: "success",
+        fact: "edited b-very-long-filename-bbbbbbbb.ts",
+      },
+      {
+        name: "grep",
+        arg: "c-very-long-pattern-cccccccccc",
+        outcome: "success",
+        fact: "searched c-very-long-pattern-cccccccccc (12 matches)",
+      },
+      {
+        name: "bash",
+        arg: "d-very-long-command-dddddddddd",
+        outcome: "success",
+        fact: "ran d-very-long-command-dddddddddd",
+      },
     ]);
     expect(long).not.toBeNull();
     const rows = wrapQuietRecapLines(long!, 24, 3);
@@ -182,6 +396,12 @@ describe("quiet-status", () => {
   test("Recap wrap under max lines stays untruncated", () => {
     const rows = wrapQuietRecapLines("Recap: read AGENTS.md ✓", 80, 3);
     expect(rows).toEqual(["Recap: read AGENTS.md ✓"]);
+  });
+
+  test("shortQuietArg ls root stays '.' (not cwd basename mush)", () => {
+    expect(shortQuietArg("ls", {})).toBe(".");
+    expect(shortQuietArg("ls", { path: "." })).toBe(".");
+    expect(shortQuietArg("ls", { path: "src/cli" })).toBe("cli");
   });
 });
 

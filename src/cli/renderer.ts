@@ -79,6 +79,7 @@ import {
   FIXED_BUSY_PHRASES,
 } from "./busy-status.js";
 import {
+  buildQuietRecapFact,
   classifyQuietOutcome,
   extractOpenPlanItem,
   formatQuietRecap,
@@ -2857,7 +2858,12 @@ export class ImpulseRenderer {
 
         if (quiet) {
           if (!isSilentUnchangedTodoWrite(_name, result) && !isCosmeticTodoRewrite(_name, result)) {
-            this.quietRecapEvents.push({ name: _name, arg, outcome });
+            const fact = buildQuietRecapFact(_name, arg, result) ?? undefined;
+            const event: QuietRecapEvent = { name: _name, arg, outcome };
+            if (fact !== undefined) {
+              event.fact = fact;
+            }
+            this.quietRecapEvents.push(event);
           }
           this.quietTracker.removeTool(id);
         }
