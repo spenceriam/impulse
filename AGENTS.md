@@ -9,14 +9,22 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.10.1
+- **Version:** v1.11.0
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.10.1 (2026-09-28) — Formatting + tool guardrails salvage (#127, #128)
+**Status:** v1.11.0 (2026-09-29) — Quiet chat density + mid-turn Redirect (#153)
+
+### v1.11.0 (2026-09-29)
+
+- [x] Quiet chat density default (#153) — live work-group shimmer (`Assessing…` / `Reading X… (+N)`), settle to `Worked for Xs`, AI stream; Verbose escape via `/verbose` or `/settings`
+- [x] Event-sourced ghost `Recap:` (#153) — no extra model call; settings opt-out (`showRecap`)
+- [x] Failed/blocked tools break Quiet (#153) — real tool row shown (Claire)
+- [x] Mid-turn Enter = Redirect/steer by default (#153) — `/queue` one-shot enqueue; settings `midTurnSubmit: redirect | queue`; pending steer replaces (not stacks)
+- [x] `/settings` Chat feel section (#153) — chat density, mid-turn submit, Recap line
 
 ### v1.10.1 (2026-09-28)
 
@@ -909,16 +917,19 @@ Both tools try direct web access first and fall back to bundled `agent-browser` 
 
 ## Commands
 
-Core (~15): `/allow-all`, `/clear`, `/compact`, `/exit`, `/experimental`, `/help`, `/model`, `/mode`, `/new`, `/quit`, `/resume` (alias `/sessions`), `/restore` (alias `/show`), `/settings`, `/steer`, `/update`, `/usage`, `/user`.
+Core (~15): `/allow-all`, `/clear`, `/compact`, `/exit`, `/experimental`, `/help`, `/model`, `/mode`, `/new`, `/quit`, `/quiet`, `/verbose`, `/queue`, `/resume` (alias `/sessions`), `/restore` (alias `/show`), `/settings`, `/steer`, `/update`, `/usage`, `/user`.
 
 Hidden power-user: `/copy`, `/debug`, `/side` (and `/side --history`), `/advisor` (experimental), `/undo` `/redo` (experimental), `/goal` (experimental).
 
 | Command | Description |
 |---------|-------------|
 | `/compact` | Manual context compaction |
+| `/quiet` | Quiet chat density (default live work-group status) |
+| `/verbose` | Verbose full tool-calling stream |
+| `/queue` | One-shot enqueue for after the active turn (when mid-turn Enter redirects) |
 | `/resume` | Session picker (`/sessions` alias) |
 | `/restore` | Restore chat view from session history (`/show` alias) |
-| `/settings` | Thinking display, reasoning depth, communication style, stats on exit, vision override |
+| `/settings` | Chat feel (density, mid-turn submit, Recap), thinking, communication style, stats on exit |
 | `/usage` | Session tokens; full stats block when `statsOnExit` is on |
 | `/experimental` | Toggle advisor, undo/redo, goal loop flags |
 | `/user` | Display name + free-text preferences |
@@ -1046,14 +1057,22 @@ This ensures:
 - **`file_read` images** — PNG/JPEG/GIF/WebP sniff returns success + `ToolResult.imageUris` (data URI); other binaries still refuse with "Cannot read binary file".
 - **Vision gate** — `buildChatMessages({ includeToolImages: nativeVision })` keeps image parts for vision-capable models and strips them to plain text for text-only models. Anthropic maps `image_url` tool-result parts to base64 `image` blocks inside `tool_result` content.
 
+### Quiet chat density (#153)
+- **Default `chatDensity: quiet`** — one ephemeral live shimmer line per contiguous work group (thinking + tools with no AI text between); mutates in place above the composer (not scrollback). Thinking uses `Assessing…` / `Planning…`; tools use templated verb + short arg (`Reading AGENTS.md…`); parallel coalesce `… (+N)`.
+- **Settle** — when the group ends (AI streams again or tools done), commit once as dim `Worked for Xs` (wall-clock), then clear the live slot. Mid-turn AI stream splits groups.
+- **Recap** — ghost `Recap:` after the turn, event-sourced from tool outcomes only (no extra LLM call); `showRecap` settings opt-out.
+- **Verbose** — today's full tool-calling stream unchanged (`/verbose` or `/settings` → Chat feel). Naming is Quiet/Verbose — never "Expert".
+- **Break Quiet** — failed/blocked/aborted tools show the real tool row (Claire). Refuse: rewriting past turns' status; model-authored status; model-generated Recap.
+
 ### Turn control (cancel / steer / nudges)
 - **Esc cancel** persists an interruption marker plus synthetic `Cancelled by user.` tool results for dangling `tool_calls` — the model must not "resume" a cancelled flow unless asked
+- **Mid-turn Enter** defaults to **Redirect/steer** (`midTurnSubmit: redirect`); injects at the next tool-loop boundary (same path as `/steer`). Settings: Redirect live turn vs Queue until free. `/queue <text>` one-shot enqueue under Redirect-default. Multiple steers before the next tool step **replace** pending (not stack). Idle Enter unchanged.
 - **`/steer`** injects at the next tool-loop boundary (not instantly); pending steer suppresses planning and allow-all nudges for that iteration
 - **Loop nudges defer to the user** — both planning and allow-all messages end with "follow the user's message" on conflict
 - **Progress-aware counters** — real `todo_write` updates (`Todo list updated.`) do not count as todo-only replanning; duplicate bash no longer triggers the planning nudge (inline repeat notes handle that)
 - **Injected messages** — steer/nudge/interrupt markers persist with `injected: true` and replay as dim `[system note]` (not under the user's name); legacy sessions match known prefixes
 - **`file_edit` whitespace fallback** — unique line-trimmed match re-derives file indentation; failures hint at closest line when trim matches
-- **Queue preview** — stacked messages above prompt use dim text + `Queued messages` header (not user cyan)
+- **Queue / Steering chrome** — stacked messages use dim `Queued messages` header; pending Redirect shows dim `Steering…` (distinct from queue). Shift+Enter remains newline in the pi-tui Editor — use `/queue` for one-shot enqueue.
 - **`/copy`** — copies last assistant response (raw markdown, no gutters) via OSC 52 + native clipboard
 
 ### Z.ai API Specifics
@@ -1097,6 +1116,7 @@ This ensures:
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 09-29-2026 | Quiet default + mid-turn Redirect | Locked with Dax (TUI) + Claire (product): Quiet live work-group line + Worked for + event Recap; Verbose escape; Enter mid-turn steers (replace pending); `/queue` + settings for queue mode; Chat feel in `/settings` (#153 / v1.11.0) |
 | 09-24-2026 | Clipboard file-list paste + agent image reads | Terminal text paste only carries the first copied path; read OS file-list formats for N→N image tokens. `file_read` returns viewable images via `imageUris` instead of binary refusal; tool-result images gated by `nativeVision` / `includeToolImages` (#134 / v1.10.0) |
 | 09-24-2026 | Title-gen `TITLE_GEN_MAX_TOKENS=1024` ≠ `TITLE_MAX_LENGTH` | GLM (and similar) can burn a tight `max_tokens` on thinking despite `reasoningLevel: "off"`; ceiling ≠ target; strip leaked thinking + salvage trailing title from unmarked prose before clamp; empty/weak → `fileError` with rejected text (#150) |
 | 06-10-2026 | Tool UX hardening bundle | `file_edit` trimmed fallback; optional question descriptions; `injected` replay tagging; silent todo gap removal; `/copy`; queue preview dim + header |

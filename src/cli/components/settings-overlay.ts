@@ -1,6 +1,8 @@
 import { visibleWidth, type Component } from "@mariozechner/pi-tui";
 import type {
   BottomBarVisual,
+  ChatDensity,
+  MidTurnSubmit,
   ReasoningLevel,
   ThinkingDisplay,
 } from "../../util/config.js";
@@ -23,8 +25,13 @@ const COMM_STYLES = ["balanced", "concise", "detailed", "casual", "technical"] a
 const THINKING_CYCLE: ThinkingDisplay[] = ["off", "summary", "full"];
 const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
 const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
+const CHAT_DENSITY_CYCLE: ChatDensity[] = ["quiet", "verbose"];
+const MID_TURN_CYCLE: MidTurnSubmit[] = ["redirect", "queue"];
 
 export interface SettingsValues {
+  chatDensity: ChatDensity;
+  midTurnSubmit: MidTurnSubmit;
+  showRecap: boolean;
   thinkingDisplay: ThinkingDisplay;
   reasoningLevel: ReasoningLevel;
   responsePreference: string;
@@ -39,6 +46,9 @@ export interface SettingsValues {
 
 export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boolean {
   return (
+    a.chatDensity === b.chatDensity &&
+    a.midTurnSubmit === b.midTurnSubmit &&
+    a.showRecap === b.showRecap &&
     a.thinkingDisplay === b.thinkingDisplay &&
     a.reasoningLevel === b.reasoningLevel &&
     a.responsePreference === b.responsePreference &&
@@ -65,6 +75,11 @@ type SettingsRow = {
   kind: RowKind;
 };
 
+type SettingsSection = {
+  title: string;
+  rows: SettingsRow[];
+};
+
 const SETTINGS_FOOTER =
   "↑/↓ move   Space: cycle/toggle   Enter: save (vision/model: pick)   Esc: cancel";
 const SETTINGS_FOOTER_SCROLL_SUFFIX = "   (more ↑/↓)";
@@ -84,6 +99,14 @@ function formatCycleValue(_label: string, value: string): string {
 
 function formatBool(value: boolean): string {
   return value ? overlayAnsi.fg(39, "On") : overlayMuted("Off");
+}
+
+function formatMidTurnSubmit(value: MidTurnSubmit): string {
+  return value === "redirect" ? "Redirect live turn" : "Queue until free";
+}
+
+function formatChatDensity(value: ChatDensity): string {
+  return value === "quiet" ? "Quiet" : "Verbose";
 }
 
 function formatSettingRowInner(
@@ -109,62 +132,99 @@ export class SettingsOverlay implements Component {
   private maxHeight = 0;
   private scrollTop = 0;
 
-  private readonly rows: SettingsRow[] = [
+  private readonly sections: SettingsSection[] = [
     {
-      key: "thinkingDisplay",
-      label: "Thinking display",
-      hint: "off → summary (Thought for…) → full stream",
-      kind: "cycle",
+      title: "Chat feel",
+      rows: [
+        {
+          key: "chatDensity",
+          label: "Chat density",
+          hint: "Quiet (default live status) → Verbose (full tool stream)",
+          kind: "cycle",
+        },
+        {
+          key: "midTurnSubmit",
+          label: "Mid-turn submit",
+          hint: "Redirect live turn (steer) → Queue until free",
+          kind: "cycle",
+        },
+        {
+          key: "showRecap",
+          label: "Recap line",
+          hint: "Ghost Recap: after Quiet turns (event-sourced, no extra model call)",
+          kind: "bool",
+        },
+      ],
     },
     {
-      key: "reasoningLevel",
-      label: "Reasoning depth",
-      hint: "Provider reasoning level for new turns",
-      kind: "cycle",
+      title: "Display",
+      rows: [
+        {
+          key: "thinkingDisplay",
+          label: "Thinking display",
+          hint: "off → summary (Thought for…) → full stream",
+          kind: "cycle",
+        },
+        {
+          key: "reasoningLevel",
+          label: "Reasoning depth",
+          hint: "Provider reasoning level for new turns",
+          kind: "cycle",
+        },
+        {
+          key: "responsePreference",
+          label: "Communication style",
+          hint: "balanced / concise / detailed / casual / technical",
+          kind: "cycle",
+        },
+        {
+          key: "statsOnExit",
+          label: "Stats on exit",
+          hint: "Full stats on /exit and in /usage when on",
+          kind: "bool",
+        },
+        {
+          key: "bottomBarVisual",
+          label: "Bottom bar visuals",
+          hint: "full → reduced → minimal → off",
+          kind: "cycle",
+        },
+        {
+          key: "compactToolOutput",
+          label: "Compact tool rows",
+          hint: "Dim one-liners for read-only tools; expand to see detail",
+          kind: "bool",
+        },
+      ],
     },
     {
-      key: "responsePreference",
-      label: "Communication style",
-      hint: "balanced / concise / detailed / casual / technical",
-      kind: "cycle",
-    },
-    {
-      key: "statsOnExit",
-      label: "Stats on exit",
-      hint: "Full stats on /exit and in /usage when on",
-      kind: "bool",
-    },
-    {
-      key: "bottomBarVisual",
-      label: "Bottom bar visuals",
-      hint: "full → reduced → minimal → off",
-      kind: "cycle",
-    },
-    {
-      key: "compactToolOutput",
-      label: "Compact tool rows",
-      hint: "Dim one-liners for read-only tools; expand to see detail",
-      kind: "bool",
-    },
-    {
-      key: "showSubagentThinking",
-      label: "Subagent thinking",
-      hint: "Show thinking progress inside task tool rows",
-      kind: "bool",
-    },
-    {
-      key: "useSubagentModel",
-      label: "Subagent model",
-      hint: "Use a separate model for task subagents",
-      kind: "subagentModel",
-    },
-    {
-      key: "visionModelOverride",
-      label: "Vision override",
-      hint: "Model for images when main model lacks vision",
-      kind: "vision",
+      title: "Agents",
+      rows: [
+        {
+          key: "showSubagentThinking",
+          label: "Subagent thinking",
+          hint: "Show thinking progress inside task tool rows",
+          kind: "bool",
+        },
+        {
+          key: "useSubagentModel",
+          label: "Subagent model",
+          hint: "Use a separate model for task subagents",
+          kind: "subagentModel",
+        },
+        {
+          key: "visionModelOverride",
+          label: "Vision override",
+          hint: "Model for images when main model lacks vision",
+          kind: "vision",
+        },
+      ],
     },
   ];
+
+  private get rows(): SettingsRow[] {
+    return this.sections.flatMap((s) => s.rows);
+  }
 
   onPickSubagentModel?: () => void;
   onEnableSubagentModel?: () => void;
@@ -207,6 +267,9 @@ export class SettingsOverlay implements Component {
     const widths = this.rows.map((r) =>
       visibleWidth(formatSettingRowInner(r.label, this.displayValue(r), true, 60))
     );
+    for (const section of this.sections) {
+      widths.push(visibleWidth(section.title) + 4);
+    }
     widths.push(
       visibleWidth(SETTINGS_FOOTER + SETTINGS_FOOTER_SCROLL_SUFFIX)
     );
@@ -217,6 +280,12 @@ export class SettingsOverlay implements Component {
 
   private displayValue(row: SettingsRow): string {
     switch (row.key) {
+      case "chatDensity":
+        return formatCycleValue(row.label, formatChatDensity(this.values.chatDensity));
+      case "midTurnSubmit":
+        return formatCycleValue(row.label, formatMidTurnSubmit(this.values.midTurnSubmit));
+      case "showRecap":
+        return formatBool(this.values.showRecap);
       case "thinkingDisplay":
         return formatCycleValue(row.label, this.values.thinkingDisplay);
       case "reasoningLevel":
@@ -299,6 +368,15 @@ export class SettingsOverlay implements Component {
 
   private cycleRow(row: SettingsRow): void {
     switch (row.key) {
+      case "chatDensity":
+        this.values.chatDensity = cycleValue(this.values.chatDensity, CHAT_DENSITY_CYCLE);
+        break;
+      case "midTurnSubmit":
+        this.values.midTurnSubmit = cycleValue(this.values.midTurnSubmit, MID_TURN_CYCLE);
+        break;
+      case "showRecap":
+        this.values.showRecap = !this.values.showRecap;
+        break;
       case "thinkingDisplay":
         this.values.thinkingDisplay = cycleValue(
           this.values.thinkingDisplay,
@@ -362,24 +440,36 @@ export class SettingsOverlay implements Component {
 
     const body: string[] = [];
     const rowSpans: { start: number; length: number }[] = [];
-    for (let i = 0; i < this.rows.length; i++) {
-      const start = body.length;
-      const row = this.rows[i]!;
-      const selected = i === this.selectedIndex;
-      const inner = formatSettingRowInner(
-        row.label,
-        this.displayValue(row),
-        selected,
-        innerWidth
-      );
-      const hint = `     ${overlayMuted(row.hint)}`;
+    let flatIndex = 0;
+
+    for (let s = 0; s < this.sections.length; s++) {
+      const section = this.sections[s]!;
+      if (s > 0) {
+        body.push(overlayEmptyLine(boxWidth));
+      }
       body.push(
-        selected
-          ? padSelectedSideLine(inner, innerWidth, boxWidth)
-          : overlaySideLine(inner, innerWidth, boxWidth)
+        overlaySideLine(overlayMuted(` ${section.title}`), innerWidth, boxWidth)
       );
-      body.push(overlaySideLine(hint, innerWidth, boxWidth));
-      rowSpans.push({ start, length: body.length - start });
+
+      for (const row of section.rows) {
+        const start = body.length;
+        const selected = flatIndex === this.selectedIndex;
+        const inner = formatSettingRowInner(
+          row.label,
+          this.displayValue(row),
+          selected,
+          innerWidth
+        );
+        const hint = `     ${overlayMuted(row.hint)}`;
+        body.push(
+          selected
+            ? padSelectedSideLine(inner, innerWidth, boxWidth)
+            : overlaySideLine(inner, innerWidth, boxWidth)
+        );
+        body.push(overlaySideLine(hint, innerWidth, boxWidth));
+        rowSpans.push({ start, length: body.length - start });
+        flatIndex++;
+      }
     }
 
     const buildBottom = (footerText: string): string[] => {

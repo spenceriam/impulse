@@ -114,8 +114,26 @@ export function buildSlashCommandDefs(
     },
     {
       cmd: "/settings",
-      hint: "thinking, subagent model, communication style",
-      helpDetail: "Thinking display, subagent model, communication style, stats on exit",
+      hint: "chat feel, thinking, communication style",
+      helpDetail:
+        "Chat density (Quiet/Verbose), mid-turn submit, thinking display, communication style, stats on exit",
+    },
+    {
+      cmd: "/quiet",
+      hint: "Quiet chat density (default)",
+      helpDetail:
+        "Session-sticky Quiet density: one live work-group status line, Worked for, Recap (escape: /verbose)",
+    },
+    {
+      cmd: "/verbose",
+      hint: "Verbose full tool stream",
+      helpDetail: "Session-sticky Verbose density: today's full tool-calling stream (escape from Quiet)",
+    },
+    {
+      cmd: "/queue",
+      hint: "enqueue message for after this turn",
+      helpDetail:
+        "One-shot enqueue while a turn is active (when mid-turn Enter redirects). Idle: same as submitting a new turn after current work finishes if busy, else unused.",
     },
     {
       cmd: "/steer",
