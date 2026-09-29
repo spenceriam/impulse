@@ -14,6 +14,7 @@ See [docs/tool-input-repair.md](../tool-input-repair.md) for the validate-then-r
 - file_edit: docs/tools/file-edit.md
 - glob: docs/tools/glob.md
 - grep: docs/tools/grep.md
+- ls: docs/tools/ls.md
 - task: docs/tools/task.md
 - todo_read: docs/tools/todo-read.md
 - todo_write: docs/tools/todo-write.md

@@ -86,7 +86,7 @@ function isSeparatorRow(line: string): boolean {
   return cells.length >= 2 && cells.every(isSeparatorCell);
 }
 
-/** True when a line resembles a table row or separator. */
+/** True when a line looks like a table row or separator (used to avoid cutting streaming text mid-table). */
 export function isTableLikeLine(line: string): boolean {
   return isTableCandidate(line) || isSeparatorRow(line);
 }

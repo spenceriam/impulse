@@ -9,14 +9,22 @@
 ### Identity
 
 - **Name:** impulse
-- **Version:** v1.10.0
+- **Version:** v1.10.1
 - **Tagline:** Provider-flexible terminal AI co-partner agent
 - **Design:** Brutally minimal
 - **License:** AGPL-3.0
 
 ## Current State
 
-**Status:** v1.10.0 (2026-09-24) — Clipboard multi-file paste + agent image reads (#134)
+**Status:** v1.10.1 (2026-09-28) — Formatting + tool guardrails salvage (#127, #128)
+
+### v1.10.1 (2026-09-28)
+
+- [x] `ls` tool (#128) — directory listing in every mode; tool-block metadata; reciprocal file_read/ls guidance
+- [x] `file_read` directory path (#128) — EISDIR / `isDirectory` returns corrective listing pointing at `ls`/`glob`/`grep` (preserves #134 image reads)
+- [x] H1–H6 markdown headings (#127) — bold formatting extended past H4
+- [x] Tool-calling transparency — repair notes, truncation retry recipes, structured arg-parse failures, actionable permission denials
+- [x] Chat de-clutter (#127) — no mode-transition chat lines; branch-change announce dedupe
 
 ### v1.10.0 (2026-09-24)
 

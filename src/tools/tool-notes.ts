@@ -3,6 +3,8 @@
  * sensible defaults. Not errors; prepended to successful tool output.
  */
 
+import type { RepairEvent } from "./input-repair/types.js";
+
 export const FILE_READ_DEFAULT_LIMIT = 2000;
 export const WEB_FETCH_DEFAULT_MAX_CHARS = 12000;
 export const WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
@@ -36,6 +38,11 @@ export function buildGlobPathNote(input: { path?: string | undefined }, cwd: str
 export function buildGrepPathNote(input: { path?: string | undefined }, cwd: string): string | null {
   if (input.path !== undefined) return null;
   return `Note: path was not provided, so search ran from the current working directory (${cwd}). Pass path explicitly to search another directory.`;
+}
+
+export function buildLsPathNote(input: { path?: string | undefined }, cwd: string): string | null {
+  if (input.path !== undefined) return null;
+  return `Note: path was not provided, so the current working directory was listed (${cwd}). Pass path explicitly to list another directory.`;
 }
 
 export function buildWebFetchDefaultsNote(input: {
@@ -75,4 +82,28 @@ export function buildTaskThoroughnessNote(input: {
   if (input.subagent_type !== "general") return null;
   if (input.thoroughness === undefined) return null;
   return "Note: thoroughness applies only to explore subagents; it was ignored for general.";
+}
+
+/** Model-readable phrasing for each repair name in src/tools/input-repair/repairs/. */
+const REPAIR_DESCRIPTIONS: Record<string, string> = {
+  nullForOptional: "sent null on an optional field (omit the key instead of sending null)",
+  stringifiedArray: "sent a JSON-stringified array where a real array was expected",
+  objectToArray: "sent an object where an array was expected",
+  stringToArray: "sent a bare string where an array was expected",
+  markdownPathUnwrap: "wrapped a file path in markdown link syntax",
+};
+
+/**
+ * Transparency note for the tool-input-repair layer (docs/tool-input-repair.md).
+ * Repairs happen silently by design (the call still succeeds), but the model
+ * should learn from its own mistake instead of quietly being carried forever.
+ */
+export function buildRepairNote(repairs: RepairEvent[]): string | null {
+  if (repairs.length === 0) return null;
+  const parts = repairs.map((r) => {
+    const description = REPAIR_DESCRIPTIONS[r.name] ?? r.name;
+    const path = r.path.length > 0 ? r.path.join(".") : "(root)";
+    return `${path}: ${description}`;
+  });
+  return `Note: your tool call arguments were auto-repaired before running (${parts.join("; ")}). Emit valid JSON matching the schema directly next time to avoid this.`;
 }

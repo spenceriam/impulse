@@ -10,12 +10,12 @@ Planning mode restriction:
 
 explore - Fast, read-only codebase search
 - Use for: Finding files, searching code patterns, understanding codebase structure
-- Tools: file_read, glob, grep
+- Tools: file_read, glob, grep, ls
 - Best for: "Where is X defined?", "Find all usages of Y", "How does Z work?"
 
 general - Full capabilities for independent tasks
 - Use for: Multi-step operations that can run autonomously
-- Tools: file_read, file_write, file_edit, glob, grep, bash
+- Tools: file_read, file_write, file_edit, glob, grep, ls, bash
 - Best for: Refactoring a module, implementing a small feature, running tests
 
 ### When to Use Subagents

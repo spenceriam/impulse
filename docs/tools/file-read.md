@@ -4,7 +4,7 @@ Reads a file from the local filesystem.
 
 ## Parameters
 
-- filePath (required): Absolute path to the file
+- filePath (required): Absolute path to a FILE (not a directory — use `ls` for directories)
 - offset (optional): Line offset to start from (0-based)
 - limit (optional): Number of lines to read (default 2000)
 
