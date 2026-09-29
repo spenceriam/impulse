@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ### Changed
   - **#153** -- Failed/blocked/aborted tools break Quiet and show the real tool row (Claire). Parallel tools coalesce on the live line as `Reading X… (+N)`.
   - **#153** -- Clear Steering… vs Queued chrome above the prompt. Shift+Enter stays newline (pi-tui Editor) — use `/queue` for one-shot enqueue under Redirect-default.
-  - **#153** -- Quiet settle is once per contiguous group (AI-stream / turn-end boundary — not on tools-done) so post-tool thinking cannot emit a second `Worked for`. Duration: `ms` when &lt;1s, whole seconds otherwise. Blank row at tool↔AI boundaries. Session content side gutters removed (full terminal width).
+  - **#153** -- Quiet settle is once per contiguous group (AI-stream / turn-end boundary — not on tools-done) so post-tool thinking cannot emit a second `Worked for`. Duration: `ms` when &lt;1s, whole seconds otherwise. Blank row at tool↔AI boundaries. Session content side gutters are exactly 1 column each (`GUTTER_WIDTH = 1`).
 
 ## [1.10.1] - 2026-09-28
 

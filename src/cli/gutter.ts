@@ -1,31 +1,30 @@
 /**
- * Session content width helpers.
+ * Bilateral gutter layout: 1 column left + content + 1 column right.
  *
- * v1.11.0 (#153 dogfood): intentional left/right gutters removed — content uses
- * the full terminal width. Helpers keep their names for call-site compatibility;
- * widths no longer reserve side margins.
+ * v1.11.0 (#153 dogfood): session content uses exactly one character of
+ * side gutter on each edge (was 4/4; briefly 0/0 — locked to 1/1).
  */
 
 import { truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
-/** Left prefix for chat/status lines (empty — full-width session content). */
-export const GUTTER = "";
-export const GUTTER_WIDTH = 0;
-/** Combined width of left + right gutter (0 when gutters are disabled). */
-export const TOTAL_GUTTER_WIDTH = 0;
+/** Left prefix for chat/status lines (exactly one space). */
+export const GUTTER = " ";
+export const GUTTER_WIDTH = 1;
+/** Combined width of left + right gutter */
+export const TOTAL_GUTTER_WIDTH = 2;
 
-/** Inner content width (full terminal width when gutters are off). */
+/** Inner content width after subtracting both gutters */
 export function innerWidth(totalWidth: number): number {
   return Math.max(1, totalWidth - TOTAL_GUTTER_WIDTH);
 }
 
-/** Max visible width for a full terminal row. */
+/** Max visible width for a full terminal row (reserves right gutter). */
 export function maxLineWidth(totalWidth: number): number {
   return Math.max(1, totalWidth - GUTTER_WIDTH);
 }
 
 /**
- * Prefix left gutter (none) and truncate to terminal width.
+ * Prepend left gutter and truncate content so the line leaves the right gutter empty.
  */
 export function gutterContent(content: string, totalWidth: number): string {
   const inner = innerWidth(totalWidth);
@@ -39,7 +38,7 @@ export function truncateGutterLine(line: string, totalWidth: number): string {
   return truncateToWidth(line, maxLineWidth(totalWidth));
 }
 
-/** Wrap text to inner width and return lines (no side gutters). */
+/** Wrap text to inner width and return gutter-prefixed lines. */
 export function wrapGutterLines(text: string, totalWidth: number): string[] {
   const inner = innerWidth(totalWidth);
   const normalized = text.length > 0 ? text : " ";
@@ -47,7 +46,8 @@ export function wrapGutterLines(text: string, totalWidth: number): string[] {
 }
 
 /**
- * Render a separator line across the full terminal width.
+ * Render a separator line with gutters on both sides.
+ * ─ characters fill the inner region.
  */
 export function gutterSeparator(width: number): string {
   const inner = Math.max(0, width - TOTAL_GUTTER_WIDTH);
