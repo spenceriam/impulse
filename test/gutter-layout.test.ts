@@ -15,15 +15,15 @@ import {
 describe("gutter layout", () => {
   const cols = 80;
 
-  test("session content uses full terminal width (no side gutters)", () => {
-    expect(GUTTER).toBe("");
-    expect(GUTTER_WIDTH).toBe(0);
-    expect(TOTAL_GUTTER_WIDTH).toBe(0);
-    expect(innerWidth(cols)).toBe(cols);
-    expect(maxLineWidth(cols)).toBe(cols);
+  test("session content uses exactly 1-col left and right gutters", () => {
+    expect(GUTTER).toBe(" ");
+    expect(GUTTER_WIDTH).toBe(1);
+    expect(TOTAL_GUTTER_WIDTH).toBe(2);
+    expect(innerWidth(cols)).toBe(cols - 2);
+    expect(maxLineWidth(cols)).toBe(cols - 1);
   });
 
-  test("gutterContent stays within terminal width", () => {
+  test("gutterContent stays within max line width", () => {
     const line = gutterContent("x".repeat(200), cols);
     expect(visibleWidth(line)).toBeLessThanOrEqual(maxLineWidth(cols));
   });
@@ -33,12 +33,12 @@ describe("gutter layout", () => {
     expect(visibleWidth(sep)).toBeLessThanOrEqual(cols);
   });
 
-  test("truncateGutterLine caps rows to terminal width", () => {
+  test("truncateGutterLine caps prefixed rows", () => {
     const line = truncateGutterLine(`       ${"y".repeat(200)}`, cols);
     expect(visibleWidth(line)).toBeLessThanOrEqual(maxLineWidth(cols));
   });
 
-  test("wrapGutterLines uses full width", () => {
+  test("wrapGutterLines respects right gutter", () => {
     const lines = wrapGutterLines("word ".repeat(40), cols);
     expect(lines.length).toBeGreaterThan(1);
     for (const line of lines) {
