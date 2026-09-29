@@ -9,6 +9,8 @@ export type QueuePreviewInput = {
   holdDrain: boolean;
   editIndex: number;
   width: number;
+  /** Pending mid-turn Redirect/steer (shown when queue empty or alongside). */
+  steeringText?: string | null;
 };
 
 const MAX_PREVIEW_LINES_PER_ITEM = 3;
@@ -52,12 +54,18 @@ function pushWrappedQueueLines(
 
 /** Build stacked queue preview above the prompt (dim text, header when non-empty). */
 export function buildQueuePreviewText(input: QueuePreviewInput): string {
-  const { items, holdDrain, editIndex, width } = input;
-  if (items.length === 0 && !holdDrain) {
+  const { items, holdDrain, editIndex, width, steeringText } = input;
+  const steering = steeringText?.trim() ?? "";
+  if (items.length === 0 && !holdDrain && !steering) {
     return "";
   }
 
   const lines: string[] = [];
+
+  if (steering) {
+    lines.push(`${GUTTER}${clr.dim("Steering…")}`);
+    pushWrappedQueueLines(lines, "", steering, width);
+  }
 
   if (holdDrain) {
     const hint = `editing #${editIndex + 1} — Enter save · empty Enter delete · Esc keep original · ↑ next queued`;

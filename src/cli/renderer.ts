@@ -64,12 +64,24 @@ import {
 import {
   BUSY_COMPACTING,
   BUSY_PROCESSING,
+  BUSY_STEERING,
   BUSY_WORKING,
   busyPhraseUsesDimBase,
   busyStatusOverridesFixedPhrase,
   resolveBusyPhrase,
   FIXED_BUSY_PHRASES,
 } from "./busy-status.js";
+import {
+  buildQuietRecapFact,
+  classifyQuietOutcome,
+  extractOpenPlanItem,
+  formatQuietRecap,
+  isQuietBreakOutcome,
+  QuietWorkGroupTracker,
+  shortQuietArg,
+  wrapQuietRecapLines,
+  type QuietRecapEvent,
+} from "./quiet-status.js";
 import { dimRuleIndented } from "./format-helpers.js";
 
 /** pi-tui maxHeight for session/model list overlays */
@@ -171,7 +183,9 @@ import {
   isExperimentalAdvisorEnabled,
   isExperimentalGoalEnabled,
   isExperimentalUndoEnabled,
+  type ChatDensity,
   type Config,
+  type MidTurnSubmit,
   type ReasoningLevel,
   type ThinkingDisplay,
 } from "../util/config.js";
@@ -1164,6 +1178,10 @@ export class ImpulseRenderer {
 
     this.skipGoalContinuation = true;
     this.loop.abort();
+    if (this.isQuietMode()) {
+      this.settleQuietWorkGroup();
+    }
+    this.clearSteeringChrome();
     this.spinStop();
     this.isRunning = false;
     if (this.speedoEnabled && this.liveTurnStartedAt > 0) {
@@ -1212,7 +1230,116 @@ export class ImpulseRenderer {
       holdDrain,
       editIndex,
       width: this.queuePreviewWidth(),
+      steeringText: this.steeringPreview,
     });
+  }
+
+  private isQuietMode(): boolean {
+    return this.chatDensity === "quiet";
+  }
+
+  private resetQuietTurnState(): void {
+    this.quietTracker.reset();
+    this.quietRecapEvents = [];
+    this.clearSteeringChrome();
+  }
+
+  private clearSteeringChrome(): void {
+    if (!this.steeringPreview) return;
+    this.steeringPreview = null;
+    this.updateQueuePreview();
+  }
+
+  private setSteeringChrome(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    this.steeringPreview = trimmed;
+    this.setBusyStatus(BUSY_STEERING, BUSY_STEERING);
+    this.updateQueuePreview();
+    this.requestLayoutRefresh();
+    this.tui.requestRender();
+  }
+
+  /** Drop Steering… chrome once the loop has consumed pending steer. */
+  private syncSteeringChrome(): void {
+    const pending = this.loop.getPendingSteer();
+    if (!pending) {
+      this.clearSteeringChrome();
+      return;
+    }
+    if (this.steeringPreview !== pending) {
+      this.steeringPreview = pending;
+      this.updateQueuePreview();
+    }
+  }
+
+  private refreshQuietLiveStatus(): void {
+    if (!this.isQuietMode() || !this.quietTracker.active) return;
+    const phrase = this.quietTracker.liveStatus();
+    this.setBusyStatus(phrase, phrase);
+  }
+
+  /**
+   * Commit one Worked for for the current contiguous group (idempotent).
+   * Inserts blank rows at tool↔AI boundaries per dogfood lock.
+   */
+  private settleQuietWorkGroup(): boolean {
+    const result = this.quietTracker.settle();
+    if (!result) return false;
+    if (this.quietTracker.consumeGapBeforeWorkedFor()) {
+      this.addSectionGap();
+    }
+    this.addChatLine(clr.dim(result.workedForLine));
+    // Blank row between settled Worked for and following AI prose.
+    this.addSectionGap();
+    return true;
+  }
+
+  private emitQuietRecapIfNeeded(): void {
+    if (!this.isQuietMode() || !this.showRecap) return;
+    const events = this.quietRecapEvents;
+    if (events.length === 0) return;
+
+    const session = SessionManager.getCurrentSession();
+    const todos = session?.todos ?? [];
+    const nextTodo =
+      todos.find((t) => t.status === "in_progress") ??
+      todos.find((t) => t.status === "pending");
+
+    let openPlanItem: string | null = null;
+    const sessionId = session?.id;
+    if (sessionId) {
+      try {
+        const active = getActivePlanRevision(sessionId);
+        if (active) {
+          openPlanItem = extractOpenPlanItem(
+            readPlanTasksMarkdown(sessionId, active.meta.revisionId)
+          );
+        }
+      } catch {
+        /* non-fatal — Recap without plan Next */
+      }
+    }
+
+    const line = formatQuietRecap(events, {
+      pendingTodo: nextTodo?.content ?? null,
+      openPlanItem,
+      // lastFailure derived inside formatQuietRecap from events when omitted
+    });
+    if (!line) return;
+    const width = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
+    const rows = wrapQuietRecapLines(line, width, 3);
+    this.addSectionGap();
+    for (const row of rows) {
+      this.addChatLine(clr.dim(row));
+    }
+  }
+
+  private redirectLiveTurn(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    this.loop.setSteer(trimmed);
+    this.setSteeringChrome(trimmed);
   }
 
   private updateQueuePreview(): void {
@@ -1600,6 +1727,18 @@ export class ImpulseRenderer {
   private experimentalGoalEnabled = false;
   private thinkingDisplay: ThinkingDisplay = "summary";
   private compactToolOutputEnabled = true;
+  /** Quiet (default) vs Verbose full tool stream (#153). */
+  private chatDensity: ChatDensity = "quiet";
+  /** Mid-turn Enter: redirect/steer (default) vs queue (#153). */
+  private midTurnSubmit: MidTurnSubmit = "redirect";
+  /** Ghost Recap after Quiet turns (settings opt-out). */
+  private showRecap = true;
+  /** Pending Redirect preview above prompt (cleared when steer consumed). */
+  private steeringPreview: string | null = null;
+  /** Quiet work-group tracker — single settle per contiguous group. */
+  private quietTracker = new QuietWorkGroupTracker();
+  /** Event-sourced Recap inputs for the current turn. */
+  private quietRecapEvents: QuietRecapEvent[] = [];
   private streamRenderScheduled = false;
   private streamBusyPhraseSet = false;
   private lastExpandableTool: ToolBlock | null = null;
@@ -2420,7 +2559,12 @@ export class ImpulseRenderer {
 
     if (this.isRunning) {
       this.promptInput.clear();
-      this.enqueueTurn(payload);
+      // Mid-turn Enter: Redirect/steer by default; Queue until free via settings or /queue.
+      if (this.midTurnSubmit === "queue") {
+        this.enqueueTurn(payload);
+      } else {
+        this.redirectLiveTurn(payload.apiText);
+      }
       return;
     }
 
@@ -2485,6 +2629,7 @@ export class ImpulseRenderer {
 
     this.isRunning = true;
     this.turnShowsImpulseHeader = false;
+    this.resetQuietTurnState();
 
     this.addSectionGap();
     this.lastBandWasTool = false;
@@ -2546,9 +2691,20 @@ export class ImpulseRenderer {
           isRunning: true,
         });
         this.updateLiveMetrics(0, true);
-        this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+        if (this.isQuietMode()) {
+          this.quietTracker.ensure();
+          // Assessing live line only — hadActivity stays false until real thinking/tools.
+          this.setBusyStatus("Assessing…", "Assessing…");
+        } else {
+          this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+        }
       },
       onToken: (text) => {
+        this.syncSteeringChrome();
+        // Mid-turn AI stream splits Quiet work groups: settle once → blank → stream.
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
         if (!this.streamBusyPhraseSet) {
           this.setBusyStatus("Responding ...", BUSY_PROCESSING);
           this.streamBusyPhraseSet = true;
@@ -2576,6 +2732,7 @@ export class ImpulseRenderer {
       },
       onThinking: (text) => {
         debugLog(`onThinking: ${text.length} chars`);
+        this.syncSteeringChrome();
         this.appendWorkerThinking(text);
         this.scheduleStreamRender();
       },
@@ -2606,18 +2763,11 @@ export class ImpulseRenderer {
           return;
         }
 
+        this.syncSteeringChrome();
         this.closeThinking();
+        const hadAssistantStream = Boolean(this.streamingRaw.trim() || this.streamingText);
         this.finalizeStreamingAtSafeBoundary(false);
-        this.preToolSpacing = {
-          lastBandWasTool: this.lastBandWasTool,
-          lastBandToolHadBody: this.lastBandToolHadBody,
-          hasTrailingGap: this.hasTrailingGap,
-        };
-        this.lastToolGapSpacer = null;
-        const gapBeforeTool = !this.lastBandWasTool || this.lastBandToolHadBody;
-        if (gapBeforeTool) {
-          this.lastToolGapSpacer = this.addSectionGap();
-        }
+
         let subagentCodename: string | undefined;
         if (name === "task") {
           subagentCodename = pickUniqueShipName(new Set(this.taskCodenames.values()));
@@ -2630,6 +2780,38 @@ export class ImpulseRenderer {
           subagentCodename !== undefined ? { subagentCodename } : undefined
         );
         this.toolBlocks.set(id, block);
+
+        if (this.isQuietMode()) {
+          // Quiet: mutate live shimmer only — do not add tool rows to scrollback yet.
+          // Blank row between prior AI prose and the eventual Worked for.
+          if (hadAssistantStream) {
+            this.quietTracker.markGapBeforeNextWorkedFor();
+          }
+          this.quietTracker.addTool({
+            id,
+            name,
+            arg: shortQuietArg(name, args),
+          });
+          this.refreshQuietLiveStatus();
+          if (name === "todo_write") {
+            this.todoBlockBeforeRewrite = this.latestTodoBlock;
+          }
+          this.updateLiveMetrics(0, true);
+          this.requestRenderForPhase("tool_start");
+          return;
+        }
+
+        this.preToolSpacing = {
+          lastBandWasTool: this.lastBandWasTool,
+          lastBandToolHadBody: this.lastBandToolHadBody,
+          hasTrailingGap: this.hasTrailingGap,
+        };
+        this.lastToolGapSpacer = null;
+        const gapBeforeTool = !this.lastBandWasTool || this.lastBandToolHadBody;
+        if (gapBeforeTool) {
+          this.lastToolGapSpacer = this.addSectionGap();
+        }
+
         this.chat.addChild(block);
         this.hasTrailingGap = false;
         this.lastBandWasTool = true;
@@ -2659,18 +2841,49 @@ export class ImpulseRenderer {
         }
 
         this.thinkingElapsedMs = 0;
-
+        this.syncSteeringChrome();
         this.taskCodenames.delete(id);
+
+        const quiet = this.isQuietMode();
+        const outcome = classifyQuietOutcome(result);
+        const arg =
+          this.quietTracker.findToolArg(id) ?? shortQuietArg(_name, {});
+
+        if (quiet) {
+          if (!isSilentUnchangedTodoWrite(_name, result) && !isCosmeticTodoRewrite(_name, result)) {
+            const fact = buildQuietRecapFact(_name, arg, result) ?? undefined;
+            const event: QuietRecapEvent = { name: _name, arg, outcome };
+            if (fact !== undefined) {
+              event.fact = fact;
+            }
+            this.quietRecapEvents.push(event);
+          }
+          this.quietTracker.removeTool(id);
+        }
 
         const block = this.toolBlocks.get(id);
         if (block) {
           if (isSilentUnchangedTodoWrite(_name, result)) {
-            this.removeSilentTodoToolBlock(block, id);
+            if (!quiet) {
+              this.removeSilentTodoToolBlock(block, id);
+            } else {
+              this.toolBlocks.delete(id);
+            }
             if (!this.isRunning) {
               this.tui.requestRender();
               return;
             }
-            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            // Do NOT settle on tools-done — keep group open until AI stream / turn end
+            // so post-tool thinking cannot emit a second Worked for.
+            if (quiet) {
+              if (this.quietTracker.tools.length === 0) {
+                this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+              } else {
+                this.refreshQuietLiveStatus();
+              }
+            } else {
+              this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            }
             this.updateLiveMetrics(result.output.length, true);
             this.requestRenderForPhase("tool_end_todo_noop");
             return;
@@ -2679,40 +2892,79 @@ export class ImpulseRenderer {
           if (isCosmeticTodoRewrite(_name, result)) {
             const prev = this.todoBlockBeforeRewrite;
             this.todoBlockBeforeRewrite = null;
-            this.removeSilentTodoToolBlock(block, id);
-            if (prev) {
-              prev.setDone(result, durationMs, { collapsed: false, compact: false });
-              this.markLatestTodoBlock(prev);
+            if (!quiet) {
+              this.removeSilentTodoToolBlock(block, id);
+              if (prev) {
+                prev.setDone(result, durationMs, { collapsed: false, compact: false });
+                this.markLatestTodoBlock(prev);
+              }
+            } else {
+              this.toolBlocks.delete(id);
             }
             if (!this.isRunning) {
               this.tui.requestRender();
               return;
             }
-            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            if (quiet) {
+              if (this.quietTracker.tools.length === 0) {
+                this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+              } else {
+                this.refreshQuietLiveStatus();
+              }
+            } else {
+              this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            }
             this.updateLiveMetrics(result.output.length, true);
             this.requestRenderForPhase("tool_end_todo_cosmetic");
             return;
           }
 
-          const compact =
-            this.compactToolOutputEnabled &&
-            shouldCompactToolOutput(_name, result.success, result.metadata);
-          const collapsed =
-            _name === "task" || compact || (_name === "question" && result.success);
-          if (compact) this.lastExpandableTool = block;
-          block.setDone(result, durationMs, { collapsed, compact });
-          this.lastBandToolHadBody = block.hasExpandedBody();
-          if (_name === "todo_write" || _name === "todo_read") {
-            this.markLatestTodoBlock(block);
+          if (quiet) {
+            if (isQuietBreakOutcome(outcome)) {
+              // Claire: failed/blocked tools break Quiet and show the real tool row.
+              if (!this.lastBandWasTool || this.lastBandToolHadBody) {
+                this.addSectionGap();
+              }
+              this.chat.addChild(block);
+              this.hasTrailingGap = false;
+              this.lastBandWasTool = true;
+              const compact = false;
+              const collapsed = false;
+              block.setDone(result, durationMs, { collapsed, compact });
+              this.lastBandToolHadBody = block.hasExpandedBody();
+              this.lastExpandableTool = block;
+            }
+            this.toolBlocks.delete(id);
+          } else {
+            const compact =
+              this.compactToolOutputEnabled &&
+              shouldCompactToolOutput(_name, result.success, result.metadata);
+            const collapsed =
+              _name === "task" || compact || (_name === "question" && result.success);
+            if (compact) this.lastExpandableTool = block;
+            block.setDone(result, durationMs, { collapsed, compact });
+            this.lastBandToolHadBody = block.hasExpandedBody();
+            if (_name === "todo_write" || _name === "todo_read") {
+              this.markLatestTodoBlock(block);
+            }
+            this.toolBlocks.delete(id);
           }
-          this.toolBlocks.delete(id);
         }
         if (!this.isRunning) {
           this.tui.requestRender();
           return;
         }
 
+        if (quiet) {
+          // Keep the same work group open until AI streams again (or turn ends).
+          if (this.quietTracker.tools.length === 0) {
+            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+          } else {
+            this.refreshQuietLiveStatus();
+          }
+        } else {
           this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+        }
         this.updateLiveMetrics(result.output.length, true);
         this.requestRenderForPhase("tool_end");
       },
@@ -2744,6 +2996,10 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
+        this.syncSteeringChrome();
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
@@ -2778,6 +3034,9 @@ export class ImpulseRenderer {
         }
 
         this.lastAssistantTurnText = turnText;
+        this.emitQuietRecapIfNeeded();
+        this.quietRecapEvents = [];
+        this.clearSteeringChrome();
         this.addSectionGap();
         this.lastBandWasTool = false;
         this.turnShowsImpulseHeader = false;
@@ -2791,6 +3050,10 @@ export class ImpulseRenderer {
         }
       },
       onError: (err) => {
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
+        this.clearSteeringChrome();
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.syncContextBar({ isRunning: false });
@@ -2801,6 +3064,10 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
       onHardCutoff: (tokens) => {
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
+        this.clearSteeringChrome();
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.contextTokens = tokens;
@@ -3259,6 +3526,9 @@ export class ImpulseRenderer {
       cmdShow: () => r.cmdShow(),
       showHelpOverlay: () => r.showHelpOverlay(),
       cmdSteer: (arg) => r.cmdSteer(arg),
+      cmdQueue: (arg) => r.cmdQueue(arg),
+      cmdQuiet: () => r.cmdQuiet(),
+      cmdVerbose: () => r.cmdVerbose(),
       cmdCopy: () => r.cmdCopy(),
       cmdSide: (arg) => r.cmdSide(arg),
       showThinkingSettingsHint: () => r.showThinkingSettingsHint(),
@@ -3355,10 +3625,52 @@ export class ImpulseRenderer {
     } else if (!this.isRunning) {
       this.addChatLine(clr.dim("No active turn — /steer applies during an agent turn"));
     } else {
-      this.loop.setSteer(arg);
+      this.redirectLiveTurn(arg);
       this.addChatLine(clr.dim(`steer: ${arg}`));
       this.addChatLine(clr.dim("applies before the model's next action"));
     }
+    this.tui.requestRender();
+  }
+
+  /** One-shot enqueue while a turn is active (Redirect-default escape). */
+  private cmdQueue(arg: string): void {
+    if (!arg.trim()) {
+      this.addChatLine(clr.dim("Usage: /queue <message> — enqueue for after this turn"));
+      this.tui.requestRender();
+      return;
+    }
+    if (!this.isRunning) {
+      this.addChatLine(clr.dim("No active turn — submit normally, or wait and /queue during a turn"));
+      this.tui.requestRender();
+      return;
+    }
+    const payload: PromptSubmitPayload = {
+      displayMessage: arg,
+      apiText: arg,
+      segments: [{ kind: "text", value: arg }],
+      orderedImages: [],
+    };
+    this.enqueueTurn(payload);
+    this.addChatLine(clr.dim("Queued for after this turn"));
+    this.tui.requestRender();
+  }
+
+  private async cmdQuiet(): Promise<void> {
+    await this.setChatDensity("quiet");
+  }
+
+  private async cmdVerbose(): Promise<void> {
+    await this.setChatDensity("verbose");
+  }
+
+  private async setChatDensity(density: ChatDensity): Promise<void> {
+    this.chatDensity = density;
+    const config = await loadConfig();
+    config.chatDensity = density;
+    await saveConfig(config);
+    this.addChatLine(
+      clr.dim(density === "quiet" ? "Chat density: Quiet" : "Chat density: Verbose")
+    );
     this.tui.requestRender();
   }
 
@@ -4027,6 +4339,9 @@ export class ImpulseRenderer {
     this.thinkingDisplay = config.thinkingDisplay ?? "summary";
     this.responsePreference = config.userProfile?.responsePreference?.trim() || "balanced";
     this.compactToolOutputEnabled = config.compactToolOutput ?? true;
+    this.chatDensity = config.chatDensity ?? "quiet";
+    this.midTurnSubmit = config.midTurnSubmit ?? "redirect";
+    this.showRecap = config.showRecap ?? true;
     this.contextBar?.update({ bottomBarVisual: config.bottomBarVisual ?? "full" });
     this.applyThinkingDisplayMode();
   }
@@ -4051,6 +4366,24 @@ export class ImpulseRenderer {
 
   private appendWorkerThinking(text: string): void {
     const filtered = filterThinkingForDisplay(text);
+    if (!filtered.trim() && !this.thinkingOpen && !this.quietTracker.thinking) {
+      return;
+    }
+
+    // Quiet: thinking stays on the ephemeral live line (Assessing… / Planning…); no scrollback block.
+    // Stays in the same work group as prior/upcoming tools so settle emits one Worked for.
+    if (this.isQuietMode()) {
+      const hadAssistantStream = Boolean(this.streamingRaw.trim() || this.streamingText);
+      if (hadAssistantStream && !this.quietTracker.active) {
+        this.finalizeStreamingAtSafeBoundary(false);
+        this.quietTracker.markGapBeforeNextWorkedFor();
+      }
+      this.quietTracker.setThinking("assessing");
+      this.refreshQuietLiveStatus();
+      this.noteLiveGeneration(text);
+      return;
+    }
+
     if (!this.thinkingOpen) {
       if (!filtered.trim()) return;
       this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
@@ -4868,6 +5201,9 @@ export class ImpulseRenderer {
     const config = await loadConfig();
 
     const initialValues: SettingsValues = {
+      chatDensity: config.chatDensity ?? "quiet",
+      midTurnSubmit: config.midTurnSubmit ?? "redirect",
+      showRecap: config.showRecap ?? true,
       thinkingDisplay: config.thinkingDisplay ?? "summary",
       reasoningLevel: config.reasoningLevel ?? "medium",
       responsePreference: config.userProfile?.responsePreference?.trim() || "balanced",
@@ -4890,6 +5226,9 @@ export class ImpulseRenderer {
       if (settingsValuesEqual(values, initialValues)) {
         return "unchanged";
       }
+      config.chatDensity = values.chatDensity;
+      config.midTurnSubmit = values.midTurnSubmit;
+      config.showRecap = values.showRecap;
       config.thinkingDisplay = values.thinkingDisplay;
       config.showMainThinking = values.thinkingDisplay === "full";
       config.reasoningLevel = values.reasoningLevel;

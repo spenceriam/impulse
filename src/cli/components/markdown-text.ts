@@ -1,5 +1,5 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
-import { GUTTER_WIDTH, innerWidth, maxLineWidth, truncateGutterLine } from "../gutter.js";
+import { GUTTER, GUTTER_WIDTH, innerWidth, maxLineWidth, truncateGutterLine } from "../gutter.js";
 import {
   isCompleteMarkdownTable,
   parseTable,
@@ -32,7 +32,7 @@ export class MarkdownTextBlock implements Component {
   private raw = "";
   private readonly indent: string;
   private tableLayout: TableLayoutMode | null = null;
-  constructor(indent = "    ") {
+  constructor(indent = GUTTER) {
     this.indent = indent;
   }
 

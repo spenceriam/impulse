@@ -23,6 +23,10 @@ function createHost(calls: string[]): SlashDispatchHost {
 
   return {
     isRunning: false,
+    cmdBa: async (arg) => record("ba", arg),
+    cmdSkills: async (arg) => record("skills", arg),
+    cmdSkill: async (arg) => record("skill", arg),
+    cmdRunSkillCommand: async (slug, arg) => record(`run-skill:${slug}`, arg),
     cmdAdvisor: async (arg) => record("advisor", arg),
     cmdExperimental: async () => record("experimental"),
     cmdSettings: async () => record("settings"),
@@ -49,6 +53,9 @@ function createHost(calls: string[]): SlashDispatchHost {
     cmdShow: async () => record("show"),
     showHelpOverlay: () => record("help"),
     cmdSteer: (arg) => record("steer", arg),
+    cmdQueue: (arg) => record("queue", arg),
+    cmdQuiet: () => record("quiet"),
+    cmdVerbose: () => record("verbose"),
     cmdCopy: () => record("copy"),
     cmdSide: async (arg) => record("side", arg),
     showThinkingSettingsHint: () => record("thinking"),
