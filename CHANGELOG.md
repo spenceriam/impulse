@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Title:** Quiet chat density (default) + mid-turn Redirect
 
   ### Added
-  - **#153** -- Quiet chat density (default): one live shimmer status line per contiguous work group (thinking + tools), settle to **one** `Worked for …`, then AI stream; ghost `Recap:` event-sourced from tools (no extra model call; wraps to ≤3 lines). Verbose escape restores today's full tool stream.
+  - **#153** -- Quiet chat density (default): one live shimmer status line per contiguous work group (thinking + tools), settle to **one** `Worked for …`, then AI stream; ghost done→next `Recap:` (`edited auth.ts, ran tests ✓ · Next: …`) event-sourced from tools/todos/plan (no extra model call; omit Next if none; wraps to ≤3 lines). Verbose escape restores today's full tool stream.
   - **#153** -- `/settings` **Chat feel** section: Chat density (Quiet / Verbose), Mid-turn submit (Redirect live turn / Queue until free), Recap line on/off.
   - **#153** -- `/quiet` and `/verbose` session-sticky density toggles (persisted); `/queue <text>` one-shot enqueue when mid-turn Enter redirects.
   - **#153** -- Mid-turn Enter defaults to Redirect/steer (inject at next tool-loop boundary; latest pending steer replaces prior). Queue until free remains available via settings.

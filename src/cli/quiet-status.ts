@@ -163,24 +163,98 @@ export function formatWorkedFor(elapsedMs: number): string {
   return `Worked for ${Math.round(ms / 1000)}s`;
 }
 
+/** Past-tense outcome verbs for done→next Recap facts. */
+const QUIET_OUTCOME_VERBS: Record<string, string> = {
+  file_read: "read",
+  file_write: "wrote",
+  file_edit: "edited",
+  glob: "found",
+  grep: "searched",
+  ls: "listed",
+  bash: "ran",
+  task: "delegated",
+  web_search: "searched",
+  web_fetch: "fetched",
+  todo_write: "updated todos",
+  todo_read: "read todos",
+  question: "asked",
+  github_issue: "filed issue",
+  plan_revision: "revised plan",
+  install_skill: "installed skill",
+  vision_translate: "translated",
+};
+
+export function quietOutcomeVerb(name: string): string {
+  return QUIET_OUTCOME_VERBS[name] ?? name.replace(/_/g, " ");
+}
+
+/** Optional Next signals — omit `· Next:` when none are available (never invent). */
+export type QuietRecapNextHints = {
+  /** in_progress or first pending todo content */
+  pendingTodo?: string | null;
+  /** Short label from last failed/blocked tool */
+  lastFailure?: string | null;
+  /** First open unchecked plan task */
+  openPlanItem?: string | null;
+};
+
 /**
- * Event-sourced Recap body (without "Recap: " prefix content for wrapping).
- * Returns null when nothing to show.
+ * Pick one concrete Next clause. Priority: pending/in-progress todo → last failure → open plan.
+ * Returns null when nothing usable (caller omits `· Next:`).
  */
-export function formatQuietRecap(events: QuietRecapEvent[]): string | null {
+export function pickQuietRecapNext(hints: QuietRecapNextHints = {}): string | null {
+  const todo = hints.pendingTodo?.trim();
+  if (todo) return truncateArg(todo, 48);
+  const fail = hints.lastFailure?.trim();
+  if (fail) return truncateArg(fail, 48);
+  const plan = hints.openPlanItem?.trim();
+  if (plan) return truncateArg(plan, 48);
+  return null;
+}
+
+/** First unchecked markdown task `- [ ] …` from plan tasks.md, or null. */
+export function extractOpenPlanItem(tasksMarkdown: string | null | undefined): string | null {
+  if (!tasksMarkdown) return null;
+  const match = tasksMarkdown.match(/^\s*[-*]\s+\[\s\]\s+(.+)$/m);
+  const item = match?.[1]?.trim();
+  return item ? item : null;
+}
+
+/** Build last-failure Next label from events (most recent failed/blocked). */
+export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i]!;
+    if (ev.outcome !== "failed" && ev.outcome !== "blocked") continue;
+    if (ev.arg) return `retry ${ev.arg}`;
+    return `retry ${quietOutcomeVerb(ev.name)}`;
+  }
+  return null;
+}
+
+/**
+ * Event-sourced done→next Recap.
+ * Shape: `Recap: edited auth.ts, ran tests ✓ · Next: token-refresh test`
+ * Omits `· Next:` when no next signal. Never invents Next. No LLM.
+ */
+export function formatQuietRecap(
+  events: QuietRecapEvent[],
+  nextHints: QuietRecapNextHints = {}
+): string | null {
   if (events.length === 0) return null;
 
   const parts: string[] = [];
   const seen = new Set<string>();
+  let successCount = 0;
 
   for (const ev of events) {
     if (ev.outcome !== "success") continue;
-    const verb = quietToolVerb(ev.name).toLowerCase();
+    const verb = quietOutcomeVerb(ev.name);
     const key = ev.arg ? `${verb}:${ev.arg}` : verb;
     if (seen.has(key)) continue;
     seen.add(key);
     parts.push(ev.arg ? `${verb} ${ev.arg}` : verb);
-    if (parts.length >= 4) break;
+    successCount++;
+    if (parts.length >= 3) break;
   }
 
   const failed = events.filter((e) => e.outcome === "failed" || e.outcome === "blocked");
@@ -188,16 +262,33 @@ export function formatQuietRecap(events: QuietRecapEvent[]): string | null {
     return null;
   }
 
-  let line = parts.length > 0 ? parts.join(", ") : "";
+  let done = parts.join(", ");
   if (failed.length > 0) {
-    const failBit =
-      failed.length === 1
-        ? `${quietToolVerb(failed[0]!.name).toLowerCase()} blocked`
-        : `${failed.length} tools blocked`;
-    line = line ? `${line}; ${failBit}` : failBit;
+    const f = failed[failed.length - 1]!;
+    const status = f.outcome === "blocked" ? "blocked" : "failed";
+    const failBit = f.arg
+      ? `${quietOutcomeVerb(f.name)} ${f.arg} ${status}`
+      : `${quietOutcomeVerb(f.name)} ${status}`;
+    done = done ? `${done}; ${failBit}` : failBit;
+  } else if (successCount > 0) {
+    done = `${done} ✓`;
   }
 
-  return `Recap: ${line}`;
+  const lastFailure =
+    nextHints.lastFailure !== undefined
+      ? nextHints.lastFailure
+      : lastFailureNextLabel(events);
+
+  const next = pickQuietRecapNext({
+    pendingTodo: nextHints.pendingTodo ?? null,
+    lastFailure,
+    openPlanItem: nextHints.openPlanItem ?? null,
+  });
+
+  if (next) {
+    return `Recap: ${done} · Next: ${next}`;
+  }
+  return `Recap: ${done}`;
 }
 
 /**

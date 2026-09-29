@@ -1062,7 +1062,7 @@ This ensures:
 ### Quiet chat density (#153)
 - **Default `chatDensity: quiet`** — one ephemeral live shimmer line per contiguous work group (thinking + tools with no AI text between); mutates in place above the composer (not scrollback). Thinking uses `Assessing…` / `Planning…`; tools use templated verb + short arg (`Reading AGENTS.md…`); parallel coalesce `… (+N)`.
 - **Settle once** — commit at AI-stream / turn-end boundaries only (not on tools-done), so post-tool thinking stays in the same group and cannot emit a second `Worked for`. Duration: `Worked for 340ms` when &lt;1s, else whole seconds (`Worked for 12s`). One blank row between `Worked for` and following AI prose, and between prior AI prose and the next Worked for.
-- **Recap** — ghost `Recap:` after the turn, event-sourced from tool outcomes only (no extra LLM call); wraps to at most 3 lines; `showRecap` settings opt-out.
+- **Recap** — ghost `Recap:` after the turn, event-sourced done→next (no LLM): `Recap: edited auth.ts, ran tests ✓ · Next: token-refresh test`. Lead with outcome facts; one concrete Next from pending todo / last failure / open plan item when available — omit `· Next:` if none (never invent). Wraps ≤3 lines; `showRecap` settings opt-out. Label stays `Recap:` (no ※).
 - **Session gutters** — exactly one character left and right (`GUTTER_WIDTH = 1`); was 4/4 historically, briefly 0/0 during dogfood — locked to 1/1.
 - **Verbose** — today's full tool-calling stream unchanged (`/verbose` or `/settings` → Chat feel). Naming is Quiet/Verbose — never "Expert".
 - **Break Quiet** — failed/blocked/aborted tools show the real tool row (Claire). Refuse: rewriting past turns' status; model-authored status; model-generated Recap.

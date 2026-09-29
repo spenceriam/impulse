@@ -80,6 +80,7 @@ import {
 } from "./busy-status.js";
 import {
   classifyQuietOutcome,
+  extractOpenPlanItem,
   formatQuietRecap,
   isQuietBreakOutcome,
   QuietWorkGroupTracker,
@@ -1302,7 +1303,35 @@ export class ImpulseRenderer {
 
   private emitQuietRecapIfNeeded(): void {
     if (!this.isQuietMode() || !this.showRecap) return;
-    const line = formatQuietRecap(this.quietRecapEvents);
+    const events = this.quietRecapEvents;
+    if (events.length === 0) return;
+
+    const session = SessionManager.getCurrentSession();
+    const todos = session?.todos ?? [];
+    const nextTodo =
+      todos.find((t) => t.status === "in_progress") ??
+      todos.find((t) => t.status === "pending");
+
+    let openPlanItem: string | null = null;
+    const sessionId = session?.id;
+    if (sessionId) {
+      try {
+        const active = getActivePlanRevision(sessionId);
+        if (active) {
+          openPlanItem = extractOpenPlanItem(
+            readPlanTasksMarkdown(sessionId, active.meta.revisionId)
+          );
+        }
+      } catch {
+        /* non-fatal — Recap without plan Next */
+      }
+    }
+
+    const line = formatQuietRecap(events, {
+      pendingTodo: nextTodo?.content ?? null,
+      openPlanItem,
+      // lastFailure derived inside formatQuietRecap from events when omitted
+    });
     if (!line) return;
     const width = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
     const rows = wrapQuietRecapLines(line, width, 3);
