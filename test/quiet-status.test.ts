@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   QuietWorkGroupTracker,
   classifyQuietOutcome,
+  extractOpenPlanItem,
   formatQuietLiveStatus,
   formatQuietRecap,
   formatWorkedFor,
   isQuietBreakOutcome,
+  lastFailureNextLabel,
+  pickQuietRecapNext,
   quietThinkingPhrase,
   shortQuietArg,
   wrapQuietRecapLines,
@@ -74,20 +77,88 @@ describe("quiet-status", () => {
     ).toBe(false);
   });
 
-  test("Recap is event-sourced", () => {
+  test("Recap done→next: outcome facts + ✓ when all succeed", () => {
     const line = formatQuietRecap([
-      { name: "file_read", arg: "AGENTS.md", outcome: "success" },
-      { name: "file_edit", arg: "renderer.ts", outcome: "success" },
-      { name: "bash", arg: "bun test", outcome: "success" },
+      { name: "file_edit", arg: "auth.ts", outcome: "success" },
+      { name: "bash", arg: "tests", outcome: "success" },
     ]);
-    expect(line).toBe("Recap: reading AGENTS.md, editing renderer.ts, running bun test");
+    expect(line).toBe("Recap: edited auth.ts, ran tests ✓");
   });
 
-  test("Recap includes blocked tools", () => {
+  test("Recap done→next: appends Next from pending todo", () => {
+    const line = formatQuietRecap(
+      [
+        { name: "file_edit", arg: "auth.ts", outcome: "success" },
+        { name: "bash", arg: "tests", outcome: "success" },
+      ],
+      { pendingTodo: "token-refresh test" }
+    );
+    expect(line).toBe("Recap: edited auth.ts, ran tests ✓ · Next: token-refresh test");
+  });
+
+  test("Recap omits Next when no next signal", () => {
+    const line = formatQuietRecap([
+      { name: "file_read", arg: "AGENTS.md", outcome: "success" },
+    ]);
+    expect(line).toBe("Recap: read AGENTS.md ✓");
+    expect(line).not.toContain("Next:");
+  });
+
+  test("Recap Next prefers todo over last failure", () => {
+    const line = formatQuietRecap(
+      [
+        { name: "bash", arg: "bun test", outcome: "failed" },
+      ],
+      { pendingTodo: "fix CI", lastFailure: "retry bun test" }
+    );
+    expect(line).toBe("Recap: ran bun test failed · Next: fix CI");
+  });
+
+  test("Recap Next falls back to last failure then plan item", () => {
+    expect(
+      pickQuietRecapNext({
+        pendingTodo: null,
+        lastFailure: "retry bun test",
+        openPlanItem: "ship Quiet",
+      })
+    ).toBe("retry bun test");
+    expect(
+      pickQuietRecapNext({
+        pendingTodo: null,
+        lastFailure: null,
+        openPlanItem: "ship Quiet",
+      })
+    ).toBe("ship Quiet");
+    expect(pickQuietRecapNext({})).toBeNull();
+  });
+
+  test("lastFailureNextLabel and extractOpenPlanItem are event-sourced", () => {
+    expect(
+      lastFailureNextLabel([
+        { name: "file_edit", arg: "a.ts", outcome: "success" },
+        { name: "bash", arg: "bun test", outcome: "failed" },
+      ])
+    ).toBe("retry bun test");
+    expect(extractOpenPlanItem("- [x] done\n- [ ] token-refresh test\n")).toBe(
+      "token-refresh test"
+    );
+    expect(extractOpenPlanItem("- [x] all done\n")).toBeNull();
+  });
+
+  test("Recap includes blocked tools without inventing Next", () => {
     const line = formatQuietRecap([
       { name: "bash", arg: "rm -rf /", outcome: "blocked" },
+    ], { lastFailure: null, pendingTodo: null, openPlanItem: null });
+    // Explicit nulls suppress auto lastFailure — no Next invented
+    expect(line).toBe("Recap: ran rm -rf / blocked");
+    expect(line).not.toContain("Next:");
+  });
+
+  test("Recap auto-Next from failure when hints omitted", () => {
+    const line = formatQuietRecap([
+      { name: "bash", arg: "bun test", outcome: "failed" },
     ]);
-    expect(line).toBe("Recap: running blocked");
+    expect(line).toBe("Recap: ran bun test failed · Next: retry bun test");
   });
 
   test("Recap null when no events", () => {
@@ -109,8 +180,8 @@ describe("quiet-status", () => {
   });
 
   test("Recap wrap under max lines stays untruncated", () => {
-    const rows = wrapQuietRecapLines("Recap: reading AGENTS.md", 80, 3);
-    expect(rows).toEqual(["Recap: reading AGENTS.md"]);
+    const rows = wrapQuietRecapLines("Recap: read AGENTS.md ✓", 80, 3);
+    expect(rows).toEqual(["Recap: read AGENTS.md ✓"]);
   });
 });
 
