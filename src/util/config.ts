@@ -24,6 +24,14 @@ const ThinkingDisplaySchema = z.enum(["off", "summary", "full"]);
 export type BottomBarVisual = "full" | "reduced" | "minimal" | "off";
 const BottomBarVisualSchema = z.enum(["full", "reduced", "minimal", "off"]);
 
+/** Chat transcript density: Quiet (default) vs full Verbose tool stream (#153). */
+export type ChatDensity = "quiet" | "verbose";
+const ChatDensitySchema = z.enum(["quiet", "verbose"]);
+
+/** Mid-turn Enter while agent busy: Redirect/steer (default) vs Queue until free (#153). */
+export type MidTurnSubmit = "redirect" | "queue";
+const MidTurnSubmitSchema = z.enum(["redirect", "queue"]);
+
 const ProviderKeySchema = z.object({
   /** API key for this provider */
   apiKey: z.string().optional(),
@@ -129,6 +137,15 @@ const ConfigSchema = z.object({
 
   /** Bottom context bar verbosity: full | reduced | minimal | off */
   bottomBarVisual: BottomBarVisualSchema.default("full"),
+
+  /** Chat density: quiet (live work-group line) | verbose (full tool stream) */
+  chatDensity: ChatDensitySchema.default("quiet"),
+
+  /** Mid-turn Enter: redirect (steer) | queue until free */
+  midTurnSubmit: MidTurnSubmitSchema.default("redirect"),
+
+  /** Ghost Recap: line after Quiet turns (event-sourced; no extra model call) */
+  showRecap: z.boolean().default(true),
 
   /** Per-model reliability overrides when tool continuations fail */
   modelProfiles: z

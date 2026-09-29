@@ -219,9 +219,14 @@ export class AgentLoop {
     this.pendingImages = images;
   }
 
-  /** Redirect current turn at the next tool-loop boundary. */
+  /** Redirect current turn at the next tool-loop boundary (latest wins — replaces prior). */
   setSteer(text: string): void {
     this.pendingSteer = text.trim();
+  }
+
+  /** Pending steer text, or null when none queued for the next tool-loop boundary. */
+  getPendingSteer(): string | null {
+    return this.pendingSteer;
   }
 
   private async injectUserNotes(notes: string[]): Promise<void> {

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-09-29
+
+  **Type:** minor
+  **Title:** Quiet chat density (default) + mid-turn Redirect
+
+  ### Added
+  - **#153** -- Quiet chat density (default): one live shimmer status line per contiguous work group (thinking + tools), settle to `Worked for Xs`, then AI stream; ghost `Recap:` line event-sourced from tools (no extra model call). Verbose escape restores today's full tool stream.
+  - **#153** -- `/settings` **Chat feel** section: Chat density (Quiet / Verbose), Mid-turn submit (Redirect live turn / Queue until free), Recap line on/off.
+  - **#153** -- `/quiet` and `/verbose` session-sticky density toggles (persisted); `/queue <text>` one-shot enqueue when mid-turn Enter redirects.
+  - **#153** -- Mid-turn Enter defaults to Redirect/steer (inject at next tool-loop boundary; latest pending steer replaces prior). Queue until free remains available via settings.
+
+  ### Changed
+  - **#153** -- Failed/blocked/aborted tools break Quiet and show the real tool row (Claire). Parallel tools coalesce on the live line as `Reading X… (+N)`.
+  - **#153** -- Clear Steering… vs Queued chrome above the prompt. Shift+Enter stays newline (pi-tui Editor) — use `/queue` for one-shot enqueue under Redirect-default.
+
 ## [1.10.2] - 2026-10-06
 
   **Type:** patch
