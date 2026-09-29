@@ -73,12 +73,11 @@ import {
 } from "./busy-status.js";
 import {
   classifyQuietOutcome,
-  formatQuietLiveStatus,
   formatQuietRecap,
-  formatWorkedFor,
   isQuietBreakOutcome,
+  QuietWorkGroupTracker,
   shortQuietArg,
-  type QuietInflightTool,
+  wrapQuietRecapLines,
   type QuietRecapEvent,
 } from "./quiet-status.js";
 import { dimRuleIndented } from "./format-helpers.js";
@@ -1238,9 +1237,8 @@ export class ImpulseRenderer {
   }
 
   private resetQuietTurnState(): void {
-    this.quietWorkGroup = null;
+    this.quietTracker.reset();
     this.quietRecapEvents = [];
-    this.quietGroupsSettled = 0;
     this.clearSteeringChrome();
   }
 
@@ -1273,44 +1271,38 @@ export class ImpulseRenderer {
     }
   }
 
-  private ensureQuietWorkGroup(): void {
-    if (this.quietWorkGroup) return;
-    this.quietWorkGroup = {
-      startedAt: Date.now(),
-      thinking: null,
-      tools: [],
-      hadActivity: false,
-    };
-  }
-
   private refreshQuietLiveStatus(): void {
-    if (!this.isQuietMode() || !this.quietWorkGroup) return;
-    const phrase = formatQuietLiveStatus({
-      thinking: this.quietWorkGroup.thinking,
-      tools: this.quietWorkGroup.tools,
-    });
+    if (!this.isQuietMode() || !this.quietTracker.active) return;
+    const phrase = this.quietTracker.liveStatus();
     this.setBusyStatus(phrase, phrase);
   }
 
-  /** Commit Worked for Xs once; clear live Quiet group (ephemeral line stays for next status). */
-  private settleQuietWorkGroup(): void {
-    const group = this.quietWorkGroup;
-    if (!group || !group.hadActivity) {
-      this.quietWorkGroup = null;
-      return;
+  /**
+   * Commit one Worked for for the current contiguous group (idempotent).
+   * Inserts blank rows at tool↔AI boundaries per dogfood lock.
+   */
+  private settleQuietWorkGroup(): boolean {
+    const result = this.quietTracker.settle();
+    if (!result) return false;
+    if (this.quietTracker.consumeGapBeforeWorkedFor()) {
+      this.addSectionGap();
     }
-    const elapsed = Date.now() - group.startedAt;
-    this.addChatLine(clr.dim(formatWorkedFor(elapsed)));
-    this.hasTrailingGap = false;
-    this.quietWorkGroup = null;
-    this.quietGroupsSettled += 1;
+    this.addChatLine(clr.dim(result.workedForLine));
+    // Blank row between settled Worked for and following AI prose.
+    this.addSectionGap();
+    return true;
   }
 
   private emitQuietRecapIfNeeded(): void {
     if (!this.isQuietMode() || !this.showRecap) return;
     const line = formatQuietRecap(this.quietRecapEvents);
     if (!line) return;
-    this.addChatLine(clr.dim(line));
+    const width = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
+    const rows = wrapQuietRecapLines(line, width, 3);
+    this.addSectionGap();
+    for (const row of rows) {
+      this.addChatLine(clr.dim(row));
+    }
   }
 
   private redirectLiveTurn(text: string): void {
@@ -1713,17 +1705,10 @@ export class ImpulseRenderer {
   private showRecap = true;
   /** Pending Redirect preview above prompt (cleared when steer consumed). */
   private steeringPreview: string | null = null;
-  /** Active Quiet work group (thinking + tools with no AI text between). */
-  private quietWorkGroup: {
-    startedAt: number;
-    thinking: "assessing" | "planning" | null;
-    tools: QuietInflightTool[];
-    hadActivity: boolean;
-  } | null = null;
+  /** Quiet work-group tracker — single settle per contiguous group. */
+  private quietTracker = new QuietWorkGroupTracker();
   /** Event-sourced Recap inputs for the current turn. */
   private quietRecapEvents: QuietRecapEvent[] = [];
-  /** Settled Quiet work groups this turn (drives Assessing… vs Planning…). */
-  private quietGroupsSettled = 0;
   private streamRenderScheduled = false;
   private streamBusyPhraseSet = false;
   private lastExpandableTool: ToolBlock | null = null;
@@ -2677,17 +2662,16 @@ export class ImpulseRenderer {
         });
         this.updateLiveMetrics(0, true);
         if (this.isQuietMode()) {
-          this.ensureQuietWorkGroup();
-          this.quietWorkGroup!.thinking = "assessing";
-          // hadActivity stays false until real thinking/tools — avoids empty Worked for.
-          this.refreshQuietLiveStatus();
+          this.quietTracker.ensure();
+          // Assessing live line only — hadActivity stays false until real thinking/tools.
+          this.setBusyStatus("Assessing…", "Assessing…");
         } else {
           this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
         }
       },
       onToken: (text) => {
         this.syncSteeringChrome();
-        // Mid-turn AI stream splits Quiet work groups: settle → stream → new live line later.
+        // Mid-turn AI stream splits Quiet work groups: settle once → blank → stream.
         if (this.isQuietMode()) {
           this.settleQuietWorkGroup();
         }
@@ -2751,6 +2735,7 @@ export class ImpulseRenderer {
 
         this.syncSteeringChrome();
         this.closeThinking();
+        const hadAssistantStream = Boolean(this.streamingRaw.trim() || this.streamingText);
         this.finalizeStreamingAtSafeBoundary(false);
 
         let subagentCodename: string | undefined;
@@ -2768,11 +2753,11 @@ export class ImpulseRenderer {
 
         if (this.isQuietMode()) {
           // Quiet: mutate live shimmer only — do not add tool rows to scrollback yet.
-          this.ensureQuietWorkGroup();
-          const group = this.quietWorkGroup!;
-          group.thinking = null;
-          group.hadActivity = true;
-          group.tools.push({
+          // Blank row between prior AI prose and the eventual Worked for.
+          if (hadAssistantStream) {
+            this.quietTracker.markGapBeforeNextWorkedFor();
+          }
+          this.quietTracker.addTool({
             id,
             name,
             arg: shortQuietArg(name, args),
@@ -2832,16 +2817,13 @@ export class ImpulseRenderer {
         const quiet = this.isQuietMode();
         const outcome = classifyQuietOutcome(result);
         const arg =
-          this.quietWorkGroup?.tools.find((t) => t.id === id)?.arg ??
-          shortQuietArg(_name, {});
+          this.quietTracker.findToolArg(id) ?? shortQuietArg(_name, {});
 
         if (quiet) {
           if (!isSilentUnchangedTodoWrite(_name, result) && !isCosmeticTodoRewrite(_name, result)) {
             this.quietRecapEvents.push({ name: _name, arg, outcome });
           }
-          if (this.quietWorkGroup) {
-            this.quietWorkGroup.tools = this.quietWorkGroup.tools.filter((t) => t.id !== id);
-          }
+          this.quietTracker.removeTool(id);
         }
 
         const block = this.toolBlocks.get(id);
@@ -2856,9 +2838,10 @@ export class ImpulseRenderer {
               this.tui.requestRender();
               return;
             }
+            // Do NOT settle on tools-done — keep group open until AI stream / turn end
+            // so post-tool thinking cannot emit a second Worked for.
             if (quiet) {
-              if (this.quietWorkGroup && this.quietWorkGroup.tools.length === 0) {
-                this.settleQuietWorkGroup();
+              if (this.quietTracker.tools.length === 0) {
                 this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
               } else {
                 this.refreshQuietLiveStatus();
@@ -2888,8 +2871,7 @@ export class ImpulseRenderer {
               return;
             }
             if (quiet) {
-              if (this.quietWorkGroup && this.quietWorkGroup.tools.length === 0) {
-                this.settleQuietWorkGroup();
+              if (this.quietTracker.tools.length === 0) {
                 this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
               } else {
                 this.refreshQuietLiveStatus();
@@ -2939,8 +2921,8 @@ export class ImpulseRenderer {
         }
 
         if (quiet) {
-          if (this.quietWorkGroup && this.quietWorkGroup.tools.length === 0) {
-            this.settleQuietWorkGroup();
+          // Keep the same work group open until AI streams again (or turn ends).
+          if (this.quietTracker.tools.length === 0) {
             this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
           } else {
             this.refreshQuietLiveStatus();
@@ -4349,19 +4331,19 @@ export class ImpulseRenderer {
 
   private appendWorkerThinking(text: string): void {
     const filtered = filterThinkingForDisplay(text);
-    if (!filtered.trim() && !this.thinkingOpen && !this.quietWorkGroup?.thinking) {
+    if (!filtered.trim() && !this.thinkingOpen && !this.quietTracker.thinking) {
       return;
     }
 
     // Quiet: thinking stays on the ephemeral live line (Assessing… / Planning…); no scrollback block.
+    // Stays in the same work group as prior/upcoming tools so settle emits one Worked for.
     if (this.isQuietMode()) {
-      this.ensureQuietWorkGroup();
-      const group = this.quietWorkGroup!;
-      if (!group.thinking) {
-        group.thinking =
-          this.quietGroupsSettled > 0 || group.tools.length > 0 ? "planning" : "assessing";
+      const hadAssistantStream = Boolean(this.streamingRaw.trim() || this.streamingText);
+      if (hadAssistantStream && !this.quietTracker.active) {
+        this.finalizeStreamingAtSafeBoundary(false);
+        this.quietTracker.markGapBeforeNextWorkedFor();
       }
-      group.hadActivity = true;
+      this.quietTracker.setThinking("assessing");
       this.refreshQuietLiveStatus();
       this.noteLiveGeneration(text);
       return;

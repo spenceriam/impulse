@@ -20,7 +20,8 @@
 
 ### v1.11.0 (2026-09-29)
 
-- [x] Quiet chat density default (#153) — live work-group shimmer (`Assessing…` / `Reading X… (+N)`), settle to `Worked for Xs`, AI stream; Verbose escape via `/verbose` or `/settings`
+- [x] Quiet chat density default (#153) — live work-group shimmer (`Assessing…` / `Reading X… (+N)`), **one** settle per contiguous group → `Worked for …` (ms if &lt;1s); Verbose via `/verbose` or `/settings`
+- [x] Quiet dogfood locks (#153 / PR #154) — no duplicate Worked for; blank row at tool↔AI; Recap wrap ≤3 lines; session side gutters removed
 - [x] Event-sourced ghost `Recap:` (#153) — no extra model call; settings opt-out (`showRecap`)
 - [x] Failed/blocked tools break Quiet (#153) — real tool row shown (Claire)
 - [x] Mid-turn Enter = Redirect/steer by default (#153) — `/queue` one-shot enqueue; settings `midTurnSubmit: redirect | queue`; pending steer replaces (not stacks)
@@ -1044,6 +1045,7 @@ This ensures:
 - Layout is character-cell based — font size is controlled by the terminal emulator
 - Components receive terminal width in `render(width)` and must wrap/truncate accordingly
 - **Wrap policy (v1.5.1+):** no horizontal ellipsis (`…`) on user-visible content — wrap with `wrapTextWithAnsi` / `wrapGutterLines` instead; vertical row caps (`… N more lines`) are OK
+- **Session gutters (#153):** `GUTTER` / `GUTTER_WIDTH` are 0 — session chat uses full terminal width (helper names kept for call-site compatibility)
 - Use `src/cli/layout.ts` helpers for overlay sizing on narrow split panes
 - Bottom chrome (prompt + context bar) stays pinned via scroll anchoring
 
@@ -1059,8 +1061,9 @@ This ensures:
 
 ### Quiet chat density (#153)
 - **Default `chatDensity: quiet`** — one ephemeral live shimmer line per contiguous work group (thinking + tools with no AI text between); mutates in place above the composer (not scrollback). Thinking uses `Assessing…` / `Planning…`; tools use templated verb + short arg (`Reading AGENTS.md…`); parallel coalesce `… (+N)`.
-- **Settle** — when the group ends (AI streams again or tools done), commit once as dim `Worked for Xs` (wall-clock), then clear the live slot. Mid-turn AI stream splits groups.
-- **Recap** — ghost `Recap:` after the turn, event-sourced from tool outcomes only (no extra LLM call); `showRecap` settings opt-out.
+- **Settle once** — commit at AI-stream / turn-end boundaries only (not on tools-done), so post-tool thinking stays in the same group and cannot emit a second `Worked for`. Duration: `Worked for 340ms` when &lt;1s, else whole seconds (`Worked for 12s`). One blank row between `Worked for` and following AI prose, and between prior AI prose and the next Worked for.
+- **Recap** — ghost `Recap:` after the turn, event-sourced from tool outcomes only (no extra LLM call); wraps to at most 3 lines; `showRecap` settings opt-out.
+- **Full-width session** — intentional left/right content gutters removed (`GUTTER_WIDTH = 0`); chat uses the full terminal width.
 - **Verbose** — today's full tool-calling stream unchanged (`/verbose` or `/settings` → Chat feel). Naming is Quiet/Verbose — never "Expert".
 - **Break Quiet** — failed/blocked/aborted tools show the real tool row (Claire). Refuse: rewriting past turns' status; model-authored status; model-generated Recap.
 
