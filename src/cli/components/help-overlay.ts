@@ -1,4 +1,13 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import {
+  isDown,
+  isEnd,
+  isEscape,
+  isHome,
+  isPageDown,
+  isPageUp,
+  isUp,
+} from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import { renderHelpCommandsTable, tableBorderFg } from "../markdown-table.js";
 import {
@@ -234,7 +243,7 @@ export class HelpOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\x1b") {
+    if (isEscape(data)) {
       this.onCancel?.();
       return;
     }
@@ -244,27 +253,17 @@ export class HelpOverlay implements Component {
     if (maxTop === 0) return;
 
     let next = this.scrollTop;
-    if (data === "\x1b[A" || data === "k") {
+    if (isUp(data) || data === "k") {
       next = Math.max(0, this.scrollTop - 1);
-    } else if (data === "\x1b[B" || data === "j") {
+    } else if (isDown(data) || data === "j") {
       next = Math.min(maxTop, this.scrollTop + 1);
-    } else if (data === "\x1b[5~" || data === "\x1b[b") {
+    } else if (isPageUp(data) || data === "\x1b[b") {
       next = Math.max(0, this.scrollTop - this.pageStep());
-    } else if (data === "\x1b[6~" || data === "\x1b[f") {
+    } else if (isPageDown(data) || data === "\x1b[f") {
       next = Math.min(maxTop, this.scrollTop + this.pageStep());
-    } else if (
-      data === "\x1b[H" ||
-      data === "\x1bOH" ||
-      data === "\x1b[1;1H" ||
-      data === "g"
-    ) {
+    } else if (isHome(data) || data === "g") {
       next = 0;
-    } else if (
-      data === "\x1b[F" ||
-      data === "\x1bOF" ||
-      data === "\x1b[1;1F" ||
-      data === "G"
-    ) {
+    } else if (isEnd(data) || data === "G") {
       next = maxTop;
     } else {
       return;

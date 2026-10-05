@@ -1,5 +1,13 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import type { SideExchange } from "../../session/store.js";
+import {
+  isDown,
+  isEnter,
+  isEscape,
+  isPageDown,
+  isPageUp,
+  isUp,
+} from "../keys.js";
 import { helpSectionRule } from "./help-overlay.js";
 import {
   intrinsicFramedBoxWidth,
@@ -334,7 +342,7 @@ export class SideOverlay implements Component {
   }
 
   handleInput(data: string): void {
-    if (data === "\x1b") {
+    if (isEscape(data)) {
       this.onCancel?.();
       return;
     }
@@ -353,18 +361,18 @@ export class SideOverlay implements Component {
       const ordered = [...this.exchanges].reverse();
       if (ordered.length === 0) return;
 
-      if (data === "\r") {
+      if (isEnter(data)) {
         const ex = ordered[this.selectedIndex];
         if (ex) this.onOpenDetail?.(ex);
         return;
       }
 
-      if (data === "\x1b[A" || data === "k") {
+      if (isUp(data) || data === "k") {
         this.selectedIndex = Math.max(0, this.selectedIndex - 1);
         this.onScroll?.();
         return;
       }
-      if (data === "\x1b[B" || data === "j") {
+      if (isDown(data) || data === "j") {
         this.selectedIndex = Math.min(ordered.length - 1, this.selectedIndex + 1);
         this.onScroll?.();
         return;
@@ -384,13 +392,13 @@ export class SideOverlay implements Component {
     if (maxTop === 0) return;
 
     let next = this.scrollTop;
-    if (data === "\x1b[A" || data === "k") {
+    if (isUp(data) || data === "k") {
       next = Math.max(0, this.scrollTop - 1);
-    } else if (data === "\x1b[B" || data === "j") {
+    } else if (isDown(data) || data === "j") {
       next = Math.min(maxTop, this.scrollTop + 1);
-    } else if (data === "\x1b[5~" || data === "\x1b[b") {
+    } else if (isPageUp(data) || data === "\x1b[b") {
       next = Math.max(0, this.scrollTop - this.pageStep());
-    } else if (data === "\x1b[6~" || data === "\x1b[f") {
+    } else if (isPageDown(data) || data === "\x1b[f") {
       next = Math.min(maxTop, this.scrollTop + this.pageStep());
     } else {
       return;

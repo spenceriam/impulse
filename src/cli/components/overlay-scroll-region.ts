@@ -1,6 +1,7 @@
 /**
  * Shared vertical viewport slicing for modal overlays.
  */
+import { isDown, isEnd, isHome, isPageDown, isPageUp, isUp } from "../keys.js";
 
 export const OVERLAY_SCROLL_FOOTER = "↑↓ scroll · PgUp/PgDn · Home/End";
 
@@ -38,22 +39,22 @@ export function handleOverlayScrollInput(
 ): number | null {
   if (maxScrollTop === 0) return null;
 
-  if (data === "\x1b[A" || data === "k") {
+  if (isUp(data) || data === "k") {
     return Math.max(0, scrollTop - 1);
   }
-  if (data === "\x1b[B" || data === "j") {
+  if (isDown(data) || data === "j") {
     return Math.min(maxScrollTop, scrollTop + 1);
   }
-  if (data === "\x1b[5~" || data === "\x1b[b") {
+  if (isPageUp(data) || data === "\x1b[b") {
     return Math.max(0, scrollTop - pageStep);
   }
-  if (data === "\x1b[6~" || data === "\x1b[f") {
+  if (isPageDown(data) || data === "\x1b[f") {
     return Math.min(maxScrollTop, scrollTop + pageStep);
   }
-  if (data === "\x1b[H" || data === "\x1bOH" || data === "g") {
+  if (isHome(data) || data === "g") {
     return 0;
   }
-  if (data === "\x1b[F" || data === "\x1bOF" || data === "G") {
+  if (isEnd(data) || data === "G") {
     return maxScrollTop;
   }
   return null;

@@ -4,7 +4,6 @@
 
 import {
   Editor,
-  matchesKey,
   type EditorTheme,
   type Component,
   type Focusable,
@@ -13,6 +12,22 @@ import { GUTTER, gutterContent, innerWidth, maxLineWidth, truncateGutterLine } f
 import { readClipboardFileList } from "./clipboard-files.js";
 import { IMAGE_EXTENSIONS } from "./image-paths.js";
 import * as pathMod from "path";
+import {
+  isCtrlC,
+  isCtrlD,
+  isDelete,
+  isDown,
+  isEnter,
+  isEscape,
+  isLeft,
+  isRight,
+  isShiftBackspace,
+  isShiftDelete,
+  isShiftTab,
+  isTab,
+  isUp,
+  isBackspace,
+} from "./keys.js";
 import {
   extractImagePathRefs,
   filePathInPasteRegex,
@@ -542,16 +557,11 @@ export class PromptInput implements Component, Focusable {
   }
 
   private _isBackspaceInput(data: string): boolean {
-    return (
-      data === "\x7f" ||
-      data === "\x08" ||
-      matchesKey(data, "backspace") ||
-      matchesKey(data, "shift+backspace")
-    );
+    return isBackspace(data) || isShiftBackspace(data);
   }
 
   private _isForwardDeleteInput(data: string): boolean {
-    return matchesKey(data, "delete") || matchesKey(data, "shift+delete");
+    return isDelete(data) || isShiftDelete(data);
   }
 
   private _removeImageGroupAtDisplay(display: string): void {
@@ -593,49 +603,49 @@ export class PromptInput implements Component, Focusable {
       return;
     }
 
-    if (data === "\t") {
+    if (isTab(data)) {
       this.onTabForward?.();
       return;
     }
-    if (data === "\x1b[Z") {
+    if (isShiftTab(data)) {
       this.onTabBackward?.();
       return;
     }
-    if (data === "\x03") {
+    if (isCtrlC(data)) {
       this.onAbort?.();
       return;
     }
-    if (data === "\x04") {
+    if (isCtrlD(data)) {
       this.onExit?.();
       return;
     }
-    if (data === "\x1b") {
+    if (isEscape(data)) {
       this.onEscape?.();
       return;
     }
 
-    if (data === "\x1b[A" && this.onArrowUp) {
+    if (isUp(data) && this.onArrowUp) {
       this.onArrowUp();
       return;
     }
-    if (data === "\x1b[B" && this.onArrowDown) {
+    if (isDown(data) && this.onArrowDown) {
       this.onArrowDown();
       return;
     }
-    if (data === "\x1b[D" && this.onArrowLeft) {
+    if (isLeft(data) && this.onArrowLeft) {
       this.onArrowLeft();
       return;
     }
-    if (data === "\x1b[C" && this.onArrowRight) {
+    if (isRight(data) && this.onArrowRight) {
       this.onArrowRight();
       return;
     }
-    if (data === "\r" && this.onEnter) {
+    if (isEnter(data) && this.onEnter) {
       this.onEnter();
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       this._submitPayload = this.getSubmitPayload();
     }
 

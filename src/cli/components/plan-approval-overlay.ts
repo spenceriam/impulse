@@ -1,4 +1,5 @@
 import { type Component } from "@mariozechner/pi-tui";
+import { isAbortKey, isEnter } from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   overlayBottomBorder,
@@ -31,11 +32,11 @@ export class PlanApprovalOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\r") {
+    if (isEnter(data)) {
       this.onDecision?.("proceed");
       return;
     }
-    if (data === "\x1b" || data === "\x03") {
+    if (isAbortKey(data)) {
       this.onDecision?.("decline");
     }
   }

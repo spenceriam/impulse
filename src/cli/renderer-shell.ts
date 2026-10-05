@@ -9,6 +9,7 @@ import {
   writeToUserShell,
 } from "./user-shell.js";
 import { TerminalPanel } from "./components/terminal-panel.js";
+import { isBackspace, isEnter } from "./keys.js";
 import { isShellTakeoverChord } from "./shell-shortcuts.js";
 import type { LoopEvents } from "../agent/loop.js";
 
@@ -113,11 +114,11 @@ export class ShellModeController {
 
   forwardTakeoverInput(data: string): boolean {
     if (!this.shellTakeoverActive) return false;
-    if (data === "\r") {
+    if (isEnter(data)) {
       writeToUserShell("\n");
       return true;
     }
-    if (data === "\x7f" || data === "\b") {
+    if (isBackspace(data)) {
       writeToUserShell("\b");
       return true;
     }

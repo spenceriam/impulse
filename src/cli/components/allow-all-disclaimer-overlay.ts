@@ -1,4 +1,12 @@
 import { wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import {
+  isAbortKey,
+  isEnter,
+  isLeft,
+  isRight,
+  isShiftTab,
+  isTab,
+} from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   overlayBottomBorder,
@@ -36,22 +44,22 @@ export class AllowAllDisclaimerOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\x1b" || data === "\x03") {
+    if (isAbortKey(data)) {
       this.onDecision?.("disagree");
       return;
     }
 
-    if (data === "\x1b[D" || data === "\x1b[Z") {
+    if (isLeft(data) || isShiftTab(data)) {
       this.selectedIndex = (this.selectedIndex - 1 + OPTIONS.length) % OPTIONS.length;
       return;
     }
 
-    if (data === "\x1b[C" || data === "\t") {
+    if (isRight(data) || isTab(data)) {
       this.selectedIndex = (this.selectedIndex + 1) % OPTIONS.length;
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       this.onDecision?.(OPTIONS[this.selectedIndex]!.value);
       return;
     }

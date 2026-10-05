@@ -1,5 +1,13 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import type { TaskBatchDecision } from "../../permission/task-batch.js";
+import {
+  isAbortKey,
+  isEnter,
+  isLeft,
+  isRight,
+  isShiftTab,
+  isTab,
+} from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   intrinsicFramedBoxWidth,
@@ -81,22 +89,22 @@ export class TaskBatchPermissionOverlay implements Component {
   handleInput(data: string): void {
     const options = this.currentOptions();
 
-    if (data === "\x1b" || data === "\x03") {
+    if (isAbortKey(data)) {
       this.onDecision?.({ action: "deny" });
       return;
     }
 
-    if (data === "\x1b[D" || data === "\x1b[Z") {
+    if (isLeft(data) || isShiftTab(data)) {
       this.selectedIndex = (this.selectedIndex - 1 + options.length) % options.length;
       return;
     }
 
-    if (data === "\x1b[C" || data === "\t") {
+    if (isRight(data) || isTab(data)) {
       this.selectedIndex = (this.selectedIndex + 1) % options.length;
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       const selected = options[this.selectedIndex]!;
       if (this.step === "main" && selected.label === "Other…") {
         this.step = "other";

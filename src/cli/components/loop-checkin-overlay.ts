@@ -1,4 +1,11 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
+import {
+  isAbortKey,
+  isEnter,
+  isLeft,
+  isRight,
+  isTab,
+} from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   intrinsicFramedBoxWidth,
@@ -57,22 +64,22 @@ export class LoopCheckinOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\x1b" || data === "\x03") {
+    if (isAbortKey(data)) {
       this.onDecision?.("stop");
       return;
     }
 
-    if (data === "\x1b[D") {
+    if (isLeft(data)) {
       this.selectedIndex = (this.selectedIndex - 1 + OPTIONS.length) % OPTIONS.length;
       return;
     }
 
-    if (data === "\x1b[C" || data === "\t") {
+    if (isRight(data) || isTab(data)) {
       this.selectedIndex = (this.selectedIndex + 1) % OPTIONS.length;
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       const choice = OPTIONS[this.selectedIndex]!.value;
       this.onDecision?.(choice);
     }
