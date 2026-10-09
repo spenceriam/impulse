@@ -81,15 +81,15 @@ describe("quiet-status", () => {
     ).toBe(false);
   });
 
-  test("buildQuietRecapFact: concrete nouns with counts (no path mush)", () => {
-    // Root / cwd basename → "top-level entries" (never "listed impulse-pr154")
+  test("buildQuietRecapFact: plain-language outcomes (no tool-call echo)", () => {
+    // Root / cwd basename → "the project folder" (never folder-name mush)
     expect(
       buildQuietRecapFact("ls", ".", {
         success: true,
         output: "ok",
         metadata: { type: "ls", totalEntries: 27, entryCount: 27, truncated: false },
       })
-    ).toBe("listed 27 top-level entries");
+    ).toBe("looked through the project folder (27 items)");
     expect(
       buildQuietRecapFact("ls", path.basename(process.cwd()), {
         success: true,
@@ -102,7 +102,7 @@ describe("quiet-status", () => {
           truncated: false,
         },
       })
-    ).toBe("listed 27 top-level entries");
+    ).toBe("looked through the project folder (27 items)");
     expect(
       buildQuietRecapFact("ls", "src", {
         success: true,
@@ -115,28 +115,44 @@ describe("quiet-status", () => {
           truncated: false,
         },
       })
-    ).toBe("listed 10 entries in src");
+    ).toBe("looked through src (10 items)");
     expect(
       buildQuietRecapFact("file_read", "AGENTS.md", {
         success: true,
         output: "ok",
         metadata: { type: "file_read", linesRead: 120 },
       })
-    ).toBe("read AGENTS.md (120 lines)");
+    ).toBe("reviewed AGENTS.md");
     expect(
       buildQuietRecapFact("grep", "Recap", {
         success: true,
         output: "ok",
         metadata: { type: "grep", pattern: "Recap", matchCount: 5 },
       })
-    ).toBe("searched Recap (5 matches)");
+    ).toBe("found 5 matches for Recap");
+    // Common shell commands map to plain intent, not raw command echo
     expect(
       buildQuietRecapFact("bash", "bun test", {
         success: true,
         output: "ok",
         metadata: { type: "bash", command: "bun test" },
       })
-    ).toBe("ran bun test");
+    ).toBe("ran the tests");
+    expect(
+      buildQuietRecapFact("bash", "git log", {
+        success: true,
+        output: "ok",
+        metadata: { type: "bash", command: "git log --oneline -20" },
+      })
+    ).toBe("reviewed recent changes");
+    // Unknown command keeps the concrete command
+    expect(
+      buildQuietRecapFact("bash", "wibblesort --mode 7", {
+        success: true,
+        output: "ok",
+        metadata: { type: "bash", command: "wibblesort --mode 7" },
+      })
+    ).toBe("ran wibblesort --mode 7");
     // Vague / no-metadata → null (skip mush)
     expect(
       buildQuietRecapFact("ls", "impulse-pr154", { success: true, output: "ok" })
@@ -226,11 +242,11 @@ describe("quiet-status", () => {
         arg: "impulse-pr154",
         outcome: "success",
         // no fact + vague path alone would be mush — with fact it's concrete
-        fact: "listed 27 top-level entries",
+        fact: "looked through the project folder (27 items)",
       },
     ]);
     expect(line).toBe(
-      "Recap: read AGENTS.md, quiet-status.ts; listed 27 top-level entries ✓"
+      "Recap: reviewed AGENTS.md, quiet-status.ts; looked through the project folder (27 items) ✓"
     );
   });
 

@@ -190,26 +190,51 @@ export function formatWorkedFor(elapsedMs: number): string {
   return `Worked for ${Math.round(ms / 1000)}s`;
 }
 
-/** Past-tense outcome verbs for done→next Recap facts. */
+/** Past-tense plain-language verbs for done→next Recap facts. */
 const QUIET_OUTCOME_VERBS: Record<string, string> = {
-  file_read: "read",
-  file_write: "wrote",
-  file_edit: "edited",
+  file_read: "reviewed",
+  file_write: "created",
+  file_edit: "updated",
   glob: "found",
   grep: "searched",
-  ls: "listed",
+  ls: "looked through",
   bash: "ran",
   task: "delegated",
-  web_search: "searched",
+  web_search: "searched the web for",
   web_fetch: "fetched",
   todo_write: "updated todos",
-  todo_read: "read todos",
+  todo_read: "reviewed todos",
   question: "asked",
-  github_issue: "filed issue",
-  plan_revision: "revised plan",
+  github_issue: "filed an issue",
+  plan_revision: "updated the plan",
   install_skill: "installed skill",
   vision_translate: "translated",
 };
+
+/**
+ * Plain-language intent for common shell commands. Returns null when no
+ * confident mapping exists (caller falls back to the concrete command).
+ */
+function plainBashIntent(command: string): string | null {
+  const c = command.replace(/\s+/g, " ").trim().toLowerCase();
+  const starts = (...prefixes: string[]) => prefixes.some((p) => c.startsWith(p));
+  if (starts("git log", "git show", "git reflog")) return "reviewed recent changes";
+  if (starts("git diff")) return "reviewed the current changes";
+  if (starts("git status")) return "checked what changed in the repo";
+  if (starts("git commit")) return "made a commit";
+  if (starts("git push")) return "pushed commits";
+  if (starts("git pull", "git fetch")) return "pulled the latest changes";
+  if (starts("git branch", "git tag")) return "checked the repo branches";
+  if (starts("npm test", "bun test", "yarn test", "go test", "cargo test", "pytest", "jest", "vitest"))
+    return "ran the tests";
+  if (starts("grep", "rg ", "ag ")) return "searched the codebase";
+  if (starts("ls", "find ", "tree")) return "checked the folder contents";
+  if (starts("cat", "head", "tail", "less", "more")) return "looked at a file";
+  if (starts("curl", "wget")) return "fetched a web page";
+  if (starts("mkdir", "touch")) return "set up files";
+  if (starts("rm", "mv", "cp")) return "reorganized files";
+  return null;
+}
 
 /** Ban list — never emit these as Recap nouns (ambiguous / filler). */
 const VAGUE_RECAP_ARGS = new Set([
@@ -282,12 +307,12 @@ export function buildQuietRecapFact(
       const metaPath =
         typeof meta["path"] === "string" ? meta["path"].trim() : "";
       const scope = isLsRootScope(arg, metaPath)
-        ? "top-level entries"
-        : `entries in ${truncateArg(arg || shortPath(metaPath), 28)}`;
+        ? "the project folder"
+        : truncateArg(arg || shortPath(metaPath), 28);
       if (truncated && shown !== null && shown < total) {
-        return `listed ${shown} of ${total} ${scope}`;
+        return `looked through ${scope} (${shown} of ${total} items)`;
       }
-      return `listed ${n} ${scope}`;
+      return `looked through ${scope} (${n} items)`;
     }
     case "glob": {
       const n =
@@ -300,10 +325,11 @@ export function buildQuietRecapFact(
         (typeof meta["pattern"] === "string" && meta["pattern"]) ||
         (!isVagueRecapNoun(arg) ? arg : "");
       if (n === null) {
-        return pattern ? `found ${truncateArg(pattern, 28)}` : null;
+        return pattern ? `searched for files matching ${truncateArg(pattern, 28)}` : null;
       }
+      if (n === 0) return pattern ? `found no files matching ${truncateArg(pattern, 28)}` : null;
       if (pattern) {
-        return `found ${n} matching ${truncateArg(pattern, 24)}`;
+        return `found ${n} files matching ${truncateArg(pattern, 24)}`;
       }
       return `found ${n} files`;
     }
@@ -314,42 +340,35 @@ export function buildQuietRecapFact(
         (!isVagueRecapNoun(arg) ? arg : "");
       if (!pattern) return null;
       const p = truncateArg(pattern, 28);
-      if (n === null) return `searched ${p}${statusSuffix}`;
-      if (n === 0) return `searched ${p} (0 matches)`;
-      return `searched ${p} (${n} match${n === 1 ? "" : "es"})`;
+      if (n === null) return `searched for ${p}${statusSuffix}`;
+      if (n === 0) return `found no matches for ${p}`;
+      return `found ${n} match${n === 1 ? "" : "es"} for ${p}`;
     }
     case "file_read": {
       if (isVagueRecapNoun(arg)) return null;
-      const lines =
-        typeof meta["linesRead"] === "number"
-          ? meta["linesRead"]
-          : typeof meta["returnedLines"] === "number"
-            ? meta["returnedLines"]
-            : null;
-      if (lines !== null && lines > 0) {
-        return `read ${arg} (${lines} line${lines === 1 ? "" : "s"})`;
-      }
-      return `read ${arg}`;
+      return `reviewed ${arg}`;
     }
     case "file_edit": {
       if (isVagueRecapNoun(arg)) return null;
-      return `edited ${arg}${statusSuffix}`;
+      return `updated ${arg}${statusSuffix}`;
     }
     case "file_write": {
       if (isVagueRecapNoun(arg)) return null;
-      return `wrote ${arg}${statusSuffix}`;
+      return `created ${arg}${statusSuffix}`;
     }
     case "bash": {
       const cmd =
         (typeof meta["command"] === "string" && meta["command"].trim()) ||
         arg;
+      const intent = plainBashIntent(cmd);
+      if (intent) return `${intent}${statusSuffix}`;
       const short = truncateArg(cmd.replace(/\s+/g, " ").trim(), 40);
       if (isVagueRecapNoun(short)) return null;
       return `ran ${short}${statusSuffix}`;
     }
     case "web_search": {
       if (isVagueRecapNoun(arg)) return null;
-      return `searched web for ${truncateArg(arg, 32)}`;
+      return `searched the web for ${truncateArg(arg, 32)}`;
     }
     case "web_fetch": {
       if (isVagueRecapNoun(arg)) return null;
@@ -362,9 +381,9 @@ export function buildQuietRecapFact(
     case "question": {
       if (outcome === "failed" || outcome === "blocked" || outcome === "aborted") {
         const topic = !isVagueRecapNoun(arg) ? arg : "question";
-        return `asked ${truncateArg(topic, 32)} (unanswered)`;
+        return `asked a question (${truncateArg(topic, 32)}) — unanswered`;
       }
-      if (!isVagueRecapNoun(arg)) return `asked ${truncateArg(arg, 32)}`;
+      if (!isVagueRecapNoun(arg)) return `asked a question (${truncateArg(arg, 32)})`;
       return null;
     }
     case "todo_write":
@@ -372,18 +391,17 @@ export function buildQuietRecapFact(
       // Todos feed Next; skip as Recap mush unless we have nothing else.
       return null;
     case "github_issue": {
-      if (isVagueRecapNoun(arg)) return `filed issue${statusSuffix}`;
-      return `filed issue ${truncateArg(arg, 32)}${statusSuffix}`;
+      if (isVagueRecapNoun(arg)) return `filed an issue${statusSuffix}`;
+      return `filed an issue (${truncateArg(arg, 32)})${statusSuffix}`;
     }
     case "plan_revision":
-      return "revised plan";
+      return "updated the plan";
     case "install_skill": {
       if (isVagueRecapNoun(arg)) return null;
-      return `installed skill ${truncateArg(arg, 28)}`;
+      return `installed the ${truncateArg(arg, 28)} skill`;
     }
     default: {
-      const verb = quietOutcomeVerb(name);
-      if (!isVagueRecapNoun(arg)) return `${verb} ${truncateArg(arg, 36)}${statusSuffix}`;
+      if (!isVagueRecapNoun(arg)) return `handled ${truncateArg(arg, 36)}${statusSuffix}`;
       return null;
     }
   }
@@ -567,12 +585,12 @@ export function formatQuietRecap(
 
   if (parts.length === 0) return null;
 
-  // Cap to 3 concrete facts (keep last failure if capped)
-  let capped = parts.slice(0, 3);
-  if (parts.length > 3 && failed.length > 0) {
+  // Cap to 5 concrete facts (fills up to 3 wrapped lines); keep last failure if capped
+  let capped = parts.slice(0, 5);
+  if (parts.length > 5 && failed.length > 0) {
     const lastFail = resolveRecapFact(failed[failed.length - 1]!);
     if (lastFail && !capped.some((p) => p.toLowerCase() === lastFail.toLowerCase())) {
-      capped = [...capped.slice(0, 2), lastFail];
+      capped = [...capped.slice(0, 4), lastFail];
     }
   }
 

@@ -17,8 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#153** -- `/settings` **Chat feel** section: Chat density (Quiet / Verbose), Mid-turn submit (Redirect live turn / Queue until free), Recap line on/off.
   - **#153** -- `/quiet` and `/verbose` session-sticky density toggles (persisted); `/queue <text>` one-shot enqueue when mid-turn Enter redirects.
   - **#153** -- Mid-turn Enter defaults to Redirect/steer (inject at next tool-loop boundary; latest pending steer replaces prior). Queue until free remains available via settings.
+  - **#159** -- `/model` picker gains a per-provider `Use custom model id…` row for models a provider accepts but never lists (verified live: `MiniMax-M3.1-Flash-Preview` on the MiniMax Token Plan API).
+  - **#153** -- Inline `<think>`/`<thinking>`/`<reasoning>` envelopes in the content stream (MiniMax Token Plan; DeepSeek-R1/QwQ/Kimi via some OpenAI-compatible endpoints) route to the thinking path — raw tags no longer render as prose and Quiet groups no longer fragment.
 
   ### Changed
+  - **#153** -- Recap reads as plain-language outcomes, not tool-call echo (`reviewed recent changes`, `found 5 matches for Recap`, `looked through the project folder (27 items)`); common shell commands map to plain intent; non-technical regardless of response-style setting. Up to 5 facts wrap to 3 full lines at the chat inner width (was a single truncated line).
+  - **#153** -- `Worked for` no longer lands between an open streaming block and its continuation — the block is finalized before the line is inserted.
   - **#153** -- Failed/blocked/aborted tools break Quiet and show the real tool row (Claire). Parallel tools coalesce on the live line as `Reading X… (+N)`.
   - **#153** -- Clear Steering… vs Queued chrome above the prompt. Shift+Enter stays newline (pi-tui Editor) — use `/queue` for one-shot enqueue under Redirect-default.
   - **#153** -- Quiet settle is once per contiguous group (AI-stream / turn-end boundary — not on tools-done) so post-tool thinking cannot emit a second `Worked for`. Duration: `ms` when &lt;1s, whole seconds otherwise. Blank row at tool↔AI boundaries. Session content side gutters are exactly 1 column each (`GUTTER_WIDTH = 1`).
