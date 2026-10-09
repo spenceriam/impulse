@@ -52,6 +52,26 @@ import {
 } from "../util/debug-log.js";
 import { bashRepeatNote, todoUnchangedRepeatNote } from "./repeat-notes.js";
 import { InlineThinkingFilter } from "../util/inline-thinking-filter.js";
+import { getModelMaxOutputTokens, setModelMaxOutputTokens } from "../api/capabilities.js";
+
+/**
+ * Parse a provider max-tokens rejection and return the real cap.
+ * MiniMax Token Plan: `invalid params, model[MiniMax-M3] does not support
+ * max tokens > 524288` (#159).
+ */
+export function parseMaxTokensCapError(err: unknown): number | null {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const idx = msg.search(/max[_ ]?tokens?/i);
+  if (idx < 0) return null;
+  const tail = msg.slice(idx);
+  // Prefer an explicit `> N` comparison (MiniMax `does not support max
+  // tokens > 524288`, OpenAI `8192 tokens > 4096`) — a bare earlier number
+  // may be the requested size, not the cap.
+  const gt = tail.match(/>\s*(\d{4,})/);
+  if (gt) return Number.parseInt(gt[1]!, 10);
+  const m = tail.match(/(\d{4,})/);
+  return m ? Number.parseInt(m[1]!, 10) : null;
+}
 import { SessionManager } from "../session/manager";
 import { manageSessionTitle } from "../session/manage-session-title.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
@@ -584,6 +604,12 @@ export class AgentLoop {
         }
 
         // ── Stream response ─────────────────────────────────────────────────
+        // Clamp the configured output budget to a provider-learned cap
+        // (recorded from a prior max-tokens rejection, e.g. MiniMax 524288).
+        const learnedMaxOut = getModelMaxOutputTokens(model);
+        const effectiveMaxTokens = learnedMaxOut
+          ? Math.min(config.maxOutputTokens, learnedMaxOut)
+          : config.maxOutputTokens;
         let effectiveReasoningLevel =
           config.reasoningLevel ?? (config.thinking ? "medium" : "off");
         if (!reliabilityFallbackUsed && this.consecutiveFailures >= 2) {
@@ -611,7 +637,7 @@ export class AgentLoop {
           ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
           stream: true,
           signal,
-          max_tokens: config.maxOutputTokens,
+          max_tokens: effectiveMaxTokens,
           reasoningLevel: effectiveReasoningLevel,
         };
 
@@ -1506,6 +1532,14 @@ export class AgentLoop {
           iterationAssistantPersisted: abortIterationAssistantPersisted,
         });
         return;
+      }
+      // Learn the model's real max output cap from provider rejections
+      // (e.g. MiniMax `does not support max tokens > 524288`); the next
+      // request clamps automatically.
+      const cap = parseMaxTokensCapError(err);
+      const activeModel = SessionManager.getCurrentSession()?.model ?? "";
+      if (cap && cap > 0 && activeModel) {
+        setModelMaxOutputTokens(activeModel, cap);
       }
       events.onError(err instanceof Error ? err : new Error(String(err)));
     } finally {

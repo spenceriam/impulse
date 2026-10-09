@@ -4,8 +4,10 @@ import {
   isManualModelRow,
   manualRowProviderKey,
   MANUAL_MODEL_ROW_PREFIX,
+  modelInfoToTableCells,
 } from "../src/cli/components/model-picker-overlay.js";
 import { TextInputOverlay } from "../src/cli/components/text-input-overlay.js";
+import { parseMaxTokensCapError } from "../src/agent/loop.js";
 import type { ModelInfo } from "../src/cli/model-catalog.js";
 
 function info(id: string): ModelInfo {
@@ -33,6 +35,49 @@ describe("model picker manual entry rows (#159)", () => {
     expect(manualRowProviderKey(`${MANUAL_MODEL_ROW_PREFIX}minimax-token-plan`)).toBe(
       "minimax-token-plan"
     );
+  });
+});
+
+describe("model picker context/output columns (#159)", () => {
+  test("picker cell shows context and output cap when both known", () => {
+    const cells = modelInfoToTableCells({
+      id: "MiniMax-M3",
+      vendor: "MiniMax",
+      displayName: "MiniMax M3",
+      contextTokens: 1_000_000,
+      maxOutputTokens: 524_288,
+    } as ModelInfo);
+    expect(cells.mode).toBe("1m · 524k out");
+  });
+
+  test("picker cell shows context alone when output unknown", () => {
+    const cells = modelInfoToTableCells({
+      id: "x",
+      vendor: "—",
+      displayName: "x",
+      contextTokens: 204_800,
+    } as ModelInfo);
+    expect(cells.mode).toBe("205k");
+  });
+});
+
+describe("parseMaxTokensCapError (#159)", () => {
+  test("extracts the cap from MiniMax-style rejections", () => {
+    expect(
+      parseMaxTokensCapError(
+        new Error(
+          'invalid params, model[MiniMax-M3] does not support max tokens > 524288 (2013)'
+        )
+      )
+    ).toBe(524288);
+    expect(parseMaxTokensCapError(new Error("max_tokens is too large: 8192 tokens > 4096"))).toBe(
+      4096
+    );
+  });
+
+  test("non-cap errors return null", () => {
+    expect(parseMaxTokensCapError(new Error("rate limited"))).toBeNull();
+    expect(parseMaxTokensCapError(new Error("connection reset"))).toBeNull();
   });
 });
 
