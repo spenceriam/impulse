@@ -55,6 +55,7 @@ import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
 import {
   GUTTER,
   GUTTER_WIDTH,
+  TOTAL_GUTTER_WIDTH,
   gutterContent,
   gutterSeparator,
   wrapGutterLines,
@@ -1334,7 +1335,10 @@ export class ImpulseRenderer {
       // lastFailure derived inside formatQuietRecap from events when omitted
     });
     if (!line) return;
-    const width = Math.max(8, this.terminal.columns - GUTTER_WIDTH);
+    // Wrap at the same inner width addChatLine uses (wrapGutterLines:
+    // columns - TOTAL_GUTTER_WIDTH) — a wider wrap width makes every row
+    // overflow the chat line and re-wrap/truncate into mush.
+    const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
     const rows = wrapQuietRecapLines(line, width, 3);
     this.addSectionGap();
     for (const row of rows) {
