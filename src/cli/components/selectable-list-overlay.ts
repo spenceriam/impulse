@@ -5,6 +5,13 @@ import {
   type Component,
 } from "@mariozechner/pi-tui";
 import {
+  isBackspace,
+  isDown,
+  isEnter,
+  isEscape,
+  isUp,
+} from "../keys.js";
+import {
   computeListOverlayContentBoxWidth,
   computeTableColumnLayout,
   overlayBoxWidth,
@@ -662,7 +669,7 @@ export class SelectableListOverlay implements Component {
   }
 
   handleInput(data: string): void {
-    if (data === "\r") {
+    if (isEnter(data)) {
       const selected = this.filtered[this.selectedIndex];
       if (selected && !isNonSelectableRowId(selected.id)) {
         this.onSelect?.(selected.id);
@@ -670,7 +677,7 @@ export class SelectableListOverlay implements Component {
       return;
     }
 
-    if (data === "\x1b") {
+    if (isEscape(data)) {
       this.onCancel?.();
       return;
     }
@@ -682,13 +689,13 @@ export class SelectableListOverlay implements Component {
       }
     }
 
-    if (data === "\x1b[A") {
+    if (isUp(data)) {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       this.ensureValidSelection(true);
       return;
     }
 
-    if (data === "\x1b[B") {
+    if (isDown(data)) {
       if (this.filtered.length === 0) return;
       this.selectedIndex = Math.min(
         this.filtered.length - 1,
@@ -698,7 +705,7 @@ export class SelectableListOverlay implements Component {
       return;
     }
 
-    if (data === "\x7f" || data === "\b") {
+    if (isBackspace(data)) {
       if (this.searchQuery.length > 0) {
         this.searchQuery = this.searchQuery.slice(0, -1);
         this.applyFilter();

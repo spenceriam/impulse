@@ -1,4 +1,5 @@
 import { type Component } from "@mariozechner/pi-tui";
+import { isAbortKey, isEnter, isLeft, isRight } from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   overlayBottomBorder,
@@ -42,7 +43,7 @@ export class PlanCompletionOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\x1b" || data === "\x03" || data === "4" || data.toLowerCase() === "q") {
+    if (isAbortKey(data) || data === "4" || data.toLowerCase() === "q") {
       this.onDecision?.("cancel");
       return;
     }
@@ -50,7 +51,7 @@ export class PlanCompletionOverlay implements Component {
       this.onDecision?.("execute");
       return;
     }
-    if (data === "\r") {
+    if (isEnter(data)) {
       this.onDecision?.(OPTIONS[this.selectedIndex]?.value ?? "proceed");
       return;
     }
@@ -58,10 +59,10 @@ export class PlanCompletionOverlay implements Component {
     if (data === "3") { this.onDecision?.("revise");  return; }
 
     // Arrow navigation
-    if (data === "\x1b[D" || data === "h") {
+    if (isLeft(data) || data === "h") {
       this.selectedIndex = (this.selectedIndex - 1 + OPTIONS.length) % OPTIONS.length;
     }
-    if (data === "\x1b[C" || data === "l") {
+    if (isRight(data) || data === "l") {
       this.selectedIndex = (this.selectedIndex + 1) % OPTIONS.length;
     }
   }

@@ -28,6 +28,13 @@ import type { EditorTheme } from "@mariozechner/pi-tui";
 import { z } from "zod";
 import { spawn } from "child_process";
 import {
+  isBackspace,
+  isDown,
+  isEnter,
+  isEscape,
+  isUp,
+} from "./keys.js";
+import {
   PromptInput,
   resolveSubmitPayloadAfterPathAttach,
   userTranscriptText,
@@ -595,7 +602,7 @@ export class ImpulseRenderer {
       handle.focus();
 
       const cleanup = this.tui.addInputListener((data: string) => {
-        if (data === "\r") {
+        if (isEnter(data)) {
           cleanup();
           handle.hide();
           resolve("keep");
@@ -607,7 +614,7 @@ export class ImpulseRenderer {
           resolve("deactivate");
           return { consume: true };
         }
-        if (data === "\x1b") {
+        if (isEscape(data)) {
           cleanup();
           handle.hide();
           resolve("dismiss");
@@ -1982,11 +1989,11 @@ export class ImpulseRenderer {
 
     this.tui.addInputListener((data) => {
       if (this.shellTakeoverActive && this.shellCommandRunning) {
-        if (data === "\r") {
+        if (isEnter(data)) {
           writeToUserShell("\n");
           return { consume: true };
         }
-        if (data === "\x7f" || data === "\b") {
+        if (isBackspace(data)) {
           writeToUserShell("\b");
           return { consume: true };
         }
@@ -4233,7 +4240,7 @@ export class ImpulseRenderer {
       if (state.step !== "provider") return undefined;
 
       if (state.pendingRemoveProvider) {
-        if (data === "\r") {
+        if (isEnter(data)) {
           const p = state.pendingRemoveProvider;
           delete state.pendingRemoveProvider;
           void this.removeConfiguredProvider(p).then(() => {
@@ -4241,7 +4248,7 @@ export class ImpulseRenderer {
           });
           return { consume: true };
         }
-        if (data === "\x1b") {
+        if (isEscape(data)) {
           delete state.pendingRemoveProvider;
           delete state.error;
           this.renderModelSetup();
@@ -4270,12 +4277,12 @@ export class ImpulseRenderer {
         return { consume: true };
       }
 
-      if (data === "\x1b[A") {
+      if (isUp(data)) {
         state.selectedIndex = Math.max(0, state.selectedIndex - 1);
         this.renderModelSetup();
         return { consume: true };
       }
-      if (data === "\x1b[B") {
+      if (isDown(data)) {
         state.selectedIndex = Math.min(
           state.providers.length - 1,
           state.selectedIndex + 1
@@ -4283,7 +4290,7 @@ export class ImpulseRenderer {
         this.renderModelSetup();
         return { consume: true };
       }
-      if (data === "\r") {
+      if (isEnter(data)) {
         const entry = state.providers[state.selectedIndex];
         if (entry) {
           void this.selectModelSetupProvider(
@@ -5566,7 +5573,7 @@ export class ImpulseRenderer {
     };
 
     this.sideInputCleanup = this.tui.addInputListener((data: string) => {
-      if (data === "\x1b") {
+      if (isEscape(data)) {
         this.dismissSideOverlay();
         return { consume: true };
       }
@@ -5803,7 +5810,7 @@ export class ImpulseRenderer {
     };
 
     this.helpInputCleanup = this.tui.addInputListener((data: string) => {
-      if (data === "\x1b") {
+      if (isEscape(data)) {
         this.dismissHelpOverlay();
         return { consume: true };
       }

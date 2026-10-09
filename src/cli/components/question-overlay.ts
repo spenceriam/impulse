@@ -1,5 +1,17 @@
 import { type Component, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { Question } from "../../tools/question.js";
+import {
+  isAbortKey,
+  isBackspace,
+  isDown,
+  isEnter,
+  isLeft,
+  isRight,
+  isShiftTab,
+  isSpace,
+  isTab,
+  isUp,
+} from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   handleOverlayScrollInput,
@@ -183,13 +195,13 @@ export class QuestionOverlay implements Component {
       return;
     }
 
-    if (data === "\x03" || data === "\x1b") {
+    if (isAbortKey(data)) {
       this.onAbort?.();
       return;
     }
 
     if (this.reviewMode) {
-      if (data === "\r") {
+      if (isEnter(data)) {
         this.submit();
         return;
       }
@@ -215,7 +227,7 @@ export class QuestionOverlay implements Component {
     }
 
     if (this.customMode) {
-      if (data === "\r") {
+      if (isEnter(data)) {
         const value = this.customInput.trim();
         if (value.length === 0) return;
         this.setSingleAnswer(value);
@@ -225,7 +237,7 @@ export class QuestionOverlay implements Component {
         return;
       }
 
-      if (data === "\x7f" || data === "\b") {
+      if (isBackspace(data)) {
         this.customInput = this.customInput.slice(0, -1);
         return;
       }
@@ -236,27 +248,27 @@ export class QuestionOverlay implements Component {
       return;
     }
 
-    if (data === "\x1b[A") {
+    if (isUp(data)) {
       this.selectedOption = (this.selectedOption - 1 + this.maxSelectableIndex + 1) % (this.maxSelectableIndex + 1);
       return;
     }
 
-    if (data === "\x1b[B") {
+    if (isDown(data)) {
       this.selectedOption = (this.selectedOption + 1) % (this.maxSelectableIndex + 1);
       return;
     }
 
-    if (data === "\t" || data === "\x1b[C") {
+    if (isTab(data) || isRight(data)) {
       this.nextTopic();
       return;
     }
 
-    if (data === "\x1b[Z" || data === "\x1b[D") {
+    if (isShiftTab(data) || isLeft(data)) {
       this.previousTopic();
       return;
     }
 
-    if (data === " ") {
+    if (isSpace(data)) {
       if (this.selectedOption >= this.currentQuestion.options.length) {
         this.beginCustomAnswer();
         return;
@@ -272,7 +284,7 @@ export class QuestionOverlay implements Component {
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       this.chooseOption(this.selectedOption);
       return;
     }

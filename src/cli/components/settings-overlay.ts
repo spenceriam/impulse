@@ -4,6 +4,15 @@ import type {
   ReasoningLevel,
   ThinkingDisplay,
 } from "../../util/config.js";
+import {
+  isDown,
+  isEnd,
+  isEnter,
+  isEscape,
+  isHome,
+  isSpace,
+  isUp,
+} from "../keys.js";
 import { composeScrollableOverlay } from "./overlay-scroll-region.js";
 import {
   intrinsicFramedBoxWidth,
@@ -249,11 +258,11 @@ export class SettingsOverlay implements Component {
   }
 
   handleInput(data: string): void {
-    if (data === "\x1b") {
+    if (isEscape(data)) {
       this.onAbort?.();
       return;
     }
-    if (data === "\r") {
+    if (isEnter(data)) {
       const row = this.rows[this.selectedIndex];
       if (!row) {
         this.onSubmit?.({ ...this.values });
@@ -274,23 +283,23 @@ export class SettingsOverlay implements Component {
       this.onSubmit?.({ ...this.values });
       return;
     }
-    if (data === "\x1b[A" || data === "k") {
+    if (isUp(data) || data === "k") {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       return;
     }
-    if (data === "\x1b[B" || data === "j") {
+    if (isDown(data) || data === "j") {
       this.selectedIndex = Math.min(this.rows.length - 1, this.selectedIndex + 1);
       return;
     }
-    if (data === "\x1b[H" || data === "\x1bOH") {
+    if (isHome(data)) {
       this.selectedIndex = 0;
       return;
     }
-    if (data === "\x1b[F" || data === "\x1bOF") {
+    if (isEnd(data)) {
       this.selectedIndex = this.rows.length - 1;
       return;
     }
-    if (data === " ") {
+    if (isSpace(data)) {
       const row = this.rows[this.selectedIndex];
       if (!row) return;
       this.cycleRow(row);

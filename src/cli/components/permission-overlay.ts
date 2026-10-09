@@ -9,6 +9,14 @@ import {
   formatPermissionReason,
   formatPermissionWhyPolicy,
 } from "../permission-display.js";
+import {
+  isAbortKey,
+  isEnter,
+  isLeft,
+  isRight,
+  isShiftTab,
+  isTab,
+} from "../keys.js";
 import { overlayBoxWidth } from "../layout.js";
 import {
   intrinsicFramedBoxWidth,
@@ -107,12 +115,12 @@ export class PermissionOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\x1b" || data === "\x03") {
+    if (isAbortKey(data)) {
       this.onDecision?.("reject");
       return;
     }
 
-    if (data === "\x1b[Z") {
+    if (isShiftTab(data)) {
       const options = this.options();
       if (options[this.selectedIndex]?.value === "session") {
         this.sessionWildcard = !this.sessionWildcard;
@@ -122,17 +130,17 @@ export class PermissionOverlay implements Component {
 
     const optionCount = this.confirmAlways ? 2 : this.options().length;
 
-    if (data === "\x1b[D") {
+    if (isLeft(data)) {
       this.selectedIndex = (this.selectedIndex - 1 + optionCount) % optionCount;
       return;
     }
 
-    if (data === "\x1b[C" || data === "\t") {
+    if (isRight(data) || isTab(data)) {
       this.selectedIndex = (this.selectedIndex + 1) % optionCount;
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       if (this.confirmAlways) {
         if (this.selectedIndex === 0) {
           this.onDecision?.("always");

@@ -1,5 +1,6 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import type { UserProfile } from "../../util/config.js";
+import { isDown, isEnter, isEscape, isUp } from "../keys.js";
 import {
   intrinsicFramedBoxWidth,
   overlayAnsi,
@@ -86,17 +87,17 @@ export class ProfileOverlay implements Component {
   invalidate(): void {}
 
   handleInput(data: string): void {
-    if (data === "\x1b") {
+    if (isEscape(data)) {
       this.onCancel?.();
       return;
     }
 
-    if (data === "\x1b[A") {
+    if (isUp(data)) {
       this.selectedAction = Math.max(0, this.selectedAction - 1);
       return;
     }
 
-    if (data === "\x1b[B") {
+    if (isDown(data)) {
       this.selectedAction = Math.min(
         this.actions.length - 1,
         this.selectedAction + 1
@@ -114,7 +115,7 @@ export class ProfileOverlay implements Component {
       return;
     }
 
-    if (data === "\r") {
+    if (isEnter(data)) {
       const action = this.actions[this.selectedAction]?.key;
       if (action === "edit") this.onEdit?.();
       else if (action === "instructions") this.onEditInstructions?.();

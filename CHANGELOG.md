@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-10-06
+
+  **Type:** patch
+  **Title:** Keyboard input dead in kitty-protocol terminals (#155)
+
+  ### Fixed
+  - **#155** -- Esc, Ctrl+C, arrow keys, and other intercepted keys work again in every overlay and the prompt on terminals that speak the kitty keyboard protocol (Foot, Alacritty, Ghostty, kitty, WezTerm, iTerm2). pi-tui enables that protocol when the terminal answers its query, which re-encodes those keys as CSI-u sequences impulse's exact-byte comparisons never matched — Enter/Tab stay legacy per the spec, which is why Tab kept working while everything else felt frozen (and why SSH sessions to hosts behind tmux were unaffected). All key handling now routes through `src/cli/keys.ts`, which wraps pi-tui's `matchesKey` (legacy + kitty CSI-u + modifyOtherKeys, Num/Caps-lock bit masking, key-release rejection). Legacy-encoding terminals behave exactly as before.
+  - **#155** -- Shell takeover chord (Ctrl+Shift+T / Ctrl+T) recognizes kitty CSI-u encodings on every platform, including macOS.
+
 ## [1.10.1] - 2026-09-28
 
   **Type:** patch
