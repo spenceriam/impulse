@@ -51,6 +51,7 @@ import {
   logRawAPIMessages,
 } from "../util/debug-log.js";
 import { bashRepeatNote, todoUnchangedRepeatNote } from "./repeat-notes.js";
+import { InlineThinkingFilter } from "../util/inline-thinking-filter.js";
 import { SessionManager } from "../session/manager";
 import { manageSessionTitle } from "../session/manage-session-title.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
@@ -629,11 +630,32 @@ export class AgentLoop {
         let chunkOutputTokens = 0;
         latestPromptTokens = undefined;
         latestCacheReadTokens = 0;
+        // Some models emit reasoning inline in content wrapped in
+        // <think>/<thinking>/<reasoning> envelopes instead of using
+        // reasoning_content. Re-route those envelopes to the thinking path so
+        // tags never render and Quiet work groups stay intact.
+        const inlineThinking = new InlineThinkingFilter();
 
         const closeThinkingPhase = () => {
           if (thinkingPhaseStartedAt === null) return;
           thinkingDurationMs += Date.now() - thinkingPhaseStartedAt;
           thinkingPhaseStartedAt = null;
+        };
+
+        const emitContentToken = (text: string) => {
+          closeThinkingPhase();
+          noteGeneratedChunk(text);
+          accumulatedText += text;
+          events.onToken(text);
+        };
+
+        const emitThinkingToken = (text: string) => {
+          if (thinkingPhaseStartedAt === null) {
+            thinkingPhaseStartedAt = Date.now();
+          }
+          noteGeneratedChunk(text);
+          accumulatedThinking += text;
+          events.onThinking(text);
         };
 
         for await (const chunk of manager.stream(streamOptions)) {
@@ -659,20 +681,14 @@ export class AgentLoop {
 
           // Text token
           if (delta.content) {
-            closeThinkingPhase();
-            noteGeneratedChunk(delta.content);
-            accumulatedText += delta.content;
-            events.onToken(delta.content);
+            const split = inlineThinking.push(delta.content);
+            if (split.thinking) emitThinkingToken(split.thinking);
+            if (split.content) emitContentToken(split.content);
           }
 
           // Thinking token
           if (delta.reasoning_content) {
-            if (thinkingPhaseStartedAt === null) {
-              thinkingPhaseStartedAt = Date.now();
-            }
-            noteGeneratedChunk(delta.reasoning_content);
-            accumulatedThinking += delta.reasoning_content;
-            events.onThinking(delta.reasoning_content);
+            emitThinkingToken(delta.reasoning_content);
             debugLog(`thinking: ${delta.reasoning_content.length} chars`);
           }
 
@@ -688,6 +704,11 @@ export class AgentLoop {
             }
           }
         }
+
+        // Stream ended — release any buffered partial-tag text.
+        const flushed = inlineThinking.flush();
+        if (flushed.thinking) emitThinkingToken(flushed.thinking);
+        if (flushed.content) emitContentToken(flushed.content);
 
         abortIterationText = accumulatedText;
         if (signal.aborted) break;

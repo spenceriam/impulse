@@ -2710,6 +2710,13 @@ export class ImpulseRenderer {
         this.syncSteeringChrome();
         // Mid-turn AI stream splits Quiet work groups: settle once → blank → stream.
         if (this.isQuietMode()) {
+          // Close any still-open streaming block first so the Worked-for line
+          // lands after earlier prose — not between it and the continuation
+          // (chat children are order-of-insert; an open block keeps receiving
+          // tokens above the inserted line).
+          if (this.streamingText && this.quietTracker.active) {
+            this.finalizeStreamingAtSafeBoundary(false);
+          }
           this.settleQuietWorkGroup();
         }
         if (!this.streamBusyPhraseSet) {
@@ -4446,7 +4453,13 @@ export class ImpulseRenderer {
   }): Promise<void> {
     try {
       const config = await loadConfig();
-      const { buildModelPickerState, buildVisionModelPickerState, parseModelPickerSelection } =
+      const {
+        buildModelPickerState,
+        buildVisionModelPickerState,
+        parseModelPickerSelection,
+        isManualModelRow,
+        manualRowProviderKey,
+      } =
         await import("./components/model-picker-overlay.js");
 
       const state =
@@ -4466,56 +4479,21 @@ export class ImpulseRenderer {
       state.overlay.onSelect = async (compoundId: string) => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
+
+        // Manual model-id entry: provider accepts a model its /models
+        // endpoint never lists (issue #159).
+        if (isManualModelRow(compoundId)) {
+          this.promptForManualModelId(manualRowProviderKey(compoundId), opts);
+          return;
+        }
+
         const parsed = parseModelPickerSelection(compoundId);
         if (!parsed) {
           await opts.onComplete?.();
           return;
         }
 
-        const fullModel = parsed.modelId.includes("/")
-          ? parsed.modelId
-          : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
-
-        if (opts.purpose === "vision") {
-          const cfg = await loadConfig();
-          cfg.visionModel = fullModel;
-          cfg.visionMode = true;
-          await saveConfig(cfg);
-          await this.persistSessionVision(true, fullModel);
-          this.syncVisionFromConfig(await loadConfig());
-          this.addChatLine(
-            clr.dim(
-              `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
-            )
-          );
-        } else if (opts.purpose === "subagent") {
-          const cfg = await loadConfig();
-          cfg.subagentModel = fullModel;
-          cfg.useSubagentModel = true;
-          await saveConfig(cfg);
-          await opts.onSubagentPicked?.(fullModel);
-          this.addChatLine(modelStatusLine(`Subagent model: ${fullModel}`));
-        } else {
-          const cfg = await loadConfig();
-          cfg.defaultProvider = parsed.providerKey;
-          cfg.defaultModel = fullModel;
-          cfg.modelExplicitlySet = true;
-          await saveConfig(cfg);
-          resetProviderManager();
-          SessionManager.setOptions({ defaultModel: fullModel });
-          await SessionManager.update({ model: fullModel });
-          await this.refreshActiveContextWindow(cfg, { discover: true });
-          this.contextTokens = this.estimateCurrentSessionTokens();
-          void this.refreshReasoningCapability();
-          this.syncContextBar({
-            workerModel: fullModel,
-            contextTokens: this.contextTokens,
-            contextWindow: this.contextWindow,
-          });
-          this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
-        }
-        this.tui.requestRender();
-        await opts.onComplete?.();
+        await this.applyModelSelection(parsed, opts);
       };
 
       state.overlay.onCancel = async () => {
@@ -4542,6 +4520,92 @@ export class ImpulseRenderer {
         clr.error(`Model selector failed: ${(e as Error).message}`)
       );
     }
+  }
+
+  /** Save a picked (provider, model) pair for the picker purpose. */
+  private async applyModelSelection(
+    parsed: { providerKey: string; modelId: string },
+    opts: {
+      purpose: "worker" | "vision" | "subagent";
+      onSubagentPicked?: (fullModel: string) => void | Promise<void>;
+      onComplete?: () => void | Promise<void>;
+    }
+  ): Promise<void> {
+    const fullModel = parsed.modelId.includes("/")
+      ? parsed.modelId
+      : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
+
+    if (opts.purpose === "vision") {
+      const cfg = await loadConfig();
+      cfg.visionModel = fullModel;
+      cfg.visionMode = true;
+      await saveConfig(cfg);
+      await this.persistSessionVision(true, fullModel);
+      this.syncVisionFromConfig(await loadConfig());
+      this.addChatLine(
+        clr.dim(
+          `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
+        )
+      );
+    } else if (opts.purpose === "subagent") {
+      const cfg = await loadConfig();
+      cfg.subagentModel = fullModel;
+      cfg.useSubagentModel = true;
+      await saveConfig(cfg);
+      await opts.onSubagentPicked?.(fullModel);
+      this.addChatLine(modelStatusLine(`Subagent model: ${fullModel}`));
+    } else {
+      const cfg = await loadConfig();
+      cfg.defaultProvider = parsed.providerKey;
+      cfg.defaultModel = fullModel;
+      cfg.modelExplicitlySet = true;
+      await saveConfig(cfg);
+      resetProviderManager();
+      SessionManager.setOptions({ defaultModel: fullModel });
+      await SessionManager.update({ model: fullModel });
+      await this.refreshActiveContextWindow(cfg, { discover: true });
+      this.contextTokens = this.estimateCurrentSessionTokens();
+      void this.refreshReasoningCapability();
+      this.syncContextBar({
+        workerModel: fullModel,
+        contextTokens: this.contextTokens,
+        contextWindow: this.contextWindow,
+      });
+      this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
+    }
+    this.tui.requestRender();
+    await opts.onComplete?.();
+  }
+
+  /** Manual model-id entry for models a provider accepts but never lists (#159). */
+  private async promptForManualModelId(
+    providerKey: string,
+    opts: {
+      purpose: "worker" | "vision" | "subagent";
+      onSubagentPicked?: (fullModel: string) => void | Promise<void>;
+      onComplete?: () => void | Promise<void>;
+    }
+  ): Promise<void> {
+    const { TextInputOverlay } = await import("./components/text-input-overlay.js");
+    const overlay = new TextInputOverlay({
+      title: "Custom model id",
+      description: `Exact model id ${providerKey} accepts but its /models endpoint does not list.`,
+      placeholder: "e.g. MiniMax-M3.1-Flash-Preview",
+      hint: "Enter use   Esc cancel",
+    });
+    overlay.onSubmit = (value) => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      this.tui.setFocus(this.promptInput);
+      void this.applyModelSelection({ providerKey, modelId: value }, opts);
+    };
+    overlay.onCancel = () => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      this.tui.setFocus(this.promptInput);
+      void opts.onComplete?.();
+    };
+    this.modelPickerHandle = this.showListOverlay(overlay);
   }
 
   private modelSetupInputListener: (() => void) | null = null;
