@@ -300,6 +300,7 @@ import {
   A,
   advisorStatusLine,
   clr,
+  ghost,
   MODE_COLORS,
   modelStatusLine,
 } from "./ansi-theme.js";
@@ -1293,6 +1294,12 @@ export class ImpulseRenderer {
   private quietNarrationText: Text | null = null;
   private quietNarrationTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Render a one-row ghost line (dim+italic) inside the chat gutters. */
+  private ghostChatLine(text: string): string {
+    const rows = wrapGutterLines(ghost(text), this.terminal.columns);
+    return rows[0] ?? gutterContent(ghost(text), this.terminal.columns);
+  }
+
   private ensureQuietNarration(): void {
     if (!this.isQuietMode() || !this.quietTracker.active) return;
     if (this.quietNarrationTimer) return;
@@ -1300,7 +1307,7 @@ export class ImpulseRenderer {
     if (this.quietTracker.consumeGapBeforeWorkedFor()) {
       this.addSectionGap();
     }
-    this.quietNarrationText = new Text(clr.dim(this.quietTracker.liveStatus()), 0, 0);
+    this.quietNarrationText = new Text(this.ghostChatLine(this.quietTracker.liveStatus()), 0, 0);
     this.chat.addChild(this.quietNarrationText);
     this.hasTrailingGap = false;
     this.quietNarrationTimer = setInterval(() => {
@@ -1311,7 +1318,7 @@ export class ImpulseRenderer {
 
   private updateQuietNarration(): void {
     if (!this.quietNarrationText || !this.quietTracker.active) return;
-    this.quietNarrationText.setText(clr.dim(this.quietTracker.liveStatus()));
+    this.quietNarrationText.setText(this.ghostChatLine(this.quietTracker.liveStatus()));
     this.tui.requestRender();
   }
 
@@ -1335,13 +1342,14 @@ export class ImpulseRenderer {
     }
     // Harden the in-place narration line; print fresh when none exists.
     if (this.quietNarrationText) {
-      this.quietNarrationText.setText(clr.dim(result.workedForLine));
+      this.quietNarrationText.setText(this.ghostChatLine(result.workedForLine));
       this.quietNarrationText = null;
     } else {
       if (this.quietTracker.consumeGapBeforeWorkedFor()) {
         this.addSectionGap();
       }
-      this.addChatLine(clr.dim(result.workedForLine));
+      this.chat.addChild(new Text(this.ghostChatLine(result.workedForLine), 0, 0));
+      this.hasTrailingGap = false;
     }
     // Blank row between settled Worked for and following AI prose.
     this.addSectionGap();
@@ -1359,7 +1367,7 @@ export class ImpulseRenderer {
       const rows = wrapQuietRecapLines(`Recap: ${modelRecap}`, width, 3);
       this.addSectionGap();
       for (const row of rows) {
-        this.addChatLine(clr.dim(row));
+        this.addChatLine(ghost(row));
       }
       this.modelRecapThisTurn = null;
       return;
@@ -1402,7 +1410,7 @@ export class ImpulseRenderer {
     const rows = wrapQuietRecapLines(line, width, 3);
     this.addSectionGap();
     for (const row of rows) {
-      this.addChatLine(clr.dim(row));
+      this.addChatLine(ghost(row));
     }
   }
 
@@ -3013,18 +3021,13 @@ export class ImpulseRenderer {
 
           if (quiet) {
             if (isQuietBreakOutcome(outcome)) {
-              // Claire: failed/blocked tools break Quiet and show the real tool row.
-              if (!this.lastBandWasTool || this.lastBandToolHadBody) {
-                this.addSectionGap();
-              }
-              this.chat.addChild(block);
-              this.hasTrailingGap = false;
-              this.lastBandWasTool = true;
-              const compact = false;
-              const collapsed = false;
-              block.setDone(result, durationMs, { collapsed, compact });
-              this.lastBandToolHadBody = block.hasExpandedBody();
-              this.lastExpandableTool = block;
+              // Failed/blocked tools stay on the ghost line (✗ count) and in
+              // the Recap — no tool rows or output dumps in Quiet, per dogfood
+              // direction; full output only in Verbose.
+              this.quietTracker.noteFailed();
+              this.updateQuietNarration();
+              this.toolBlocks.delete(id);
+              return;
             }
             this.toolBlocks.delete(id);
           } else {

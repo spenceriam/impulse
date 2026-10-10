@@ -687,6 +687,7 @@ export class QuietWorkGroupTracker {
     thinkingIntent: string | null;
     tools: QuietInflightTool[];
     toolCount: number;
+    failedCount: number;
     hadActivity: boolean;
     hadTools: boolean;
     settled: boolean;
@@ -758,10 +759,21 @@ export class QuietWorkGroupTracker {
       thinkingIntent: null,
       tools: [],
       toolCount: 0,
+      failedCount: 0,
       hadActivity: false,
       hadTools: false,
       settled: false,
     };
+  }
+
+  /** A tool in this group failed/blocked/was aborted — narrated as ✗. */
+  noteFailed(): void {
+    if (!this.group || this.group.settled) return;
+    this.group.failedCount += 1;
+  }
+
+  get failedCount(): number {
+    return this.group?.failedCount ?? 0;
   }
 
   setThinking(kind: "assessing" | "planning", nowMs: number = Date.now()): void {
@@ -811,12 +823,15 @@ export class QuietWorkGroupTracker {
 
   liveStatus(nowMs: number = Date.now()): string {
     if (!this.group) return "Working…";
-    return formatQuietLiveStatus({
-      thinking: this.group.thinking,
-      thinkingIntent: this.group.thinkingIntent,
-      tools: this.group.tools,
-      elapsedMs: this.elapsedMs(nowMs),
-    });
+    return withFailureMark(
+      formatQuietLiveStatus({
+        thinking: this.group.thinking,
+        thinkingIntent: this.group.thinkingIntent,
+        tools: this.group.tools,
+        elapsedMs: this.elapsedMs(nowMs),
+      }),
+      this.group.failedCount
+    );
   }
 
   /**
@@ -831,15 +846,24 @@ export class QuietWorkGroupTracker {
     }
     g.settled = true;
     const elapsedMs = Math.max(0, nowMs - g.startedAt);
+    const failedSuffix =
+      g.failedCount > 0 ? ` · ${g.failedCount} failed` : "";
     const workedForLine =
       g.toolCount > 0
-        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}`
+        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${failedSuffix}`
         : formatWorkedFor(elapsedMs);
     const toolCount = g.toolCount;
     this.group = null;
     this.groupsSettled += 1;
     return { workedForLine, elapsedMs, toolCount };
   }
+}
+
+/** Append a ✗ mark to the live narration when tools failed in this group. */
+function withFailureMark(label: string, failedCount: number): string {
+  if (failedCount <= 0) return label;
+  const n = failedCount === 1 ? "" : `${failedCount} `;
+  return `${label} · ${n}✗`;
 }
 
 export const BUSY_STEERING = "Steering…";
