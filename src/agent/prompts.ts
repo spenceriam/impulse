@@ -616,9 +616,15 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
   // Add mode switch instructions for all modes (intelligent transitions)
   parts.push(getPrompt("core", "mode-switch", MODE_SWITCH_INSTRUCTIONS));
 
-  parts.push(`## Turn recap
+  parts.push(`## Turn narration markers
 
-When a turn used tools, end your reply with one final line of the form:
+Two small markers help the terminal narrate your work. Neither renders as prose.
+
+1. As you START planning an action or tool phase, emit:
+<intent>short phrase, ≤8 words</intent>
+Describe what you are about to do ("review the auth module and its tests"). Emit it once per work phase, before the tool calls.
+
+2. When a turn used tools, end your reply with one final line of the form:
 
 <recap>overall goal, current task, one next action</recap>
 

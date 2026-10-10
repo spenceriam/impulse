@@ -27,6 +27,41 @@ describe("quiet-status", () => {
     ).toBe("Reading AGENTS.md…");
   });
 
+  test("live narration carries a ticking elapsed time", () => {
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "file_read", arg: "AGENTS.md" }],
+        elapsedMs: 4_200,
+      })
+    ).toBe("Reading AGENTS.md… (4s)");
+    expect(
+      formatQuietLiveStatus({
+        thinking: "assessing",
+        tools: [],
+        elapsedMs: 340,
+      })
+    ).toBe("Assessing… (340ms)");
+  });
+
+  test("intent phrase narrates the thinking phase", () => {
+    expect(
+      formatQuietLiveStatus({
+        thinking: "assessing",
+        thinkingIntent: "review the codebase and README",
+        tools: [],
+        elapsedMs: 2_000,
+      })
+    ).toBe("Planning to review the codebase and README… (2s)");
+    expect(
+      formatQuietLiveStatus({
+        thinking: "planning",
+        thinkingIntent: "how to fix the wrap width",
+        tools: [],
+        elapsedMs: 3_000,
+      })
+    ).toBe("Thinking about how to fix the wrap width… (3s)");
+  });
+
   test("parallel tools coalesce with (+N)", () => {
     expect(
       formatQuietLiveStatus({
@@ -432,7 +467,8 @@ describe("QuietWorkGroupTracker settle-once", () => {
 
     const first = t.settle(t0 + 340);
     expect(first).not.toBeNull();
-    expect(first!.workedForLine).toBe("Worked for 340ms");
+    expect(first!.workedForLine).toBe("Worked for 340ms using 1 tool");
+    expect(first!.toolCount).toBe(1);
     expect(t.settledCount).toBe(1);
 
     const second = t.settle(t0 + 500);

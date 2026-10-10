@@ -1249,6 +1249,8 @@ export class ImpulseRenderer {
   private resetQuietTurnState(): void {
     this.quietTracker.reset();
     this.quietRecapEvents = [];
+    this.stopQuietNarrationTimer();
+    this.quietNarrationText = null;
     this.clearSteeringChrome();
   }
 
@@ -1282,9 +1284,42 @@ export class ImpulseRenderer {
   }
 
   private refreshQuietLiveStatus(): void {
+    // Narration lives in the scrollback line now; the composer line stays a
+    // generic stateful beacon ("Working…" family + shimmer) and must not be
+    // overwritten with tool narration. No-op on purpose.
+  }
+
+  /** Mutable narration line in the chat scrollback (Quiet live activity). */
+  private quietNarrationText: Text | null = null;
+  private quietNarrationTimer: ReturnType<typeof setInterval> | null = null;
+
+  private ensureQuietNarration(): void {
     if (!this.isQuietMode() || !this.quietTracker.active) return;
-    const phrase = this.quietTracker.liveStatus();
-    this.setBusyStatus(phrase, phrase);
+    if (this.quietNarrationTimer) return;
+    // Blank row between prior AI prose and this narration line.
+    if (this.quietTracker.consumeGapBeforeWorkedFor()) {
+      this.addSectionGap();
+    }
+    this.quietNarrationText = new Text(clr.dim(this.quietTracker.liveStatus()), 0, 0);
+    this.chat.addChild(this.quietNarrationText);
+    this.hasTrailingGap = false;
+    this.quietNarrationTimer = setInterval(() => {
+      this.updateQuietNarration();
+    }, 1000);
+    this.updateQuietNarration();
+  }
+
+  private updateQuietNarration(): void {
+    if (!this.quietNarrationText || !this.quietTracker.active) return;
+    this.quietNarrationText.setText(clr.dim(this.quietTracker.liveStatus()));
+    this.tui.requestRender();
+  }
+
+  private stopQuietNarrationTimer(): void {
+    if (this.quietNarrationTimer) {
+      clearInterval(this.quietNarrationTimer);
+      this.quietNarrationTimer = null;
+    }
   }
 
   /**
@@ -1292,12 +1327,22 @@ export class ImpulseRenderer {
    * Inserts blank rows at tool↔AI boundaries per dogfood lock.
    */
   private settleQuietWorkGroup(): boolean {
+    this.stopQuietNarrationTimer();
     const result = this.quietTracker.settle();
-    if (!result) return false;
-    if (this.quietTracker.consumeGapBeforeWorkedFor()) {
-      this.addSectionGap();
+    if (!result) {
+      this.quietNarrationText = null;
+      return false;
     }
-    this.addChatLine(clr.dim(result.workedForLine));
+    // Harden the in-place narration line; print fresh when none exists.
+    if (this.quietNarrationText) {
+      this.quietNarrationText.setText(clr.dim(result.workedForLine));
+      this.quietNarrationText = null;
+    } else {
+      if (this.quietTracker.consumeGapBeforeWorkedFor()) {
+        this.addSectionGap();
+      }
+      this.addChatLine(clr.dim(result.workedForLine));
+    }
     // Blank row between settled Worked for and following AI prose.
     this.addSectionGap();
     return true;
@@ -2722,8 +2767,10 @@ export class ImpulseRenderer {
         this.updateLiveMetrics(0, true);
         if (this.isQuietMode()) {
           this.quietTracker.ensure();
-          // Assessing live line only — hadActivity stays false until real thinking/tools.
-          this.setBusyStatus("Assessing…", "Assessing…");
+          // Composer keeps a generic stateful phrase; narration goes to the
+          // scrollback line.
+          this.setBusyStatus("Working…", BUSY_PROCESSING);
+          this.ensureQuietNarration();
         } else {
           this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
         }
@@ -2774,6 +2821,11 @@ export class ImpulseRenderer {
       },
       onRecap: (text) => {
         this.modelRecapThisTurn = text;
+      },
+      onIntent: (text) => {
+        this.quietTracker.setThinkingIntent(text);
+        this.ensureQuietNarration();
+        this.updateQuietNarration();
       },
       onAdvisorStart: (_model) => {
         this.setBusyStatus("", "Advisor consultation...");
@@ -2831,7 +2883,8 @@ export class ImpulseRenderer {
             name,
             arg: shortQuietArg(name, args),
           });
-          this.refreshQuietLiveStatus();
+          this.ensureQuietNarration();
+          this.updateQuietNarration();
           if (name === "todo_write") {
             this.todoBlockBeforeRewrite = this.latestTodoBlock;
           }
@@ -4418,7 +4471,8 @@ export class ImpulseRenderer {
         this.quietTracker.markGapBeforeNextWorkedFor();
       }
       this.quietTracker.setThinking("assessing");
-      this.refreshQuietLiveStatus();
+      this.ensureQuietNarration();
+      this.updateQuietNarration();
       this.noteLiveGeneration(text);
       return;
     }

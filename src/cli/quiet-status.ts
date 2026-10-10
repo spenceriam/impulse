@@ -156,13 +156,18 @@ export function quietThinkingPhrase(kind: "assessing" | "planning"): string {
 }
 
 /**
- * Live shimmer line for a Quiet work group.
- * Parallel tools: "Reading AGENTS.md… (+2)"
+ * Live shimmer narration for a Quiet work group.
+ * Narrates the current activity with a ticking elapsed time; lives in the
+ * chat scrollback at the current insertion point and hardens in place on
+ * settle. Parallel tools: "Reading AGENTS.md… (+2) (4s)".
  */
 export function formatQuietLiveStatus(opts: {
   thinking?: "assessing" | "planning" | null;
+  thinkingIntent?: string | null;
   tools: QuietInflightTool[];
+  elapsedMs?: number;
 }): string {
+  const elapsed = formatElapsedTick(opts.elapsedMs);
   const running = opts.tools;
   if (running.length > 0) {
     const first = running[0]!;
@@ -170,12 +175,31 @@ export function formatQuietLiveStatus(opts: {
     const arg = first.arg;
     const base = arg ? `${verb} ${arg}…` : `${verb}…`;
     const extra = running.length - 1;
-    return extra > 0 ? `${base} (+${extra})` : base;
+    const label = extra > 0 ? `${base} (+${extra})` : base;
+    return elapsed ? `${label} (${elapsed})` : label;
   }
   if (opts.thinking) {
-    return quietThinkingPhrase(opts.thinking);
+    const intent = opts.thinkingIntent?.trim();
+    let label: string;
+    if (intent) {
+      label =
+        opts.thinking === "planning"
+          ? `Thinking about ${intent}…`
+          : `Planning to ${intent}…`;
+    } else {
+      label = quietThinkingPhrase(opts.thinking);
+    }
+    return elapsed ? `${label} (${elapsed})` : label;
   }
   return "Working…";
+}
+
+/** "(4s)" / "(340ms)" tick for live narration; "" when no clock yet. */
+export function formatElapsedTick(elapsedMs?: number): string {
+  if (elapsedMs === undefined || elapsedMs < 0) return "";
+  const ms = Math.round(elapsedMs);
+  if (ms < 1000) return `${ms}ms`;
+  return `${Math.round(ms / 1000)}s`;
 }
 
 /**
@@ -645,6 +669,10 @@ export function wrapQuietRecapLines(
 
 export type QuietSettleResult = {
   workedForLine: string;
+  /** Wall-clock ms of the group. */
+  elapsedMs: number;
+  /** Distinct tools that ran in the group (0 for thinking-only groups). */
+  toolCount: number;
 };
 
 /**
@@ -656,7 +684,9 @@ export class QuietWorkGroupTracker {
   private group: {
     startedAt: number;
     thinking: "assessing" | "planning" | null;
+    thinkingIntent: string | null;
     tools: QuietInflightTool[];
+    toolCount: number;
     hadActivity: boolean;
     hadTools: boolean;
     settled: boolean;
@@ -683,8 +713,22 @@ export class QuietWorkGroupTracker {
     return this.group?.thinking ?? null;
   }
 
+  get thinkingIntent(): string | null {
+    return this.group?.thinkingIntent ?? null;
+  }
+
   get tools(): QuietInflightTool[] {
     return this.group?.tools ?? [];
+  }
+
+  get toolCount(): number {
+    return this.group?.toolCount ?? 0;
+  }
+
+  /** Wall-clock ms the current (or last) group has been running. */
+  elapsedMs(nowMs: number = Date.now()): number {
+    if (!this.group) return 0;
+    return Math.max(0, nowMs - this.group.startedAt);
   }
 
   get hadActivity(): boolean {
@@ -711,7 +755,9 @@ export class QuietWorkGroupTracker {
     this.group = {
       startedAt: nowMs,
       thinking: null,
+      thinkingIntent: null,
       tools: [],
+      toolCount: 0,
       hadActivity: false,
       hadTools: false,
       settled: false,
@@ -730,12 +776,27 @@ export class QuietWorkGroupTracker {
     g.hadActivity = true;
   }
 
+  /** Model-emitted intent phrase for the narration line ("review the codebase"). */
+  setThinkingIntent(intent: string): void {
+    if (!this.group || this.group.settled) return;
+    const trimmed = intent.trim();
+    if (!trimmed) return;
+    this.group.thinkingIntent = trimmed.slice(0, 60);
+    if (!this.group.thinking) {
+      this.group.thinking =
+        this.groupsSettled > 0 || this.group.hadTools ? "planning" : "assessing";
+    }
+    this.group.hadActivity = true;
+  }
+
   addTool(tool: QuietInflightTool, nowMs: number = Date.now()): void {
     this.ensure(nowMs);
     const g = this.group!;
     g.thinking = null;
+    g.thinkingIntent = null;
     g.hadActivity = true;
     g.hadTools = true;
+    g.toolCount += 1;
     g.tools.push(tool);
   }
 
@@ -748,11 +809,13 @@ export class QuietWorkGroupTracker {
     return this.group?.tools.find((t) => t.id === id)?.arg;
   }
 
-  liveStatus(): string {
+  liveStatus(nowMs: number = Date.now()): string {
     if (!this.group) return "Working…";
     return formatQuietLiveStatus({
       thinking: this.group.thinking,
+      thinkingIntent: this.group.thinkingIntent,
       tools: this.group.tools,
+      elapsedMs: this.elapsedMs(nowMs),
     });
   }
 
@@ -767,11 +830,15 @@ export class QuietWorkGroupTracker {
       return null;
     }
     g.settled = true;
-    const elapsed = Math.max(0, nowMs - g.startedAt);
-    const workedForLine = formatWorkedFor(elapsed);
+    const elapsedMs = Math.max(0, nowMs - g.startedAt);
+    const workedForLine =
+      g.toolCount > 0
+        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}`
+        : formatWorkedFor(elapsedMs);
+    const toolCount = g.toolCount;
     this.group = null;
     this.groupsSettled += 1;
-    return { workedForLine };
+    return { workedForLine, elapsedMs, toolCount };
   }
 }
 

@@ -160,6 +160,12 @@ export interface LoopEvents {
    * event-sourced recap when present.
    */
   onRecap?: (text: string) => void;
+  /**
+   * Short intent phrase captured from a `<intent>…</intent>` marker emitted
+   * when the model starts planning (Quiet narration line:
+   * "Planning to review the codebase (4s)").
+   */
+  onIntent?: (text: string) => void;
   /** Advisor model is being consulted — streams its response */
   onAdvisorStart(model: string): void;
   onAdvisorToken(text: string): void;
@@ -672,6 +678,9 @@ export class AgentLoop {
         // it never renders as prose and can be shown as the Recap line.
         const recapFilter = new InlineThinkingFilter(["recap"]);
         let accumulatedRecap = "";
+        // <intent>…</intent> marks what the model is planning to do next;
+        // feeds the Quiet narration line ("Planning to X").
+        const intentFilter = new InlineThinkingFilter(["intent"]);
 
         const closeThinkingPhase = () => {
           if (thinkingPhaseStartedAt === null) return;
@@ -720,7 +729,9 @@ export class AgentLoop {
           if (delta.content) {
             const split = inlineThinking.push(delta.content);
             if (split.captured) emitThinkingToken(split.captured);
-            const recapSplit = recapFilter.push(split.prose);
+            const intentSplit = intentFilter.push(split.prose);
+            if (intentSplit.captured) events.onIntent?.(intentSplit.captured);
+            const recapSplit = recapFilter.push(intentSplit.prose);
             if (recapSplit.captured) {
               accumulatedRecap += recapSplit.captured;
               events.onRecap?.(accumulatedRecap);
@@ -751,6 +762,9 @@ export class AgentLoop {
         const flushed = inlineThinking.flush();
         if (flushed.captured) emitThinkingToken(flushed.captured);
         if (flushed.prose) emitContentToken(flushed.prose);
+        const intentFlushed = intentFilter.flush();
+        if (intentFlushed.captured) events.onIntent?.(intentFlushed.captured);
+        if (intentFlushed.prose) emitContentToken(intentFlushed.prose);
         const recapFlushed = recapFilter.flush();
         if (recapFlushed.captured) {
           accumulatedRecap += recapFlushed.captured;
