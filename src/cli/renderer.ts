@@ -6364,7 +6364,7 @@ export class ImpulseRenderer {
   private hydrateChatFromSession(session: Session): void {
     this.lastBandWasTool = false;
     this.lastBandToolHadBody = false;
-    const steps = buildReplaySteps(session.messages);
+    const steps = buildReplaySteps(session.messages, { quiet: this.isQuietMode() });
     for (const step of steps) {
       this.appendReplayStep(step);
     }
@@ -6411,6 +6411,17 @@ export class ImpulseRenderer {
           this.hasTrailingGap = false;
         }
         break;
+      case "recap": {
+        // Quiet replay: persisted model-authored Recap, same look as live.
+        this.addSectionGap();
+        const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
+        const rows = wrapQuietRecapLines(`Recap: ${step.text}`, width, 3);
+        for (const row of rows) {
+          this.addChatLine(ghost(row));
+        }
+        this.addSectionGap();
+        break;
+      }
       case "tool": {
         const gapBeforeTool = !this.lastBandWasTool || this.lastBandToolHadBody;
         if (gapBeforeTool) {
