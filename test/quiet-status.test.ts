@@ -4,6 +4,7 @@ import {
   QuietWorkGroupTracker,
   buildQuietRecapFact,
   classifyQuietOutcome,
+  deriveIntentFromThinking,
   extractOpenPlanItem,
   formatDuration,
   formatQuietLiveStatus,
@@ -61,6 +62,26 @@ describe("quiet-status", () => {
         elapsedMs: 3_000,
       })
     ).toBe("Thinking about how to fix the wrap width… (3s)");
+  });
+
+  test("intent derives from the reasoning stream; <intent> marker wins", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 1_000_000;
+    t.setThinking("assessing", t0);
+    t.noteThinkingText("I need to review");
+    expect(t.thinkingIntent).toBeNull(); // not enough words yet
+    t.noteThinkingText(" the codebase and README before touching the renderer.");
+    expect(t.thinkingIntent).toBe("review the codebase and README before touching the");
+    t.setThinkingIntent("check the quiet narration path");
+    expect(t.thinkingIntent).toBe("check the quiet narration path");
+  });
+
+  test("deriveIntentFromThinking strips filler and caps words", () => {
+    expect(deriveIntentFromThinking("Let me look at the auth module tests first.")).toBe(
+      "look at the auth module tests first"
+    );
+    expect(deriveIntentFromThinking("short")).toBeNull();
+    expect(deriveIntentFromThinking("one two three")).toBeNull();
   });
 
   test("parallel tools coalesce with (+N)", () => {

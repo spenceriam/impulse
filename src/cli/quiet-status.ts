@@ -732,6 +732,8 @@ export class QuietWorkGroupTracker {
     startedAt: number;
     thinking: "assessing" | "planning" | null;
     thinkingIntent: string | null;
+    thinkingIntentFromMarker: boolean;
+    thinkingBuffer: string;
     tools: QuietInflightTool[];
     toolCount: number;
     failedCount: number;
@@ -804,6 +806,8 @@ export class QuietWorkGroupTracker {
       startedAt: nowMs,
       thinking: null,
       thinkingIntent: null,
+      thinkingIntentFromMarker: false,
+      thinkingBuffer: "",
       tools: [],
       toolCount: 0,
       failedCount: 0,
@@ -811,6 +815,23 @@ export class QuietWorkGroupTracker {
       hadTools: false,
       settled: false,
     };
+  }
+
+  /**
+   * Feed the live reasoning stream so the narration can show WHAT is being
+   * planned. Models that think via reasoning_content never emit the
+   * <intent> content marker during thinking, so the first words of the
+   * reasoning itself become the intent once enough has arrived. An explicit
+   * <intent> marker (setThinkingIntent) always overrides the derivation.
+   */
+  noteThinkingText(text: string): void {
+    if (!this.group || this.group.settled) return;
+    if (this.group.thinkingIntent) return;
+    this.group.thinkingBuffer += text;
+    const derived = deriveIntentFromThinking(this.group.thinkingBuffer);
+    if (derived) {
+      this.group.thinkingIntent = derived;
+    }
   }
 
   /** A tool in this group failed/blocked/was aborted — narrated as ✗. */
@@ -840,7 +861,9 @@ export class QuietWorkGroupTracker {
     if (!this.group || this.group.settled) return;
     const trimmed = intent.trim();
     if (!trimmed) return;
+    // An explicit <intent> marker always beats the reasoning-derived guess.
     this.group.thinkingIntent = trimmed.slice(0, 60);
+    this.group.thinkingIntentFromMarker = true;
     if (!this.group.thinking) {
       this.group.thinking =
         this.groupsSettled > 0 || this.group.hadTools ? "planning" : "assessing";
@@ -918,6 +941,30 @@ function withFailureMark(label: string, failedCount: number): string {
   if (failedCount <= 0) return label;
   const n = failedCount === 1 ? "" : `${failedCount} `;
   return `${label} · ${n}✗`;
+}
+
+/** Leading filler the reasoning stream opens with before the real intent. */
+const THINKING_FILLER_RE =
+  /^(i\s+(need|want|should|will|am\s+going)\s+to|let\s+me|i'm\s+going\s+to|the\s+user\s+(wants|asks|asked)\s+(me\s+)?to|first,?|ok,?|alright,?|so,?|now,?)\s*/i;
+
+/**
+ * Derive a narration intent phrase from the start of the reasoning stream.
+ * Returns null until there is enough signal (≥4 words after filler-strip).
+ */
+export function deriveIntentFromThinking(buffer: string): string | null {
+  let rest = buffer.trim();
+  if (rest.length < 12) return null;
+  for (let i = 0; i < 3; i++) {
+    rest = rest.replace(THINKING_FILLER_RE, "");
+  }
+  const sentence = rest.split(/(?<=[.!?;:])\s/)[0] ?? rest;
+  const words = sentence.split(/\s+/).filter(Boolean);
+  if (words.length < 4) return null;
+  return words
+    .slice(0, 8)
+    .join(" ")
+    .replace(/[.,;:]+$/, "")
+    .slice(0, 60);
 }
 
 export const BUSY_STEERING = "Steering…";

@@ -1346,6 +1346,9 @@ export class ImpulseRenderer {
     }
     // Blank row between settled Worked for and following AI prose.
     this.addSectionGap();
+    // Label the next streamed segment: every post-work prose block gets its
+    // own "impulse" header so users can tell streamed responses apart.
+    this.turnShowsImpulseHeader = false;
     return true;
   }
 
@@ -3516,6 +3519,11 @@ export class ImpulseRenderer {
   }
 
   private prepareStreamingToken(incomingToken: string): string {
+    // Models often open content with blank lines after a thinking phase;
+    // strip leading whitespace at stream start so prose hugs its header.
+    if (this.streamingRaw.length === 0) {
+      incomingToken = incomingToken.replace(/^\s+/, "");
+    }
     if (!this.streamingText || !this.tui) {
       return `${this.streamingRaw}${incomingToken}`;
     }
@@ -4484,6 +4492,10 @@ export class ImpulseRenderer {
         this.quietTracker.markGapBeforeNextWorkedFor();
       }
       this.quietTracker.setThinking("assessing");
+      // Models thinking via reasoning_content never emit the <intent>
+      // content marker mid-thought — derive narration intent from the
+      // reasoning stream itself (marker still overrides when present).
+      this.quietTracker.noteThinkingText(text);
       this.ensureQuietNarration();
       this.updateQuietNarration();
       this.noteLiveGeneration(text);
