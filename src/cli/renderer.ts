@@ -58,6 +58,7 @@ import {
   TOTAL_GUTTER_WIDTH,
   gutterContent,
   gutterSeparator,
+  truncateGutterLine,
   wrapGutterLines,
 } from "./gutter.js";
 import {
@@ -84,6 +85,7 @@ import {
   classifyQuietOutcome,
   extractOpenPlanItem,
   formatQuietRecap,
+  fullQuietArg,
   isQuietBreakOutcome,
   QuietWorkGroupTracker,
   shortQuietArg,
@@ -666,11 +668,13 @@ export class ImpulseRenderer {
     this.currentStatusPhrase = resolveBusyPhrase(msg, fixedPhrase);
     this.busyDimBase = busyPhraseUsesDimBase(this.currentStatusPhrase, msg);
     this.renderBusyLine();
+    this.updateQuietNarration();
     this.requestRenderForPhase("status");
 
     if (!this.spinnerInterval) {
       this.spinnerInterval = setInterval(() => {
         this.renderBusyLine();
+        this.updateQuietNarration();
         this.requestRenderForPhase("status_tick");
       }, SHIMMER_FRAME_MS);
     }
@@ -1250,7 +1254,6 @@ export class ImpulseRenderer {
   private resetQuietTurnState(): void {
     this.quietTracker.reset();
     this.quietRecapEvents = [];
-    this.stopQuietNarrationTimer();
     this.quietNarrationText = null;
     this.clearSteeringChrome();
   }
@@ -1290,19 +1293,18 @@ export class ImpulseRenderer {
     // overwritten with tool narration. No-op on purpose.
   }
 
-  /** Mutable narration line in the chat scrollback (Quiet live activity). */
+  /** Mutable narration line in the chat scrollback (Quiet live activity).
+   *  Updates ride the busy-status shimmer cycle — never its own timer. */
   private quietNarrationText: Text | null = null;
-  private quietNarrationTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Render a one-row ghost line (dim+italic) inside the chat gutters. */
   private ghostChatLine(text: string): string {
-    const rows = wrapGutterLines(ghost(text), this.terminal.columns);
-    return rows[0] ?? gutterContent(ghost(text), this.terminal.columns);
+    return gutterContent(truncateGutterLine(ghost(text), this.terminal.columns), this.terminal.columns);
   }
 
   private ensureQuietNarration(): void {
     if (!this.isQuietMode() || !this.quietTracker.active) return;
-    if (this.quietNarrationTimer) return;
+    if (this.quietNarrationText) return; // live child already updating
     // Blank row between prior AI prose and this narration line.
     if (this.quietTracker.consumeGapBeforeWorkedFor()) {
       this.addSectionGap();
@@ -1310,10 +1312,8 @@ export class ImpulseRenderer {
     this.quietNarrationText = new Text(this.ghostChatLine(this.quietTracker.liveStatus()), 0, 0);
     this.chat.addChild(this.quietNarrationText);
     this.hasTrailingGap = false;
-    this.quietNarrationTimer = setInterval(() => {
-      this.updateQuietNarration();
-    }, 1000);
-    this.updateQuietNarration();
+    // Ticking happens on the existing busy-status repaint cycle (see
+    // updateQuietNarration) — no second timer racing overlays.
   }
 
   private updateQuietNarration(): void {
@@ -1322,19 +1322,12 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private stopQuietNarrationTimer(): void {
-    if (this.quietNarrationTimer) {
-      clearInterval(this.quietNarrationTimer);
-      this.quietNarrationTimer = null;
-    }
-  }
-
   /**
    * Commit one Worked for for the current contiguous group (idempotent).
-   * Inserts blank rows at tool↔AI boundaries per dogfood lock.
+   * Hardens the in-place narration line; inserts blank rows at tool↔AI
+   * boundaries per dogfood lock.
    */
   private settleQuietWorkGroup(): boolean {
-    this.stopQuietNarrationTimer();
     const result = this.quietTracker.settle();
     if (!result) {
       this.quietNarrationText = null;
@@ -2889,7 +2882,7 @@ export class ImpulseRenderer {
           this.quietTracker.addTool({
             id,
             name,
-            arg: shortQuietArg(name, args),
+            arg: fullQuietArg(name, args),
           });
           this.ensureQuietNarration();
           this.updateQuietNarration();
@@ -3261,11 +3254,28 @@ export class ImpulseRenderer {
   }
 
   private addSectionGap(): Spacer | null {
-    if (this.hasTrailingGap) return null;
+    // Normalize to exactly ONE trailing blank — stacked Spacers from
+    // freeze/settle/narration sequences are what produced the huge post-tool
+    // gap in dogfood (#153 round 3).
+    this.pruneTrailingSpacers();
+    this.hasTrailingGap = false;
     const spacer = new Spacer(1);
     this.chat.addChild(spacer);
     this.hasTrailingGap = true;
     return spacer;
+  }
+
+  /** Drop consecutive trailing blank rows so gaps never stack. */
+  private pruneTrailingSpacers(): void {
+    const children = this.chat.children;
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i]!;
+      if (child instanceof Spacer) {
+        this.chat.removeChild(child);
+        continue;
+      }
+      break;
+    }
   }
 
   /** Block agent loop until user approves or declines advisor plan */

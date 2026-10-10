@@ -114,6 +114,44 @@ export function shortQuietArg(name: string, args: Record<string, unknown>): stri
   return "";
 }
 
+/**
+ * Full-width narration arg — same rules as shortQuietArg but WITHOUT the
+ * 40-char cap: the narration line truncates to terminal width at render
+ * time, so wide terminals see the whole URL/command.
+ */
+export function fullQuietArg(name: string, args: Record<string, unknown>): string {
+  if (name === "todo_write" || name === "todo_read") return "";
+  if (name === "task") {
+    const description =
+      typeof args["description"] === "string" ? String(args["description"]).trim() : "";
+    return description || "subagent";
+  }
+  if (name === "glob" || name === "grep") {
+    return typeof args["pattern"] === "string" ? String(args["pattern"]).trim() : "pattern";
+  }
+  if (name === "bash") {
+    const command = typeof args["command"] === "string" ? String(args["command"]) : "command";
+    return command.replace(/\s+/g, " ").trim();
+  }
+  if (name === "ls") {
+    const p = typeof args["path"] === "string" ? String(args["path"]).trim() : "";
+    if (!p || p === "." || p === "./") return ".";
+    return shortPath(p);
+  }
+  const keys = ["url", "query", "pattern", "prompt", "filePath", "file", "path"];
+  for (const key of keys) {
+    if (typeof args[key] === "string") {
+      const raw = String(args[key]).trim();
+      if (!raw) continue;
+      if (key === "path" || key === "filePath" || key === "file") {
+        return shortPath(raw);
+      }
+      return raw.replace(/\s+/g, " ");
+    }
+  }
+  return "";
+}
+
 function shortPath(p: string): string {
   const normalized = p.replace(/\\/g, "/");
   const base = path.posix.basename(normalized);
@@ -808,6 +846,13 @@ export class QuietWorkGroupTracker {
     g.thinkingIntent = null;
     g.hadActivity = true;
     g.hadTools = true;
+    // Same-id re-dispatch (permission approval flow) updates in place —
+    // never double-counts.
+    const existing = g.tools.find((t) => t.id === tool.id);
+    if (existing) {
+      existing.arg = tool.arg;
+      return;
+    }
     g.toolCount += 1;
     g.tools.push(tool);
   }
