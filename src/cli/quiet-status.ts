@@ -232,24 +232,33 @@ export function formatQuietLiveStatus(opts: {
   return "Working…";
 }
 
-/** "(4s)" / "(340ms)" tick for live narration; "" when no clock yet. */
-export function formatElapsedTick(elapsedMs?: number): string {
-  if (elapsedMs === undefined || elapsedMs < 0) return "";
-  const ms = Math.round(elapsedMs);
-  if (ms < 1000) return `${ms}ms`;
-  return `${Math.round(ms / 1000)}s`;
-}
-
 /**
  * Wall-clock commit line when a Quiet work group settles.
- * ≥1s → whole seconds; &lt;1s → milliseconds (never `0s`).
+ * <1s → milliseconds; <60s → seconds; 60s+ → "1 min 12s" (never "72s").
  */
 export function formatWorkedFor(elapsedMs: number): string {
   const ms = Math.max(0, Math.round(elapsedMs));
   if (ms < 1000) {
     return `Worked for ${ms}ms`;
   }
-  return `Worked for ${Math.round(ms / 1000)}s`;
+  return `Worked for ${formatDuration(ms)}`;
+}
+
+/** "(4s)" / "(340ms)" tick for live narration; "" when no clock yet.
+ *  60s+ rolls into minutes — "1 min 5s", never a bare second count. */
+export function formatElapsedTick(elapsedMs?: number): string {
+  if (elapsedMs === undefined || elapsedMs < 0) return "";
+  return formatDuration(Math.round(elapsedMs));
+}
+
+/** Duration in ms → "340ms" | "12s" | "1 min 5s" | "2 min". */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds}s`;
 }
 
 /** Past-tense plain-language verbs for done→next Recap facts. */

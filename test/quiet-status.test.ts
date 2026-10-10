@@ -5,6 +5,7 @@ import {
   buildQuietRecapFact,
   classifyQuietOutcome,
   extractOpenPlanItem,
+  formatDuration,
   formatQuietLiveStatus,
   formatQuietRecap,
   formatWorkedFor,
@@ -89,6 +90,13 @@ describe("quiet-status", () => {
     expect(formatWorkedFor(1000)).toBe("Worked for 1s");
     expect(formatWorkedFor(1500)).toBe("Worked for 2s");
     expect(formatWorkedFor(10400)).toBe("Worked for 10s");
+  });
+
+  test("durations roll into minutes past 60s (never a bare second count)", () => {
+    expect(formatWorkedFor(65_000)).toBe("Worked for 1 min 5s");
+    expect(formatWorkedFor(72_000)).toBe("Worked for 1 min 12s");
+    expect(formatWorkedFor(120_000)).toBe("Worked for 2 min");
+    expect(formatDuration(61_000)).toBe("1 min 1s");
   });
 
   test("shortQuietArg uses basename for paths", () => {
