@@ -737,6 +737,7 @@ export class QuietWorkGroupTracker {
     tools: QuietInflightTool[];
     toolCount: number;
     failedCount: number;
+    lastLabel: string | null;
     hadActivity: boolean;
     hadTools: boolean;
     settled: boolean;
@@ -811,6 +812,7 @@ export class QuietWorkGroupTracker {
       tools: [],
       toolCount: 0,
       failedCount: 0,
+      lastLabel: null,
       hadActivity: false,
       hadTools: false,
       settled: false,
@@ -899,14 +901,27 @@ export class QuietWorkGroupTracker {
   }
 
   liveStatus(nowMs: number = Date.now()): string {
-    if (!this.group) return "Working…";
-    return withFailureMark(
-      formatQuietLiveStatus({
+    if (!this.group) return "Continuing…";
+    const elapsedMs = this.elapsedMs(nowMs);
+    if (this.group.thinking || this.group.tools.length > 0) {
+      const label = formatQuietLiveStatus({
         thinking: this.group.thinking,
         thinkingIntent: this.group.thinkingIntent,
         tools: this.group.tools,
-        elapsedMs: this.elapsedMs(nowMs),
-      }),
+      });
+      // Remember the last real activity so the line lingers on it while the
+      // model thinks/waits instead of blanking to a generic phrase.
+      this.group.lastLabel = stripElapsed(label);
+      return withFailureMark(
+        elapsedMs ? `${label} (${formatDuration(elapsedMs)})` : label,
+        this.group.failedCount
+      );
+    }
+    // Nothing running: linger on the last activity label.
+    const lingering = this.group.lastLabel;
+    const label = lingering ?? "Continuing…";
+    return withFailureMark(
+      elapsedMs ? `${label} (${formatDuration(elapsedMs)})` : label,
       this.group.failedCount
     );
   }
@@ -941,6 +956,11 @@ function withFailureMark(label: string, failedCount: number): string {
   if (failedCount <= 0) return label;
   const n = failedCount === 1 ? "" : `${failedCount} `;
   return `${label} · ${n}✗`;
+}
+
+/** Strip a trailing " (4s)" / " (340ms)" elapsed tick from a composed label. */
+function stripElapsed(label: string): string {
+  return label.replace(/\s*\(\d+(?:\.\d+)?m?s\)$/, "");
 }
 
 /** Leading filler the reasoning stream opens with before the real intent. */

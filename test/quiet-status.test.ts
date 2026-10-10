@@ -76,6 +76,17 @@ describe("quiet-status", () => {
     expect(t.thinkingIntent).toBe("check the quiet narration path");
   });
 
+  test("live narration lingers on the last activity while idle", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 2_000_000;
+    t.addTool({ id: "1", name: "web_fetch", arg: "https://example.com" }, t0);
+    expect(t.liveStatus(t0 + 300)).toBe("Fetching https://example.com… (300ms)");
+    // Tool finished, nothing running: the label lingers instead of blanking
+    // to a generic phrase the composer beacon already shows.
+    t.removeTool("1");
+    expect(t.liveStatus(t0 + 5_000)).toBe("Fetching https://example.com… (5s)");
+  });
+
   test("deriveIntentFromThinking strips filler and caps words", () => {
     expect(deriveIntentFromThinking("Let me look at the auth module tests first.")).toBe(
       "look at the auth module tests first"

@@ -1296,6 +1296,9 @@ export class ImpulseRenderer {
   /** Mutable narration line in the chat scrollback (Quiet live activity).
    *  Updates ride the busy-status shimmer cycle — never its own timer. */
   private quietNarrationText: Text | null = null;
+  /** Typewriter state: the full label, and how much of it is revealed. */
+  private quietNarrationTarget = "";
+  private quietNarrationShown = 0;
 
   /** Render a one-row ghost line (dim+italic) inside the chat gutters. */
   private ghostChatLine(text: string): string {
@@ -1309,7 +1312,13 @@ export class ImpulseRenderer {
     if (this.quietTracker.consumeGapBeforeWorkedFor()) {
       this.addSectionGap();
     }
-    this.quietNarrationText = new Text(this.ghostChatLine(this.quietTracker.liveStatus()), 0, 0);
+    this.quietNarrationText = new Text(
+      this.ghostChatLine(this.quietTracker.liveStatus()),
+      0,
+      0
+    );
+    this.quietNarrationTarget = this.quietTracker.liveStatus();
+    this.quietNarrationShown = this.quietNarrationTarget.length;
     this.chat.addChild(this.quietNarrationText);
     this.hasTrailingGap = false;
     // Ticking happens on the existing busy-status repaint cycle (see
@@ -1318,7 +1327,21 @@ export class ImpulseRenderer {
 
   private updateQuietNarration(): void {
     if (!this.quietNarrationText || !this.quietTracker.active) return;
-    this.quietNarrationText.setText(this.ghostChatLine(this.quietTracker.liveStatus()));
+    // Typewriter reveal so fast tool phases are perceivable: local tools
+    // complete in milliseconds and an instant swap is invisible.
+    const full = this.quietTracker.liveStatus();
+    if (full !== this.quietNarrationTarget) {
+      this.quietNarrationTarget = full;
+      this.quietNarrationShown = 0;
+    }
+    if (this.quietNarrationShown < this.quietNarrationTarget.length) {
+      this.quietNarrationShown = Math.min(
+        this.quietNarrationTarget.length,
+        this.quietNarrationShown + 8
+      );
+    }
+    const revealed = this.quietNarrationTarget.slice(0, this.quietNarrationShown);
+    this.quietNarrationText.setText(this.ghostChatLine(revealed));
     this.tui.requestRender();
   }
 
@@ -1337,6 +1360,8 @@ export class ImpulseRenderer {
     if (this.quietNarrationText) {
       this.quietNarrationText.setText(this.ghostChatLine(result.workedForLine));
       this.quietNarrationText = null;
+      this.quietNarrationTarget = "";
+      this.quietNarrationShown = 0;
     } else {
       if (this.quietTracker.consumeGapBeforeWorkedFor()) {
         this.addSectionGap();
@@ -2792,6 +2817,10 @@ export class ImpulseRenderer {
           }
           this.settleQuietWorkGroup();
         }
+        // Whitespace-only chunk with nothing streaming (models emit blank
+        // chunks between tool batches): creating the "impulse" header + an
+        // empty block here is what produced headerless gaps and empty labels.
+        if (!this.streamingText && !text.trim()) return;
         if (!this.streamBusyPhraseSet) {
           this.setBusyStatus("Responding ...", BUSY_PROCESSING);
           this.streamBusyPhraseSet = true;
