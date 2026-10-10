@@ -628,7 +628,7 @@ Describe what you are about to do ("review the auth module and its tests"). Emit
 
 <recap>overall goal, current task, one next action</recap>
 
-Write it the way you'd tell a colleague who stepped away from the keyboard: at most 40 words, one or two plain sentences, no markdown. Lead with the overall goal and the current task, then give exactly one next action. Say what changed and why it mattered, with concrete outcomes inside the sentence ("Fixed the wrap width so recaps stop truncating; next, dogfood the picker"). Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents. Never list tool names or commands back at the reader. Skip the recap line entirely when the turn used no tools.
+Write it the way you'd tell a colleague who stepped away from the keyboard: at most 40 words, one or two plain sentences, no markdown. Open with what the turn was about as a plain sentence ("The goal was setting up global rules on this machine."), then the current state, then exactly one next action. Never prefix labeled fields like "Goal:" or "Task:" — full sentences only. Say what changed and why it mattered, with concrete outcomes inside the sentence ("Fixed the wrap width so recaps stop truncating; next, dogfood the picker"). Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents. Never list tool names or commands back at the reader. Skip the recap line entirely when the turn used no tools.
 
 ## Citations
 

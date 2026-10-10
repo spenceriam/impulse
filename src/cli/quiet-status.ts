@@ -822,14 +822,16 @@ export class QuietWorkGroupTracker {
   /**
    * Feed the live reasoning stream so the narration can show WHAT is being
    * planned. Models that think via reasoning_content never emit the
-   * <intent> content marker during thinking, so the first words of the
-   * reasoning itself become the intent once enough has arrived. An explicit
-   * <intent> marker (setThinkingIntent) always overrides the derivation.
+   * <intent> content marker during thinking, so until the stream is long
+   * enough the first words of the reasoning become the intent; once it is,
+   * the narration shows a continuously-updating tail of the thinking itself
+   * (streaming display, like MiniMax Code). An explicit <intent> marker
+   * always overrides the derivation.
    */
   noteThinkingText(text: string): void {
     if (!this.group || this.group.settled) return;
-    if (this.group.thinkingIntent) return;
-    this.group.thinkingBuffer += text;
+    this.group.thinkingBuffer = (this.group.thinkingBuffer + text).slice(-400);
+    if (this.group.thinkingIntent || this.group.thinkingIntentFromMarker) return;
     const derived = deriveIntentFromThinking(this.group.thinkingBuffer);
     if (derived) {
       this.group.thinkingIntent = derived;
@@ -904,11 +906,22 @@ export class QuietWorkGroupTracker {
     if (!this.group) return "Continuing…";
     const elapsedMs = this.elapsedMs(nowMs);
     if (this.group.thinking || this.group.tools.length > 0) {
-      const label = formatQuietLiveStatus({
-        thinking: this.group.thinking,
-        thinkingIntent: this.group.thinkingIntent,
-        tools: this.group.tools,
-      });
+      let label: string;
+      if (this.group.thinking) {
+        const tail = rollingThinkingTail(this.group.thinkingBuffer);
+        label = tail
+          ? `Thinking … ${tail}`
+          : formatQuietLiveStatus({
+              thinking: this.group.thinking,
+              thinkingIntent: this.group.thinkingIntent,
+              tools: [],
+            });
+      } else {
+        label = formatQuietLiveStatus({
+          thinking: null,
+          tools: this.group.tools,
+        });
+      }
       // Remember the last real activity so the line lingers on it while the
       // model thinks/waits instead of blanking to a generic phrase.
       this.group.lastLabel = stripElapsed(label);
@@ -961,6 +974,19 @@ function withFailureMark(label: string, failedCount: number): string {
 /** Strip a trailing " (4s)" / " (340ms)" elapsed tick from a composed label. */
 function stripElapsed(label: string): string {
   return label.replace(/\s*\(\d+(?:\.\d+)?m?s\)$/, "");
+}
+
+/**
+ * Rolling tail of the live reasoning stream for the narration line —
+ * the thinking equivalent of streaming display: the line keeps updating
+ * with the newest words instead of freezing on the first sentence.
+ * Returns null until the buffer is long enough to roll.
+ */
+export function rollingThinkingTail(buffer: string): string | null {
+  const normalized = buffer.replace(/\s+/g, " ").trim();
+  if (normalized.length < 48) return null;
+  const tail = normalized.slice(-44).trimStart();
+  return tail;
 }
 
 /** Leading filler the reasoning stream opens with before the real intent. */
