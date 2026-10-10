@@ -1305,6 +1305,21 @@ export class ImpulseRenderer {
 
   private emitQuietRecapIfNeeded(): void {
     if (!this.isQuietMode() || !this.showRecap) return;
+
+    // Model-authored recap (from the <recap> envelope) wins; the
+    // event-sourced line is the fallback when the model sent none.
+    const modelRecap = this.modelRecapThisTurn?.trim();
+    if (modelRecap) {
+      const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
+      const rows = wrapQuietRecapLines(`Recap: ${modelRecap}`, width, 3);
+      this.addSectionGap();
+      for (const row of rows) {
+        this.addChatLine(clr.dim(row));
+      }
+      this.modelRecapThisTurn = null;
+      return;
+    }
+
     const events = this.quietRecapEvents;
     if (events.length === 0) return;
 
@@ -1748,6 +1763,8 @@ export class ImpulseRenderer {
   private steeringPreview: string | null = null;
   /** Quiet work-group tracker — single settle per contiguous group. */
   private quietTracker = new QuietWorkGroupTracker();
+  /** Model-authored recap captured this turn via the <recap> envelope. */
+  private modelRecapThisTurn: string | null = null;
   /** Event-sourced Recap inputs for the current turn. */
   private quietRecapEvents: QuietRecapEvent[] = [];
   private streamRenderScheduled = false;
@@ -2691,6 +2708,7 @@ export class ImpulseRenderer {
         this.currentTurnAssistantText = "";
         this.nextTurnSegmentSeparator = "\n\n";
         this.streamBusyPhraseSet = false;
+        this.modelRecapThisTurn = null;
         this.contextTokens = Math.max(
           this.contextTokens,
           this.estimateCurrentSessionTokens()
@@ -2753,6 +2771,9 @@ export class ImpulseRenderer {
         this.syncSteeringChrome();
         this.appendWorkerThinking(text);
         this.scheduleStreamRender();
+      },
+      onRecap: (text) => {
+        this.modelRecapThisTurn = text;
       },
       onAdvisorStart: (_model) => {
         this.setBusyStatus("", "Advisor consultation...");

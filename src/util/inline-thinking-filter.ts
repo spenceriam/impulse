@@ -17,7 +17,7 @@
  * stream-aware state machine, not a regex over complete text.
  */
 
-const OPEN_TAGS = ["think", "thinking", "reasoning"] as const;
+const DEFAULT_TAGS = ["think", "thinking", "reasoning"] as const;
 
 type State =
   | { mode: "text" }
@@ -26,35 +26,47 @@ type State =
 
 export type InlineThinkingChunk = {
   /** Prose for the content path (may be empty). */
-  content: string;
-  /** Suppressed envelope text for the thinking path (may be empty). */
-  thinking: string;
+  prose: string;
+  /** Text captured inside an envelope (may be empty). */
+  captured: string;
 };
 
 export class InlineThinkingFilter {
   private state: State = { mode: "text" };
+  private readonly tags: readonly string[];
 
-  /** Feed one content delta; get back split content/thinking text. */
+  /**
+   * @param tags envelope tag names to capture, without angle brackets
+   *        (default: think, thinking, reasoning). E.g. ["recap"] captures
+   *        <recap>…</recap> envelopes.
+   */
+  constructor(tags: readonly string[] = DEFAULT_TAGS) {
+    this.tags = tags;
+  }
+
+  /** Feed one content delta; get back prose and captured envelope text. */
   push(delta: string): InlineThinkingChunk {
-    if (!delta) return { content: "", thinking: "" };
+    if (!delta) return { prose: "", captured: "" };
 
-    let content = "";
-    let thinking = "";
+    let prose = "";
+    let captured = "";
     let rest = delta;
 
     while (rest.length > 0) {
       if (this.state.mode === "text") {
-        const open = findOpenTag(rest);
+        const open = this.findOpenTag(rest);
         if (open.index >= 0) {
-          content += rest.slice(0, open.index);
+          prose += rest.slice(0, open.index);
           this.state = { mode: "inside", tag: open.tag, closePartial: "" };
           rest = rest.slice(open.index + open.tag.length + 2);
         } else {
           // Buffer a trailing partial-tag tail (e.g. "<th") until the next
           // delta resolves it. Only ever delays a few characters; if it never
           // becomes a tag, flush() or the next maybe-open pass emits it.
-          const tail = partialTail(rest, (t) => OPEN_TAGS.some((tag) => `<${tag}`.startsWith(t)));
-          content += rest.slice(0, rest.length - tail.length);
+          const tail = partialTail(rest, (t) =>
+            this.tags.some((tag) => `<${tag}`.startsWith(t))
+          );
+          prose += rest.slice(0, rest.length - tail.length);
           if (tail.length > 0) this.state = { mode: "maybe-open", partial: tail };
           rest = "";
         }
@@ -63,7 +75,7 @@ export class InlineThinkingFilter {
 
       if (this.state.mode === "maybe-open") {
         const combined = this.state.partial + rest;
-        const open = findOpenTag(combined);
+        const open = this.findOpenTag(combined);
         if (open.index === 0) {
           this.state = { mode: "inside", tag: open.tag, closePartial: "" };
           rest = combined.slice(open.tag.length + 2);
@@ -81,52 +93,51 @@ export class InlineThinkingFilter {
       const haystack = this.state.closePartial + rest;
       const closeIdx = haystack.indexOf(closeTag);
       if (closeIdx >= 0) {
-        thinking += haystack.slice(0, closeIdx);
+        captured += haystack.slice(0, closeIdx);
         this.state = { mode: "text" };
         rest = haystack.slice(closeIdx + closeTag.length);
       } else {
         const tail = partialTail(haystack, (t) => closeTag.startsWith(t));
-        thinking += haystack.slice(0, haystack.length - tail.length);
+        captured += haystack.slice(0, haystack.length - tail.length);
         this.state = { mode: "inside", tag: this.state.tag, closePartial: tail };
         rest = "";
       }
     }
 
-    return { content, thinking };
+    return { prose, captured };
   }
 
   /**
    * Flush at stream end. A buffered maybe-open partial was never a tag —
    * emit it as prose. An unclosed envelope's buffered close-partial belongs
-   * to the thinking side.
+   * to the captured side.
    */
   flush(): InlineThinkingChunk {
     if (this.state.mode === "maybe-open") {
       const partial = this.state.partial;
       this.state = { mode: "text" };
-      return { content: partial, thinking: "" };
+      return { prose: partial, captured: "" };
     }
     if (this.state.mode === "inside") {
       const partial = this.state.closePartial;
       this.state = { mode: "text" };
-      return { content: "", thinking: partial };
+      return { prose: "", captured: partial };
     }
-    return { content: "", thinking: "" };
+    return { prose: "", captured: "" };
   }
-}
 
-/** Find the earliest complete opening tag in text. */
-function findOpenTag(text: string): { index: number; tag: string } {
-  let best = -1;
-  let bestTag = "";
-  for (const tag of OPEN_TAGS) {
-    const idx = text.indexOf(`<${tag}>`);
-    if (idx >= 0 && (best < 0 || idx < best)) {
-      best = idx;
-      bestTag = tag;
+  private findOpenTag(text: string): { index: number; tag: string } {
+    let best = -1;
+    let bestTag = "";
+    for (const tag of this.tags) {
+      const idx = text.indexOf(`<${tag}>`);
+      if (idx >= 0 && (best < 0 || idx < best)) {
+        best = idx;
+        bestTag = tag;
+      }
     }
+    return { index: best, tag: bestTag };
   }
-  return { index: best, tag: bestTag };
 }
 
 /**

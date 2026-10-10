@@ -154,6 +154,12 @@ export interface LoopEvents {
   onToken(text: string): void;
   /** Streaming thinking/reasoning token from the worker model */
   onThinking(text: string): void;
+  /**
+   * Model-authored turn recap captured from a `<recap>…</recap>` envelope in
+   * the final content (Quiet chat density). Rendered instead of the
+   * event-sourced recap when present.
+   */
+  onRecap?: (text: string) => void;
   /** Advisor model is being consulted — streams its response */
   onAdvisorStart(model: string): void;
   onAdvisorToken(text: string): void;
@@ -661,6 +667,11 @@ export class AgentLoop {
         // reasoning_content. Re-route those envelopes to the thinking path so
         // tags never render and Quiet work groups stay intact.
         const inlineThinking = new InlineThinkingFilter();
+        // The system prompt asks the model to close tool turns with a
+        // human-language <recap>…</recap> envelope; capture it separately so
+        // it never renders as prose and can be shown as the Recap line.
+        const recapFilter = new InlineThinkingFilter(["recap"]);
+        let accumulatedRecap = "";
 
         const closeThinkingPhase = () => {
           if (thinkingPhaseStartedAt === null) return;
@@ -708,8 +719,13 @@ export class AgentLoop {
           // Text token
           if (delta.content) {
             const split = inlineThinking.push(delta.content);
-            if (split.thinking) emitThinkingToken(split.thinking);
-            if (split.content) emitContentToken(split.content);
+            if (split.captured) emitThinkingToken(split.captured);
+            const recapSplit = recapFilter.push(split.prose);
+            if (recapSplit.captured) {
+              accumulatedRecap += recapSplit.captured;
+              events.onRecap?.(accumulatedRecap);
+            }
+            if (recapSplit.prose) emitContentToken(recapSplit.prose);
           }
 
           // Thinking token
@@ -733,8 +749,14 @@ export class AgentLoop {
 
         // Stream ended — release any buffered partial-tag text.
         const flushed = inlineThinking.flush();
-        if (flushed.thinking) emitThinkingToken(flushed.thinking);
-        if (flushed.content) emitContentToken(flushed.content);
+        if (flushed.captured) emitThinkingToken(flushed.captured);
+        if (flushed.prose) emitContentToken(flushed.prose);
+        const recapFlushed = recapFilter.flush();
+        if (recapFlushed.captured) {
+          accumulatedRecap += recapFlushed.captured;
+          events.onRecap?.(accumulatedRecap);
+        }
+        if (recapFlushed.prose) emitContentToken(recapFlushed.prose);
 
         abortIterationText = accumulatedText;
         if (signal.aborted) break;
@@ -751,6 +773,7 @@ export class AgentLoop {
         const assistantMsg: Message = {
           role: "assistant",
           content: accumulatedText,
+          ...(accumulatedRecap ? { recap: accumulatedRecap } : {}),
           ...(accumulatedThinking
             ? {
                 reasoning_content: accumulatedThinking,

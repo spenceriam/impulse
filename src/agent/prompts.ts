@@ -616,6 +616,14 @@ Advisor output is ADVISORY — trust-but-verify against code and logs.`);
   // Add mode switch instructions for all modes (intelligent transitions)
   parts.push(getPrompt("core", "mode-switch", MODE_SWITCH_INSTRUCTIONS));
 
+  parts.push(`## Turn recap
+
+When a turn used tools, end your reply with one final line of the form:
+
+<recap>overall goal, current task, one next action</recap>
+
+Write it the way you'd tell a colleague who stepped away from the keyboard: at most 40 words, one or two plain sentences, no markdown. Lead with the overall goal and the current task, then give exactly one next action. Say what changed and why it mattered, with concrete outcomes inside the sentence ("Fixed the wrap width so recaps stop truncating; next, dogfood the picker"). Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents. Never list tool names or commands back at the reader. Skip the recap line entirely when the turn used no tools.`);
+
   // Add subagent delegation instructions for all modes except EXPLORE.
   // In planning modes, task is restricted to explore subagents only.
   if (mode !== "EXPLORE") {
