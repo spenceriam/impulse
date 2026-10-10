@@ -38,8 +38,8 @@ describe("model picker manual entry rows (#159)", () => {
   });
 });
 
-describe("model picker context/output columns (#159)", () => {
-  test("picker cell shows context and output cap when both known", () => {
+describe("model picker context column (#159)", () => {
+  test("picker cell shows context window only — output caps stay internal", () => {
     const cells = modelInfoToTableCells({
       id: "MiniMax-M3",
       vendor: "MiniMax",
@@ -47,7 +47,7 @@ describe("model picker context/output columns (#159)", () => {
       contextTokens: 1_000_000,
       maxOutputTokens: 524_288,
     } as ModelInfo);
-    expect(cells.mode).toBe("1m · 524k out");
+    expect(cells.mode).toBe("1m");
   });
 
   test("picker cell shows context alone when output unknown", () => {

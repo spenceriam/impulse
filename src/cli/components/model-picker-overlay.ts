@@ -14,7 +14,7 @@ import {
   formatModelDate,
   type ModelInfo,
 } from "../model-catalog.js";
-import { modelSupportsVisionCached, getModelMaxOutputTokens } from "../../api/capabilities.js";
+import { modelSupportsVisionCached } from "../../api/capabilities.js";
 import {
   SelectableListOverlay,
   type SelectableListRow,
@@ -61,14 +61,8 @@ export function modelInfoToTableCells(info: ModelInfo): {
   updated: string;
 } {
   const title = `${info.vendor}/${info.displayName} (${info.id})`;
-  const ctx = info.contextTokens != null ? formatContextK(info.contextTokens) : "—";
-  // Show both windows when the output cap is known — context and output caps
-  // differ (e.g. MiniMax-M3: 1M context, 512Ki max output) and the picker
-  // lying by omission made the API-side limit invisible (#159).
   const mode =
-    info.maxOutputTokens != null && info.maxOutputTokens > 0
-      ? `${ctx} · ${formatContextK(info.maxOutputTokens)} out`
-      : ctx;
+    info.contextTokens != null ? formatContextK(info.contextTokens) : "—";
   const updated = info.addedAt ? formatModelDate(info.addedAt) : "—";
   return { title, mode, model: "", updated };
 }
@@ -172,22 +166,13 @@ export async function buildModelPickerState(
       ? infos.filter((i) => modelSupportsVisionCached(i.id))
       : infos;
 
-  /** API-learned output caps override catalog numbers. */
-  const overlayLearnedCaps = (infos: ModelInfo[]): ModelInfo[] =>
-    infos.map((i) => {
-      const learned = getModelMaxOutputTokens(i.id);
-      return learned && learned !== i.maxOutputTokens
-        ? { ...i, maxOutputTokens: learned }
-        : i;
-    });
-
   const overlay = new SelectableListOverlay({
     title: opts?.title ?? (opts?.visionOnly ? "Switch vision model" : "Switch model"),
     rows: flatRows(
       entries.map((e) => ({
         providerKey: e.providerKey,
         label: e.label,
-        infos: overlayLearnedCaps(filterVision(e.infos)),
+        infos: filterVision(e.infos),
       }))
     ),
     loading: entries.some((e) => e.loading),
@@ -234,7 +219,7 @@ export async function buildModelPickerState(
         entries.map((e) => ({
           providerKey: e.providerKey,
           label: e.label,
-          infos: overlayLearnedCaps(filterVision(e.infos)),
+          infos: filterVision(e.infos),
         }))
       );
       const stillLoading = entries.some((e) => e.loading);
