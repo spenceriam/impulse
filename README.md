@@ -13,8 +13,9 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 
 - **Custom provider support** — Any OpenAI-compatible or Anthropic-compatible endpoint. Unlimited custom providers with automatic model discovery, reasoning capability probing, and persistent configuration
 - **4 Modes** — AGENT (default), EXPLORE, PLAN, DEBUG (Tab to cycle)
+- **Quiet chat density (default)** — One live narration line per work group (`Reading quiet-status.ts… (3s)`) settles to a single `Worked for …`, then the reply; a dim `Recap:` closes tool turns with what changed and one next step. Failed tools break Quiet and show the real tool row. `/verbose` restores the full tool stream; `/settings` → Chat feel persists the choice
+- **Mid-turn steer / queue** — Enter while the agent works **redirects the live turn** (default); `Alt+Enter` submits the inverse (queues under Redirect-default), `/queue <text>` one-shot enqueues, and `/settings` can flip the default to queue
 - **Shell commands** — `! ls` or `!ls` runs a command and shows output in the chat history (each run is its own block); `@ <question>` asks the agent to interpret the last shell output with full session context
-- **Mid-turn queue** — Messages sent while the agent is working are queued above the prompt; press `↑` on an empty input to edit the next queued message
 - **Turn steering** — `/steer <instruction>` redirects the current turn at the next tool step; `/side <question>` opens an isolated side prompt overlay while the main agent works
 - **Graceful exit** — `/exit` shows the impulse logo, thanks you, then labeled resume hints: `impulse --resume <id>` from the terminal vs `/resume` when impulse is already running (do not paste both)
 - **Startup splash** — GEN-tiny logo and provider/model lines before the TUI; 3s delay skippable with any key
@@ -22,7 +23,7 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 - **Images** — Attachments appear as `[Pasted image #N]` in chat and tool output
 - **Chat view** — `/clear` hides the on-screen transcript while session history stays on disk and in context; `/show` restores the view from the saved session
 - **Markdown tables** — Inline `**bold**` in cells, row separators, wrapped wide rows; stable layout while streaming
-- **Turn status** — Busy line shows `Processing...` during model/thinking/vision work and `Working...` during tool runs
+- **Turn status** — Quiet mode narrates work inline; the composer line shows generic states (`Working…`, `Waiting for model…`)
 - **Allow-all** — `/allow-all` bypasses permission prompts for the current session only (disclaimer required; not restored on `/new` or `/resume`)
 - **Advisor mode (experimental)** — Enable via `/experimental`, then `/advisor`; plan/approve/execute with embedded plan markdown
 - **Web research** — Built-in `web_search` and `web_fetch` with bundled `agent-browser` fallback
@@ -127,6 +128,12 @@ While a shell command is running, **Esc twice** or **Ctrl+C** cancels it (chat s
 | `/resume` | Resume a saved session (picker) |
 | `/clear` | Clear the on-screen chat view only (session history preserved) |
 | `/show` | Restore the chat view from session history |
+| `/settings` | Preferences overlay — Chat feel (density, mid-turn submit, Recap), thinking, communication style |
+| `/quiet` | Quiet chat density (default): narration line + `Worked for` + Recap |
+| `/verbose` | Verbose chat density: full tool-calling stream |
+| `/queue` | `/queue <text>` one-shot enqueue for after the active turn |
+| `/compact` | Manual context compaction |
+| `/usage` | Session token usage; full stats block when stats-on-exit is enabled |
 | `/help` | Scrollable command reference (↑↓ / PgUp/PgDn when the list overflows) |
 | `/quit` | End impulse (alias `/exit`) |
 | `/exit` | End impulse (alias `/quit`) |
@@ -145,7 +152,9 @@ After enabling **Advisor** in `/experimental`, these commands also appear in hel
 | `Shift+Tab` | Cycle reasoning level (ignored while typing a `/command`) |
 | `↑` | Recall previous prompt; while the agent is working and the queue is non-empty, edit the next queued message |
 | `↓` | Clear the prompt input |
-| `Enter` | Submit |
+| `Enter` | Submit; mid-turn steers the live turn (default — `/settings` can flip to queue) |
+| `Shift+Enter` | Line break in input |
+| `Alt+Enter` | Mid-turn: inverse of the default — queues under Redirect, steers under Queue |
 | `Esc` (2x) | Abort current agent turn, or cancel a running `!` shell command |
 | `Ctrl+C` (2x) | Cancel shell command while running; exit when idle |
 | `Ctrl+D` | Exit |
@@ -176,6 +185,9 @@ Config file: `~/.impulse/config.json` (migrates from `~/.config/impulse` on firs
   "defaultProvider": "ollama",
   "defaultModel": "ollama/deepseek-v4-pro",
   "defaultMode": "AGENT",
+  "chatDensity": "quiet",
+  "midTurnSubmit": "redirect",
+  "showRecap": true,
   "reasoningLevel": "medium",
   "visionModel": "openrouter/qwen/qwen2.5-vl-72b-instruct",
   "visionProvider": "openrouter",
