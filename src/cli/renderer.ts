@@ -1362,7 +1362,12 @@ export class ImpulseRenderer {
   private settleQuietWorkGroup(): boolean {
     const result = this.quietTracker.settle();
     if (!result) {
-      this.quietNarrationText = null;
+      // Nothing to narrate (pure latency / empty group): remove the live
+      // line entirely — an orphaned 'Continuing (1s)' must not persist.
+      if (this.quietNarrationText) {
+        this.chat.removeChild(this.quietNarrationText);
+        this.quietNarrationText = null;
+      }
       return false;
     }
     // Harden the in-place narration line; print fresh when none exists.
@@ -2806,11 +2811,11 @@ export class ImpulseRenderer {
         });
         this.updateLiveMetrics(0, true);
         if (this.isQuietMode()) {
-          this.quietTracker.ensure();
           // Composer keeps a generic stateful phrase; narration goes to the
-          // scrollback line.
+          // scrollback line — created at FIRST ACTIVITY, not at turn start
+          // (a latency-only group has nothing to narrate and must not leave
+          // an orphaned 'Continuing' line behind).
           this.setBusyStatus("Working…", BUSY_PROCESSING);
-          this.ensureQuietNarration();
         } else {
           this.setBusyStatus("Thinking …", BUSY_PROCESSING);
         }
