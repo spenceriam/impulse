@@ -34,6 +34,9 @@ export const isAbortKey = (data: string): boolean => isEscape(data) || isCtrlC(d
 export const isTab = (data: string): boolean => match(data, "tab");
 export const isShiftTab = (data: string): boolean => match(data, "shift+tab");
 
+/** Alt+Enter — legacy `\x1b\r` and kitty CSI-u; unlike Ctrl+Enter, portable. */
+export const isAltEnter = (data: string): boolean => match(data, "alt+enter");
+
 export const isUp = (data: string): boolean => match(data, "up");
 export const isDown = (data: string): boolean => match(data, "down");
 export const isLeft = (data: string): boolean => match(data, "left");

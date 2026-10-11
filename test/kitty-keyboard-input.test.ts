@@ -6,6 +6,7 @@ import { PromptInput } from "../src/cli/prompt-input.js";
 import { isShellTakeoverChord } from "../src/cli/shell-shortcuts.js";
 import {
   isAbortKey,
+  isAltEnter,
   isBackspace,
   isCtrlC,
   isDelete,
@@ -86,6 +87,17 @@ describe("key helpers — kitty CSI-u encodings", () => {
     expect(isTab("\x1b[9;2u")).toBe(false);
     expect(isSpace("\x1b[32u")).toBe(true);
     expect(isBackspace("\x1b[127u")).toBe(true);
+  });
+
+  test("alt+enter across legacy and kitty encodings", () => {
+    expect(isAltEnter("\x1b\r")).toBe(true); // legacy ESC+CR
+    expect(isAltEnter("\x1b[13;3u")).toBe(true); // kitty alt modifier
+    expect(isAltEnter("\x1b[13;131u")).toBe(true); // alt + num lock
+    expect(isAltEnter("\r")).toBe(false); // plain enter
+    expect(isAltEnter("\x1b[13u")).toBe(false); // kitty plain enter
+    expect(isAltEnter("\x1b[13;2u")).toBe(false); // shift+enter
+    expect(isAltEnter("\x1b[13;5u")).toBe(false); // ctrl+enter
+    expect(isAltEnter("\x1b[13;3:3u")).toBe(false); // release event
   });
 
   test("kitty release events are ignored", () => {

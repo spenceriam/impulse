@@ -28,6 +28,7 @@ import type { EditorTheme } from "@mariozechner/pi-tui";
 import { z } from "zod";
 import { spawn } from "child_process";
 import {
+  isAltEnter,
   isBackspace,
   isDown,
   isEnter,
@@ -2268,6 +2269,30 @@ export class ImpulseRenderer {
         return { consume: true };
       }
       return undefined;
+    });
+
+    // Alt+Enter submits the prompt with the INVERSE of the mid-turn default:
+    // redirect-default → queue this message; queue-default → steer the live
+    // turn. Portable across terminals (legacy `\x1b\r` + kitty CSI-u) where
+    // Ctrl+Enter is indistinguishable from plain Enter.
+    this.tui.addInputListener((data) => {
+      if (!isAltEnter(data)) return undefined;
+      if (!this.promptInput.focused) return undefined; // overlays own the keys
+      const payload = this.promptInput.getSubmitPayload();
+      if (!this.isNonemptySubmitPayload(payload)) return { consume: true };
+      this.promptInput.clear();
+      if (this.isRunning) {
+        if (this.midTurnSubmit === "queue") {
+          this.redirectLiveTurn(payload.apiText);
+        } else {
+          this.enqueueTurn(payload);
+          this.addChatLine(clr.dim("Queued for after this turn"));
+          this.tui.requestRender();
+        }
+        return { consume: true };
+      }
+      void this.onSubmit(payload);
+      return { consume: true };
     });
 
     ensurePiTuiDebugRedrawDir();

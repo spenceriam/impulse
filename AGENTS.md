@@ -945,6 +945,7 @@ Hidden power-user: `/copy`, `/debug`, `/side` (and `/side --history`), `/advisor
 | `Shift+Tab` | Cycle mode reverse (reasoning depth in `/settings`; Allow All Edits in permission prompt) |
 | `Enter` | Submit / Select |
 | `Shift+Enter` | Line break in input |
+| `Alt+Enter` | Mid-turn: inverse of the default — queues under Redirect, steers under Queue |
 | `↑` | Prompt history; edit queued message head when prompt empty |
 | `Esc` | Cancel turn / close overlay; clears queue head when prompt empty |
 | `Ctrl+C` (2x) | Exit with summary when idle |
@@ -1075,7 +1076,7 @@ This ensures:
 
 ### Turn control (cancel / steer / nudges)
 - **Esc cancel** persists an interruption marker plus synthetic `Cancelled by user.` tool results for dangling `tool_calls` — the model must not "resume" a cancelled flow unless asked
-- **Mid-turn Enter** defaults to **Redirect/steer** (`midTurnSubmit: redirect`); injects at the next tool-loop boundary (same path as `/steer`). Settings: Redirect live turn vs Queue until free. `/queue <text>` one-shot enqueue under Redirect-default. Multiple steers before the next tool step **replace** pending (not stack). Idle Enter unchanged.
+- **Mid-turn Enter** defaults to **Redirect/steer** (`midTurnSubmit: redirect`); injects at the next tool-loop boundary (same path as `/steer`). Settings: Redirect live turn vs Queue until free. `/queue <text>` one-shot enqueue under Redirect-default. **Alt+Enter** submits with the inverse of the default (queues under Redirect, steers under Queue) — portable legacy `\x1b\r` + kitty CSI-u, where Ctrl+Enter is indistinguishable from Enter. Multiple steers before the next tool step **replace** pending (not stack). Idle Enter unchanged.
 - **`/steer`** injects at the next tool-loop boundary (not instantly); pending steer suppresses planning and allow-all nudges for that iteration
 - **Loop nudges defer to the user** — both planning and allow-all messages end with "follow the user's message" on conflict
 - **Progress-aware counters** — real `todo_write` updates (`Todo list updated.`) do not count as todo-only replanning; duplicate bash no longer triggers the planning nudge (inline repeat notes handle that)
