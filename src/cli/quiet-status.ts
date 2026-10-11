@@ -5,7 +5,7 @@
  */
 
 import path from "path";
-import { wrapTextWithAnsi, truncateToWidth } from "@mariozechner/pi-tui";
+import { wrapTextWithAnsi, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 export type QuietToolOutcome = "success" | "failed" | "blocked" | "aborted";
 
@@ -195,6 +195,46 @@ export function quietThinkingPhrase(_kind: "assessing" | "planning"): string {
 }
 
 /**
+ * Visible-width truncation for ANSI-free strings (quiet labels are built
+ * from plain text). pi-tui's truncateToWidth appends `\x1b[0m` resets and
+ * its own "..." — invisible width overhead plus a double ellipsis when we
+ * add our `…` — so the fitter walks codepoints itself (wide-char safe).
+ */
+function truncatePlain(text: string, maxVisible: number): string {
+  if (visibleWidth(text) <= maxVisible) return text;
+  let out = "";
+  let w = 0;
+  for (const ch of text) {
+    const cw = visibleWidth(ch);
+    if (w + cw > maxVisible) break;
+    out += ch;
+    w += cw;
+  }
+  return out;
+}
+
+/**
+ * Fit a live narration line to the terminal: truncate the LABEL with `…`
+ * and always preserve the trailing suffix (` (1 min 24s, 2 failed)`).
+ * The suffix is measured per render — it grows on minute rollover and when
+ * failures join — so the reserve is never a constant. Extremely narrow
+ * widths degrade to suffix-only rather than overflowing (#161).
+ */
+export function fitQuietLiveLine(
+  label: string,
+  suffix: string,
+  availableWidth: number
+): string {
+  const avail = Math.max(8, availableWidth);
+  if (visibleWidth(`${label}${suffix}`) <= avail) return `${label}${suffix}`;
+  const labelBudget = avail - visibleWidth(suffix);
+  if (labelBudget >= 8) {
+    return `${truncatePlain(label, labelBudget - 1)}…${suffix}`;
+  }
+  return truncatePlain(suffix.trimStart(), avail);
+}
+
+/**
  * Live narration for a Quiet work group.
  * Deliberate plain language — no symbol noise (no ellipses, no glyph marks):
  * "Reading quiet-status.ts (4s, +2 parallel)", "Planning to review the
@@ -206,6 +246,8 @@ export function formatQuietLiveStatus(opts: {
   tools: QuietInflightTool[];
   elapsedMs?: number;
   failedCount?: number;
+  /** Terminal width the line may span; undefined = no truncation. */
+  availableWidth?: number;
 }): string {
   const parts: string[] = [];
   if (opts.elapsedMs !== undefined) {
@@ -215,6 +257,13 @@ export function formatQuietLiveStatus(opts: {
   if ((opts.failedCount ?? 0) > 0) {
     parts.push(`${opts.failedCount} failed`);
   }
+  const fit = (label: string, suffixParts: string[]): string => {
+    if (opts.availableWidth === undefined) {
+      return suffixParts.length > 0 ? `${label} (${suffixParts.join(", ")})` : label;
+    }
+    const suffix = suffixParts.length > 0 ? ` (${suffixParts.join(", ")})` : "";
+    return fitQuietLiveLine(label, suffix, opts.availableWidth);
+  };
   const running = opts.tools;
   if (running.length > 0) {
     const first = running[0]!;
@@ -223,7 +272,7 @@ export function formatQuietLiveStatus(opts: {
     const extra = running.length - 1;
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
     const label = arg ? `${verb} ${arg}` : verb;
-    return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
+    return fit(label, parts);
   }
   if (opts.thinking) {
     let clause = opts.thinkingIntent?.trim() ?? "";
@@ -241,10 +290,9 @@ export function formatQuietLiveStatus(opts: {
     } else {
       label = quietThinkingPhrase(opts.thinking);
     }
-    return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
+    return fit(label, parts);
   }
-  const label = "Continuing";
-  return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
+  return fit("Continuing", parts);
 }
 
 /**
@@ -921,34 +969,42 @@ export class QuietWorkGroupTracker {
     return this.group?.tools.find((t) => t.id === id)?.arg;
   }
 
-  liveStatus(nowMs: number = Date.now(), _availableWidth: number = 120): string {
+  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string {
     if (!this.group) return "Continuing";
     const elapsedMs = this.elapsedMs(nowMs);
     const failed = this.group.failedCount;
     const parts: string[] = [formatDuration(elapsedMs)];
     if (failed > 0) parts.push(`${failed} failed`);
+    const suffix = ` (${parts.join(", ")})`;
 
     if (this.group.thinking) {
       // Trace stays hidden (impossible to read at stream speed) and derived
       // activity labels churn too much mid-derivation — the live line shows
       // plain "Thinking" with the elapsed tick. /show-think covers traces.
       this.group.lastLabel = "Thinking";
-      return `Thinking (${parts.join(", ")})`;
+      return fitQuietLiveLine("Thinking", suffix, availableWidth);
     }
     if (this.group.tools.length > 0) {
-      const label = formatQuietLiveStatus({
+      // Linger label must stay UNtruncated so later ticks re-fit against the
+      // growing suffix instead of baking in a `…` from an earlier width.
+      const unfitted = formatQuietLiveStatus({
         thinking: null,
         tools: this.group.tools,
         elapsedMs,
         failedCount: failed,
       });
-      // Linger on the activity without its frozen elapsed tick.
-      this.group.lastLabel = stripElapsed(label);
-      return label;
+      this.group.lastLabel = stripElapsed(unfitted);
+      return formatQuietLiveStatus({
+        thinking: null,
+        tools: this.group.tools,
+        elapsedMs,
+        failedCount: failed,
+        availableWidth,
+      });
     }
     // Nothing running: linger on the last activity label.
     const label = this.group.lastLabel ?? "Continuing";
-    return `${label} (${parts.join(", ")})`;
+    return fitQuietLiveLine(label, suffix, availableWidth);
   }
 
   /**
