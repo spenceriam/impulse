@@ -1297,6 +1297,28 @@ export class ImpulseRenderer {
    *  Updates ride the busy-status shimmer cycle — never its own timer. */
   private quietNarrationText: Text | null = null;
 
+  /**
+   * Layout debugging (#153): IMPULSE_DEBUG_LAYOUT=1 appends every chat-row
+   * mutation to ~/.impulse/debug/layout.log with the live column count —
+   * pinpoints stray blank rows and stale terminal widths with evidence.
+   */
+  private get layoutDebugEnabled(): boolean {
+    return process.env["IMPULSE_DEBUG_LAYOUT"] === "1";
+  }
+
+  private layoutDebug(event: string, detail = ""): void {
+    if (!this.layoutDebugEnabled) return;
+    try {
+      const dir = path.join(Global.Path.data, "debug");
+      fs.mkdirSync(dir, { recursive: true });
+      const cols = this.tui?.terminal?.columns ?? this.terminal.columns ?? 0;
+      const line = `[${new Date().toISOString()}] cols=${cols} ${event}${detail ? ` ${detail}` : ""}\n`;
+      fs.appendFileSync(path.join(dir, "layout.log"), line);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   /** Render a one-row ghost line (dim+italic) inside the chat gutters. */
   private ghostChatLine(text: string): string {
     return gutterContent(truncateGutterLine(ghost(text), this.terminal.columns), this.terminal.columns);
@@ -1316,6 +1338,7 @@ export class ImpulseRenderer {
     );
     this.chat.addChild(this.quietNarrationText);
     this.hasTrailingGap = false;
+    this.layoutDebug("+NARRATION", this.quietTracker.liveStatus().slice(0, 60));
     // Ticking happens on the existing busy-status repaint cycle (see
     // updateQuietNarration) — no second timer racing overlays.
   }
@@ -1341,6 +1364,7 @@ export class ImpulseRenderer {
     if (this.quietNarrationText) {
       this.quietNarrationText.setText(this.ghostChatLine(result.workedForLine));
       this.quietNarrationText = null;
+      this.layoutDebug("HARDEN", result.workedForLine.slice(0, 60));
     } else {
       if (this.quietTracker.consumeGapBeforeWorkedFor()) {
         this.addSectionGap();
@@ -2799,7 +2823,10 @@ export class ImpulseRenderer {
         // Whitespace-only chunk with nothing streaming (models emit blank
         // chunks between tool batches): creating the "impulse" header + an
         // empty block here is what produced headerless gaps and empty labels.
-        if (!this.streamingText && !text.trim()) return;
+        if (!this.streamingText && !text.trim()) {
+          this.layoutDebug("SKIP_WS_CHUNK", JSON.stringify(text.slice(0, 20)));
+          return;
+        }
         if (!this.streamBusyPhraseSet) {
           this.setBusyStatus("Responding …", BUSY_PROCESSING);
           this.streamBusyPhraseSet = true;
@@ -2814,11 +2841,13 @@ export class ImpulseRenderer {
           if (!this.turnShowsImpulseHeader) {
             this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
             this.turnShowsImpulseHeader = true;
+            this.layoutDebug("+HEADER", "impulse");
           }
           this.hasTrailingGap = false;
           this.streamingText = new MarkdownTextBlock(GUTTER);
           this.chat.addChild(this.streamingText);
           this.hasTrailingGap = false;
+          this.layoutDebug("+STREAMBLOCK");
         }
         this.streamingRaw = nextStreamingRaw;
         this.streamingText.setText(this.streamingRaw);
@@ -3258,6 +3287,7 @@ export class ImpulseRenderer {
     const lines = wrapGutterLines(text, this.terminal.columns);
     for (const line of lines) {
       this.chat.addChild(new Text(line, 0, 0));
+      this.layoutDebug("+LINE", line.slice(0, 60));
     }
     this.hasTrailingGap = false;
     this.lastBandWasTool = false;
@@ -3268,25 +3298,30 @@ export class ImpulseRenderer {
     // Normalize to exactly ONE trailing blank — stacked Spacers from
     // freeze/settle/narration sequences are what produced the huge post-tool
     // gap in dogfood (#153 round 3).
-    this.pruneTrailingSpacers();
+    const pruned = this.pruneTrailingSpacers();
+    if (pruned > 0) this.layoutDebug("PRUNE", `${pruned} spacers`);
     this.hasTrailingGap = false;
     const spacer = new Spacer(1);
     this.chat.addChild(spacer);
     this.hasTrailingGap = true;
+    this.layoutDebug("+SPACER");
     return spacer;
   }
 
   /** Drop consecutive trailing blank rows so gaps never stack. */
-  private pruneTrailingSpacers(): void {
+  private pruneTrailingSpacers(): number {
+    let removed = 0;
     const children = this.chat.children;
     for (let i = children.length - 1; i >= 0; i--) {
       const child = children[i]!;
       if (child instanceof Spacer) {
         this.chat.removeChild(child);
+        removed++;
         continue;
       }
       break;
     }
+    return removed;
   }
 
   /** Block agent loop until user approves or declines advisor plan */
@@ -3508,6 +3543,7 @@ export class ImpulseRenderer {
     if (!this.streamingText) return;
     this.streamingText.setText(split.frozen);
     this.appendAssistantTurnSegment(split.frozen);
+    this.layoutDebug("FREEZE", `${split.kind} frozen=${split.frozen.length}ch`);
     if (split.kind === "paragraph") {
       this.addSectionGap();
     } else {
