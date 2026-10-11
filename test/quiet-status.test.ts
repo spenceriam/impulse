@@ -497,6 +497,17 @@ describe("quiet-status", () => {
     expect(rows).toEqual(["Recap: read AGENTS.md ✓"]);
   });
 
+  test("Recap hard newlines collapse instead of stranding fragments", () => {
+    const rows = wrapQuietRecapLines(
+      "Recap: mapped revival paths ranked by cost, honest limits, and the\ncurrent legal position.",
+      120,
+      3
+    );
+    expect(rows).toEqual([
+      "Recap: mapped revival paths ranked by cost, honest limits, and the current legal position.",
+    ]);
+  });
+
   test("shortQuietArg ls root stays '.' (not cwd basename mush)", () => {
     expect(shortQuietArg("ls", {})).toBe(".");
     expect(shortQuietArg("ls", { path: "." })).toBe(".");

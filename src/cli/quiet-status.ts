@@ -716,7 +716,11 @@ export function wrapQuietRecapLines(
   maxLines = 3
 ): string[] {
   const avail = Math.max(8, width);
-  const wrapped = wrapTextWithAnsi(recapLine, avail);
+  // Model-authored recaps may carry hard newlines; the Recap is one flowing
+  // paragraph, so collapse them — otherwise the wrapper strands fragments
+  // ("and the" alone on a row).
+  const flat = recapLine.replace(/\s*\n\s*/g, " ");
+  const wrapped = wrapTextWithAnsi(flat, avail);
   if (wrapped.length === 0) return [];
   if (wrapped.length <= maxLines) return wrapped;
 
