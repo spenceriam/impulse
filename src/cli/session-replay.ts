@@ -65,11 +65,16 @@ function stripLegacyThinkTags(text: string): string {
 }
 
 /** Index tool result rows by tool_call_id for post-rework sessions. */
-export function indexToolResults(messages: Message[]): Map<string, { content: string }> {
-  const map = new Map<string, { content: string }>();
+export function indexToolResults(
+  messages: Message[]
+): Map<string, { content: string; durationMs?: number }> {
+  const map = new Map<string, { content: string; durationMs?: number }>();
   for (const msg of messages) {
     if (!isToolRoleMessage(msg)) continue;
-    map.set(msg.tool_call_id, { content: msg.content ?? "" });
+    map.set(msg.tool_call_id, {
+      content: msg.content ?? "",
+      ...(typeof msg.durationMs === "number" ? { durationMs: msg.durationMs } : {}),
+    });
   }
   return map;
 }
@@ -96,7 +101,7 @@ function toolOutputFromSources(tcResult: ToolResult | undefined, toolMsgContent:
 
 function buildToolResult(
   tc: ToolCall,
-  toolResults: Map<string, { content: string }>
+  toolResults: Map<string, { content: string; durationMs?: number }>
 ): ReplayToolResult {
   const id = tc.id ?? "";
   const toolMsg = id ? toolResults.get(id) : undefined;
@@ -121,7 +126,7 @@ function findToolCall(msg: Message, toolCallId: string): ToolCall | undefined {
 function emitToolStep(
   steps: ReplayStep[],
   tc: ToolCall,
-  toolResults: Map<string, { content: string }>,
+  toolResults: Map<string, { content: string; durationMs?: number }>,
   quiet: boolean
 ): void {
   if (quiet) return; // Quiet replay shows Recap lines, never per-tool rows
@@ -135,7 +140,7 @@ function emitToolStep(
     name: tc.tool,
     args: tc.arguments ?? {},
     result,
-    durationMs: 0,
+    durationMs: (id ? toolResults.get(id)?.durationMs : undefined) ?? 0,
   });
 }
 
@@ -148,7 +153,7 @@ function emitRecapStep(steps: ReplayStep[], msg: Message, quiet: boolean): void 
 
 function replayAssistantFromContentBlocks(
   msg: Message,
-  toolResults: Map<string, { content: string }>,
+  toolResults: Map<string, { content: string; durationMs?: number }>,
   steps: ReplayStep[],
   quiet: boolean
 ): void {
@@ -176,7 +181,7 @@ function replayAssistantFromContentBlocks(
 function appendBlockStep(
   block: MessageContentBlock,
   msg: Message,
-  toolResults: Map<string, { content: string }>,
+  toolResults: Map<string, { content: string; durationMs?: number }>,
   steps: ReplayStep[],
   quiet: boolean
 ): void {
@@ -203,7 +208,7 @@ function appendBlockStep(
 
 function replayAssistantLinear(
   msg: Message,
-  toolResults: Map<string, { content: string }>,
+  toolResults: Map<string, { content: string; durationMs?: number }>,
   steps: ReplayStep[],
   quiet: boolean
 ): void {
@@ -230,7 +235,7 @@ function replayAssistantLinear(
 
 function replayAssistantMessage(
   msg: Message,
-  toolResults: Map<string, { content: string }>,
+  toolResults: Map<string, { content: string; durationMs?: number }>,
   steps: ReplayStep[],
   quiet: boolean
 ): void {

@@ -358,6 +358,9 @@ function wrapPrefixed(prefix: string, text: string, width: number): string[] {
 }
 
 function formatToolDuration(durationMs: number): string {
+  // Unknown timing (0 / undefined → 0 from replay) shows nothing — "[0ms]"
+  // read as a broken measurement, not a missing one.
+  if (!(durationMs > 0)) return "";
   return clr.duration(formatDurationBracketed(durationMs));
 }
 

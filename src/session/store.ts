@@ -89,6 +89,8 @@ export interface Message {
   reasoning_content?: string
   /** Wall-clock ms for the reasoning phase on this assistant message (UI replay). */
   thinking_duration_ms?: number
+  /** Wall-clock ms the tool ran (role "tool" messages; replay timing). */
+  durationMs?: number
   /** Model-authored turn recap captured from a <recap> envelope (Quiet density). */
   recap?: string
   content_blocks?: MessageContentBlock[]

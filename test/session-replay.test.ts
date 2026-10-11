@@ -41,6 +41,41 @@ describe("session replay", () => {
     expect(verbose.some((s) => s.type === "recap")).toBe(false);
   });
 
+  test("verbose replay carries persisted tool durations", () => {
+    const messages: Message[] = [
+      { role: "user", content: "go", timestamp: "2026-10-11T00:00:00.000Z" },
+      {
+        ...baseMsg,
+        content: "",
+        tool_calls: [
+          {
+            id: "tc9",
+            tool: "bash",
+            arguments: { command: "npm test" },
+            timestamp: "2026-10-11T00:00:01.000Z",
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: "tests pass",
+        tool_call_id: "tc9",
+        durationMs: 3200,
+        timestamp: "2026-10-11T00:00:04.000Z",
+      },
+    ];
+    const steps = buildReplaySteps(messages);
+    const tool = steps.find((s) => s.type === "tool");
+    expect(tool && "durationMs" in tool ? tool.durationMs : 0).toBe(3200);
+    // No duration persisted (legacy session) → 0, which the ToolBlock now
+    // renders as nothing instead of "[0ms]".
+    const legacy = messages.slice();
+    delete (legacy[2] as Partial<Message>).durationMs;
+    const legacySteps = buildReplaySteps(legacy);
+    const legacyTool = legacySteps.find((s) => s.type === "tool");
+    expect(legacyTool && "durationMs" in legacyTool ? legacyTool.durationMs : -1).toBe(0);
+  });
+
   test("legacy think envelopes stripped from old-session content", () => {
     const open = "\u003Cthink\u003E";
     const close = "\u003C/think\u003E";

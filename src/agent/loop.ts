@@ -860,13 +860,15 @@ export class AgentLoop {
           const persistToolResult = async (
             toolCallId: string,
             output: string,
-            imageUris?: string[]
+            imageUris?: string[],
+            durationMs?: number
           ): Promise<void> => {
             const msg: Message = {
               role: "tool",
               content: capToolResultContent(output),
               tool_call_id: toolCallId,
               timestamp: new Date().toISOString(),
+              ...(durationMs !== undefined ? { durationMs } : {}),
             };
             if (imageUris && imageUris.length > 0) {
               msg.apiContent = [
@@ -1052,7 +1054,7 @@ export class AgentLoop {
               allSucceeded = false;
             }
 
-            await persistToolResult(item.tc.id, result.output);
+            await persistToolResult(item.tc.id, result.output, undefined, durationMs);
             events.onToolEnd(item.tc.id, "task", result, durationMs);
           }
         };
@@ -1077,7 +1079,7 @@ export class AgentLoop {
             );
             const failResult = { success: false, output };
             const durationMs = Date.now() - toolStart;
-            await persistToolResult(tc.id, output);
+            await persistToolResult(tc.id, output, undefined, durationMs);
             events.onToolEnd(tc.id, tc.name, failResult, durationMs);
             this.consecutiveFailures++;
             allSucceeded = false;
@@ -1220,7 +1222,7 @@ export class AgentLoop {
 
               const output = `${switchResult.output}\n\n${behavior.output}`;
               const durationMs = Date.now() - toolStart;
-              await persistToolResult(tc.id, output);
+              await persistToolResult(tc.id, output, undefined, durationMs);
               events.onToolEnd(tc.id, "set_mode", { success: switchResult.success, output }, durationMs);
               continue;
             }
@@ -1304,6 +1306,7 @@ export class AgentLoop {
             content: capToolResultContent(result.output),
             tool_call_id: tc.id,
             timestamp: new Date().toISOString(),
+            durationMs,
           };
           if (result.imageUris && result.imageUris.length > 0) {
             toolResultMsg.apiContent = result.imageUris.map((uri) => ({
