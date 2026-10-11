@@ -194,42 +194,47 @@ export function quietThinkingPhrase(kind: "assessing" | "planning"): string {
 }
 
 /**
- * Live shimmer narration for a Quiet work group.
- * Narrates the current activity with a ticking elapsed time; lives in the
- * chat scrollback at the current insertion point and hardens in place on
- * settle. Parallel tools: "Reading AGENTS.md… (+2) (4s)".
+ * Live narration for a Quiet work group.
+ * Deliberate plain language — no symbol noise (no ellipses, no glyph marks):
+ * "Reading quiet-status.ts (4s, +2 parallel)", "Planning to review the
+ * codebase (2s)", "Web fetch https://… (3s, 1 failed)".
  */
 export function formatQuietLiveStatus(opts: {
   thinking?: "assessing" | "planning" | null;
   thinkingIntent?: string | null;
   tools: QuietInflightTool[];
   elapsedMs?: number;
+  failedCount?: number;
 }): string {
-  const elapsed = formatElapsedTick(opts.elapsedMs);
+  const parts: string[] = [];
+  if (opts.elapsedMs !== undefined) {
+    const tick = formatElapsedTick(opts.elapsedMs);
+    if (tick) parts.push(tick);
+  }
+  if ((opts.failedCount ?? 0) > 0) {
+    parts.push(`${opts.failedCount} failed`);
+  }
   const running = opts.tools;
   if (running.length > 0) {
     const first = running[0]!;
     const verb = quietToolVerb(first.name);
     const arg = first.arg;
-    const base = arg ? `${verb} ${arg}…` : `${verb}…`;
     const extra = running.length - 1;
-    const label = extra > 0 ? `${base} (+${extra})` : base;
-    return elapsed ? `${label} (${elapsed})` : label;
+    if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
+    const label = arg ? `${verb} ${arg}` : verb;
+    return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
   }
   if (opts.thinking) {
     const intent = opts.thinkingIntent?.trim();
-    let label: string;
-    if (intent) {
-      label =
-        opts.thinking === "planning"
-          ? `Thinking about ${intent}…`
-          : `Planning to ${intent}…`;
-    } else {
-      label = quietThinkingPhrase(opts.thinking);
-    }
-    return elapsed ? `${label} (${elapsed})` : label;
+    const label = intent
+      ? opts.thinking === "planning"
+        ? `Thinking about ${intent}`
+        : `Planning to ${intent}`
+      : quietThinkingPhrase(opts.thinking);
+    return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
   }
-  return "Working…";
+  const label = "Continuing";
+  return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
 }
 
 /**
@@ -903,40 +908,38 @@ export class QuietWorkGroupTracker {
   }
 
   liveStatus(nowMs: number = Date.now()): string {
-    if (!this.group) return "Continuing…";
+    if (!this.group) return "Continuing";
     const elapsedMs = this.elapsedMs(nowMs);
-    if (this.group.thinking || this.group.tools.length > 0) {
-      let label: string;
-      if (this.group.thinking) {
-        const tail = rollingThinkingTail(this.group.thinkingBuffer);
-        label = tail
-          ? `Thinking … ${tail}`
-          : formatQuietLiveStatus({
-              thinking: this.group.thinking,
-              thinkingIntent: this.group.thinkingIntent,
-              tools: [],
-            });
-      } else {
-        label = formatQuietLiveStatus({
-          thinking: null,
-          tools: this.group.tools,
-        });
-      }
-      // Remember the last real activity so the line lingers on it while the
-      // model thinks/waits instead of blanking to a generic phrase.
+    const failed = this.group.failedCount;
+    const parts: string[] = [formatDuration(elapsedMs)];
+    if (failed > 0) parts.push(`${failed} failed`);
+
+    if (this.group.thinking) {
+      const tail = rollingThinkingTail(this.group.thinkingBuffer);
+      const label = tail
+        ? `Thinking: ${tail}`
+        : formatQuietLiveStatus({
+            thinking: this.group.thinking,
+            thinkingIntent: this.group.thinkingIntent,
+            tools: [],
+          });
+      this.group.lastLabel = label;
+      return `${label} (${parts.join(", ")})`;
+    }
+    if (this.group.tools.length > 0) {
+      const label = formatQuietLiveStatus({
+        thinking: null,
+        tools: this.group.tools,
+        elapsedMs,
+        failedCount: failed,
+      });
+      // Linger on the activity without its frozen elapsed tick.
       this.group.lastLabel = stripElapsed(label);
-      return withFailureMark(
-        elapsedMs ? `${label} (${formatDuration(elapsedMs)})` : label,
-        this.group.failedCount
-      );
+      return label;
     }
     // Nothing running: linger on the last activity label.
-    const lingering = this.group.lastLabel;
-    const label = lingering ?? "Continuing…";
-    return withFailureMark(
-      elapsedMs ? `${label} (${formatDuration(elapsedMs)})` : label,
-      this.group.failedCount
-    );
+    const label = this.group.lastLabel ?? "Continuing";
+    return `${label} (${parts.join(", ")})`;
   }
 
   /**
@@ -952,7 +955,7 @@ export class QuietWorkGroupTracker {
     g.settled = true;
     const elapsedMs = Math.max(0, nowMs - g.startedAt);
     const failedSuffix =
-      g.failedCount > 0 ? ` · ${g.failedCount} failed` : "";
+      g.failedCount > 0 ? `, ${g.failedCount} failed` : "";
     const workedForLine =
       g.toolCount > 0
         ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${failedSuffix}`
@@ -964,16 +967,9 @@ export class QuietWorkGroupTracker {
   }
 }
 
-/** Append a ✗ mark to the live narration when tools failed in this group. */
-function withFailureMark(label: string, failedCount: number): string {
-  if (failedCount <= 0) return label;
-  const n = failedCount === 1 ? "" : `${failedCount} `;
-  return `${label} · ${n}✗`;
-}
-
 /** Strip a trailing " (4s)" / " (340ms)" elapsed tick from a composed label. */
 function stripElapsed(label: string): string {
-  return label.replace(/\s*\(\d+(?:\.\d+)?m?s\)$/, "");
+  return label.replace(/\s*\(([^()]*)\)\s*$/, "");
 }
 
 /**

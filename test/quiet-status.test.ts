@@ -26,7 +26,7 @@ describe("quiet-status", () => {
       formatQuietLiveStatus({
         tools: [{ id: "1", name: "file_read", arg: "AGENTS.md" }],
       })
-    ).toBe("Reading AGENTS.md…");
+    ).toBe("Reading AGENTS.md");
   });
 
   test("live narration carries a ticking elapsed time", () => {
@@ -35,7 +35,7 @@ describe("quiet-status", () => {
         tools: [{ id: "1", name: "file_read", arg: "AGENTS.md" }],
         elapsedMs: 4_200,
       })
-    ).toBe("Reading AGENTS.md… (4s)");
+    ).toBe("Reading AGENTS.md (4s)");
     expect(
       formatQuietLiveStatus({
         thinking: "assessing",
@@ -53,7 +53,7 @@ describe("quiet-status", () => {
         tools: [],
         elapsedMs: 2_000,
       })
-    ).toBe("Planning to review the codebase and README… (2s)");
+    ).toBe("Planning to review the codebase and README (2s)");
     expect(
       formatQuietLiveStatus({
         thinking: "planning",
@@ -61,7 +61,7 @@ describe("quiet-status", () => {
         tools: [],
         elapsedMs: 3_000,
       })
-    ).toBe("Thinking about how to fix the wrap width… (3s)");
+    ).toBe("Thinking about how to fix the wrap width (3s)");
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {
@@ -80,11 +80,11 @@ describe("quiet-status", () => {
     const t = new QuietWorkGroupTracker();
     const t0 = 2_000_000;
     t.addTool({ id: "1", name: "web_fetch", arg: "https://example.com" }, t0);
-    expect(t.liveStatus(t0 + 300)).toBe("Fetching https://example.com… (300ms)");
+    expect(t.liveStatus(t0 + 300)).toBe("Fetching https://example.com (300ms)");
     // Tool finished, nothing running: the label lingers instead of blanking
     // to a generic phrase the composer beacon already shows.
     t.removeTool("1");
-    expect(t.liveStatus(t0 + 5_000)).toBe("Fetching https://example.com… (5s)");
+    expect(t.liveStatus(t0 + 5_000)).toBe("Fetching https://example.com (5s)");
   });
 
   test("deriveIntentFromThinking strips filler and caps words", () => {
@@ -104,7 +104,7 @@ describe("quiet-status", () => {
           { id: "3", name: "ls", arg: "src" },
         ],
       })
-    ).toBe("Reading AGENTS.md… (+2)");
+    ).toBe("Reading AGENTS.md (+2 parallel)");
   });
 
   test("thinking phrases are fixed set", () => {
