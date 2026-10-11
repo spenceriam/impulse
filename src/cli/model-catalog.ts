@@ -90,6 +90,8 @@ export interface ModelInfo {
   vendor: string;
   displayName: string;
   contextTokens?: number;
+  /** Provider max completion/output tokens, when known (catalog or API-learned). */
+  maxOutputTokens?: number;
   addedAt?: Date;
   pickerLine: string;
 }
@@ -392,6 +394,7 @@ export function enrichModelId(
   const contextTokens =
     apiMeta?.context_length ??
     record?.limit?.context;
+  const maxOutputTokens = record?.limit?.output;
   const addedAt = parseAddedAt(record, apiMeta);
 
   if (record) {
@@ -419,6 +422,9 @@ export function enrichModelId(
     vendor,
     displayName,
     ...(contextTokens !== undefined ? { contextTokens } : {}),
+    ...(maxOutputTokens !== undefined && maxOutputTokens > 0
+      ? { maxOutputTokens }
+      : {}),
     ...(addedAt !== undefined ? { addedAt } : {}),
   };
   return { ...info, pickerLine: formatModelPickerLine(info) };

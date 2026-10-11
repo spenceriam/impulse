@@ -1,17 +1,17 @@
 /**
- * Bilateral gutter layout: 4 columns left + content + 4 columns right.
+ * Bilateral gutter layout: 1 column left + content + 1 column right.
  *
- * Chat-band lines must use gutterContent(), truncateGutterLine(), or wrapGutterLines().
- * Do not truncate to full terminal width with only a left GUTTER prefix — that spills into
- * the right gutter.
+ * v1.11.0 (#153 dogfood): session content uses exactly one character of
+ * side gutter on each edge (was 4/4; briefly 0/0 — locked to 1/1).
  */
 
 import { truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 
-export const GUTTER = "    ";
-export const GUTTER_WIDTH = 4;
+/** Left prefix for chat/status lines (exactly one space). */
+export const GUTTER = " ";
+export const GUTTER_WIDTH = 1;
 /** Combined width of left + right gutter */
-export const TOTAL_GUTTER_WIDTH = 8;
+export const TOTAL_GUTTER_WIDTH = 2;
 
 /** Inner content width after subtracting both gutters */
 export function innerWidth(totalWidth: number): number {

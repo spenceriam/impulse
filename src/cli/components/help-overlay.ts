@@ -144,8 +144,8 @@ export function buildHelpContent(
 
   pushSection("Status line");
   for (const statusLine of [
-    "Processing... — model, thinking, or vision work",
-    "Working... — tool runs",
+    "Processing… — model, thinking, or vision work",
+    "Working… — tool runs",
     "Allow-All — shown when /allow-all is on",
   ]) {
     for (const row of wrapIndentedProse(statusLine, innerWidth)) {

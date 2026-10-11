@@ -218,7 +218,7 @@ class CompactManagerImpl {
     const conversationParts: string[] = [];
 
     const truncateText = (text: string, max: number) =>
-      text.length > max ? `${text.slice(0, max - 3)}...` : text;
+      text.length > max ? `${text.slice(0, max - 3)}…` : text;
 
     for (const msg of messages) {
       const body =

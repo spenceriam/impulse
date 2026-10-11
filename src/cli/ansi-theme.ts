@@ -4,8 +4,12 @@ export const A = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
+  italic: "\x1b[3m",
   fg: (code: number, s: string) => `\x1b[${code}m${s}\x1b[0m`,
 };
+
+/** Ghost text: dim + italic (quiet narration, Worked for, Recap). */
+export const ghost = (s: string) => `${A.dim}${A.italic}${s}${A.reset}`;
 
 export const clr = {
   user: (s: string) => A.fg(36, s),

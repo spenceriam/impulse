@@ -51,6 +51,27 @@ import {
   logRawAPIMessages,
 } from "../util/debug-log.js";
 import { bashRepeatNote, todoUnchangedRepeatNote } from "./repeat-notes.js";
+import { InlineThinkingFilter } from "../util/inline-thinking-filter.js";
+import { getModelMaxOutputTokens, setModelMaxOutputTokens } from "../api/capabilities.js";
+
+/**
+ * Parse a provider max-tokens rejection and return the real cap.
+ * MiniMax Token Plan: `invalid params, model[MiniMax-M3] does not support
+ * max tokens > 524288` (#159).
+ */
+export function parseMaxTokensCapError(err: unknown): number | null {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const idx = msg.search(/max[_ ]?tokens?/i);
+  if (idx < 0) return null;
+  const tail = msg.slice(idx);
+  // Prefer an explicit `> N` comparison (MiniMax `does not support max
+  // tokens > 524288`, OpenAI `8192 tokens > 4096`) — a bare earlier number
+  // may be the requested size, not the cap.
+  const gt = tail.match(/>\s*(\d{4,})/);
+  if (gt) return Number.parseInt(gt[1]!, 10);
+  const m = tail.match(/(\d{4,})/);
+  return m ? Number.parseInt(m[1]!, 10) : null;
+}
 import { SessionManager } from "../session/manager";
 import { manageSessionTitle } from "../session/manage-session-title.js";
 import { resolveTitleModel } from "../session/enrich-titles.js";
@@ -133,6 +154,18 @@ export interface LoopEvents {
   onToken(text: string): void;
   /** Streaming thinking/reasoning token from the worker model */
   onThinking(text: string): void;
+  /**
+   * Model-authored turn recap captured from a `<recap>…</recap>` envelope in
+   * the final content (Quiet chat density). Rendered instead of the
+   * event-sourced recap when present.
+   */
+  onRecap?: (text: string) => void;
+  /**
+   * Short intent phrase captured from a `<intent>…</intent>` marker emitted
+   * when the model starts planning (Quiet narration line:
+   * "Planning to review the codebase (4s)").
+   */
+  onIntent?: (text: string) => void;
   /** Advisor model is being consulted — streams its response */
   onAdvisorStart(model: string): void;
   onAdvisorToken(text: string): void;
@@ -219,9 +252,14 @@ export class AgentLoop {
     this.pendingImages = images;
   }
 
-  /** Redirect current turn at the next tool-loop boundary. */
+  /** Redirect current turn at the next tool-loop boundary (latest wins — replaces prior). */
   setSteer(text: string): void {
     this.pendingSteer = text.trim();
+  }
+
+  /** Pending steer text, or null when none queued for the next tool-loop boundary. */
+  getPendingSteer(): string | null {
+    return this.pendingSteer;
   }
 
   private async injectUserNotes(notes: string[]): Promise<void> {
@@ -578,6 +616,12 @@ export class AgentLoop {
         }
 
         // ── Stream response ─────────────────────────────────────────────────
+        // Clamp the configured output budget to a provider-learned cap
+        // (recorded from a prior max-tokens rejection, e.g. MiniMax 524288).
+        const learnedMaxOut = getModelMaxOutputTokens(model);
+        const effectiveMaxTokens = learnedMaxOut
+          ? Math.min(config.maxOutputTokens, learnedMaxOut)
+          : config.maxOutputTokens;
         let effectiveReasoningLevel =
           config.reasoningLevel ?? (config.thinking ? "medium" : "off");
         if (!reliabilityFallbackUsed && this.consecutiveFailures >= 2) {
@@ -605,7 +649,7 @@ export class AgentLoop {
           ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
           stream: true,
           signal,
-          max_tokens: config.maxOutputTokens,
+          max_tokens: effectiveMaxTokens,
           reasoningLevel: effectiveReasoningLevel,
         };
 
@@ -624,11 +668,40 @@ export class AgentLoop {
         let chunkOutputTokens = 0;
         latestPromptTokens = undefined;
         latestCacheReadTokens = 0;
+        // Some models emit reasoning inline in content wrapped in
+        // <think>/<thinking>/<reasoning> envelopes instead of using
+        // reasoning_content. Re-route those envelopes to the thinking path so
+        // tags never render and Quiet work groups stay intact.
+        const inlineThinking = new InlineThinkingFilter();
+        // The system prompt asks the model to close tool turns with a
+        // human-language <recap>…</recap> envelope; capture it separately so
+        // it never renders as prose and can be shown as the Recap line.
+        const recapFilter = new InlineThinkingFilter(["recap"]);
+        let accumulatedRecap = "";
+        // <intent>…</intent> marks what the model is planning to do next;
+        // feeds the Quiet narration line ("Planning to X").
+        const intentFilter = new InlineThinkingFilter(["intent"]);
 
         const closeThinkingPhase = () => {
           if (thinkingPhaseStartedAt === null) return;
           thinkingDurationMs += Date.now() - thinkingPhaseStartedAt;
           thinkingPhaseStartedAt = null;
+        };
+
+        const emitContentToken = (text: string) => {
+          closeThinkingPhase();
+          noteGeneratedChunk(text);
+          accumulatedText += text;
+          events.onToken(text);
+        };
+
+        const emitThinkingToken = (text: string) => {
+          if (thinkingPhaseStartedAt === null) {
+            thinkingPhaseStartedAt = Date.now();
+          }
+          noteGeneratedChunk(text);
+          accumulatedThinking += text;
+          events.onThinking(text);
         };
 
         for await (const chunk of manager.stream(streamOptions)) {
@@ -654,20 +727,21 @@ export class AgentLoop {
 
           // Text token
           if (delta.content) {
-            closeThinkingPhase();
-            noteGeneratedChunk(delta.content);
-            accumulatedText += delta.content;
-            events.onToken(delta.content);
+            const split = inlineThinking.push(delta.content);
+            if (split.captured) emitThinkingToken(split.captured);
+            const intentSplit = intentFilter.push(split.prose);
+            if (intentSplit.captured) events.onIntent?.(intentSplit.captured);
+            const recapSplit = recapFilter.push(intentSplit.prose);
+            if (recapSplit.captured) {
+              accumulatedRecap += recapSplit.captured;
+              events.onRecap?.(accumulatedRecap);
+            }
+            if (recapSplit.prose) emitContentToken(recapSplit.prose);
           }
 
           // Thinking token
           if (delta.reasoning_content) {
-            if (thinkingPhaseStartedAt === null) {
-              thinkingPhaseStartedAt = Date.now();
-            }
-            noteGeneratedChunk(delta.reasoning_content);
-            accumulatedThinking += delta.reasoning_content;
-            events.onThinking(delta.reasoning_content);
+            emitThinkingToken(delta.reasoning_content);
             debugLog(`thinking: ${delta.reasoning_content.length} chars`);
           }
 
@@ -684,6 +758,20 @@ export class AgentLoop {
           }
         }
 
+        // Stream ended — release any buffered partial-tag text.
+        const flushed = inlineThinking.flush();
+        if (flushed.captured) emitThinkingToken(flushed.captured);
+        if (flushed.prose) emitContentToken(flushed.prose);
+        const intentFlushed = intentFilter.flush();
+        if (intentFlushed.captured) events.onIntent?.(intentFlushed.captured);
+        if (intentFlushed.prose) emitContentToken(intentFlushed.prose);
+        const recapFlushed = recapFilter.flush();
+        if (recapFlushed.captured) {
+          accumulatedRecap += recapFlushed.captured;
+          events.onRecap?.(accumulatedRecap);
+        }
+        if (recapFlushed.prose) emitContentToken(recapFlushed.prose);
+
         abortIterationText = accumulatedText;
         if (signal.aborted) break;
 
@@ -699,6 +787,7 @@ export class AgentLoop {
         const assistantMsg: Message = {
           role: "assistant",
           content: accumulatedText,
+          ...(accumulatedRecap ? { recap: accumulatedRecap } : {}),
           ...(accumulatedThinking
             ? {
                 reasoning_content: accumulatedThinking,
@@ -771,13 +860,15 @@ export class AgentLoop {
           const persistToolResult = async (
             toolCallId: string,
             output: string,
-            imageUris?: string[]
+            imageUris?: string[],
+            durationMs?: number
           ): Promise<void> => {
             const msg: Message = {
               role: "tool",
               content: capToolResultContent(output),
               tool_call_id: toolCallId,
               timestamp: new Date().toISOString(),
+              ...(durationMs !== undefined ? { durationMs } : {}),
             };
             if (imageUris && imageUris.length > 0) {
               msg.apiContent = [
@@ -963,7 +1054,7 @@ export class AgentLoop {
               allSucceeded = false;
             }
 
-            await persistToolResult(item.tc.id, result.output);
+            await persistToolResult(item.tc.id, result.output, undefined, durationMs);
             events.onToolEnd(item.tc.id, "task", result, durationMs);
           }
         };
@@ -988,7 +1079,7 @@ export class AgentLoop {
             );
             const failResult = { success: false, output };
             const durationMs = Date.now() - toolStart;
-            await persistToolResult(tc.id, output);
+            await persistToolResult(tc.id, output, undefined, durationMs);
             events.onToolEnd(tc.id, tc.name, failResult, durationMs);
             this.consecutiveFailures++;
             allSucceeded = false;
@@ -1131,7 +1222,7 @@ export class AgentLoop {
 
               const output = `${switchResult.output}\n\n${behavior.output}`;
               const durationMs = Date.now() - toolStart;
-              await persistToolResult(tc.id, output);
+              await persistToolResult(tc.id, output, undefined, durationMs);
               events.onToolEnd(tc.id, "set_mode", { success: switchResult.success, output }, durationMs);
               continue;
             }
@@ -1215,6 +1306,7 @@ export class AgentLoop {
             content: capToolResultContent(result.output),
             tool_call_id: tc.id,
             timestamp: new Date().toISOString(),
+            durationMs,
           };
           if (result.imageUris && result.imageUris.length > 0) {
             toolResultMsg.apiContent = result.imageUris.map((uri) => ({
@@ -1480,6 +1572,14 @@ export class AgentLoop {
           iterationAssistantPersisted: abortIterationAssistantPersisted,
         });
         return;
+      }
+      // Learn the model's real max output cap from provider rejections
+      // (e.g. MiniMax `does not support max tokens > 524288`); the next
+      // request clamps automatically.
+      const cap = parseMaxTokensCapError(err);
+      const activeModel = SessionManager.getCurrentSession()?.model ?? "";
+      if (cap && cap > 0 && activeModel) {
+        setModelMaxOutputTokens(activeModel, cap);
       }
       events.onError(err instanceof Error ? err : new Error(String(err)));
     } finally {

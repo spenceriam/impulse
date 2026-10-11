@@ -55,8 +55,10 @@ import { WelcomeHintBlock } from "./components/welcome-hint-block.js";
 import {
   GUTTER,
   GUTTER_WIDTH,
+  TOTAL_GUTTER_WIDTH,
   gutterContent,
   gutterSeparator,
+  truncateGutterLine,
   wrapGutterLines,
 } from "./gutter.js";
 import {
@@ -71,12 +73,25 @@ import {
 import {
   BUSY_COMPACTING,
   BUSY_PROCESSING,
+  BUSY_STEERING,
   BUSY_WORKING,
   busyPhraseUsesDimBase,
   busyStatusOverridesFixedPhrase,
   resolveBusyPhrase,
   FIXED_BUSY_PHRASES,
 } from "./busy-status.js";
+import {
+  buildQuietRecapFact,
+  classifyQuietOutcome,
+  extractOpenPlanItem,
+  formatQuietRecap,
+  fullQuietArg,
+  isQuietBreakOutcome,
+  QuietWorkGroupTracker,
+  shortQuietArg,
+  wrapQuietRecapLines,
+  type QuietRecapEvent,
+} from "./quiet-status.js";
 import { dimRuleIndented } from "./format-helpers.js";
 
 /** pi-tui maxHeight for session/model list overlays */
@@ -178,7 +193,9 @@ import {
   isExperimentalAdvisorEnabled,
   isExperimentalGoalEnabled,
   isExperimentalUndoEnabled,
+  type ChatDensity,
   type Config,
+  type MidTurnSubmit,
   type ReasoningLevel,
   type ThinkingDisplay,
 } from "../util/config.js";
@@ -285,6 +302,7 @@ import {
   A,
   advisorStatusLine,
   clr,
+  ghost,
   MODE_COLORS,
   modelStatusLine,
 } from "./ansi-theme.js";
@@ -650,11 +668,13 @@ export class ImpulseRenderer {
     this.currentStatusPhrase = resolveBusyPhrase(msg, fixedPhrase);
     this.busyDimBase = busyPhraseUsesDimBase(this.currentStatusPhrase, msg);
     this.renderBusyLine();
+    this.updateQuietNarration();
     this.requestRenderForPhase("status");
 
     if (!this.spinnerInterval) {
       this.spinnerInterval = setInterval(() => {
         this.renderBusyLine();
+        this.updateQuietNarration();
         this.requestRenderForPhase("status_tick");
       }, SHIMMER_FRAME_MS);
     }
@@ -676,7 +696,7 @@ export class ImpulseRenderer {
 
     const request = this.permissionQueue.shift()!;
     this.activePermission = request;
-    this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
+    this.setBusyStatus("Waiting for approval …", "Waiting for your approval…");
 
     const overlay = new PermissionOverlay(request);
     overlay.onDecision = (response, opts) => {
@@ -723,13 +743,13 @@ export class ImpulseRenderer {
       }
 
       this.dismissLoopCheckinOverlay();
-      this.setBusyStatus("Loop check-in ...", "Waiting for your decision...");
+      this.setBusyStatus("Loop check-in …", "Waiting for your decision…");
 
       const overlay = new LoopCheckinOverlay(input);
       overlay.onDecision = (choice) => {
         this.dismissLoopCheckinOverlay();
         if (this.isRunning) {
-          this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+          this.setBusyStatus("Thinking …", BUSY_PROCESSING);
         }
         resolve(choice);
       };
@@ -755,13 +775,13 @@ export class ImpulseRenderer {
       }
 
       this.dismissTaskBatchPermissionOverlay();
-      this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
+      this.setBusyStatus("Waiting for approval …", "Waiting for your approval…");
 
       const overlay = new TaskBatchPermissionOverlay(count);
       overlay.onDecision = (decision) => {
         this.dismissTaskBatchPermissionOverlay();
         if (this.isRunning) {
-          this.setBusyStatus("Running parallel sub-agents ...", BUSY_WORKING);
+          this.setBusyStatus("Running parallel sub-agents …", BUSY_WORKING);
         }
         resolve(decision);
       };
@@ -801,14 +821,14 @@ export class ImpulseRenderer {
     if (!this.tui) return;
 
     this.dismissQuestionOverlay(false);
-    this.setBusyStatus("Waiting for answer ...", "Waiting for your answer...");
+    this.setBusyStatus("Waiting for answer …", "Waiting for your answer…");
 
     const overlay = new QuestionOverlay({ context, questions });
     overlay.onSubmit = (answers) => {
       this.dismissQuestionOverlay(false);
       resolveQuestion(answers);
       if (this.isRunning) {
-        this.setBusyStatus("Responding ...");
+        this.setBusyStatus("Responding …");
       }
     };
     overlay.onAbort = () => {
@@ -1171,6 +1191,10 @@ export class ImpulseRenderer {
 
     this.skipGoalContinuation = true;
     this.loop.abort();
+    if (this.isQuietMode()) {
+      this.settleQuietWorkGroup();
+    }
+    this.clearSteeringChrome();
     this.spinStop();
     this.isRunning = false;
     if (this.speedoEnabled && this.liveTurnStartedAt > 0) {
@@ -1219,7 +1243,206 @@ export class ImpulseRenderer {
       holdDrain,
       editIndex,
       width: this.queuePreviewWidth(),
+      steeringText: this.steeringPreview,
     });
+  }
+
+  private isQuietMode(): boolean {
+    return this.chatDensity === "quiet";
+  }
+
+  private resetQuietTurnState(): void {
+    this.quietTracker.reset();
+    this.quietRecapEvents = [];
+    this.quietNarrationText = null;
+    this.clearSteeringChrome();
+  }
+
+  private clearSteeringChrome(): void {
+    if (!this.steeringPreview) return;
+    this.steeringPreview = null;
+    this.updateQueuePreview();
+  }
+
+  private setSteeringChrome(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    this.steeringPreview = trimmed;
+    this.setBusyStatus(BUSY_STEERING, BUSY_STEERING);
+    this.updateQueuePreview();
+    this.requestLayoutRefresh();
+    this.tui.requestRender();
+  }
+
+  /** Drop Steering… chrome once the loop has consumed pending steer. */
+  private syncSteeringChrome(): void {
+    const pending = this.loop.getPendingSteer();
+    if (!pending) {
+      this.clearSteeringChrome();
+      return;
+    }
+    if (this.steeringPreview !== pending) {
+      this.steeringPreview = pending;
+      this.updateQueuePreview();
+    }
+  }
+
+  private refreshQuietLiveStatus(): void {
+    // Narration lives in the scrollback line now; the composer line stays a
+    // generic stateful beacon ("Working…" family + shimmer) and must not be
+    // overwritten with tool narration. No-op on purpose.
+  }
+
+  /** Mutable narration line in the chat scrollback (Quiet live activity).
+   *  Updates ride the busy-status shimmer cycle — never its own timer. */
+  private quietNarrationText: Text | null = null;
+
+  /**
+   * Layout debugging (#153): IMPULSE_DEBUG_LAYOUT=1 appends every chat-row
+   * mutation to ~/.impulse/debug/layout.log with the live column count —
+   * pinpoints stray blank rows and stale terminal widths with evidence.
+   */
+  private get layoutDebugEnabled(): boolean {
+    return process.env["IMPULSE_DEBUG_LAYOUT"] === "1";
+  }
+
+  private layoutDebug(event: string, detail = ""): void {
+    if (!this.layoutDebugEnabled) return;
+    try {
+      const dir = path.join(Global.Path.data, "debug");
+      fs.mkdirSync(dir, { recursive: true });
+      const cols = this.tui?.terminal?.columns ?? this.terminal.columns ?? 0;
+      const line = `[${new Date().toISOString()}] cols=${cols} ${event}${detail ? ` ${detail}` : ""}\n`;
+      fs.appendFileSync(path.join(dir, "layout.log"), line);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  /** Render a one-row ghost line (dim+italic) inside the chat gutters. */
+  private ghostChatLine(text: string): string {
+    return gutterContent(truncateGutterLine(ghost(text), this.terminal.columns), this.terminal.columns);
+  }
+
+  private ensureQuietNarration(): void {
+    if (!this.isQuietMode() || !this.quietTracker.active) return;
+    if (this.quietNarrationText) return; // live child already updating
+    // Blank row between prior AI prose and this narration line.
+    if (this.quietTracker.consumeGapBeforeWorkedFor()) {
+      this.addSectionGap();
+    }
+    this.quietNarrationText = new Text(
+      this.ghostChatLine(this.quietTracker.liveStatus()),
+      0,
+      0
+    );
+    this.chat.addChild(this.quietNarrationText);
+    this.hasTrailingGap = false;
+    this.layoutDebug("+NARRATION", this.quietTracker.liveStatus().slice(0, 60));
+    // Ticking happens on the existing busy-status repaint cycle (see
+    // updateQuietNarration) — no second timer racing overlays.
+  }
+
+  private updateQuietNarration(): void {
+    if (!this.quietNarrationText || !this.quietTracker.active) return;
+    this.quietNarrationText.setText(this.ghostChatLine(this.quietTracker.liveStatus()));
+    this.tui.requestRender();
+  }
+
+  /**
+   * Commit one Worked for for the current contiguous group (idempotent).
+   * Hardens the in-place narration line; inserts blank rows at tool↔AI
+   * boundaries per dogfood lock.
+   */
+  private settleQuietWorkGroup(): boolean {
+    const result = this.quietTracker.settle();
+    if (!result) {
+      this.quietNarrationText = null;
+      return false;
+    }
+    // Harden the in-place narration line; print fresh when none exists.
+    if (this.quietNarrationText) {
+      this.quietNarrationText.setText(this.ghostChatLine(result.workedForLine));
+      this.quietNarrationText = null;
+      this.layoutDebug("HARDEN", result.workedForLine.slice(0, 60));
+    } else {
+      if (this.quietTracker.consumeGapBeforeWorkedFor()) {
+        this.addSectionGap();
+      }
+      this.chat.addChild(new Text(this.ghostChatLine(result.workedForLine), 0, 0));
+      this.hasTrailingGap = false;
+    }
+    // Blank row between settled Worked for and following AI prose.
+    this.addSectionGap();
+    // Label the next streamed segment: every post-work prose block gets its
+    // own "impulse" header so users can tell streamed responses apart.
+    this.turnShowsImpulseHeader = false;
+    return true;
+  }
+
+  private emitQuietRecapIfNeeded(): void {
+    if (!this.isQuietMode() || !this.showRecap) return;
+
+    // Model-authored recap (from the <recap> envelope) wins; the
+    // event-sourced line is the fallback when the model sent none.
+    const modelRecap = this.modelRecapThisTurn?.trim();
+    if (modelRecap) {
+      const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
+      const rows = wrapQuietRecapLines(`Recap: ${modelRecap}`, width, 3);
+      this.addSectionGap();
+      for (const row of rows) {
+        this.addChatLine(ghost(row));
+      }
+      this.modelRecapThisTurn = null;
+      return;
+    }
+
+    const events = this.quietRecapEvents;
+    if (events.length === 0) return;
+
+    const session = SessionManager.getCurrentSession();
+    const todos = session?.todos ?? [];
+    const nextTodo =
+      todos.find((t) => t.status === "in_progress") ??
+      todos.find((t) => t.status === "pending");
+
+    let openPlanItem: string | null = null;
+    const sessionId = session?.id;
+    if (sessionId) {
+      try {
+        const active = getActivePlanRevision(sessionId);
+        if (active) {
+          openPlanItem = extractOpenPlanItem(
+            readPlanTasksMarkdown(sessionId, active.meta.revisionId)
+          );
+        }
+      } catch {
+        /* non-fatal — Recap without plan Next */
+      }
+    }
+
+    const line = formatQuietRecap(events, {
+      pendingTodo: nextTodo?.content ?? null,
+      openPlanItem,
+      // lastFailure derived inside formatQuietRecap from events when omitted
+    });
+    if (!line) return;
+    // Wrap at the same inner width addChatLine uses (wrapGutterLines:
+    // columns - TOTAL_GUTTER_WIDTH) — a wider wrap width makes every row
+    // overflow the chat line and re-wrap/truncate into mush.
+    const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
+    const rows = wrapQuietRecapLines(line, width, 3);
+    this.addSectionGap();
+    for (const row of rows) {
+      this.addChatLine(ghost(row));
+    }
+  }
+
+  private redirectLiveTurn(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    this.loop.setSteer(trimmed);
+    this.setSteeringChrome(trimmed);
   }
 
   private updateQueuePreview(): void {
@@ -1607,6 +1830,20 @@ export class ImpulseRenderer {
   private experimentalGoalEnabled = false;
   private thinkingDisplay: ThinkingDisplay = "summary";
   private compactToolOutputEnabled = true;
+  /** Quiet (default) vs Verbose full tool stream (#153). */
+  private chatDensity: ChatDensity = "quiet";
+  /** Mid-turn Enter: redirect/steer (default) vs queue (#153). */
+  private midTurnSubmit: MidTurnSubmit = "redirect";
+  /** Ghost Recap after Quiet turns (settings opt-out). */
+  private showRecap = true;
+  /** Pending Redirect preview above prompt (cleared when steer consumed). */
+  private steeringPreview: string | null = null;
+  /** Quiet work-group tracker — single settle per contiguous group. */
+  private quietTracker = new QuietWorkGroupTracker();
+  /** Model-authored recap captured this turn via the <recap> envelope. */
+  private modelRecapThisTurn: string | null = null;
+  /** Event-sourced Recap inputs for the current turn. */
+  private quietRecapEvents: QuietRecapEvent[] = [];
   private streamRenderScheduled = false;
   private streamBusyPhraseSet = false;
   private lastExpandableTool: ToolBlock | null = null;
@@ -2323,15 +2560,15 @@ export class ImpulseRenderer {
   private toolBusyStatus(name: string): string {
     switch (name) {
       case "question":
-        return "Waiting for answer ...";
+        return "Waiting for answer …";
       case "todo_write":
-        return "Updating todos ...";
+        return "Updating todos …";
       case "todo_read":
-        return "Reading todos ...";
+        return "Reading todos …";
       case "task":
-        return "Running subagent ...";
+        return "Running subagent …";
       default:
-        return `Running ${name} ...`;
+        return `Running ${name} …`;
     }
   }
 
@@ -2427,7 +2664,12 @@ export class ImpulseRenderer {
 
     if (this.isRunning) {
       this.promptInput.clear();
-      this.enqueueTurn(payload);
+      // Mid-turn Enter: Redirect/steer by default; Queue until free via settings or /queue.
+      if (this.midTurnSubmit === "queue") {
+        this.enqueueTurn(payload);
+      } else {
+        this.redirectLiveTurn(payload.apiText);
+      }
       return;
     }
 
@@ -2492,6 +2734,7 @@ export class ImpulseRenderer {
 
     this.isRunning = true;
     this.turnShowsImpulseHeader = false;
+    this.resetQuietTurnState();
 
     this.addSectionGap();
     this.lastBandWasTool = false;
@@ -2532,7 +2775,7 @@ export class ImpulseRenderer {
           clr.dim("Images attached — vision unavailable for this model. Use /model for a vision-capable model.")
         );
       } else if (cfgForVision.visionMode && cfgForVision.visionModel) {
-        this.setBusyStatus("Translating images ...", BUSY_PROCESSING);
+        this.setBusyStatus("Translating images …", BUSY_PROCESSING);
       }
     }
 
@@ -2542,6 +2785,7 @@ export class ImpulseRenderer {
         this.currentTurnAssistantText = "";
         this.nextTurnSegmentSeparator = "\n\n";
         this.streamBusyPhraseSet = false;
+        this.modelRecapThisTurn = null;
         this.contextTokens = Math.max(
           this.contextTokens,
           this.estimateCurrentSessionTokens()
@@ -2553,11 +2797,38 @@ export class ImpulseRenderer {
           isRunning: true,
         });
         this.updateLiveMetrics(0, true);
-        this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+        if (this.isQuietMode()) {
+          this.quietTracker.ensure();
+          // Composer keeps a generic stateful phrase; narration goes to the
+          // scrollback line.
+          this.setBusyStatus("Working…", BUSY_PROCESSING);
+          this.ensureQuietNarration();
+        } else {
+          this.setBusyStatus("Thinking …", BUSY_PROCESSING);
+        }
       },
       onToken: (text) => {
+        this.syncSteeringChrome();
+        // Mid-turn AI stream splits Quiet work groups: settle once → blank → stream.
+        if (this.isQuietMode()) {
+          // Close any still-open streaming block first so the Worked-for line
+          // lands after earlier prose — not between it and the continuation
+          // (chat children are order-of-insert; an open block keeps receiving
+          // tokens above the inserted line).
+          if (this.streamingText && this.quietTracker.active) {
+            this.finalizeStreamingAtSafeBoundary(false);
+          }
+          this.settleQuietWorkGroup();
+        }
+        // Whitespace-only chunk with nothing streaming (models emit blank
+        // chunks between tool batches): creating the "impulse" header + an
+        // empty block here is what produced headerless gaps and empty labels.
+        if (!this.streamingText && !text.trim()) {
+          this.layoutDebug("SKIP_WS_CHUNK", JSON.stringify(text.slice(0, 20)));
+          return;
+        }
         if (!this.streamBusyPhraseSet) {
-          this.setBusyStatus("Responding ...", BUSY_PROCESSING);
+          this.setBusyStatus("Responding …", BUSY_PROCESSING);
           this.streamBusyPhraseSet = true;
         }
         this.closeThinking();
@@ -2570,11 +2841,13 @@ export class ImpulseRenderer {
           if (!this.turnShowsImpulseHeader) {
             this.chat.addChild(new Text(`${GUTTER}${A.fg(33, "impulse")}${A.reset}`, 0, 0));
             this.turnShowsImpulseHeader = true;
+            this.layoutDebug("+HEADER", "impulse");
           }
           this.hasTrailingGap = false;
           this.streamingText = new MarkdownTextBlock(GUTTER);
           this.chat.addChild(this.streamingText);
           this.hasTrailingGap = false;
+          this.layoutDebug("+STREAMBLOCK");
         }
         this.streamingRaw = nextStreamingRaw;
         this.streamingText.setText(this.streamingRaw);
@@ -2583,11 +2856,20 @@ export class ImpulseRenderer {
       },
       onThinking: (text) => {
         debugLog(`onThinking: ${text.length} chars`);
+        this.syncSteeringChrome();
         this.appendWorkerThinking(text);
         this.scheduleStreamRender();
       },
+      onRecap: (text) => {
+        this.modelRecapThisTurn = text;
+      },
+      onIntent: (text) => {
+        this.quietTracker.setThinkingIntent(text);
+        this.ensureQuietNarration();
+        this.updateQuietNarration();
+      },
       onAdvisorStart: (_model) => {
-        this.setBusyStatus("", "Advisor consultation...");
+        this.setBusyStatus("", "Advisor consultation…");
         this.tui.requestRender();
       },
       onAdvisorToken: (_text) => { /* buffered */ },
@@ -2613,18 +2895,11 @@ export class ImpulseRenderer {
           return;
         }
 
+        this.syncSteeringChrome();
         this.closeThinking();
+        const hadAssistantStream = Boolean(this.streamingRaw.trim() || this.streamingText);
         this.finalizeStreamingAtSafeBoundary(false);
-        this.preToolSpacing = {
-          lastBandWasTool: this.lastBandWasTool,
-          lastBandToolHadBody: this.lastBandToolHadBody,
-          hasTrailingGap: this.hasTrailingGap,
-        };
-        this.lastToolGapSpacer = null;
-        const gapBeforeTool = !this.lastBandWasTool || this.lastBandToolHadBody;
-        if (gapBeforeTool) {
-          this.lastToolGapSpacer = this.addSectionGap();
-        }
+
         let subagentCodename: string | undefined;
         if (name === "task") {
           subagentCodename = pickUniqueShipName(new Set(this.taskCodenames.values()));
@@ -2637,6 +2912,39 @@ export class ImpulseRenderer {
           subagentCodename !== undefined ? { subagentCodename } : undefined
         );
         this.toolBlocks.set(id, block);
+
+        if (this.isQuietMode()) {
+          // Quiet: mutate live shimmer only — do not add tool rows to scrollback yet.
+          // Blank row between prior AI prose and the eventual Worked for.
+          if (hadAssistantStream) {
+            this.quietTracker.markGapBeforeNextWorkedFor();
+          }
+          this.quietTracker.addTool({
+            id,
+            name,
+            arg: fullQuietArg(name, args),
+          });
+          this.ensureQuietNarration();
+          this.updateQuietNarration();
+          if (name === "todo_write") {
+            this.todoBlockBeforeRewrite = this.latestTodoBlock;
+          }
+          this.updateLiveMetrics(0, true);
+          this.requestRenderForPhase("tool_start");
+          return;
+        }
+
+        this.preToolSpacing = {
+          lastBandWasTool: this.lastBandWasTool,
+          lastBandToolHadBody: this.lastBandToolHadBody,
+          hasTrailingGap: this.hasTrailingGap,
+        };
+        this.lastToolGapSpacer = null;
+        const gapBeforeTool = !this.lastBandWasTool || this.lastBandToolHadBody;
+        if (gapBeforeTool) {
+          this.lastToolGapSpacer = this.addSectionGap();
+        }
+
         this.chat.addChild(block);
         this.hasTrailingGap = false;
         this.lastBandWasTool = true;
@@ -2666,18 +2974,49 @@ export class ImpulseRenderer {
         }
 
         this.thinkingElapsedMs = 0;
-
+        this.syncSteeringChrome();
         this.taskCodenames.delete(id);
+
+        const quiet = this.isQuietMode();
+        const outcome = classifyQuietOutcome(result);
+        const arg =
+          this.quietTracker.findToolArg(id) ?? shortQuietArg(_name, {});
+
+        if (quiet) {
+          if (!isSilentUnchangedTodoWrite(_name, result) && !isCosmeticTodoRewrite(_name, result)) {
+            const fact = buildQuietRecapFact(_name, arg, result) ?? undefined;
+            const event: QuietRecapEvent = { name: _name, arg, outcome };
+            if (fact !== undefined) {
+              event.fact = fact;
+            }
+            this.quietRecapEvents.push(event);
+          }
+          this.quietTracker.removeTool(id);
+        }
 
         const block = this.toolBlocks.get(id);
         if (block) {
           if (isSilentUnchangedTodoWrite(_name, result)) {
-            this.removeSilentTodoToolBlock(block, id);
+            if (!quiet) {
+              this.removeSilentTodoToolBlock(block, id);
+            } else {
+              this.toolBlocks.delete(id);
+            }
             if (!this.isRunning) {
               this.tui.requestRender();
               return;
             }
-            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            // Do NOT settle on tools-done — keep group open until AI stream / turn end
+            // so post-tool thinking cannot emit a second Worked for.
+            if (quiet) {
+              if (this.quietTracker.tools.length === 0) {
+                this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
+              } else {
+                this.refreshQuietLiveStatus();
+              }
+            } else {
+              this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
+            }
             this.updateLiveMetrics(result.output.length, true);
             this.requestRenderForPhase("tool_end_todo_noop");
             return;
@@ -2686,47 +3025,81 @@ export class ImpulseRenderer {
           if (isCosmeticTodoRewrite(_name, result)) {
             const prev = this.todoBlockBeforeRewrite;
             this.todoBlockBeforeRewrite = null;
-            this.removeSilentTodoToolBlock(block, id);
-            if (prev) {
-              prev.setDone(result, durationMs, { collapsed: false, compact: false });
-              this.markLatestTodoBlock(prev);
+            if (!quiet) {
+              this.removeSilentTodoToolBlock(block, id);
+              if (prev) {
+                prev.setDone(result, durationMs, { collapsed: false, compact: false });
+                this.markLatestTodoBlock(prev);
+              }
+            } else {
+              this.toolBlocks.delete(id);
             }
             if (!this.isRunning) {
               this.tui.requestRender();
               return;
             }
-            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            if (quiet) {
+              if (this.quietTracker.tools.length === 0) {
+                this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
+              } else {
+                this.refreshQuietLiveStatus();
+              }
+            } else {
+              this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
+            }
             this.updateLiveMetrics(result.output.length, true);
             this.requestRenderForPhase("tool_end_todo_cosmetic");
             return;
           }
 
-          const compact =
-            this.compactToolOutputEnabled &&
-            shouldCompactToolOutput(_name, result.success, result.metadata);
-          const collapsed =
-            _name === "task" || compact || (_name === "question" && result.success);
-          if (compact) this.lastExpandableTool = block;
-          block.setDone(result, durationMs, { collapsed, compact });
-          this.lastBandToolHadBody = block.hasExpandedBody();
-          if (_name === "todo_write" || _name === "todo_read") {
-            this.markLatestTodoBlock(block);
+          if (quiet) {
+            if (isQuietBreakOutcome(outcome)) {
+              // Failed/blocked tools stay on the ghost line (✗ count) and in
+              // the Recap — no tool rows or output dumps in Quiet, per dogfood
+              // direction; full output only in Verbose.
+              this.quietTracker.noteFailed();
+              this.updateQuietNarration();
+              this.toolBlocks.delete(id);
+              return;
+            }
+            this.toolBlocks.delete(id);
+          } else {
+            const compact =
+              this.compactToolOutputEnabled &&
+              shouldCompactToolOutput(_name, result.success, result.metadata);
+            const collapsed =
+              _name === "task" || compact || (_name === "question" && result.success);
+            if (compact) this.lastExpandableTool = block;
+            block.setDone(result, durationMs, { collapsed, compact });
+            this.lastBandToolHadBody = block.hasExpandedBody();
+            if (_name === "todo_write" || _name === "todo_read") {
+              this.markLatestTodoBlock(block);
+            }
+            this.toolBlocks.delete(id);
           }
-          this.toolBlocks.delete(id);
         }
         if (!this.isRunning) {
           this.tui.requestRender();
           return;
         }
 
-          this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+        if (quiet) {
+          // Keep the same work group open until AI streams again (or turn ends).
+          if (this.quietTracker.tools.length === 0) {
+            this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
+          } else {
+            this.refreshQuietLiveStatus();
+          }
+        } else {
+          this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
+        }
         this.updateLiveMetrics(result.output.length, true);
         this.requestRenderForPhase("tool_end");
       },
       onCompacting: () => {
         this.compactStartMs = Date.now();
         this.addChatLine(clr.dim("Auto-compaction in progress"));
-        this.setBusyStatus("Compacting...", BUSY_COMPACTING);
+        this.setBusyStatus("Compacting…", BUSY_COMPACTING);
         this.tui.requestRender();
       },
       onCompacted: (removedCount, _summary, contextTokens) => {
@@ -2743,7 +3116,7 @@ export class ImpulseRenderer {
           )
         );
         this.compactStartMs = 0;
-        this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+        this.setBusyStatus("Thinking …", BUSY_PROCESSING);
         this.syncContextBar({
           contextTokens: this.contextTokens,
           contextWindow: this.contextWindow,
@@ -2751,6 +3124,10 @@ export class ImpulseRenderer {
         this.tui.requestRender();
       },
       onTurnEnd: (usage) => {
+        this.syncSteeringChrome();
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.closeThinking();
@@ -2785,6 +3162,9 @@ export class ImpulseRenderer {
         }
 
         this.lastAssistantTurnText = turnText;
+        this.emitQuietRecapIfNeeded();
+        this.quietRecapEvents = [];
+        this.clearSteeringChrome();
         this.addSectionGap();
         this.lastBandWasTool = false;
         this.turnShowsImpulseHeader = false;
@@ -2798,6 +3178,10 @@ export class ImpulseRenderer {
         }
       },
       onError: (err) => {
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
+        this.clearSteeringChrome();
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.syncContextBar({ isRunning: false });
@@ -2808,6 +3192,10 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
       onHardCutoff: (tokens) => {
+        if (this.isQuietMode()) {
+          this.settleQuietWorkGroup();
+        }
+        this.clearSteeringChrome();
         this.spinStop();
         this.dismissQuestionOverlay(false);
         this.contextTokens = tokens;
@@ -2899,6 +3287,7 @@ export class ImpulseRenderer {
     const lines = wrapGutterLines(text, this.terminal.columns);
     for (const line of lines) {
       this.chat.addChild(new Text(line, 0, 0));
+      this.layoutDebug("+LINE", line.slice(0, 60));
     }
     this.hasTrailingGap = false;
     this.lastBandWasTool = false;
@@ -2906,11 +3295,33 @@ export class ImpulseRenderer {
   }
 
   private addSectionGap(): Spacer | null {
-    if (this.hasTrailingGap) return null;
+    // Normalize to exactly ONE trailing blank — stacked Spacers from
+    // freeze/settle/narration sequences are what produced the huge post-tool
+    // gap in dogfood (#153 round 3).
+    const pruned = this.pruneTrailingSpacers();
+    if (pruned > 0) this.layoutDebug("PRUNE", `${pruned} spacers`);
+    this.hasTrailingGap = false;
     const spacer = new Spacer(1);
     this.chat.addChild(spacer);
     this.hasTrailingGap = true;
+    this.layoutDebug("+SPACER");
     return spacer;
+  }
+
+  /** Drop consecutive trailing blank rows so gaps never stack. */
+  private pruneTrailingSpacers(): number {
+    let removed = 0;
+    const children = this.chat.children;
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i]!;
+      if (child instanceof Spacer) {
+        this.chat.removeChild(child);
+        removed++;
+        continue;
+      }
+      break;
+    }
+    return removed;
   }
 
   /** Block agent loop until user approves or declines advisor plan */
@@ -2944,7 +3355,7 @@ export class ImpulseRenderer {
         margin: this.listOverlayMargin(),
       });
       this.planApprovalOverlayHandle = handle;
-      this.setBusyStatus("Waiting for plan approval ...", "Reviewing plan...");
+      this.setBusyStatus("Waiting for plan approval …", "Reviewing plan…");
       handle.focus();
 
       overlay.onDecision = (decision) => {
@@ -3003,7 +3414,7 @@ export class ImpulseRenderer {
         margin: this.listOverlayMargin(),
       });
       this.planCompletionOverlayHandle = handle;
-      this.setBusyStatus("Waiting for plan decision ...", "Plan ready...");
+      this.setBusyStatus("Waiting for plan decision …", "Plan ready…");
       handle.focus();
 
       const decisionLines: Record<PlanCompletionDecision, string> = {
@@ -3132,6 +3543,7 @@ export class ImpulseRenderer {
     if (!this.streamingText) return;
     this.streamingText.setText(split.frozen);
     this.appendAssistantTurnSegment(split.frozen);
+    this.layoutDebug("FREEZE", `${split.kind} frozen=${split.frozen.length}ch`);
     if (split.kind === "paragraph") {
       this.addSectionGap();
     } else {
@@ -3151,6 +3563,11 @@ export class ImpulseRenderer {
   }
 
   private prepareStreamingToken(incomingToken: string): string {
+    // Models often open content with blank lines after a thinking phase;
+    // strip leading whitespace at stream start so prose hugs its header.
+    if (this.streamingRaw.length === 0) {
+      incomingToken = incomingToken.replace(/^\s+/, "");
+    }
     if (!this.streamingText || !this.tui) {
       return `${this.streamingRaw}${incomingToken}`;
     }
@@ -3266,6 +3683,9 @@ export class ImpulseRenderer {
       cmdShow: () => r.cmdShow(),
       showHelpOverlay: () => r.showHelpOverlay(),
       cmdSteer: (arg) => r.cmdSteer(arg),
+      cmdQueue: (arg) => r.cmdQueue(arg),
+      cmdQuiet: () => r.cmdQuiet(),
+      cmdVerbose: () => r.cmdVerbose(),
       cmdCopy: () => r.cmdCopy(),
       cmdSide: (arg) => r.cmdSide(arg),
       showThinkingSettingsHint: () => r.showThinkingSettingsHint(),
@@ -3362,10 +3782,52 @@ export class ImpulseRenderer {
     } else if (!this.isRunning) {
       this.addChatLine(clr.dim("No active turn — /steer applies during an agent turn"));
     } else {
-      this.loop.setSteer(arg);
+      this.redirectLiveTurn(arg);
       this.addChatLine(clr.dim(`steer: ${arg}`));
       this.addChatLine(clr.dim("applies before the model's next action"));
     }
+    this.tui.requestRender();
+  }
+
+  /** One-shot enqueue while a turn is active (Redirect-default escape). */
+  private cmdQueue(arg: string): void {
+    if (!arg.trim()) {
+      this.addChatLine(clr.dim("Usage: /queue <message> — enqueue for after this turn"));
+      this.tui.requestRender();
+      return;
+    }
+    if (!this.isRunning) {
+      this.addChatLine(clr.dim("No active turn — submit normally, or wait and /queue during a turn"));
+      this.tui.requestRender();
+      return;
+    }
+    const payload: PromptSubmitPayload = {
+      displayMessage: arg,
+      apiText: arg,
+      segments: [{ kind: "text", value: arg }],
+      orderedImages: [],
+    };
+    this.enqueueTurn(payload);
+    this.addChatLine(clr.dim("Queued for after this turn"));
+    this.tui.requestRender();
+  }
+
+  private async cmdQuiet(): Promise<void> {
+    await this.setChatDensity("quiet");
+  }
+
+  private async cmdVerbose(): Promise<void> {
+    await this.setChatDensity("verbose");
+  }
+
+  private async setChatDensity(density: ChatDensity): Promise<void> {
+    this.chatDensity = density;
+    const config = await loadConfig();
+    config.chatDensity = density;
+    await saveConfig(config);
+    this.addChatLine(
+      clr.dim(density === "quiet" ? "Chat density: Quiet" : "Chat density: Verbose")
+    );
     this.tui.requestRender();
   }
 
@@ -3388,7 +3850,7 @@ export class ImpulseRenderer {
     }
     this.compactStartMs = Date.now();
     this.addChatLine(clr.dim("Compaction in progress"));
-    this.setBusyStatus("Compacting...", BUSY_COMPACTING);
+    this.setBusyStatus("Compacting…", BUSY_COMPACTING);
     const result = await CompactManager.compact(sessionID, true, { force: true });
     this.spinStop();
     this.contextTokens = this.estimateCurrentSessionTokens();
@@ -3528,9 +3990,9 @@ export class ImpulseRenderer {
       lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
-      lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
+      lines.push(`Discovering ${state.provider?.label ?? "provider"} models…`);
       lines.push("");
-      lines.push(clr.dim("Testing connection..."));
+      lines.push(clr.dim("Testing connection…"));
     } else if (state.step === "model") {
       lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
@@ -3978,7 +4440,7 @@ export class ImpulseRenderer {
       this.addChatLine(clr.warn("Wait for the current turn to finish."));
       return;
     }
-    this.addChatLine(clr.dim("Checking for updates..."));
+    this.addChatLine(clr.dim("Checking for updates…"));
     this.tui.requestRender();
     const update = await checkForUpdate();
     if (!update) {
@@ -3989,7 +4451,7 @@ export class ImpulseRenderer {
     this.addChatLine(
       modelStatusLine(`Update available: v${update.currentVersion} -> v${update.latestVersion}`)
     );
-    this.addChatLine(clr.dim("Installing update and relaunching..."));
+    this.addChatLine(clr.dim("Installing update and relaunching…"));
     this.tui.requestRender();
     await SessionManager.flushCurrent();
     const session = SessionManager.getCurrentSession();
@@ -4034,6 +4496,9 @@ export class ImpulseRenderer {
     this.thinkingDisplay = config.thinkingDisplay ?? "summary";
     this.responsePreference = config.userProfile?.responsePreference?.trim() || "balanced";
     this.compactToolOutputEnabled = config.compactToolOutput ?? true;
+    this.chatDensity = config.chatDensity ?? "quiet";
+    this.midTurnSubmit = config.midTurnSubmit ?? "redirect";
+    this.showRecap = config.showRecap ?? true;
     this.contextBar?.update({ bottomBarVisual: config.bottomBarVisual ?? "full" });
     this.applyThinkingDisplayMode();
   }
@@ -4058,14 +4523,37 @@ export class ImpulseRenderer {
 
   private appendWorkerThinking(text: string): void {
     const filtered = filterThinkingForDisplay(text);
+    if (!filtered.trim() && !this.thinkingOpen && !this.quietTracker.thinking) {
+      return;
+    }
+
+    // Quiet: thinking stays on the ephemeral live line (Assessing… / Planning…); no scrollback block.
+    // Stays in the same work group as prior/upcoming tools so settle emits one Worked for.
+    if (this.isQuietMode()) {
+      const hadAssistantStream = Boolean(this.streamingRaw.trim() || this.streamingText);
+      if (hadAssistantStream && !this.quietTracker.active) {
+        this.finalizeStreamingAtSafeBoundary(false);
+        this.quietTracker.markGapBeforeNextWorkedFor();
+      }
+      this.quietTracker.setThinking("assessing");
+      // Models thinking via reasoning_content never emit the <intent>
+      // content marker mid-thought — derive narration intent from the
+      // reasoning stream itself (marker still overrides when present).
+      this.quietTracker.noteThinkingText(text);
+      this.ensureQuietNarration();
+      this.updateQuietNarration();
+      this.noteLiveGeneration(text);
+      return;
+    }
+
     if (!this.thinkingOpen) {
       if (!filtered.trim()) return;
-      this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+      this.setBusyStatus("Thinking …", BUSY_PROCESSING);
       this.finalizeStreamingAtSafeBoundary(false);
       this.thinkingRaw = "";
       this.thinkingText = null;
     } else {
-      this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+      this.setBusyStatus("Thinking …", BUSY_PROCESSING);
     }
     if (!this.thinkingText) {
       this.addSectionGap();
@@ -4113,7 +4601,13 @@ export class ImpulseRenderer {
   }): Promise<void> {
     try {
       const config = await loadConfig();
-      const { buildModelPickerState, buildVisionModelPickerState, parseModelPickerSelection } =
+      const {
+        buildModelPickerState,
+        buildVisionModelPickerState,
+        parseModelPickerSelection,
+        isManualModelRow,
+        manualRowProviderKey,
+      } =
         await import("./components/model-picker-overlay.js");
 
       const state =
@@ -4133,56 +4627,21 @@ export class ImpulseRenderer {
       state.overlay.onSelect = async (compoundId: string) => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
+
+        // Manual model-id entry: provider accepts a model its /models
+        // endpoint never lists (issue #159).
+        if (isManualModelRow(compoundId)) {
+          this.promptForManualModelId(manualRowProviderKey(compoundId), opts);
+          return;
+        }
+
         const parsed = parseModelPickerSelection(compoundId);
         if (!parsed) {
           await opts.onComplete?.();
           return;
         }
 
-        const fullModel = parsed.modelId.includes("/")
-          ? parsed.modelId
-          : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
-
-        if (opts.purpose === "vision") {
-          const cfg = await loadConfig();
-          cfg.visionModel = fullModel;
-          cfg.visionMode = true;
-          await saveConfig(cfg);
-          await this.persistSessionVision(true, fullModel);
-          this.syncVisionFromConfig(await loadConfig());
-          this.addChatLine(
-            clr.dim(
-              `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
-            )
-          );
-        } else if (opts.purpose === "subagent") {
-          const cfg = await loadConfig();
-          cfg.subagentModel = fullModel;
-          cfg.useSubagentModel = true;
-          await saveConfig(cfg);
-          await opts.onSubagentPicked?.(fullModel);
-          this.addChatLine(modelStatusLine(`Subagent model: ${fullModel}`));
-        } else {
-          const cfg = await loadConfig();
-          cfg.defaultProvider = parsed.providerKey;
-          cfg.defaultModel = fullModel;
-          cfg.modelExplicitlySet = true;
-          await saveConfig(cfg);
-          resetProviderManager();
-          SessionManager.setOptions({ defaultModel: fullModel });
-          await SessionManager.update({ model: fullModel });
-          await this.refreshActiveContextWindow(cfg, { discover: true });
-          this.contextTokens = this.estimateCurrentSessionTokens();
-          void this.refreshReasoningCapability();
-          this.syncContextBar({
-            workerModel: fullModel,
-            contextTokens: this.contextTokens,
-            contextWindow: this.contextWindow,
-          });
-          this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
-        }
-        this.tui.requestRender();
-        await opts.onComplete?.();
+        await this.applyModelSelection(parsed, opts);
       };
 
       state.overlay.onCancel = async () => {
@@ -4209,6 +4668,92 @@ export class ImpulseRenderer {
         clr.error(`Model selector failed: ${(e as Error).message}`)
       );
     }
+  }
+
+  /** Save a picked (provider, model) pair for the picker purpose. */
+  private async applyModelSelection(
+    parsed: { providerKey: string; modelId: string },
+    opts: {
+      purpose: "worker" | "vision" | "subagent";
+      onSubagentPicked?: (fullModel: string) => void | Promise<void>;
+      onComplete?: () => void | Promise<void>;
+    }
+  ): Promise<void> {
+    const fullModel = parsed.modelId.includes("/")
+      ? parsed.modelId
+      : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
+
+    if (opts.purpose === "vision") {
+      const cfg = await loadConfig();
+      cfg.visionModel = fullModel;
+      cfg.visionMode = true;
+      await saveConfig(cfg);
+      await this.persistSessionVision(true, fullModel);
+      this.syncVisionFromConfig(await loadConfig());
+      this.addChatLine(
+        clr.dim(
+          `Vision ON — ${fullModel.split("/").pop() ?? fullModel}`
+        )
+      );
+    } else if (opts.purpose === "subagent") {
+      const cfg = await loadConfig();
+      cfg.subagentModel = fullModel;
+      cfg.useSubagentModel = true;
+      await saveConfig(cfg);
+      await opts.onSubagentPicked?.(fullModel);
+      this.addChatLine(modelStatusLine(`Subagent model: ${fullModel}`));
+    } else {
+      const cfg = await loadConfig();
+      cfg.defaultProvider = parsed.providerKey;
+      cfg.defaultModel = fullModel;
+      cfg.modelExplicitlySet = true;
+      await saveConfig(cfg);
+      resetProviderManager();
+      SessionManager.setOptions({ defaultModel: fullModel });
+      await SessionManager.update({ model: fullModel });
+      await this.refreshActiveContextWindow(cfg, { discover: true });
+      this.contextTokens = this.estimateCurrentSessionTokens();
+      void this.refreshReasoningCapability();
+      this.syncContextBar({
+        workerModel: fullModel,
+        contextTokens: this.contextTokens,
+        contextWindow: this.contextWindow,
+      });
+      this.addChatLine(modelStatusLine(`Model: ${fullModel}`));
+    }
+    this.tui.requestRender();
+    await opts.onComplete?.();
+  }
+
+  /** Manual model-id entry for models a provider accepts but never lists (#159). */
+  private async promptForManualModelId(
+    providerKey: string,
+    opts: {
+      purpose: "worker" | "vision" | "subagent";
+      onSubagentPicked?: (fullModel: string) => void | Promise<void>;
+      onComplete?: () => void | Promise<void>;
+    }
+  ): Promise<void> {
+    const { TextInputOverlay } = await import("./components/text-input-overlay.js");
+    const overlay = new TextInputOverlay({
+      title: "Custom model id",
+      description: `Exact model id ${providerKey} accepts but its /models endpoint does not list.`,
+      placeholder: "e.g. MiniMax-M3.1-Flash-Preview",
+      hint: "Enter use   Esc cancel",
+    });
+    overlay.onSubmit = (value) => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      this.tui.setFocus(this.promptInput);
+      void this.applyModelSelection({ providerKey, modelId: value }, opts);
+    };
+    overlay.onCancel = () => {
+      this.dismissListOverlay(this.modelPickerHandle);
+      this.modelPickerHandle = null;
+      this.tui.setFocus(this.promptInput);
+      void opts.onComplete?.();
+    };
+    this.modelPickerHandle = this.showListOverlay(overlay);
   }
 
   private modelSetupInputListener: (() => void) | null = null;
@@ -4875,6 +5420,9 @@ export class ImpulseRenderer {
     const config = await loadConfig();
 
     const initialValues: SettingsValues = {
+      chatDensity: config.chatDensity ?? "quiet",
+      midTurnSubmit: config.midTurnSubmit ?? "redirect",
+      showRecap: config.showRecap ?? true,
       thinkingDisplay: config.thinkingDisplay ?? "summary",
       reasoningLevel: config.reasoningLevel ?? "medium",
       responsePreference: config.userProfile?.responsePreference?.trim() || "balanced",
@@ -4897,6 +5445,9 @@ export class ImpulseRenderer {
       if (settingsValuesEqual(values, initialValues)) {
         return "unchanged";
       }
+      config.chatDensity = values.chatDensity;
+      config.midTurnSubmit = values.midTurnSubmit;
+      config.showRecap = values.showRecap;
       config.thinkingDisplay = values.thinkingDisplay;
       config.showMainThinking = values.thinkingDisplay === "full";
       config.reasoningLevel = values.reasoningLevel;
@@ -5375,7 +5926,7 @@ export class ImpulseRenderer {
         this.addChatLine(clr.dim(`  ${compact}`));
       }
       if (allPreviewLines.length > previewLines.length) {
-        this.addChatLine(clr.dim("  ..."));
+        this.addChatLine(clr.dim("  …"));
       }
     }
     this.tui.requestRender();
@@ -5869,7 +6420,7 @@ export class ImpulseRenderer {
   private hydrateChatFromSession(session: Session): void {
     this.lastBandWasTool = false;
     this.lastBandToolHadBody = false;
-    const steps = buildReplaySteps(session.messages);
+    const steps = buildReplaySteps(session.messages, { quiet: this.isQuietMode() });
     for (const step of steps) {
       this.appendReplayStep(step);
     }
@@ -5916,6 +6467,17 @@ export class ImpulseRenderer {
           this.hasTrailingGap = false;
         }
         break;
+      case "recap": {
+        // Quiet replay: persisted model-authored Recap, same look as live.
+        this.addSectionGap();
+        const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
+        const rows = wrapQuietRecapLines(`Recap: ${step.text}`, width, 3);
+        for (const row of rows) {
+          this.addChatLine(ghost(row));
+        }
+        this.addSectionGap();
+        break;
+      }
       case "tool": {
         const gapBeforeTool = !this.lastBandWasTool || this.lastBandToolHadBody;
         if (gapBeforeTool) {

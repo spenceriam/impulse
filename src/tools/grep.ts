@@ -49,7 +49,7 @@ interface Match {
 
 function truncateContent(content: string, maxLength: number): string {
   if (content.length <= maxLength) return content;
-  return content.slice(0, maxLength - 3) + "...";
+  return content.slice(0, maxLength - 3) + "…";
 }
 
 export const grepTool: Tool<GrepInput> = Tool.define(

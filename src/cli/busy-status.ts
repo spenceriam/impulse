@@ -2,18 +2,20 @@
  * Busy-line status phrases for the turn spinner (above prompt).
  */
 
-export const BUSY_WORKING = "Working...";
-export const BUSY_PROCESSING = "Processing...";
-export const BUSY_COMPACTING = "Compacting...";
+export const BUSY_WORKING = "Working…";
+export const BUSY_PROCESSING = "Processing…";
+export const BUSY_COMPACTING = "Compacting…";
+export const BUSY_STEERING = "Steering…";
 
 /** Fixed phrases that should not be replaced by a generic tool-start status. */
 export const FIXED_BUSY_PHRASES = new Set([
   BUSY_PROCESSING,
   BUSY_COMPACTING,
-  "Advisor consultation...",
-  "Waiting for your answer...",
-  "Waiting for your approval...",
-  "Reviewing plan...",
+  BUSY_STEERING,
+  "Advisor consultation…",
+  "Waiting for your answer…",
+  "Waiting for your approval…",
+  "Reviewing plan…",
 ]);
 
 /**
@@ -52,10 +54,11 @@ export function busyPhraseUsesDimBase(phrase: string, msg: string): boolean {
   return (
     phrase === BUSY_PROCESSING ||
     phrase === BUSY_COMPACTING ||
-    phrase === "Advisor consultation..." ||
-    phrase === "Waiting for your answer..." ||
-    phrase === "Waiting for your approval..." ||
-    phrase === "Reviewing plan..." ||
+    phrase === BUSY_STEERING ||
+    phrase === "Advisor consultation…" ||
+    phrase === "Waiting for your answer…" ||
+    phrase === "Waiting for your approval…" ||
+    phrase === "Reviewing plan…" ||
     msg.toLowerCase().includes("think")
   );
 }
