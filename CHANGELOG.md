@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-11
+
+  **Type:** minor
+  **Title:** Humanized bash narration in Quiet mode (live line + Recap)
+
+  ### Changed
+  - **#164** -- Quiet live narration humanizes bash chains — verb + topic, never raw shell: `cd /tmp && sleep 75 && grep -rn "quiet-status|…" src | head -20` renders as `Searching the code for 'quiet-status' and 3 more terms (17s)`. Chains decompose on `&&`/`;`/`|`, scaffolding segments (`cd`/`sleep`/`echo`/redirects/`head`/`tail`) drop, git/gh/grep/npm/test-runner/script families classify with topics (search pattern + alternation count, file basename, hostname, release tag, PR number), unmapped commands show the bare binary (`Running terraform`), and all-scaffolding chains show `Running a terminal command`.
+  - **#163** -- Recap facts and `· Next:` retry phrases use the past-tense form of the same classifier — no more `ran gh api repos/…` echo or `retry cd /tmp/impulse-review && echo …` lines. Raw commands remain visible in Verbose mode.
+
 ## [1.11.1] - 2026-10-11
 
   **Type:** patch

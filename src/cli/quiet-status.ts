@@ -267,11 +267,16 @@ export function formatQuietLiveStatus(opts: {
   const running = opts.tools;
   if (running.length > 0) {
     const first = running[0]!;
-    const verb = quietToolVerb(first.name);
-    const arg = first.arg;
     const extra = running.length - 1;
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
-    const label = arg ? `${verb} ${arg}` : verb;
+    // Bash narrates humanized intent ("Searching the code for X") instead
+    // of "Running <raw chain>" — Quiet never renders raw shell (#164).
+    const label =
+      first.name === "bash"
+        ? humanizeBashCommand(first.arg).live
+        : first.arg
+          ? `${quietToolVerb(first.name)} ${first.arg}`
+          : quietToolVerb(first.name);
     return fit(label, parts);
   }
   if (opts.thinking) {
@@ -346,28 +351,208 @@ const QUIET_OUTCOME_VERBS: Record<string, string> = {
 };
 
 /**
- * Plain-language intent for common shell commands. Returns null when no
- * confident mapping exists (caller falls back to the concrete command).
+ * Humanized bash command for Quiet narration — verb + topic, never raw
+ * shell (#164). Chains are decomposed (&&, ||, ;, |), scaffolding segments
+ * (cd/sleep/echo/redirects/head/tail) dropped, and the first meaningful
+ * segment classified. `live` feeds the narration line, `done` feeds Recap
+ * facts (#163) — one classifier, two tenses. Unmapped commands fall back
+ * to the bare binary name ("Running terraform"); raw args never render in
+ * Quiet (Verbose keeps them).
  */
-function plainBashIntent(command: string): string | null {
-  const c = command.replace(/\s+/g, " ").trim().toLowerCase();
-  const starts = (...prefixes: string[]) => prefixes.some((p) => c.startsWith(p));
-  if (starts("git log", "git show", "git reflog")) return "reviewed recent changes";
-  if (starts("git diff")) return "reviewed the current changes";
-  if (starts("git status")) return "checked what changed in the repo";
-  if (starts("git commit")) return "made a commit";
-  if (starts("git push")) return "pushed commits";
-  if (starts("git pull", "git fetch")) return "pulled the latest changes";
-  if (starts("git branch", "git tag")) return "checked the repo branches";
-  if (starts("npm test", "bun test", "yarn test", "go test", "cargo test", "pytest", "jest", "vitest"))
-    return "ran the tests";
-  if (starts("grep", "rg ", "ag ")) return "searched the codebase";
-  if (starts("ls", "find ", "tree")) return "checked the folder contents";
-  if (starts("cat", "head", "tail", "less", "more")) return "looked at a file";
-  if (starts("curl", "wget")) return "fetched a web page";
-  if (starts("mkdir", "touch")) return "set up files";
-  if (starts("rm", "mv", "cp")) return "reorganized files";
+export type HumanizedCommand = {
+  /** Live narration form: "Searching the code for 'quiet-status'". */
+  live: string;
+  /** Recap fact form: "searched the code for 'quiet-status'". */
+  done: string;
+};
+
+function hc(live: string, done: string): HumanizedCommand {
+  return { live, done };
+}
+
+/** Split a shell chain into segments; strip redirects and noise operators. */
+function splitShellChain(command: string): string[] {
+  return command
+    .replace(/\d*>&\d+/g, " ") // 2>&1
+    .replace(/\d*>>?\s*\S+/g, " ") // > file, 2>/dev/null, >> log
+    .split(/&&|\|\||;|(?<!\\)\|/) // &&, ||, ;, and unescaped |
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Segments that set the stage rather than carry intent. */
+const SHELL_SCAFFOLDING_RE =
+  /^(cd|sleep|echo|printf|export|set|unset|true|false|clear|wait|time|read|head|tail|xargs|env)\b/i;
+
+/** First non-scaffolding segment's tokens (env prefixes and sudo skipped). */
+function meaningfulTokens(command: string): string[] | null {
+  for (const seg of splitShellChain(command)) {
+    if (SHELL_SCAFFOLDING_RE.test(seg)) continue;
+    const tokens = seg.split(/\s+/);
+    while (
+      tokens.length > 0 &&
+      (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]!) || tokens[0] === "sudo")
+    ) {
+      tokens.shift();
+    }
+    if (tokens.length > 0) return tokens;
+  }
   return null;
+}
+
+/** First flag-free token after `skip` leading tokens. */
+function firstOperand(tokens: string[], skip: number): string | null {
+  for (let i = skip; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (!t.startsWith("-")) return t;
+  }
+  return null;
+}
+
+/** Extract a search pattern: quoted string wins; count `\|` alternations. */
+function extractSearchPattern(tokens: string[]): { term: string; more: number } | null {
+  const quoted = tokens.join(" ").match(/["']([^"']+)["']/);
+  let pattern = quoted?.[1] ?? firstOperand(tokens, 1);
+  if (!pattern) return null;
+  const more = (pattern.match(/\\\|/g) ?? []).length;
+  const term = pattern.split(/\\\||\|/)[0]!.trim();
+  if (!term) return null;
+  return { term: truncateArg(term, 48), more };
+}
+
+function hostnameOf(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    return new URL(token).hostname;
+  } catch {
+    const m = token.match(/^(?:https?:\/\/)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/);
+    return m?.[1] ?? null;
+  }
+}
+
+function basenameOf(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() ?? p;
+}
+
+const TEST_RUNNERS_RE =
+  /^(npm|bun|yarn|pnpm)\s+test$|^(go\s+test|cargo\s+test|pytest|jest|vitest)$/;
+
+function classifyBashSegment(tokens: string[]): HumanizedCommand {
+  const bin = basenameOf(tokens[0]!);
+  const sub = tokens[1] ?? "";
+  const rest = tokens.join(" ").toLowerCase();
+
+  // git family
+  if (bin === "git") {
+    if (/^(log|show|reflog)$/.test(sub)) return hc("Reviewing recent commits", "reviewed recent changes");
+    if (sub === "diff") return hc("Reviewing the current changes", "reviewed the current changes");
+    if (sub === "status") return hc("Checking what changed in the repo", "checked what changed in the repo");
+    if (sub === "commit") return hc("Making a commit", "made a commit");
+    if (sub === "push") return hc("Pushing commits", "pushed commits");
+    if (/^(pull|fetch)$/.test(sub)) return hc("Pulling the latest changes", "pulled the latest changes");
+    if (/^(branch|tag)$/.test(sub)) return hc("Checking the repo branches", "checked the repo branches");
+    if (/^(checkout|switch)$/.test(sub)) return hc("Switching branches", "switched branches");
+    if (sub === "clone") {
+      const url = firstOperand(tokens, 2);
+      const name = url ? basenameOf(url).replace(/\.git$/, "") : null;
+      return name ? hc(`Cloning ${name}`, `cloned ${name}`) : hc("Cloning a repo", "cloned a repo");
+    }
+    return hc("Working with git", "worked with git");
+  }
+
+  // gh (GitHub CLI) family
+  if (bin === "gh") {
+    if (sub === "repo") return hc("Viewing the repo on GitHub", "viewed the repo on GitHub");
+    if (sub === "release") {
+      const tag = tokens[2] === "view" ? firstOperand(tokens, 3) : null;
+      return tag
+        ? hc(`Checking release ${tag} on GitHub`, `checked release ${tag} on GitHub`)
+        : hc("Checking releases on GitHub", "checked releases on GitHub");
+    }
+    if (sub === "pr") {
+      const num = tokens.find((t) => /^#?\d+$/.test(t));
+      return num
+        ? hc(`Checking PR #${num.replace("#", "")} on GitHub`, `checked PR #${num.replace("#", "")} on GitHub`)
+        : hc("Checking pull requests on GitHub", "checked pull requests on GitHub");
+    }
+    if (sub === "issue") {
+      const num = tokens.find((t) => /^#?\d+$/.test(t));
+      return num
+        ? hc(`Checking issue #${num.replace("#", "")} on GitHub`, `checked issue #${num.replace("#", "")} on GitHub`)
+        : hc("Checking issues on GitHub", "checked issues on GitHub");
+    }
+    if (sub === "api") {
+      return /\/readme\b/.test(rest)
+        ? hc("Reading the README on GitHub", "read the README on GitHub")
+        : hc("Querying the GitHub API", "queried the GitHub API");
+    }
+    if (sub === "search") return hc("Searching GitHub", "searched GitHub");
+    return hc("Working with GitHub", "worked with GitHub");
+  }
+
+  // test runners / package managers
+  if (TEST_RUNNERS_RE.test(rest)) return hc("Running the tests", "ran the tests");
+  if (/^(npm|bun|yarn|pnpm)$/.test(bin) && /^(install|add|i)$/.test(sub)) {
+    const pkg = firstOperand(tokens, 2);
+    return pkg
+      ? hc(`Installing ${pkg}`, `installed ${pkg}`)
+      : hc("Installing dependencies", "installed dependencies");
+  }
+  if (/^(npm|bun|yarn|pnpm)$/.test(bin) && sub === "run") {
+    const script = firstOperand(tokens, 2);
+    return script ? hc(`Running ${script}`, `ran ${script}`) : hc("Running a script", "ran a script");
+  }
+
+  // search / read / fetch
+  if (/^(grep|rg|ag|ack|fd)$/.test(bin)) {
+    const pat = extractSearchPattern(tokens);
+    if (pat) {
+      const topic = `'${pat.term}'${pat.more > 0 ? ` and ${pat.more} more term${pat.more === 1 ? "" : "s"}` : ""}`;
+      return hc(`Searching the code for ${topic}`, `searched the code for ${topic}`);
+    }
+    return hc("Searching the code", "searched the codebase");
+  }
+  if (/^(ls|find|tree|du|df)$/.test(bin)) return hc("Checking the folder contents", "checked the folder contents");
+  if (/^(cat|less|more|sed|awk)$/.test(bin)) {
+    const file = firstOperand(tokens, 1);
+    const name = file && !file.startsWith("'") ? basenameOf(file) : null;
+    return name
+      ? hc(`Looking at ${name}`, `looked at ${name}`)
+      : hc("Looking at a file", "looked at a file");
+  }
+  if (/^(curl|wget)$/.test(bin)) {
+    const host = hostnameOf(tokens.find((t) => /^https?:\/\//.test(t)) ?? null);
+    return host
+      ? hc(`Fetching a page from ${host}`, `fetched a page from ${host}`)
+      : hc("Fetching a web page", "fetched a web page");
+  }
+  if (/^(mkdir|touch|ln)$/.test(bin)) return hc("Setting up files", "set up files");
+  if (/^(rm|mv|cp|rsync)$/.test(bin)) return hc("Reorganizing files", "reorganized files");
+
+  // script runners: npx rea-agents … → "Running rea-agents"
+  if (/^(npx|bunx)$/.test(bin)) {
+    const pkg = firstOperand(tokens, 1);
+    return pkg ? hc(`Running ${basenameOf(pkg)}`, `ran ${basenameOf(pkg)}`) : hc("Running a package", "ran a package");
+  }
+  if (/^(node|python|python3|bun|deno|ts-node)$/.test(bin)) {
+    const script = firstOperand(tokens, 1);
+    return script
+      ? hc(`Running ${basenameOf(script)}`, `ran ${basenameOf(script)}`)
+      : hc(`Running ${bin}`, `ran ${bin}`);
+  }
+
+  // Default: bare binary name, never args.
+  return hc(`Running ${bin}`, `ran ${bin}`);
+}
+
+/**
+ * Humanize a shell command for Quiet narration. Chains collapse to their
+ * first meaningful segment; all-scaffolding chains get the generic.
+ */
+export function humanizeBashCommand(command: string): HumanizedCommand {
+  const tokens = meaningfulTokens(command);
+  if (!tokens) return hc("Running a terminal command", "ran a terminal command");
+  return classifyBashSegment(tokens);
 }
 
 /** Ban list — never emit these as Recap nouns (ambiguous / filler). */
@@ -494,11 +679,8 @@ export function buildQuietRecapFact(
       const cmd =
         (typeof meta["command"] === "string" && meta["command"].trim()) ||
         arg;
-      const intent = plainBashIntent(cmd);
-      if (intent) return `${intent}${statusSuffix}`;
-      const short = truncateArg(cmd.replace(/\s+/g, " ").trim(), 40);
-      if (isVagueRecapNoun(short)) return null;
-      return `ran ${short}${statusSuffix}`;
+      // Humanized past tense, never raw command echo (#163/#164).
+      return `${humanizeBashCommand(cmd).done}${statusSuffix}`;
     }
     case "web_search": {
       if (isVagueRecapNoun(arg)) return null;
@@ -583,8 +765,13 @@ export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i]!;
     if (ev.outcome !== "failed" && ev.outcome !== "blocked") continue;
-    // Prefer concrete retry target from fact/arg
-    if (ev.arg && !isVagueRecapNoun(ev.arg)) return `retry ${truncateArg(ev.arg, 40)}`;
+    // Prefer concrete retry target from fact/arg; bash args humanize so the
+    // Next line never echoes a raw command (#163).
+    if (ev.arg && !isVagueRecapNoun(ev.arg)) {
+      return ev.name === "bash"
+        ? `retry ${lowerFirst(humanizeBashCommand(ev.arg).live)}`
+        : `retry ${truncateArg(ev.arg, 40)}`;
+    }
     if (ev.fact) {
       const m = ev.fact.match(/^ran (.+?)(?: failed| blocked| aborted)?$/);
       if (m?.[1]) return `retry ${m[1]}`;

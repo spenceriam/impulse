@@ -11,6 +11,7 @@ import {
   formatQuietLiveStatus,
   formatQuietRecap,
   formatWorkedFor,
+  humanizeBashCommand,
   isQuietBreakOutcome,
   isVagueRecapNoun,
   lastFailureNextLabel,
@@ -73,24 +74,26 @@ describe("quiet-status", () => {
     ).toBe("Understanding the repo uses a plugin architecture (2s)");
   });
 
-  test("long bash label truncates, elapsed suffix always survives (#161)", () => {
-    const longCmd =
-      'cd /tmp/impulse-review && grep -n "concurrent\\|MAX\\|queue" src/tools/task.ts | head -20; echo "==="; sed -n \'1,40p\' docs/tools/task.md';
+  test("long label truncates, elapsed suffix always survives (#161)", () => {
+    // task descriptions are the honest long-label vehicle — bash labels are
+    // humanized short by design (#164).
+    const longDesc =
+      "Review the quiet-status module and report every exported function with its signature";
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: longCmd }],
+      tools: [{ id: "1", name: "task", arg: longDesc }],
       elapsedMs: 84_000,
       availableWidth: 80,
     });
     expect(line.length).toBeLessThanOrEqual(80);
     expect(line.endsWith("(1 min 24s)")).toBe(true);
     expect(line).toContain("…");
-    expect(line.startsWith("Running cd /tmp/impulse-review")).toBe(true);
+    expect(line.startsWith("Delegating Review the quiet-status module")).toBe(true);
   });
 
   test("failure count in the suffix survives truncation (#161)", () => {
-    const longCmd = "some-command ".repeat(20).trim();
+    const longDesc = "deep-dive ".repeat(20).trim();
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: longCmd }],
+      tools: [{ id: "1", name: "task", arg: longDesc }],
       elapsedMs: 84_000,
       failedCount: 2,
       availableWidth: 80,
@@ -102,12 +105,12 @@ describe("quiet-status", () => {
   test("suffix reserve is measured per render, not constant (#161)", () => {
     const arg = "x".repeat(70);
     const seconds = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg }],
+      tools: [{ id: "1", name: "task", arg }],
       elapsedMs: 9_000,
       availableWidth: 80,
     });
     const minutes = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg }],
+      tools: [{ id: "1", name: "task", arg }],
       elapsedMs: 61_000,
       availableWidth: 80,
     });
@@ -120,7 +123,7 @@ describe("quiet-status", () => {
   test("parallel count stays inside the preserved suffix (#161)", () => {
     const line = formatQuietLiveStatus({
       tools: [
-        { id: "1", name: "bash", arg: "y".repeat(90) },
+        { id: "1", name: "task", arg: "y".repeat(90) },
         { id: "2", name: "grep", arg: "needle" },
       ],
       elapsedMs: 3_000,
@@ -132,15 +135,15 @@ describe("quiet-status", () => {
 
   test("undefined width keeps legacy no-truncation behavior", () => {
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: "z".repeat(150) }],
+      tools: [{ id: "1", name: "task", arg: "z".repeat(150) }],
       elapsedMs: 2_000,
     });
-    expect(line).toBe(`Running ${"z".repeat(150)} (2s)`);
+    expect(line).toBe(`Delegating ${"z".repeat(150)} (2s)`);
   });
 
   test("extremely narrow width degrades to suffix-only (#161)", () => {
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: "w".repeat(60) }],
+      tools: [{ id: "1", name: "task", arg: "w".repeat(60) }],
       elapsedMs: 84_000,
       availableWidth: 12,
     });
@@ -151,6 +154,76 @@ describe("quiet-status", () => {
     expect(fitQuietLiveLine("Reading AGENTS.md", " (2s)", 80)).toBe(
       "Reading AGENTS.md (2s)"
     );
+  });
+
+  test("humanizeBashCommand: chained search collapses to intent + topic (#164)", () => {
+    const chain =
+      'cd /tmp && sleep 75 && grep -rn "quiet-status\\|midTurnSubmit\\|chatDensity\\|showRecap" ~/GitHub/impulse/src/cli ~/GitHub/impulse/src/agent --include=\'*.ts\' -l | head -20 && echo \'=== search complete ===\'';
+    expect(humanizeBashCommand(chain)).toEqual({
+      live: "Searching the code for 'quiet-status' and 3 more terms",
+      done: "searched the code for 'quiet-status' and 3 more terms",
+    });
+  });
+
+  test("humanizeBashCommand: the five #163 report commands never echo raw shell", () => {
+    expect(humanizeBashCommand("gh repo view spenceriam/impulse 2>&1 | head -50").done).toBe(
+      "viewed the repo on GitHub"
+    );
+    expect(humanizeBashCommand("gh release list -R spenceriam/impulse --limit 5").done).toBe(
+      "checked releases on GitHub"
+    );
+    expect(humanizeBashCommand("gh api repos/spenceriam/impulse/readme").done).toBe(
+      "read the README on GitHub"
+    );
+    expect(humanizeBashCommand("gh release view v1.11.0 -R spenceriam/impulse").done).toBe(
+      "checked release v1.11.0 on GitHub"
+    );
+    expect(
+      humanizeBashCommand('cd /tmp/impulse-review && echo "=== new files ===" && ls -la').done
+    ).toBe("checked the folder contents");
+  });
+
+  test("humanizeBashCommand: git, tests, packages, scripts", () => {
+    expect(humanizeBashCommand("cd /tmp/x && git log --oneline -20").live).toBe(
+      "Reviewing recent commits"
+    );
+    expect(humanizeBashCommand("npm test 2>&1 | tail -30").live).toBe("Running the tests");
+    expect(humanizeBashCommand("bun install zod").live).toBe("Installing zod");
+    expect(humanizeBashCommand("npm run build").live).toBe("Running build");
+    expect(humanizeBashCommand("npx rea-agents@latest setup").live).toBe("Running rea-agents@latest");
+    expect(humanizeBashCommand("node scripts/build.ts").live).toBe("Running build.ts");
+  });
+
+  test("humanizeBashCommand: fallbacks stay honest without echoing args", () => {
+    expect(humanizeBashCommand("terraform plan -out=tfplan")).toEqual({
+      live: "Running terraform",
+      done: "ran terraform",
+    });
+    expect(humanizeBashCommand("cd /tmp && sleep 5 && echo done")).toEqual({
+      live: "Running a terminal command",
+      done: "ran a terminal command",
+    });
+    expect(humanizeBashCommand("cat package.json | grep version").live).toBe(
+      "Looking at package.json"
+    );
+    expect(humanizeBashCommand("curl -s https://api.github.com/repos/spenceriam/impulse").live).toBe(
+      "Fetching a page from api.github.com"
+    );
+  });
+
+  test("live narration humanizes bash, keeps the suffix (#164)", () => {
+    const line = formatQuietLiveStatus({
+      tools: [
+        {
+          id: "1",
+          name: "bash",
+          arg: 'cd /tmp && sleep 75 && grep -rn "quiet-status\\|midTurnSubmit" src | head -20',
+        },
+      ],
+      elapsedMs: 17_000,
+      availableWidth: 120,
+    });
+    expect(line).toBe("Searching the code for 'quiet-status' and 1 more term (17s)");
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {
@@ -316,7 +389,7 @@ describe("quiet-status", () => {
         output: "ok",
         metadata: { type: "bash", command: "wibblesort --mode 7" },
       })
-    ).toBe("ran wibblesort --mode 7");
+    ).toBe("ran wibblesort");
     // Vague / no-metadata → null (skip mush)
     expect(
       buildQuietRecapFact("ls", "impulse-pr154", { success: true, output: "ok" })
@@ -463,7 +536,7 @@ describe("quiet-status", () => {
         { name: "file_edit", arg: "a.ts", outcome: "success" },
         { name: "bash", arg: "bun test", outcome: "failed" },
       ])
-    ).toBe("retry bun test");
+    ).toBe("retry running the tests");
     expect(
       unansweredAskNextLabel([
         { name: "question", arg: "Platform", outcome: "failed" },
@@ -505,7 +578,7 @@ describe("quiet-status", () => {
         fact: "ran bun test failed",
       },
     ]);
-    expect(line).toBe("Recap: ran bun test failed · Next: retry bun test");
+    expect(line).toBe("Recap: ran bun test failed · Next: retry running the tests");
   });
 
   test("Recap Next absent when hints explicitly cleared (turn complete)", () => {
