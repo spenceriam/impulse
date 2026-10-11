@@ -2889,11 +2889,6 @@ export class ImpulseRenderer {
       onRecap: (text) => {
         this.modelRecapThisTurn = text;
       },
-      onIntent: (text) => {
-        this.quietTracker.setThinkingIntent(text);
-        this.ensureQuietNarration();
-        this.updateQuietNarration();
-      },
       onAdvisorStart: (_model) => {
         this.setBusyStatus("", "Advisor consultation…");
         this.tui.requestRender();

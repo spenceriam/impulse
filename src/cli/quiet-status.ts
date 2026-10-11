@@ -925,16 +925,11 @@ export class QuietWorkGroupTracker {
     if (failed > 0) parts.push(`${failed} failed`);
 
     if (this.group.thinking) {
-      // Trace stays hidden on the live line (impossible to keep up with);
-      // /show-think reveals full thinking blocks. Intent phrase is static
-      // derived text, not a moving trace, so it may lead the label.
-      const label = formatQuietLiveStatus({
-        thinking: this.group.thinking,
-        thinkingIntent: this.group.thinkingIntent,
-        tools: [],
-      });
-      this.group.lastLabel = label;
-      return `${label} (${parts.join(", ")})`;
+      // Trace stays hidden (impossible to read at stream speed) and derived
+      // activity labels churn too much mid-derivation — the live line shows
+      // plain "Thinking" with the elapsed tick. /show-think covers traces.
+      this.group.lastLabel = "Thinking";
+      return `Thinking (${parts.join(", ")})`;
     }
     if (this.group.tools.length > 0) {
       const label = formatQuietLiveStatus({
