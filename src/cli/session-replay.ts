@@ -50,6 +50,20 @@ function isToolRoleMessage(msg: Message): msg is Message & StoredToolMessage {
   return msg.role === "tool" && typeof msg.tool_call_id === "string";
 }
 
+/** Legacy sessions (pre inline-thinking filter) can hold raw
+ *  <think>/<thinking>/<reasoning> envelopes inside persisted assistant
+ *  content; strip them at replay so old transcripts render clean in both
+ *  densities. */
+const LEGACY_THINK_ENVELOPE_RE = /<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi;
+const LEGACY_THINK_OPEN_RE = /<(?:think|thinking|reasoning)>[\s\S]*$/i;
+
+function stripLegacyThinkTags(text: string): string {
+  let out = text.replace(LEGACY_THINK_ENVELOPE_RE, "");
+  // Unclosed envelope at stream end (crashed session): drop the tail.
+  out = out.replace(LEGACY_THINK_OPEN_RE, "");
+  return out.trim();
+}
+
 /** Index tool result rows by tool_call_id for post-rework sessions. */
 export function indexToolResults(messages: Message[]): Map<string, { content: string }> {
   const map = new Map<string, { content: string }>();
@@ -167,7 +181,8 @@ function appendBlockStep(
   quiet: boolean
 ): void {
   if (block.type === "text" && block.text.trim()) {
-    steps.push({ type: "assistantText", text: block.text });
+    const clean = stripLegacyThinkTags(block.text);
+    if (clean) steps.push({ type: "assistantText", text: clean });
     return;
   }
   if (block.type === "thinking" && block.thinking.trim()) {
@@ -202,7 +217,8 @@ function replayAssistantLinear(
     });
   }
   if (msg.content?.trim()) {
-    steps.push({ type: "assistantText", text: msg.content });
+    const clean = stripLegacyThinkTags(msg.content);
+    if (clean) steps.push({ type: "assistantText", text: clean });
   }
   if (msg.tool_calls) {
     for (const tc of msg.tool_calls) {
