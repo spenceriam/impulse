@@ -1441,6 +1441,9 @@ export class ImpulseRenderer {
     for (const row of rows) {
       this.addChatLine(ghost(row));
     }
+    // Recap is the turn's last row: block any further trailing gap so the
+    // composer separator sits one blank below it — never two or three.
+    this.hasTrailingGap = true;
   }
 
   private redirectLiveTurn(text: string): void {
@@ -3139,6 +3142,11 @@ export class ImpulseRenderer {
         this.appendAssistantTurnSegment(this.streamingRaw);
         const turnText = this.currentTurnAssistantText;
         this.currentTurnAssistantText = "";
+        // Rstrip the block display: model content often ends with blank
+        // lines; they must not stack with the section Spacer below.
+        if (this.streamingText && this.streamingRaw) {
+          this.streamingText.setText(this.streamingRaw.replace(/\s+$/, ""));
+        }
         if (this.streamingRaw) { this.addSectionGap(); }
         this.streamingRaw = ""; this.streamingText = null;
         this.thinkingRaw = "";  this.thinkingText = null;
@@ -3546,7 +3554,9 @@ export class ImpulseRenderer {
 
   private freezeStreamingSplit(split: StreamSplit): void {
     if (!this.streamingText) return;
-    this.streamingText.setText(split.frozen);
+    // Rstrip display text: a frozen paragraph boundary must not paint its
+    // own blank rows on top of the section Spacer (stacked-gap dogfood bug).
+    this.streamingText.setText(split.frozen.replace(/\s+$/, ""));
     this.appendAssistantTurnSegment(split.frozen);
     this.layoutDebug("FREEZE", `${split.kind} frozen=${split.frozen.length}ch`);
     if (split.kind === "paragraph") {
