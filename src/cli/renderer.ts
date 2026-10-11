@@ -696,7 +696,7 @@ export class ImpulseRenderer {
 
     const request = this.permissionQueue.shift()!;
     this.activePermission = request;
-    this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
+    this.setBusyStatus("Waiting for approval …", "Waiting for your approval…");
 
     const overlay = new PermissionOverlay(request);
     overlay.onDecision = (response, opts) => {
@@ -743,13 +743,13 @@ export class ImpulseRenderer {
       }
 
       this.dismissLoopCheckinOverlay();
-      this.setBusyStatus("Loop check-in ...", "Waiting for your decision...");
+      this.setBusyStatus("Loop check-in …", "Waiting for your decision…");
 
       const overlay = new LoopCheckinOverlay(input);
       overlay.onDecision = (choice) => {
         this.dismissLoopCheckinOverlay();
         if (this.isRunning) {
-          this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+          this.setBusyStatus("Thinking …", BUSY_PROCESSING);
         }
         resolve(choice);
       };
@@ -775,13 +775,13 @@ export class ImpulseRenderer {
       }
 
       this.dismissTaskBatchPermissionOverlay();
-      this.setBusyStatus("Waiting for approval ...", "Waiting for your approval...");
+      this.setBusyStatus("Waiting for approval …", "Waiting for your approval…");
 
       const overlay = new TaskBatchPermissionOverlay(count);
       overlay.onDecision = (decision) => {
         this.dismissTaskBatchPermissionOverlay();
         if (this.isRunning) {
-          this.setBusyStatus("Running parallel sub-agents ...", BUSY_WORKING);
+          this.setBusyStatus("Running parallel sub-agents …", BUSY_WORKING);
         }
         resolve(decision);
       };
@@ -821,14 +821,14 @@ export class ImpulseRenderer {
     if (!this.tui) return;
 
     this.dismissQuestionOverlay(false);
-    this.setBusyStatus("Waiting for answer ...", "Waiting for your answer...");
+    this.setBusyStatus("Waiting for answer …", "Waiting for your answer…");
 
     const overlay = new QuestionOverlay({ context, questions });
     overlay.onSubmit = (answers) => {
       this.dismissQuestionOverlay(false);
       resolveQuestion(answers);
       if (this.isRunning) {
-        this.setBusyStatus("Responding ...");
+        this.setBusyStatus("Responding …");
       }
     };
     overlay.onAbort = () => {
@@ -2536,15 +2536,15 @@ export class ImpulseRenderer {
   private toolBusyStatus(name: string): string {
     switch (name) {
       case "question":
-        return "Waiting for answer ...";
+        return "Waiting for answer …";
       case "todo_write":
-        return "Updating todos ...";
+        return "Updating todos …";
       case "todo_read":
-        return "Reading todos ...";
+        return "Reading todos …";
       case "task":
-        return "Running subagent ...";
+        return "Running subagent …";
       default:
-        return `Running ${name} ...`;
+        return `Running ${name} …`;
     }
   }
 
@@ -2751,7 +2751,7 @@ export class ImpulseRenderer {
           clr.dim("Images attached — vision unavailable for this model. Use /model for a vision-capable model.")
         );
       } else if (cfgForVision.visionMode && cfgForVision.visionModel) {
-        this.setBusyStatus("Translating images ...", BUSY_PROCESSING);
+        this.setBusyStatus("Translating images …", BUSY_PROCESSING);
       }
     }
 
@@ -2780,7 +2780,7 @@ export class ImpulseRenderer {
           this.setBusyStatus("Working…", BUSY_PROCESSING);
           this.ensureQuietNarration();
         } else {
-          this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+          this.setBusyStatus("Thinking …", BUSY_PROCESSING);
         }
       },
       onToken: (text) => {
@@ -2801,7 +2801,7 @@ export class ImpulseRenderer {
         // empty block here is what produced headerless gaps and empty labels.
         if (!this.streamingText && !text.trim()) return;
         if (!this.streamBusyPhraseSet) {
-          this.setBusyStatus("Responding ...", BUSY_PROCESSING);
+          this.setBusyStatus("Responding …", BUSY_PROCESSING);
           this.streamBusyPhraseSet = true;
         }
         this.closeThinking();
@@ -2840,7 +2840,7 @@ export class ImpulseRenderer {
         this.updateQuietNarration();
       },
       onAdvisorStart: (_model) => {
-        this.setBusyStatus("", "Advisor consultation...");
+        this.setBusyStatus("", "Advisor consultation…");
         this.tui.requestRender();
       },
       onAdvisorToken: (_text) => { /* buffered */ },
@@ -2981,12 +2981,12 @@ export class ImpulseRenderer {
             // so post-tool thinking cannot emit a second Worked for.
             if (quiet) {
               if (this.quietTracker.tools.length === 0) {
-                this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+                this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
               } else {
                 this.refreshQuietLiveStatus();
               }
             } else {
-              this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+              this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
             }
             this.updateLiveMetrics(result.output.length, true);
             this.requestRenderForPhase("tool_end_todo_noop");
@@ -3011,12 +3011,12 @@ export class ImpulseRenderer {
             }
             if (quiet) {
               if (this.quietTracker.tools.length === 0) {
-                this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+                this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
               } else {
                 this.refreshQuietLiveStatus();
               }
             } else {
-              this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+              this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
             }
             this.updateLiveMetrics(result.output.length, true);
             this.requestRenderForPhase("tool_end_todo_cosmetic");
@@ -3057,12 +3057,12 @@ export class ImpulseRenderer {
         if (quiet) {
           // Keep the same work group open until AI streams again (or turn ends).
           if (this.quietTracker.tools.length === 0) {
-            this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+            this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
           } else {
             this.refreshQuietLiveStatus();
           }
         } else {
-          this.setBusyStatus("Waiting for model ...", BUSY_PROCESSING);
+          this.setBusyStatus("Waiting for model …", BUSY_PROCESSING);
         }
         this.updateLiveMetrics(result.output.length, true);
         this.requestRenderForPhase("tool_end");
@@ -3070,7 +3070,7 @@ export class ImpulseRenderer {
       onCompacting: () => {
         this.compactStartMs = Date.now();
         this.addChatLine(clr.dim("Auto-compaction in progress"));
-        this.setBusyStatus("Compacting...", BUSY_COMPACTING);
+        this.setBusyStatus("Compacting…", BUSY_COMPACTING);
         this.tui.requestRender();
       },
       onCompacted: (removedCount, _summary, contextTokens) => {
@@ -3087,7 +3087,7 @@ export class ImpulseRenderer {
           )
         );
         this.compactStartMs = 0;
-        this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+        this.setBusyStatus("Thinking …", BUSY_PROCESSING);
         this.syncContextBar({
           contextTokens: this.contextTokens,
           contextWindow: this.contextWindow,
@@ -3320,7 +3320,7 @@ export class ImpulseRenderer {
         margin: this.listOverlayMargin(),
       });
       this.planApprovalOverlayHandle = handle;
-      this.setBusyStatus("Waiting for plan approval ...", "Reviewing plan...");
+      this.setBusyStatus("Waiting for plan approval …", "Reviewing plan…");
       handle.focus();
 
       overlay.onDecision = (decision) => {
@@ -3379,7 +3379,7 @@ export class ImpulseRenderer {
         margin: this.listOverlayMargin(),
       });
       this.planCompletionOverlayHandle = handle;
-      this.setBusyStatus("Waiting for plan decision ...", "Plan ready...");
+      this.setBusyStatus("Waiting for plan decision …", "Plan ready…");
       handle.focus();
 
       const decisionLines: Record<PlanCompletionDecision, string> = {
@@ -3814,7 +3814,7 @@ export class ImpulseRenderer {
     }
     this.compactStartMs = Date.now();
     this.addChatLine(clr.dim("Compaction in progress"));
-    this.setBusyStatus("Compacting...", BUSY_COMPACTING);
+    this.setBusyStatus("Compacting…", BUSY_COMPACTING);
     const result = await CompactManager.compact(sessionID, true, { force: true });
     this.spinStop();
     this.contextTokens = this.estimateCurrentSessionTokens();
@@ -3954,9 +3954,9 @@ export class ImpulseRenderer {
       lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
       lines.push("");
-      lines.push(`Discovering ${state.provider?.label ?? "provider"} models...`);
+      lines.push(`Discovering ${state.provider?.label ?? "provider"} models…`);
       lines.push("");
-      lines.push(clr.dim("Testing connection..."));
+      lines.push(clr.dim("Testing connection…"));
     } else if (state.step === "model") {
       lines.push(clr.bold(this.setupTitle(state)));
       lines.push(this.setupSectionRule());
@@ -4404,7 +4404,7 @@ export class ImpulseRenderer {
       this.addChatLine(clr.warn("Wait for the current turn to finish."));
       return;
     }
-    this.addChatLine(clr.dim("Checking for updates..."));
+    this.addChatLine(clr.dim("Checking for updates…"));
     this.tui.requestRender();
     const update = await checkForUpdate();
     if (!update) {
@@ -4415,7 +4415,7 @@ export class ImpulseRenderer {
     this.addChatLine(
       modelStatusLine(`Update available: v${update.currentVersion} -> v${update.latestVersion}`)
     );
-    this.addChatLine(clr.dim("Installing update and relaunching..."));
+    this.addChatLine(clr.dim("Installing update and relaunching…"));
     this.tui.requestRender();
     await SessionManager.flushCurrent();
     const session = SessionManager.getCurrentSession();
@@ -4512,12 +4512,12 @@ export class ImpulseRenderer {
 
     if (!this.thinkingOpen) {
       if (!filtered.trim()) return;
-      this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+      this.setBusyStatus("Thinking …", BUSY_PROCESSING);
       this.finalizeStreamingAtSafeBoundary(false);
       this.thinkingRaw = "";
       this.thinkingText = null;
     } else {
-      this.setBusyStatus("Thinking ...", BUSY_PROCESSING);
+      this.setBusyStatus("Thinking …", BUSY_PROCESSING);
     }
     if (!this.thinkingText) {
       this.addSectionGap();
@@ -5890,7 +5890,7 @@ export class ImpulseRenderer {
         this.addChatLine(clr.dim(`  ${compact}`));
       }
       if (allPreviewLines.length > previewLines.length) {
-        this.addChatLine(clr.dim("  ..."));
+        this.addChatLine(clr.dim("  …"));
       }
     }
     this.tui.requestRender();

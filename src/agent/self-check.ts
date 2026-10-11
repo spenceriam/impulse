@@ -35,7 +35,7 @@ export interface SelfCheckSummary {
 }
 
 function truncate(value: string, max = 100): string {
-  return value.length > max ? `${value.slice(0, max)}...` : value;
+  return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
 export function createSelfCheckSummary(tools: ToolCallInfo[]): SelfCheckSummary {

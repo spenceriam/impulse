@@ -819,7 +819,7 @@ export function currentSpinnerFrame(name: string, epochMs?: number): string {
     epochMs !== undefined
       ? Math.floor((Date.now() - epochMs) / frameMs) % frames.length
       : Math.floor(Date.now() / frameMs) % frames.length;
-  return frames[index] ?? frames[0] ?? "...";
+  return frames[index] ?? frames[0] ?? "…";
 }
 
 export function extractDiffLinesFromMetadata(
