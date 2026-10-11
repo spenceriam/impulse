@@ -189,8 +189,9 @@ export function quietToolVerb(name: string): string {
 }
 
 /** Fixed thinking phrases for Quiet live line. */
-export function quietThinkingPhrase(kind: "assessing" | "planning"): string {
-  return kind === "planning" ? "Planning…" : "Assessing…";
+export function quietThinkingPhrase(_kind: "assessing" | "planning"): string {
+  // No intent phrase yet → plain "Thinking"; the elapsed tick carries liveness.
+  return "Thinking";
 }
 
 /**
@@ -907,7 +908,7 @@ export class QuietWorkGroupTracker {
     return this.group?.tools.find((t) => t.id === id)?.arg;
   }
 
-  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string {
+  liveStatus(nowMs: number = Date.now(), _availableWidth: number = 120): string {
     if (!this.group) return "Continuing";
     const elapsedMs = this.elapsedMs(nowMs);
     const failed = this.group.failedCount;
@@ -915,14 +916,14 @@ export class QuietWorkGroupTracker {
     if (failed > 0) parts.push(`${failed} failed`);
 
     if (this.group.thinking) {
-      const tail = thinkingTailFor(this.group.thinkingBuffer, availableWidth);
-      const label = tail
-        ? `Thinking: ${tail}`
-        : formatQuietLiveStatus({
-            thinking: this.group.thinking,
-            thinkingIntent: this.group.thinkingIntent,
-            tools: [],
-          });
+      // Trace stays hidden on the live line (impossible to keep up with);
+      // /show-think reveals full thinking blocks. Intent phrase is static
+      // derived text, not a moving trace, so it may lead the label.
+      const label = formatQuietLiveStatus({
+        thinking: this.group.thinking,
+        thinkingIntent: this.group.thinkingIntent,
+        tools: [],
+      });
       this.group.lastLabel = label;
       return `${label} (${parts.join(", ")})`;
     }

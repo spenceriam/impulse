@@ -42,7 +42,7 @@ describe("quiet-status", () => {
         tools: [],
         elapsedMs: 340,
       })
-    ).toBe("Assessing… (340ms)");
+    ).toBe("Thinking (340ms)");
   });
 
   test("intent phrase narrates the thinking phase", () => {
@@ -108,11 +108,11 @@ describe("quiet-status", () => {
   });
 
   test("thinking phrases are fixed set", () => {
-    expect(quietThinkingPhrase("assessing")).toBe("Assessing…");
-    expect(quietThinkingPhrase("planning")).toBe("Planning…");
+    expect(quietThinkingPhrase("assessing")).toBe("Thinking");
+    expect(quietThinkingPhrase("planning")).toBe("Thinking");
     expect(
       formatQuietLiveStatus({ thinking: "assessing", tools: [] })
-    ).toBe("Assessing…");
+    ).toBe("Thinking");
   });
 
   test("Worked for uses ms under 1s and whole seconds at/above 1s", () => {

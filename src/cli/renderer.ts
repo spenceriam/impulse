@@ -1255,6 +1255,7 @@ export class ImpulseRenderer {
     this.quietTracker.reset();
     this.quietRecapEvents = [];
     this.quietNarrationText = null;
+    this.quietHeaderGapPending = false;
     this.clearSteeringChrome();
   }
 
@@ -1296,6 +1297,8 @@ export class ImpulseRenderer {
   /** Mutable narration line in the chat scrollback (Quiet live activity).
    *  Updates ride the busy-status shimmer cycle — never its own timer. */
   private quietNarrationText: Text | null = null;
+  /** A settled group owes a blank row above the next "impulse" header. */
+  private quietHeaderGapPending = false;
 
   /**
    * Layout debugging (#153): IMPULSE_DEBUG_LAYOUT=1 appends every chat-row
@@ -1382,8 +1385,11 @@ export class ImpulseRenderer {
       this.chat.addChild(new Text(this.ghostChatLine(result.workedForLine), 0, 0));
       this.hasTrailingGap = false;
     }
-    // Blank row between settled Worked for and following AI prose.
-    this.addSectionGap();
+    // Blank row between settled Worked for and following AI prose: flagged
+    // and consumed at header creation so the gap lands directly above the
+    // "impulse" label no matter what happens between settle and stream.
+    this.quietHeaderGapPending = true;
+    this.layoutDebug("GAP_PENDING", "header");
     // Label the next streamed segment: every post-work prose block gets its
     // own "impulse" header so users can tell streamed responses apart.
     this.turnShowsImpulseHeader = false;
@@ -2849,6 +2855,13 @@ export class ImpulseRenderer {
         if (!this.streamingText) {
           if (this.lastBandWasTool) {
             this.addSectionGap();
+          }
+          // One blank row directly above the header after a settled group
+          // (sections stay separated; user prompt ↔ its own first response
+          // stays tight).
+          if (this.quietHeaderGapPending) {
+            this.addSectionGap();
+            this.quietHeaderGapPending = false;
           }
           this.lastBandWasTool = false;
           if (!this.turnShowsImpulseHeader) {
