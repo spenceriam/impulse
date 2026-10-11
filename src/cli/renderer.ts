@@ -1324,6 +1324,11 @@ export class ImpulseRenderer {
     return gutterContent(truncateGutterLine(ghost(text), this.terminal.columns), this.terminal.columns);
   }
 
+  /** Live narration width: full terminal minus both gutters. */
+  private quietNarrationWidth(): number {
+    return Math.max(24, this.terminalCols() - TOTAL_GUTTER_WIDTH);
+  }
+
   private ensureQuietNarration(): void {
     if (!this.isQuietMode() || !this.quietTracker.active) return;
     if (this.quietNarrationText) return; // live child already updating
@@ -1332,20 +1337,20 @@ export class ImpulseRenderer {
       this.addSectionGap();
     }
     this.quietNarrationText = new Text(
-      this.ghostChatLine(this.quietTracker.liveStatus()),
+      this.ghostChatLine(this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth())),
       0,
       0
     );
     this.chat.addChild(this.quietNarrationText);
     this.hasTrailingGap = false;
-    this.layoutDebug("+NARRATION", this.quietTracker.liveStatus().slice(0, 60));
+    this.layoutDebug("+NARRATION", this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth()).slice(0, 60));
     // Ticking happens on the existing busy-status repaint cycle (see
     // updateQuietNarration) — no second timer racing overlays.
   }
 
   private updateQuietNarration(): void {
     if (!this.quietNarrationText || !this.quietTracker.active) return;
-    this.quietNarrationText.setText(this.ghostChatLine(this.quietTracker.liveStatus()));
+    this.quietNarrationText.setText(this.ghostChatLine(this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth())));
     this.tui.requestRender();
   }
 

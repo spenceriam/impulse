@@ -907,7 +907,7 @@ export class QuietWorkGroupTracker {
     return this.group?.tools.find((t) => t.id === id)?.arg;
   }
 
-  liveStatus(nowMs: number = Date.now()): string {
+  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string {
     if (!this.group) return "Continuing";
     const elapsedMs = this.elapsedMs(nowMs);
     const failed = this.group.failedCount;
@@ -915,7 +915,7 @@ export class QuietWorkGroupTracker {
     if (failed > 0) parts.push(`${failed} failed`);
 
     if (this.group.thinking) {
-      const tail = rollingThinkingTail(this.group.thinkingBuffer);
+      const tail = thinkingTailFor(this.group.thinkingBuffer, availableWidth);
       const label = tail
         ? `Thinking: ${tail}`
         : formatQuietLiveStatus({
@@ -977,11 +977,25 @@ function stripElapsed(label: string): string {
  * the thinking equivalent of streaming display: the line keeps updating
  * with the newest words instead of freezing on the first sentence.
  * Returns null until the buffer is long enough to roll.
+ *
+ * Width-aware: `availableWidth` is the terminal width the narration line
+ * may span (minus gutters); the tail grows to fill it — a full-screen
+ * 187-col terminal shows ~160 chars of reasoning, a 66-col split shows
+ * ~40. Starts at a word boundary, never mid-word.
  */
-export function rollingThinkingTail(buffer: string): string | null {
+export function thinkingTailFor(
+  buffer: string,
+  availableWidth: number
+): string | null {
   const normalized = buffer.replace(/\s+/g, " ").trim();
   if (normalized.length < 48) return null;
-  const tail = normalized.slice(-44).trimStart();
+  const max = Math.max(24, Math.min(160, availableWidth - 14));
+  let tail = normalized.slice(-max).trimStart();
+  // Start at a word boundary unless the whole tail is one long word.
+  const sp = tail.indexOf(" ");
+  if (sp > 0 && sp <= tail.length - 8) {
+    tail = tail.slice(sp + 1);
+  }
   return tail;
 }
 
