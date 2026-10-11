@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-10-11
+
+  **Type:** patch
+  **Title:** Quiet narration line — width-aware truncation preserves the elapsed suffix
+
+  ### Fixed
+  - **#161** -- Quiet live narration no longer clips its own elapsed-time suffix at full-screen width (`(1 m...`): the label truncates with `…` to fit the terminal while the suffix (`(3s)` → `(1 min 24s, N failed)`) is measured per render and always fully preserved; minute rollover and mid-turn failure counts never overflow; extremely narrow widths degrade to suffix-only.
+
 ## [1.11.0] - 2026-09-29
 
   **Type:** minor
@@ -17,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#153** -- `/settings` **Chat feel** section: Chat density (Quiet / Verbose), Mid-turn submit (Redirect live turn / Queue until free), Recap line on/off.
   - **#153** -- `/quiet` and `/verbose` session-sticky density toggles (persisted); `/queue <text>` one-shot enqueue when mid-turn Enter redirects.
   - **#153** -- Mid-turn Enter defaults to Redirect/steer (inject at next tool-loop boundary; latest pending steer replaces prior). Queue until free remains available via settings.
+  - **#153** -- Alt+Enter mid-turn submits the inverse of the default: queues the prompt under Redirect-default, steers the live turn under Queue-default. Portable across terminals (legacy `\x1b\r` + kitty CSI-u) where Ctrl+Enter is indistinguishable from plain Enter.
   - **#159** -- `/model` picker gains a per-provider `Use custom model id…` row for models a provider accepts but never lists (verified live: `MiniMax-M3.1-Flash-Preview` on the MiniMax Token Plan API).
   - **#153** -- Inline `<think>`/`<thinking>`/`<reasoning>` envelopes in the content stream (MiniMax Token Plan; DeepSeek-R1/QwQ/Kimi via some OpenAI-compatible endpoints) route to the thinking path — raw tags no longer render as prose and Quiet groups no longer fragment.
 

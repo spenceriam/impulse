@@ -6,6 +6,7 @@ import {
   classifyQuietOutcome,
   deriveIntentFromThinking,
   extractOpenPlanItem,
+  fitQuietLiveLine,
   formatDuration,
   formatQuietLiveStatus,
   formatQuietRecap,
@@ -70,6 +71,86 @@ describe("quiet-status", () => {
         elapsedMs: 1_500,
       })
     ).toBe("Understanding the repo uses a plugin architecture (2s)");
+  });
+
+  test("long bash label truncates, elapsed suffix always survives (#161)", () => {
+    const longCmd =
+      'cd /tmp/impulse-review && grep -n "concurrent\\|MAX\\|queue" src/tools/task.ts | head -20; echo "==="; sed -n \'1,40p\' docs/tools/task.md';
+    const line = formatQuietLiveStatus({
+      tools: [{ id: "1", name: "bash", arg: longCmd }],
+      elapsedMs: 84_000,
+      availableWidth: 80,
+    });
+    expect(line.length).toBeLessThanOrEqual(80);
+    expect(line.endsWith("(1 min 24s)")).toBe(true);
+    expect(line).toContain("…");
+    expect(line.startsWith("Running cd /tmp/impulse-review")).toBe(true);
+  });
+
+  test("failure count in the suffix survives truncation (#161)", () => {
+    const longCmd = "some-command ".repeat(20).trim();
+    const line = formatQuietLiveStatus({
+      tools: [{ id: "1", name: "bash", arg: longCmd }],
+      elapsedMs: 84_000,
+      failedCount: 2,
+      availableWidth: 80,
+    });
+    expect(line.length).toBeLessThanOrEqual(80);
+    expect(line.endsWith("(1 min 24s, 2 failed)")).toBe(true);
+  });
+
+  test("suffix reserve is measured per render, not constant (#161)", () => {
+    const arg = "x".repeat(70);
+    const seconds = formatQuietLiveStatus({
+      tools: [{ id: "1", name: "bash", arg }],
+      elapsedMs: 9_000,
+      availableWidth: 80,
+    });
+    const minutes = formatQuietLiveStatus({
+      tools: [{ id: "1", name: "bash", arg }],
+      elapsedMs: 61_000,
+      availableWidth: 80,
+    });
+    expect(seconds.endsWith("(9s)")).toBe(true);
+    expect(minutes.endsWith("(1 min 1s)")).toBe(true);
+    // Same width, longer suffix → the label gives up exactly the difference.
+    expect(minutes.length).toBeLessThanOrEqual(80);
+  });
+
+  test("parallel count stays inside the preserved suffix (#161)", () => {
+    const line = formatQuietLiveStatus({
+      tools: [
+        { id: "1", name: "bash", arg: "y".repeat(90) },
+        { id: "2", name: "grep", arg: "needle" },
+      ],
+      elapsedMs: 3_000,
+      availableWidth: 60,
+    });
+    expect(line.length).toBeLessThanOrEqual(60);
+    expect(line.endsWith("(3s, +1 parallel)")).toBe(true);
+  });
+
+  test("undefined width keeps legacy no-truncation behavior", () => {
+    const line = formatQuietLiveStatus({
+      tools: [{ id: "1", name: "bash", arg: "z".repeat(150) }],
+      elapsedMs: 2_000,
+    });
+    expect(line).toBe(`Running ${"z".repeat(150)} (2s)`);
+  });
+
+  test("extremely narrow width degrades to suffix-only (#161)", () => {
+    const line = formatQuietLiveStatus({
+      tools: [{ id: "1", name: "bash", arg: "w".repeat(60) }],
+      elapsedMs: 84_000,
+      availableWidth: 12,
+    });
+    expect(line).toBe("(1 min 24s)");
+  });
+
+  test("fitQuietLiveLine leaves fitting lines untouched", () => {
+    expect(fitQuietLiveLine("Reading AGENTS.md", " (2s)", 80)).toBe(
+      "Reading AGENTS.md (2s)"
+    );
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {
