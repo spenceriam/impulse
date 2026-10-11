@@ -2,8 +2,8 @@
  * Welcome header: GEN-tiny block logo, meta line, keyboard hints.
  */
 
-import { truncateToWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
-import { GUTTER, GUTTER_WIDTH, innerWidth } from "./gutter.js";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { GUTTER, GUTTER_WIDTH } from "./gutter.js";
 
 /** oh-my-logo filled tiny for "impulse" (frozen at generation time). */
 export const IMPULSE_GEN_TINY_LOGO: readonly string[] = [
@@ -95,9 +95,13 @@ export function prefixStdoutSublineLines(text: string): string {
     .join("\n");
 }
 
-/** Wrap keyboard hints; each line is truncated to full terminal width (subline prefix + dim text). */
+/** Wrap keyboard hints; each line carries the subline prefix, so wrapping
+ *  must use the width MINUS the prefix — otherwise every row overflows the
+ *  prefix and gets truncated at the terminal edge (side-by-side split, 66
+ *  cols: "… /help comman..."). Safety truncate stays as a last resort. */
 export function renderWelcomeHintLines(width: number): string[] {
-  const contentWidth = Math.max(8, innerWidth(width));
+  const prefixWidth = visibleWidth(WELCOME_SUBLINE_PREFIX);
+  const contentWidth = Math.max(8, width - prefixWidth);
   return wrapTextWithAnsi(WELCOME_HINT, contentWidth).map((line) =>
     truncateToWidth(`${WELCOME_SUBLINE_PREFIX}${A.dim}${line}${A.reset}`, width)
   );

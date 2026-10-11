@@ -14,7 +14,7 @@ describe("update mode helpers", () => {
 
   test("internal auto-update success message relaunches", () => {
     const lines = formatUpdateSuccessLines("1.8.1", "1.8.1", true);
-    expect(lines).toContain("  Relaunching impulse...");
+    expect(lines).toContain("  Relaunching impulse…");
     expect(lines.some((line) => line.includes("Run `impulse`"))).toBe(false);
   });
 

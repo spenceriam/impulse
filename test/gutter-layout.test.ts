@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@mariozechner/pi-tui";
 import {
+  GUTTER,
   GUTTER_WIDTH,
+  TOTAL_GUTTER_WIDTH,
   gutterContent,
   gutterSeparator,
   innerWidth,
@@ -13,12 +15,12 @@ import {
 describe("gutter layout", () => {
   const cols = 80;
 
-  test("innerWidth reserves both gutters", () => {
-    expect(innerWidth(cols)).toBe(cols - 8);
-  });
-
-  test("maxLineWidth reserves right gutter", () => {
-    expect(maxLineWidth(cols)).toBe(cols - GUTTER_WIDTH);
+  test("session content uses exactly 1-col left and right gutters", () => {
+    expect(GUTTER).toBe(" ");
+    expect(GUTTER_WIDTH).toBe(1);
+    expect(TOTAL_GUTTER_WIDTH).toBe(2);
+    expect(innerWidth(cols)).toBe(cols - 2);
+    expect(maxLineWidth(cols)).toBe(cols - 1);
   });
 
   test("gutterContent stays within max line width", () => {

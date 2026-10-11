@@ -31,6 +31,22 @@ export interface ModelPickerState {
 
 const PROVIDER_SEPARATOR = "--------------------";
 
+/**
+ * Row id prefix for the per-provider manual model-id entry row.
+ * Vendors ship usable models their /models endpoint never lists (e.g.
+ * MiniMax-M3.1-Flash-Preview on the MiniMax Token Plan API) — this row is
+ * the escape hatch (issue #159).
+ */
+export const MANUAL_MODEL_ROW_PREFIX = "__manual__";
+
+export function isManualModelRow(rowId: string): boolean {
+  return rowId.startsWith(MANUAL_MODEL_ROW_PREFIX);
+}
+
+export function manualRowProviderKey(rowId: string): string {
+  return rowId.slice(MANUAL_MODEL_ROW_PREFIX.length);
+}
+
 export const MODEL_PICKER_TABLE_HEADERS: SelectableListTableHeaders = {
   title: "Model",
   mode: "Ctx",
@@ -79,6 +95,10 @@ export function buildProviderGroupedRows(
         tableCells: cells,
       });
     }
+    rows.push({
+      id: `${MANUAL_MODEL_ROW_PREFIX}${entry.providerKey}`,
+      label: "  Use custom model id…",
+    });
   }
   return rows;
 }

@@ -74,8 +74,8 @@ export const fileEdit: Tool<EditInput> = Tool.define(
         message: outsideCwd ? `Edit file outside cwd: ${safePath}` : `Edit file: ${safePath}`,
         metadata: {
           path: safePath,
-          oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "..." : ""),
-          newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "..." : ""),
+          oldString: input.oldString.slice(0, 100) + (input.oldString.length > 100 ? "…" : ""),
+          newString: input.newString.slice(0, 100) + (input.newString.length > 100 ? "…" : ""),
           reason: outsideCwd
             ? "Edit a file outside the project working directory"
             : `Apply a code edit to ${fileName}`,

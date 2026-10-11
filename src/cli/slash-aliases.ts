@@ -21,6 +21,7 @@ export const SLASH_ALIASES = {
   rst: "restore",
   set: "settings",
   str: "steer",
+  vb: "verbose",
   upd: "update",
   usg: "usage",
   usr: "user",

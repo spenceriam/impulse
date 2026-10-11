@@ -178,7 +178,7 @@ export function formatUpdateSuccessLines(latestVersion: string, installedVersion
     lines.push(`  Update completed! impulse should now be v${latestVersion}`);
   }
   if (relaunch) {
-    lines.push("  Relaunching impulse...");
+    lines.push("  Relaunching impulse…");
   } else {
     lines.push("  Run `impulse` to start.");
   }
@@ -198,7 +198,7 @@ export function performUpdate(latestVersion: string, options: PerformUpdateOptio
     writeSync(1, msg + "\n");
   };
 
-  rawPrint(`\nUpdating impulse to v${latestVersion}...`);
+  rawPrint(`\nUpdating impulse to v${latestVersion}…`);
   rawPrint(`Running: npm install -g ${PACKAGE_NAME}\n`);
 
   const result = spawnSync(npmCommand(), ["install", "-g", PACKAGE_NAME], {

@@ -82,6 +82,31 @@ export function clearModelCapabilities(model: string): void {
   if (c.delete(model.toLowerCase())) saveCache();
 }
 
+/**
+ * Record a provider-reported max output token cap (learned from API errors
+ * like MiniMax's `does not support max tokens > 524288`). Merges with the
+ * existing entry so vision/reasoning findings survive.
+ */
+export function setModelMaxOutputTokens(model: string, maxOutputTokens: number): void {
+  const c = loadCache();
+  const key = model.toLowerCase();
+  const cur = c.get(key);
+  c.set(key, {
+    vision: cur?.vision ?? false,
+    reasoning: cur?.reasoning ?? false,
+    ...(cur?.contextLength !== undefined ? { contextLength: cur.contextLength } : {}),
+    maxOutputTokens,
+    discoveredAt: Date.now(),
+    source: "provider-api",
+  });
+  saveCache();
+}
+
+/** Provider-learned max output token cap for a model, if any. */
+export function getModelMaxOutputTokens(model: string): number | undefined {
+  return loadCache().get(model.toLowerCase())?.maxOutputTokens;
+}
+
 /** Get cached capability or undefined. */
 export function getModelCapabilities(model: string): ModelCapabilities | undefined {
   return loadCache().get(model.toLowerCase());

@@ -358,6 +358,9 @@ function wrapPrefixed(prefix: string, text: string, width: number): string[] {
 }
 
 function formatToolDuration(durationMs: number): string {
+  // Unknown timing (0 / undefined → 0 from replay) shows nothing — "[0ms]"
+  // read as a broken measurement, not a missing one.
+  if (!(durationMs > 0)) return "";
   return clr.duration(formatDurationBracketed(durationMs));
 }
 
@@ -819,7 +822,7 @@ export function currentSpinnerFrame(name: string, epochMs?: number): string {
     epochMs !== undefined
       ? Math.floor((Date.now() - epochMs) / frameMs) % frames.length
       : Math.floor(Date.now() / frameMs) % frames.length;
-  return frames[index] ?? frames[0] ?? "...";
+  return frames[index] ?? frames[0] ?? "…";
 }
 
 export function extractDiffLinesFromMetadata(

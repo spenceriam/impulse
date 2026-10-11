@@ -1260,7 +1260,7 @@ export const bashTool: Tool<BashInput> = Tool.define(
           sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
           permission: "bash",
           patterns: [input.command],
-          message: input.description || `Execute: ${input.command.slice(0, 50)}...`,
+          message: input.description || `Execute: ${input.command.slice(0, 50)}…`,
           metadata: {
             command: input.command,
             workdir: input.workdir,

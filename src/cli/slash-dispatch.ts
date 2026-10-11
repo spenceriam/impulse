@@ -70,6 +70,9 @@ export interface SlashDispatchHost {
   cmdShow(): Promise<void>;
   showHelpOverlay(): void;
   cmdSteer(arg: string): void;
+  cmdQueue(arg: string): void;
+  cmdQuiet(): void | Promise<void>;
+  cmdVerbose(): void | Promise<void>;
   cmdCopy(): void | Promise<void>;
   cmdSide(arg: string): Promise<void>;
   showThinkingSettingsHint(): void;
@@ -115,6 +118,9 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   restore: (h) => h.cmdShow(),
   help: (h) => h.showHelpOverlay(),
   steer: (h, arg) => h.cmdSteer(arg),
+  queue: (h, arg) => h.cmdQueue(arg),
+  quiet: (h) => h.cmdQuiet(),
+  verbose: (h) => h.cmdVerbose(),
   copy: (h) => h.cmdCopy(),
   side: (h, arg) => h.cmdSide(arg),
   "show-think": (h) => h.showThinkingSettingsHint(),
