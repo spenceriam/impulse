@@ -53,7 +53,7 @@ describe("quiet-status", () => {
         tools: [],
         elapsedMs: 2_000,
       })
-    ).toBe("Planning to review the codebase and README (2s)");
+    ).toBe("Reviewing the codebase and README (2s)");
     expect(
       formatQuietLiveStatus({
         thinking: "planning",
@@ -61,7 +61,15 @@ describe("quiet-status", () => {
         tools: [],
         elapsedMs: 3_000,
       })
-    ).toBe("Thinking about how to fix the wrap width (3s)");
+    ).toBe("Fixing the wrap width (3s)");
+    expect(
+      formatQuietLiveStatus({
+        thinking: "planning",
+        thinkingIntent: "The repo uses a plugin architecture",
+        tools: [],
+        elapsedMs: 1_500,
+      })
+    ).toBe("Understanding the repo uses a plugin architecture (2s)");
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {

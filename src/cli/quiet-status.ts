@@ -226,12 +226,21 @@ export function formatQuietLiveStatus(opts: {
     return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
   }
   if (opts.thinking) {
-    const intent = opts.thinkingIntent?.trim();
-    const label = intent
-      ? opts.thinking === "planning"
-        ? `Thinking about ${intent}`
-        : `Planning to ${intent}`
-      : quietThinkingPhrase(opts.thinking);
+    let clause = opts.thinkingIntent?.trim() ?? "";
+    if (/^how\s+to\s+/i.test(clause)) clause = clause.replace(/^how\s+to\s+/i, "");
+    let label: string;
+    if (clause) {
+      // Verb-led activity label first ("Reviewing the CADcraft codebase…");
+      // "Planning to" for approach-thinking; noun-led declarative
+      // reasoning reads best as "Understanding …".
+      label =
+        activityLabelFor(clause) ??
+        (KNOWN_CLAUSE_NOUNS.test(clause)
+          ? `Understanding ${lowerFirst(clause)}`
+          : `Planning to ${lowerFirst(clause)}`);
+    } else {
+      label = quietThinkingPhrase(opts.thinking);
+    }
     return parts.length > 0 ? `${label} (${parts.join(", ")})` : label;
   }
   const label = "Continuing";
@@ -1002,7 +1011,54 @@ export function thinkingTailFor(
 
 /** Leading filler the reasoning stream opens with before the real intent. */
 const THINKING_FILLER_RE =
-  /^(i\s+(need|want|should|will|am\s+going)\s+to|let\s+me|i'm\s+going\s+to|the\s+user\s+(wants|asks|asked)\s+(me\s+)?to|first,?|ok,?|alright,?|so,?|now,?)\s*/i;
+  /^(i\s+(need|want)\s+to|i\s+(should|will)(?:\s+to)?|i\s+am\s+going\s+to|let\s+me|i'm\s+going\s+to|the\s+user\s+(wants|asks|asked)\s+(me\s+)?to|first,?|ok,?|alright,?|so,?|now,?)\s*/i;
+
+/** Activity verbs → natural gerund labels ("review" → "Reviewing"). */
+const GERUND_EXCEPTIONS: Record<string, string> = {
+  set: "Setting",
+  run: "Running",
+  get: "Getting",
+  put: "Putting",
+  stop: "Stopping",
+};
+const KNOWN_ACTIVITY_VERBS = new Set([
+  "review", "check", "examine", "analyze", "analyse", "read", "study",
+  "search", "find", "verify", "validate", "test", "fix", "debug",
+  "understand", "compare", "write", "create", "build", "update",
+  "refactor", "implement", "scan", "trace", "inspect", "investigate",
+  "plan", "design", "outline", "draft", "explore", "look", "set",
+]);
+
+function gerundOf(verb: string): string {
+  const lower = verb.toLowerCase();
+  if (GERUND_EXCEPTIONS[lower]) return GERUND_EXCEPTIONS[lower]!;
+  if (/e$/.test(lower) && !/ee$/.test(lower)) {
+    return `${verb.slice(0, -1)}ing`;
+  }
+  return `${verb}ing`;
+}
+
+/** Heuristic: clause opens with a capitalized/named subject (noun-led). */
+const KNOWN_CLAUSE_NOUNS = /^(the|this|that|these|those|it|there|a|an)\b/i;
+
+function lowerFirst(s: string): string {
+  return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+/**
+ * Verb-led label for a thinking clause: "review the codebase" →
+ * "Reviewing the codebase". Returns null when the clause doesn't start
+ * with a known activity verb.
+ */
+export function activityLabelFor(clause: string): string | null {
+  const words = clause.trim().split(/\s+/);
+  if (words.length === 0) return null;
+  const first = words[0]!.toLowerCase().replace(/[^a-z]/g, "");
+  if (!KNOWN_ACTIVITY_VERBS.has(first)) return null;
+  const rest = words.slice(1).join(" ");
+  const label = `${gerundOf(words[0]!)}${rest ? ` ${rest}` : ""}`;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
 
 /**
  * Derive a narration intent phrase from the start of the reasoning stream.
