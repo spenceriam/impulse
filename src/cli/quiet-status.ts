@@ -306,6 +306,33 @@ export function subagentBadge(codename: string): string {
   return `\x1b[1m\x1b[30m\x1b[48;5;33m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
 }
 
+/** Live state for one named subagent's own narration line (#165). */
+export type QuietSubagentState = {
+  id: string;
+  codename: string;
+  label: string;
+  startedAt: number;
+};
+
+/**
+ * One named subagent's live line: badge + humanized activity + elapsed tick.
+ * Fit on plain text first; badge ANSI substitutes after (post-fit, like the
+ * group line). No colon — the badge is the separator.
+ */
+export function formatQuietSubagentLine(
+  s: { codename: string; label: string; startedAt: number },
+  nowMs: number,
+  availableWidth: number
+): string {
+  const suffix = ` (${formatDuration(Math.max(0, nowMs - s.startedAt))})`;
+  // Badge padding adds 2 visible chars post-fit — reserve them up front.
+  const fitted = fitQuietLiveLine(`${s.codename} ${s.label}`, suffix, availableWidth - 2);
+  const plainPrefix = `${s.codename} `;
+  return fitted.startsWith(plainPrefix)
+    ? `${subagentBadge(s.codename)} ${fitted.slice(plainPrefix.length)}`
+    : fitted;
+}
+
 /**
  * Humanized Quiet label for one tool call — shared by the live narration
  * line and the subagent sub-step feed (#165). Bash humanizes (never raw
@@ -383,23 +410,10 @@ export function formatQuietLiveStatus(opts: {
     const first = running[0]!;
     const extra = running.length - 1;
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
-    // Bash narrates humanized intent, gerund-led task args stand alone
-    // (quietToolLabel); named subagents get the codename badge (#165).
-    // The badge is a truecolor chip (theme-proof) — no spawn glyph needed.
-    // Fit on PLAIN text first; the badge ANSI substitutes in after, and
-    // only when the prefix survived the fitter intact (narrow degrade: plain).
-    const base =
-      first.codename && first.name === "task"
-        ? taskActivityLabel(first.arg, false)
-        : quietToolLabel(first.name, first.arg);
-    if (first.codename) {
-      const plainPrefix = `${first.codename}: `;
-      const fitted = fit(`${first.codename}: ${base}`, parts);
-      return fitted.startsWith(plainPrefix)
-        ? `${subagentBadge(first.codename)}: ${fitted.slice(plainPrefix.length)}`
-        : fitted;
-    }
-    return fit(base, parts);
+    // Bash narrates humanized intent; task labels gerundize (quietToolLabel).
+    // Named subagents never reach this line — they get their own lines via
+    // formatQuietSubagentLine (#165).
+    return fit(quietToolLabel(first.name, first.arg), parts);
   }
   if (opts.thinking) {
     let clause = opts.thinkingIntent?.trim() ?? "";
@@ -1134,6 +1148,7 @@ export class QuietWorkGroupTracker {
     this.group = null;
     this.groupsSettled = 0;
     this.gapBeforeNextWorkedFor = false;
+    this.subagents.clear();
   }
 
   get settledCount(): number {
@@ -1288,17 +1303,76 @@ export class QuietWorkGroupTracker {
     return this.group?.tools.find((t) => t.id === id)?.arg;
   }
 
+  // ?? Named subagent lines (#165) ??????????????????????????????????????????
+
+  /** One line per running subagent — flat, never nested. */
+  private subagents = new Map<string, QuietSubagentState>();
+
   /**
-   * Swap a running tool's label arg — the subagent progress feed pushes the
-   * helper's current sub-step ("Reading quiet-status.ts") onto its task
-   * entry so the narration line follows helper work (#165).
+   * A named subagent (task tool + codename) starts its OWN narration line.
+   * The task call still counts toward the group's tool/subagent tallies, but
+   * never appears in the group narration itself.
+   */
+  addSubagent(id: string, codename: string, label: string, nowMs: number = Date.now()): void {
+    this.ensure(nowMs);
+    const g = this.group!;
+    g.thinking = null;
+    g.thinkingIntent = null;
+    g.hadActivity = true;
+    g.hadTools = true;
+    const existing = this.subagents.get(id);
+    if (existing) {
+      // Same-id re-dispatch (permission approval flow) updates in place.
+      existing.label = label;
+      return;
+    }
+    g.toolCount += 1;
+    g.helperCount += 1;
+    this.subagents.set(id, { id, codename, label, startedAt: nowMs });
+  }
+
+  getSubagent(id: string): QuietSubagentState | undefined {
+    return this.subagents.get(id);
+  }
+
+  listSubagents(): QuietSubagentState[] {
+    return [...this.subagents.values()];
+  }
+
+  /** The subagent's current step (fed by the progress events). */
+  updateSubagentLabel(id: string, label: string): void {
+    const s = this.subagents.get(id);
+    if (s) s.label = label;
+  }
+
+  /** Subagent finished → wall-clock ms for its own Worked-for harden. */
+  settleSubagent(id: string, nowMs: number = Date.now()): number | null {
+    const s = this.subagents.get(id);
+    if (!s) return null;
+    this.subagents.delete(id);
+    return Math.max(0, nowMs - s.startedAt);
+  }
+
+  /** Subagent failed/blocked/aborted → drop the live line (the real tool row shows detail). */
+  dropSubagent(id: string): void {
+    this.subagents.delete(id);
+  }
+
+  /**
+   * Swap a running tool's label arg — legacy shim kept for callers from the
+   * pre-subagent-line feed; subagent steps now use updateSubagentLabel.
    */
   updateToolArg(id: string, arg: string): void {
     const t = this.group?.tools.find((t) => t.id === id);
     if (t) t.arg = arg;
   }
 
-  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string {
+  /**
+   * Null when the group's only live work is subagents — their own lines
+   * carry the narration, and a lingering "Thinking/Continuing" line from
+   * the main agent would misreport waiting as activity (#165).
+   */
+  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string | null {
     if (!this.group) return "Continuing";
     const elapsedMs = this.elapsedMs(nowMs);
     const failed = this.group.failedCount;
@@ -1331,6 +1405,8 @@ export class QuietWorkGroupTracker {
         availableWidth,
       });
     }
+    // Subagent-solo group: no main-agent activity to narrate → hide the line.
+    if (this.subagents.size > 0) return null;
     // Nothing running: linger on the last activity label.
     const label = this.group.lastLabel ?? "Continuing";
     return fitQuietLiveLine(label, suffix, availableWidth);
@@ -1354,10 +1430,12 @@ export class QuietWorkGroupTracker {
       g.helperCount > 0
         ? ` (${g.helperCount} subagent${g.helperCount === 1 ? "" : "s"})`
         : "";
+    // Subagent-only groups skip "using N tools" — the task call IS the
+    // subagent, and each subagent line already settled its own Worked for.
     const workedForLine =
-      g.toolCount > 0
+      g.toolCount > 0 && g.toolCount !== g.helperCount
         ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${helperSuffix}${failedSuffix}`
-        : formatWorkedFor(elapsedMs);
+        : `${formatWorkedFor(elapsedMs)}${helperSuffix}${failedSuffix}`;
     const toolCount = g.toolCount;
     this.group = null;
     this.groupsSettled += 1;

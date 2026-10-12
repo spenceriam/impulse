@@ -86,13 +86,17 @@ import {
   classifyQuietOutcome,
   extractOpenPlanItem,
   formatQuietRecap,
+  formatQuietSubagentLine,
+  formatWorkedFor,
   fullQuietArg,
   isQuietBreakOutcome,
   QuietWorkGroupTracker,
   quietToolLabel,
   shortQuietArg,
+  subagentBadge,
   wrapQuietRecapLines,
   type QuietRecapEvent,
+  type QuietToolOutcome,
 } from "./quiet-status.js";
 import { dimRuleIndented } from "./format-helpers.js";
 
@@ -1257,6 +1261,7 @@ export class ImpulseRenderer {
     this.quietTracker.reset();
     this.quietRecapEvents = [];
     this.quietNarrationText = null;
+    this.quietSubagentLines.clear();
     this.quietHeaderGapPending = false;
     this.clearSteeringChrome();
   }
@@ -1337,25 +1342,85 @@ export class ImpulseRenderer {
   private ensureQuietNarration(): void {
     if (!this.isQuietMode() || !this.quietTracker.active) return;
     if (this.quietNarrationText) return; // live child already updating
+    const status = this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth());
+    // Subagent-solo group: the subagents' own lines narrate (#165).
+    if (status === null) return;
     // Blank row between prior AI prose and this narration line.
     if (this.quietTracker.consumeGapBeforeWorkedFor()) {
       this.addSectionGap();
     }
-    this.quietNarrationText = new Text(
-      this.ghostChatLine(this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth())),
-      0,
-      0
-    );
+    this.quietNarrationText = new Text(this.ghostChatLine(status), 0, 0);
     this.chat.addChild(this.quietNarrationText);
     this.hasTrailingGap = false;
-    this.layoutDebug("+NARRATION", this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth()).slice(0, 60));
+    this.layoutDebug("+NARRATION", status.slice(0, 60));
     // Ticking happens on the existing busy-status repaint cycle (see
     // updateQuietNarration) — no second timer racing overlays.
   }
 
+  /** One live line per named subagent, below the group narration line (#165). */
+  private quietSubagentLines = new Map<string, Text>();
+
+  private ensureQuietSubagentLine(id: string): void {
+    if (this.quietSubagentLines.has(id)) return;
+    const s = this.quietTracker.getSubagent(id);
+    if (!s) return;
+    const text = new Text(
+      this.ghostChatLine(formatQuietSubagentLine(s, Date.now(), this.quietNarrationWidth())),
+      0,
+      0
+    );
+    this.quietSubagentLines.set(id, text);
+    this.chat.addChild(text);
+    this.layoutDebug("+SUBAGENT", s.codename);
+  }
+
+  /**
+   * Harden a subagent's line to its own "Worked for …" in place (name
+   * stays). Failure drops the ghost line — the break-Quiet tool row shows
+   * the detail (#165).
+   */
+  private settleQuietSubagentLine(
+    id: string,
+    outcome: QuietToolOutcome,
+    codename: string | undefined
+  ): void {
+    const line = this.quietSubagentLines.get(id);
+    if (!line) {
+      this.quietTracker.dropSubagent(id);
+      return;
+    }
+    const elapsedMs = this.quietTracker.settleSubagent(id);
+    if (elapsedMs !== null && outcome === "success" && codename) {
+      line.setText(this.ghostChatLine(`${subagentBadge(codename)} ${formatWorkedFor(elapsedMs)}`));
+      this.layoutDebug("SETTLE-SUBAGENT", `${codename} ${formatWorkedFor(elapsedMs)}`);
+    } else {
+      this.chat.removeChild(line);
+    }
+    this.quietSubagentLines.delete(id);
+  }
+
   private updateQuietNarration(): void {
-    if (!this.quietNarrationText || !this.quietTracker.active) return;
-    this.quietNarrationText.setText(this.ghostChatLine(this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth())));
+    const width = this.quietNarrationWidth();
+    const status = this.quietTracker.active
+      ? this.quietTracker.liveStatus(Date.now(), width)
+      : null;
+    if (status === null) {
+      // Nothing for the group line to say right now (subagent-solo group).
+      if (this.quietNarrationText) {
+        this.chat.removeChild(this.quietNarrationText);
+        this.quietNarrationText = null;
+      }
+    } else if (this.quietNarrationText) {
+      this.quietNarrationText.setText(this.ghostChatLine(status));
+    }
+    // Subagent lines tick on the same cadence (#165).
+    const now = Date.now();
+    for (const [id, text] of this.quietSubagentLines) {
+      const s = this.quietTracker.getSubagent(id);
+      if (s) {
+        text.setText(this.ghostChatLine(formatQuietSubagentLine(s, now, width)));
+      }
+    }
     this.tui.requestRender();
   }
 
@@ -1365,6 +1430,18 @@ export class ImpulseRenderer {
    * boundaries per dogfood lock.
    */
   private settleQuietWorkGroup(): boolean {
+    // Boundary safety: subagents settle at their own task completion, which
+    // precedes any group boundary — harden leftovers defensively (#165).
+    for (const [id, line] of this.quietSubagentLines) {
+      const s = this.quietTracker.getSubagent(id);
+      const elapsedMs = this.quietTracker.settleSubagent(id);
+      if (s && elapsedMs !== null) {
+        line.setText(
+          this.ghostChatLine(`${subagentBadge(s.codename)} ${formatWorkedFor(elapsedMs)}`)
+        );
+      }
+      this.quietSubagentLines.delete(id);
+    }
     const result = this.quietTracker.settle();
     if (!result) {
       // Nothing to narrate (pure latency / empty group): remove the live
@@ -2013,15 +2090,15 @@ export class ImpulseRenderer {
           });
           this.requestRenderForPhase("subagent_progress");
         }
-        // Quiet: tool blocks are suppressed, so the helper's current step
-        // rides the narration line instead — "Saratoga: Reading X…" (#165).
+        // Quiet: tool blocks are suppressed, so the subagent's current step
+        // rides its own narration line — "▓ Saratoga ▓ Reading X…" (#165).
         if (
           this.isQuietMode() &&
           payload.type === "tool" &&
           payload.toolName !== undefined
         ) {
           const arg = fullQuietArg(payload.toolName, payload.toolArgs ?? {});
-          this.quietTracker.updateToolArg(
+          this.quietTracker.updateSubagentLabel(
             payload.parentToolCallId,
             quietToolLabel(payload.toolName, arg)
           );
@@ -2982,12 +3059,22 @@ export class ImpulseRenderer {
           if (hadAssistantStream) {
             this.quietTracker.markGapBeforeNextWorkedFor();
           }
-          this.quietTracker.addTool({
-            id,
-            name,
-            arg: fullQuietArg(name, args),
-            ...(subagentCodename !== undefined ? { codename: subagentCodename } : {}),
-          });
+          if (name === "task" && subagentCodename !== undefined) {
+            // Named subagent → its OWN narration line (flat, never nested);
+            // the group line only narrates the main agent's tools (#165).
+            this.quietTracker.addSubagent(
+              id,
+              subagentCodename,
+              quietToolLabel("task", fullQuietArg(name, args))
+            );
+            this.ensureQuietSubagentLine(id);
+          } else {
+            this.quietTracker.addTool({
+              id,
+              name,
+              arg: fullQuietArg(name, args),
+            });
+          }
           this.ensureQuietNarration();
           this.updateQuietNarration();
           if (name === "todo_write") {
@@ -3048,6 +3135,11 @@ export class ImpulseRenderer {
           this.quietTracker.findToolArg(id) ?? shortQuietArg(_name, {});
 
         if (quiet) {
+          if (_name === "task") {
+            // Named subagent: its own line hardens to "Worked for …" (or
+            // drops on failure — the break-Quiet row shows detail) (#165).
+            this.settleQuietSubagentLine(id, outcome, subagentCodename);
+          }
           if (!isSilentUnchangedTodoWrite(_name, result) && !isCosmeticTodoRewrite(_name, result)) {
             const fact =
               buildQuietRecapFact(_name, arg, {
