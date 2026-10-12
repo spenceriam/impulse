@@ -280,15 +280,30 @@ function truncatePlain(text: string, maxVisible: number): string {
 }
 
 /**
+ * Task/subagent activity label: verb-led descriptions gerundize
+ * ("Explore quiet-status.ts wiring" → "Exploring quiet-status.ts wiring");
+ * non-verb-led descriptions get "Delegating" (unnamed) or pass through
+ * capitalized (named helper — the codename already carries agency).
+ */
+function taskActivityLabel(arg: string, delegatingFallback: boolean): string {
+  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+  const firstWord = arg.split(/\s+/)[0] ?? "";
+  const lower = firstWord.toLowerCase();
+  if (/ing$/i.test(lower)) return cap(arg);
+  if (KNOWN_ACTIVITY_VERBS.has(lower)) {
+    return `${cap(gerundOf(firstWord))}${arg.slice(firstWord.length)}`;
+  }
+  return delegatingFallback ? `Delegating ${arg}` : cap(arg);
+}
+
+/**
  * Humanized Quiet label for one tool call — shared by the live narration
  * line and the subagent sub-step feed (#165). Bash humanizes (never raw
  * shell); gerund-led task args stand alone (no "Delegating Researching…").
  */
 export function quietToolLabel(name: string, arg: string): string {
   if (name === "bash") return humanizeBashCommand(arg).live;
-  if (name === "task" && /^[A-Za-z]+ing\b/.test(arg)) {
-    return arg.charAt(0).toUpperCase() + arg.slice(1);
-  }
+  if (name === "task") return taskActivityLabel(arg, true);
   return arg ? `${quietToolVerb(name)} ${arg}` : quietToolVerb(name);
 }
 
@@ -354,7 +369,7 @@ export function formatQuietLiveStatus(opts: {
     // belongs to the unnamed path only ("Saratoga: Delegating …" doubles agency).
     const base =
       first.codename && first.name === "task"
-        ? first.arg.charAt(0).toUpperCase() + first.arg.slice(1)
+        ? taskActivityLabel(first.arg, false)
         : quietToolLabel(first.name, first.arg);
     const label = first.codename ? `${first.codename}: ${base}` : base;
     return fit(label, parts);
@@ -1366,6 +1381,13 @@ const GERUND_EXCEPTIONS: Record<string, string> = {
   get: "Getting",
   put: "Putting",
   stop: "Stopping",
+  map: "Mapping",
+  plan: "Planning",
+  scan: "Scanning",
+  debug: "Debugging",
+  format: "Formatting",
+  ship: "Shipping",
+  drop: "Dropping",
 };
 const KNOWN_ACTIVITY_VERBS = new Set([
   "review", "check", "examine", "analyze", "analyse", "read", "study",
@@ -1373,6 +1395,11 @@ const KNOWN_ACTIVITY_VERBS = new Set([
   "understand", "compare", "write", "create", "build", "update",
   "refactor", "implement", "scan", "trace", "inspect", "investigate",
   "plan", "design", "outline", "draft", "explore", "look", "set",
+  "research", "map", "summarize", "summarise", "document", "audit",
+  "assess", "evaluate", "profile", "migrate", "clean", "compile",
+  "deploy", "configure", "install", "uninstall", "scaffold", "bootstrap",
+  "orchestrate", "generate", "render", "parse", "translate", "convert",
+  "format", "lint", "bundle", "publish", "release", "ship",
 ]);
 
 function gerundOf(verb: string): string {

@@ -89,7 +89,7 @@ describe("quiet-status", () => {
     expect(line.length).toBeLessThanOrEqual(80);
     expect(line.endsWith("(1 min 24s)")).toBe(true);
     expect(line).toContain("…");
-    expect(line.startsWith("Delegating Review the quiet-status module")).toBe(true);
+    expect(line.startsWith("Reviewing the quiet-status module")).toBe(true);
   });
 
   test("failure count in the suffix survives truncation (#161)", () => {
@@ -266,12 +266,27 @@ describe("quiet-status", () => {
         elapsedMs: 12_000,
       })
     ).toBe("Researching github.com/morluto/rea (12s)");
+    // Imperative verb-led descriptions gerundize (no "Delegating" needed)
     expect(
       formatQuietLiveStatus({
         tools: [{ id: "1", name: "task", arg: "Research the auth module" }],
         elapsedMs: 4_000,
       })
-    ).toBe("Delegating Research the auth module (4s)");
+    ).toBe("Researching the auth module (4s)");
+    // Subagent-type-led descriptions read naturally too
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Explore quiet-status.ts wiring" }],
+        elapsedMs: 2_000,
+      })
+    ).toBe("Exploring quiet-status.ts wiring (2s)");
+    // Non-verb-led descriptions keep the Delegating fallback
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Auth module deep-dive" }],
+        elapsedMs: 2_000,
+      })
+    ).toBe("Delegating Auth module deep-dive (2s)");
   });
 
   test("ls of the project root names the folder, not the dot (#165)", () => {
@@ -292,7 +307,7 @@ describe("quiet-status", () => {
         ],
         elapsedMs: 4_000,
       })
-    ).toBe("Saratoga: Research the auth module (4s)");
+    ).toBe("Saratoga: Researching the auth module (4s)");
     // Gerund-led sub-step labels (fed by the progress feed) pass through
     expect(
       formatQuietLiveStatus({
@@ -309,6 +324,7 @@ describe("quiet-status", () => {
     expect(quietToolLabel("task", "Researching github.com/morluto/rea")).toBe(
       "Researching github.com/morluto/rea"
     );
+    expect(quietToolLabel("task", "Map the dependency graph")).toBe("Mapping the dependency graph");
     expect(quietToolLabel("file_read", "AGENTS.md")).toBe("Reading AGENTS.md");
   });
 
