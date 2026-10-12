@@ -297,41 +297,67 @@ function taskActivityLabel(arg: string, delegatingFallback: boolean): string {
 }
 
 /**
- * Subagent codename badge: bold black on the "impulse" chat-header color
- * (palette 33 — theme-COUPLED to the header, so it always matches whatever
- * the theme shows for "impulse"). Ends by restoring the ghost line's
- * dim+italic, which the reset kills.
+ * Badge chip: bold black on base-16 YELLOW background (`43` — the exact
+ * theme color the "impulse" chat header uses via fg(33); follows any
+ * theme). Ends by restoring the ghost line's dim+italic, which the reset
+ * kills.
  */
 export function subagentBadge(codename: string): string {
-  return `\x1b[1m\x1b[30m\x1b[48;5;33m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
+  return `\x1b[1m\x1b[30m\x1b[43m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
 }
 
-/** Live state for one named subagent's own narration line (#165). */
+/**
+ * Main-agent badge for the group narration line — worn ONLY while
+ * subagents run alongside main-agent tool calls (#165); plain otherwise.
+ */
+export function impulseBadge(): string {
+  return `\x1b[1m\x1b[30m\x1b[43m impulse \x1b[0m\x1b[2m\x1b[3m`;
+}
+
+/** Visible width reserve for a badge + separator (pad + pad + space). */
+const BADGE_RESERVE = 3;
+
+/** Indent aligning a subagent's live step under its objective text. */
+export function quietSubagentIndent(codename: string): string {
+  return " ".repeat(codename.length + BADGE_RESERVE);
+}
+
+/** Subagent line 1: badge + static objective (the assignment as given). */
+export function formatQuietSubagentObjective(
+  codename: string,
+  objective: string,
+  availableWidth: number
+): string {
+  const fitted = fitQuietLiveLine(`${codename} ${objective}`, "", availableWidth - 2);
+  const plainPrefix = `${codename} `;
+  return fitted.startsWith(plainPrefix)
+    ? `${subagentBadge(codename)} ${fitted.slice(plainPrefix.length)}`
+    : fitted;
+}
+
+/** Subagent line 2: indented live step + elapsed tick. */
+export function formatQuietSubagentStep(
+  label: string,
+  startedAt: number,
+  nowMs: number,
+  availableWidth: number,
+  codename: string
+): string {
+  const indent = quietSubagentIndent(codename);
+  const suffix = ` (${formatDuration(Math.max(0, nowMs - startedAt))})`;
+  return `${indent}${fitQuietLiveLine(label, suffix, availableWidth - indent.length)}`;
+}
+
+/** Live state for one named subagent's own two-row narration (#165). */
 export type QuietSubagentState = {
   id: string;
   codename: string;
+  /** Static assignment (row 1): the task description, humanized. */
+  objective: string;
+  /** Live current step (row 2): subagent's tool activity, ticking. */
   label: string;
   startedAt: number;
 };
-
-/**
- * One named subagent's live line: badge + humanized activity + elapsed tick.
- * Fit on plain text first; badge ANSI substitutes after (post-fit, like the
- * group line). No colon — the badge is the separator.
- */
-export function formatQuietSubagentLine(
-  s: { codename: string; label: string; startedAt: number },
-  nowMs: number,
-  availableWidth: number
-): string {
-  const suffix = ` (${formatDuration(Math.max(0, nowMs - s.startedAt))})`;
-  // Badge padding adds 2 visible chars post-fit — reserve them up front.
-  const fitted = fitQuietLiveLine(`${s.codename} ${s.label}`, suffix, availableWidth - 2);
-  const plainPrefix = `${s.codename} `;
-  return fitted.startsWith(plainPrefix)
-    ? `${subagentBadge(s.codename)} ${fitted.slice(plainPrefix.length)}`
-    : fitted;
-}
 
 /**
  * Humanized Quiet label for one tool call — shared by the live narration
@@ -1309,11 +1335,12 @@ export class QuietWorkGroupTracker {
   private subagents = new Map<string, QuietSubagentState>();
 
   /**
-   * A named subagent (task tool + codename) starts its OWN narration line.
-   * The task call still counts toward the group's tool/subagent tallies, but
-   * never appears in the group narration itself.
+   * A named subagent (task tool + codename) starts its OWN two-row
+   * narration: static objective row + indented live step row (#165).
+   * The task call still counts toward the group's tool/subagent tallies,
+   * but never appears in the group narration itself.
    */
-  addSubagent(id: string, codename: string, label: string, nowMs: number = Date.now()): void {
+  addSubagent(id: string, codename: string, objective: string, nowMs: number = Date.now()): void {
     this.ensure(nowMs);
     const g = this.group!;
     g.thinking = null;
@@ -1323,12 +1350,13 @@ export class QuietWorkGroupTracker {
     const existing = this.subagents.get(id);
     if (existing) {
       // Same-id re-dispatch (permission approval flow) updates in place.
-      existing.label = label;
+      existing.objective = objective;
       return;
     }
     g.toolCount += 1;
     g.helperCount += 1;
-    this.subagents.set(id, { id, codename, label, startedAt: nowMs });
+    // "Working…" until the first progress event names the current step.
+    this.subagents.set(id, { id, codename, objective, label: "Working…", startedAt: nowMs });
   }
 
   getSubagent(id: string): QuietSubagentState | undefined {
@@ -1397,13 +1425,19 @@ export class QuietWorkGroupTracker {
         failedCount: failed,
       });
       this.group.lastLabel = stripElapsed(unfitted);
-      return formatQuietLiveStatus({
+      // The group line wears the "impulse" badge ONLY while subagents run
+      // alongside main-agent tool calls — plain the rest of the time (#165).
+      const concurrent = this.subagents.size > 0;
+      const fitted = formatQuietLiveStatus({
         thinking: null,
         tools: this.group.tools,
         elapsedMs,
         failedCount: failed,
-        availableWidth,
+        availableWidth: concurrent
+          ? availableWidth - ("impulse".length + BADGE_RESERVE)
+          : availableWidth,
       });
+      return concurrent ? `${impulseBadge()} ${fitted}` : fitted;
     }
     // Subagent-solo group: no main-agent activity to narrate → hide the line.
     if (this.subagents.size > 0) return null;

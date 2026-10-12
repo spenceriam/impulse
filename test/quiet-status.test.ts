@@ -10,7 +10,8 @@ import {
   formatDuration,
   formatQuietLiveStatus,
   formatQuietRecap,
-  formatQuietSubagentLine,
+  formatQuietSubagentObjective,
+  formatQuietSubagentStep,
   formatWorkedFor,
   fullQuietArg,
   humanizeBashCommand,
@@ -303,26 +304,28 @@ describe("quiet-status", () => {
     ).toBe("Listing the project folder (1s)");
   });
 
-  test("formatQuietSubagentLine: badge + activity + tick, no colon (#165)", () => {
-    const state = {
-      codename: "Saratoga",
-      label: "Exploring quiet-status.ts wiring",
-      startedAt: 1_000_000,
-    };
-    expect(stripAnsi(formatQuietSubagentLine(state, 1_012_000, 120))).toBe(
-      " Saratoga  Exploring quiet-status.ts wiring (12s)"
+  test("subagent two-row format: objective header + indented live step (#165)", () => {
+    // Row 1: badge + static objective
+    const header = formatQuietSubagentObjective(
+      "Saratoga",
+      "Exploring quiet-status.ts wiring",
+      120
     );
-    expect(formatQuietSubagentLine(state, 1_012_000, 120)).toContain(
-      "\x1b[1m\x1b[30m\x1b[48;5;33m Saratoga \x1b[0m"
+    expect(stripAnsi(header)).toBe(" Saratoga  Exploring quiet-status.ts wiring");
+    expect(header).toContain("\x1b[1m\x1b[30m\x1b[43m Saratoga \x1b[0m");
+
+    // Row 2: indented under the objective text, ticking
+    const step = formatQuietSubagentStep(
+      "Reading README.md",
+      1_000_000,
+      1_012_000,
+      120,
+      "Saratoga"
     );
+    expect(step).toBe(`${" ".repeat("Saratoga".length + 3)}Reading README.md (12s)`);
+
     // Width-fitted like the group line: label truncates, suffix survives
-    const fitted = stripAnsi(
-      formatQuietSubagentLine(
-        { codename: "Saratoga", label: "x".repeat(150), startedAt: 1_000_000 },
-        1_012_000,
-        60
-      )
-    );
+    const fitted = formatQuietSubagentStep("x".repeat(150), 1_000_000, 1_012_000, 60, "Saratoga");
     expect(fitted.length).toBeLessThanOrEqual(60);
     expect(fitted.endsWith("(12s)")).toBe(true);
   });
@@ -347,17 +350,21 @@ describe("quiet-status", () => {
     t.addSubagent("b", "Saratoga", "Researching github.com/morluto/rea", t0);
     // Group line has nothing to narrate while only subagents run
     expect(t.liveStatus(t0 + 5_000)).toBeNull();
-    // Sub-agent line state carries codename + current step
-    expect(t.getSubagent("b")?.label).toBe("Researching github.com/morluto/rea");
+    // Objective is static; the live step starts as a generic placeholder
+    expect(t.getSubagent("b")?.objective).toBe("Researching github.com/morluto/rea");
+    expect(t.getSubagent("b")?.label).toBe("Working…");
     // Progress feed swaps the subagent's label to its current sub-step
     t.updateSubagentLabel("b", "Reading README.md");
     expect(t.getSubagent("b")?.label).toBe("Reading README.md");
-    // A main-agent tool joins → group line returns, subagent not in it
+    // A main-agent tool joins WHILE the subagent runs → impulse badge (#165)
     t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0 + 10_000);
-    expect(t.liveStatus(t0 + 13_000)).toBe("Reading AGENTS.md (13s)");
-    // Subagent settles with its own wall-clock
+    const concurrent = t.liveStatus(t0 + 13_000);
+    expect(concurrent).toContain("\x1b[1m\x1b[30m\x1b[43m impulse \x1b[0m");
+    expect(stripAnsi(concurrent!)).toBe(" impulse  Reading AGENTS.md (13s)");
+    // Subagent settles with its own wall-clock → badge drops with it
     expect(t.settleSubagent("b", t0 + 31_000)).toBe(31_000);
     expect(t.getSubagent("b")).toBeUndefined();
+    expect(t.liveStatus(t0 + 32_000)).toBe("Reading AGENTS.md (32s)");
     // Group settle still credits the subagent; task call counted as a tool
     const settled = t.settle(t0 + 70_000);
     expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 subagent)");

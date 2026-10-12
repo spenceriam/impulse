@@ -86,14 +86,15 @@ import {
   classifyQuietOutcome,
   extractOpenPlanItem,
   formatQuietRecap,
-  formatQuietSubagentLine,
+  formatQuietSubagentObjective,
+  formatQuietSubagentStep,
   formatWorkedFor,
   fullQuietArg,
   isQuietBreakOutcome,
   QuietWorkGroupTracker,
+  quietSubagentIndent,
   quietToolLabel,
   shortQuietArg,
-  subagentBadge,
   wrapQuietRecapLines,
   type QuietRecapEvent,
   type QuietToolOutcome,
@@ -1345,6 +1346,11 @@ export class ImpulseRenderer {
     const status = this.quietTracker.liveStatus(Date.now(), this.quietNarrationWidth());
     // Subagent-solo group: the subagents' own lines narrate (#165).
     if (status === null) return;
+    // Region rule: blank row between the subagent block (above) and a
+    // freshly-created main-agent narration line (#165).
+    if (this.quietSubagentLines.size > 0) {
+      this.addSectionGap();
+    }
     // Blank row between prior AI prose and this narration line.
     if (this.quietTracker.consumeGapBeforeWorkedFor()) {
       this.addSectionGap();
@@ -1357,44 +1363,61 @@ export class ImpulseRenderer {
     // updateQuietNarration) — no second timer racing overlays.
   }
 
-  /** One live line per named subagent, below the group narration line (#165). */
-  private quietSubagentLines = new Map<string, Text>();
+  /** One two-row block per named subagent: badge+objective row, live step row (#165). */
+  private quietSubagentLines = new Map<string, { header: Text; line: Text }>();
 
   private ensureQuietSubagentLine(id: string): void {
     if (this.quietSubagentLines.has(id)) return;
     const s = this.quietTracker.getSubagent(id);
     if (!s) return;
-    const text = new Text(
-      this.ghostChatLine(formatQuietSubagentLine(s, Date.now(), this.quietNarrationWidth())),
+    // Region rule: one blank row between the main-agent narration and the
+    // subagent block; subagents stack tight among themselves (#165).
+    if (this.quietSubagentLines.size === 0 && this.quietNarrationText) {
+      this.addSectionGap();
+    }
+    const width = this.quietNarrationWidth();
+    const header = new Text(
+      this.ghostChatLine(formatQuietSubagentObjective(s.codename, s.objective, width)),
       0,
       0
     );
-    this.quietSubagentLines.set(id, text);
-    this.chat.addChild(text);
+    const line = new Text(
+      this.ghostChatLine(
+        formatQuietSubagentStep(s.label, s.startedAt, Date.now(), width, s.codename)
+      ),
+      0,
+      0
+    );
+    this.quietSubagentLines.set(id, { header, line });
+    this.chat.addChild(header);
+    this.chat.addChild(line);
     this.layoutDebug("+SUBAGENT", s.codename);
   }
 
   /**
-   * Harden a subagent's line to its own "Worked for …" in place (name
-   * stays). Failure drops the ghost line — the break-Quiet tool row shows
-   * the detail (#165).
+   * Harden a subagent's step row to its own "Worked for …" in place (the
+   * objective row stays). Failure drops both rows — the break-Quiet tool
+   * row shows the detail (#165).
    */
   private settleQuietSubagentLine(
     id: string,
     outcome: QuietToolOutcome,
     codename: string | undefined
   ): void {
-    const line = this.quietSubagentLines.get(id);
-    if (!line) {
+    const rows = this.quietSubagentLines.get(id);
+    if (!rows) {
       this.quietTracker.dropSubagent(id);
       return;
     }
     const elapsedMs = this.quietTracker.settleSubagent(id);
     if (elapsedMs !== null && outcome === "success" && codename) {
-      line.setText(this.ghostChatLine(`${subagentBadge(codename)} ${formatWorkedFor(elapsedMs)}`));
+      rows.line.setText(
+        this.ghostChatLine(`${quietSubagentIndent(codename)}${formatWorkedFor(elapsedMs)}`)
+      );
       this.layoutDebug("SETTLE-SUBAGENT", `${codename} ${formatWorkedFor(elapsedMs)}`);
     } else {
-      this.chat.removeChild(line);
+      this.chat.removeChild(rows.header);
+      this.chat.removeChild(rows.line);
     }
     this.quietSubagentLines.delete(id);
   }
@@ -1415,10 +1438,12 @@ export class ImpulseRenderer {
     }
     // Subagent lines tick on the same cadence (#165).
     const now = Date.now();
-    for (const [id, text] of this.quietSubagentLines) {
+    for (const [id, rows] of this.quietSubagentLines) {
       const s = this.quietTracker.getSubagent(id);
       if (s) {
-        text.setText(this.ghostChatLine(formatQuietSubagentLine(s, now, width)));
+        rows.line.setText(
+          this.ghostChatLine(formatQuietSubagentStep(s.label, s.startedAt, now, width, s.codename))
+        );
       }
     }
     this.tui.requestRender();
@@ -1432,12 +1457,12 @@ export class ImpulseRenderer {
   private settleQuietWorkGroup(): boolean {
     // Boundary safety: subagents settle at their own task completion, which
     // precedes any group boundary — harden leftovers defensively (#165).
-    for (const [id, line] of this.quietSubagentLines) {
+    for (const [id, rows] of this.quietSubagentLines) {
       const s = this.quietTracker.getSubagent(id);
       const elapsedMs = this.quietTracker.settleSubagent(id);
       if (s && elapsedMs !== null) {
-        line.setText(
-          this.ghostChatLine(`${subagentBadge(s.codename)} ${formatWorkedFor(elapsedMs)}`)
+        rows.line.setText(
+          this.ghostChatLine(`${quietSubagentIndent(s.codename)}${formatWorkedFor(elapsedMs)}`)
         );
       }
       this.quietSubagentLines.delete(id);
