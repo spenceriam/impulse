@@ -342,7 +342,7 @@ describe("quiet-status", () => {
     t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0 + 200);
     expect(t.liveStatus(t0 + 13_000)).toBe("Saratoga: Reading README.md (13s, +1 parallel)");
     const settled = t.settle(t0 + 70_000);
-    expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 helper)");
+    expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 subagent)");
   });
 
   test("settle omits helper credit when no subagents ran", () => {
@@ -359,7 +359,7 @@ describe("quiet-status", () => {
         output: "done",
         metadata: { type: "task", codename: "Saratoga" },
       })
-    ).toBe("helper Saratoga: researching github.com/morluto/rea");
+    ).toBe("subagent Saratoga: researching github.com/morluto/rea");
     // Legacy/unnamed fallback unchanged
     expect(
       buildQuietRecapFact("task", "review the parser", {

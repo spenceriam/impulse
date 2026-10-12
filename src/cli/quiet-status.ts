@@ -787,11 +787,11 @@ export function buildQuietRecapFact(
     }
     case "task": {
       if (isVagueRecapNoun(arg) || arg === "subagent") return null;
-      // Named helpers read as people, not jargon: "helper Saratoga: …" (#165)
+      // Named subagents read as people, not jargon: "subagent Saratoga: …" (#165)
       const codename =
         typeof meta["codename"] === "string" ? meta["codename"].trim() : "";
       if (codename) {
-        return `helper ${codename}: ${lowerFirst(truncateArg(arg, 48))}${statusSuffix}`;
+        return `subagent ${codename}: ${lowerFirst(truncateArg(arg, 48))}${statusSuffix}`;
       }
       return `delegated ${truncateArg(arg, 36)}${statusSuffix}`;
     }
@@ -1325,7 +1325,7 @@ export class QuietWorkGroupTracker {
       g.failedCount > 0 ? `, ${g.failedCount} failed` : "";
     const helperSuffix =
       g.helperCount > 0
-        ? ` (${g.helperCount} helper${g.helperCount === 1 ? "" : "s"})`
+        ? ` (${g.helperCount} subagent${g.helperCount === 1 ? "" : "s"})`
         : "";
     const workedForLine =
       g.toolCount > 0
