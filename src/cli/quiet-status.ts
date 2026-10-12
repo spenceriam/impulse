@@ -13,6 +13,8 @@ export type QuietInflightTool = {
   id: string;
   name: string;
   arg: string;
+  /** Ship-name codename for task (subagent) tools — prefixes the label (#165). */
+  codename?: string;
 };
 
 export type QuietRecapEvent = {
@@ -278,6 +280,19 @@ function truncatePlain(text: string, maxVisible: number): string {
 }
 
 /**
+ * Humanized Quiet label for one tool call — shared by the live narration
+ * line and the subagent sub-step feed (#165). Bash humanizes (never raw
+ * shell); gerund-led task args stand alone (no "Delegating Researching…").
+ */
+export function quietToolLabel(name: string, arg: string): string {
+  if (name === "bash") return humanizeBashCommand(arg).live;
+  if (name === "task" && /^[A-Za-z]+ing\b/.test(arg)) {
+    return arg.charAt(0).toUpperCase() + arg.slice(1);
+  }
+  return arg ? `${quietToolVerb(name)} ${arg}` : quietToolVerb(name);
+}
+
+/**
  * Fit a live narration line to the terminal: truncate the LABEL with `…`
  * and always preserve the trailing suffix (` (1 min 24s, 2 failed)`).
  * The suffix is measured per render — it grows on minute rollover and when
@@ -333,18 +348,15 @@ export function formatQuietLiveStatus(opts: {
     const first = running[0]!;
     const extra = running.length - 1;
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
-    // Bash narrates humanized intent ("Searching the code for X") instead
-    // of "Running <raw chain>" — Quiet never renders raw shell (#164).
-    // Gerund-led task descriptions ("Researching github.com/x/y") stand
-    // alone — "Delegating Researching…" doubles the gerund (#165).
-    const label =
-      first.name === "bash"
-        ? humanizeBashCommand(first.arg).live
-        : first.name === "task" && /^[A-Za-z]+ing\b/.test(first.arg)
-          ? first.arg.charAt(0).toUpperCase() + first.arg.slice(1)
-          : first.arg
-            ? `${quietToolVerb(first.name)} ${first.arg}`
-            : quietToolVerb(first.name);
+    // Bash narrates humanized intent, gerund-led task args stand alone
+    // (quietToolLabel); a codename prefixes helper work: "Saratoga: …" (#165).
+    // For named helpers the arg IS the helper's own activity — "Delegating"
+    // belongs to the unnamed path only ("Saratoga: Delegating …" doubles agency).
+    const base =
+      first.codename && first.name === "task"
+        ? first.arg.charAt(0).toUpperCase() + first.arg.slice(1)
+        : quietToolLabel(first.name, first.arg);
+    const label = first.codename ? `${first.codename}: ${base}` : base;
     return fit(label, parts);
   }
   if (opts.thinking) {
@@ -760,6 +772,12 @@ export function buildQuietRecapFact(
     }
     case "task": {
       if (isVagueRecapNoun(arg) || arg === "subagent") return null;
+      // Named helpers read as people, not jargon: "helper Saratoga: …" (#165)
+      const codename =
+        typeof meta["codename"] === "string" ? meta["codename"].trim() : "";
+      if (codename) {
+        return `helper ${codename}: ${lowerFirst(truncateArg(arg, 48))}${statusSuffix}`;
+      }
       return `delegated ${truncateArg(arg, 36)}${statusSuffix}`;
     }
     case "question": {
@@ -1059,6 +1077,8 @@ export class QuietWorkGroupTracker {
     tools: QuietInflightTool[];
     toolCount: number;
     failedCount: number;
+    /** task (subagent) tools seen this group — settle credits "(N helpers)". */
+    helperCount: number;
     lastLabel: string | null;
     hadActivity: boolean;
     hadTools: boolean;
@@ -1134,6 +1154,7 @@ export class QuietWorkGroupTracker {
       tools: [],
       toolCount: 0,
       failedCount: 0,
+      helperCount: 0,
       lastLabel: null,
       hadActivity: false,
       hadTools: false,
@@ -1212,6 +1233,7 @@ export class QuietWorkGroupTracker {
       return;
     }
     g.toolCount += 1;
+    if (tool.name === "task") g.helperCount += 1;
     g.tools.push(tool);
   }
 
@@ -1222,6 +1244,16 @@ export class QuietWorkGroupTracker {
 
   findToolArg(id: string): string | undefined {
     return this.group?.tools.find((t) => t.id === id)?.arg;
+  }
+
+  /**
+   * Swap a running tool's label arg — the subagent progress feed pushes the
+   * helper's current sub-step ("Reading quiet-status.ts") onto its task
+   * entry so the narration line follows helper work (#165).
+   */
+  updateToolArg(id: string, arg: string): void {
+    const t = this.group?.tools.find((t) => t.id === id);
+    if (t) t.arg = arg;
   }
 
   liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string {
@@ -1276,9 +1308,13 @@ export class QuietWorkGroupTracker {
     const elapsedMs = Math.max(0, nowMs - g.startedAt);
     const failedSuffix =
       g.failedCount > 0 ? `, ${g.failedCount} failed` : "";
+    const helperSuffix =
+      g.helperCount > 0
+        ? ` (${g.helperCount} helper${g.helperCount === 1 ? "" : "s"})`
+        : "";
     const workedForLine =
       g.toolCount > 0
-        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${failedSuffix}`
+        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${helperSuffix}${failedSuffix}`
         : formatWorkedFor(elapsedMs);
     const toolCount = g.toolCount;
     this.group = null;

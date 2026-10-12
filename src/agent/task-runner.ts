@@ -168,6 +168,9 @@ export async function executeSubagent(
     type: "text" | "tool" | "thinking" | "status";
     content: string;
     durationMs?: number;
+    /** Tool name + args for Quiet-mode humanized sub-step narration (#165). */
+    toolName?: string;
+    toolArgs?: Record<string, unknown>;
   }) => {
     Bus.publish(SubagentEvents.Progress, {
       ...payload,
@@ -295,7 +298,7 @@ export async function executeSubagent(
 
         actionSummary.push(label);
         actionEntries.push({ label, durationMs });
-        publish({ type: "tool", content: label, durationMs });
+        publish({ type: "tool", content: label, durationMs, toolName, toolArgs: args });
 
         toolResults.push({
           tool_call_id: toolCall.id,

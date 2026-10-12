@@ -89,6 +89,7 @@ import {
   fullQuietArg,
   isQuietBreakOutcome,
   QuietWorkGroupTracker,
+  quietToolLabel,
   shortQuietArg,
   wrapQuietRecapLines,
   type QuietRecapEvent,
@@ -2000,6 +2001,8 @@ export class ImpulseRenderer {
           content: string;
           durationMs?: number;
           parentToolCallId: string;
+          toolName?: string;
+          toolArgs?: Record<string, unknown>;
         };
         const block = this.toolBlocks.get(payload.parentToolCallId);
         if (block) {
@@ -2009,6 +2012,20 @@ export class ImpulseRenderer {
             ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
           });
           this.requestRenderForPhase("subagent_progress");
+        }
+        // Quiet: tool blocks are suppressed, so the helper's current step
+        // rides the narration line instead — "Saratoga: Reading X…" (#165).
+        if (
+          this.isQuietMode() &&
+          payload.type === "tool" &&
+          payload.toolName !== undefined
+        ) {
+          const arg = fullQuietArg(payload.toolName, payload.toolArgs ?? {});
+          this.quietTracker.updateToolArg(
+            payload.parentToolCallId,
+            quietToolLabel(payload.toolName, arg)
+          );
+          this.updateQuietNarration();
         }
       }
 
@@ -2969,6 +2986,7 @@ export class ImpulseRenderer {
             id,
             name,
             arg: fullQuietArg(name, args),
+            ...(subagentCodename !== undefined ? { codename: subagentCodename } : {}),
           });
           this.ensureQuietNarration();
           this.updateQuietNarration();
@@ -3021,6 +3039,7 @@ export class ImpulseRenderer {
 
         this.thinkingElapsedMs = 0;
         this.syncSteeringChrome();
+        const subagentCodename = this.taskCodenames.get(id);
         this.taskCodenames.delete(id);
 
         const quiet = this.isQuietMode();
@@ -3030,7 +3049,16 @@ export class ImpulseRenderer {
 
         if (quiet) {
           if (!isSilentUnchangedTodoWrite(_name, result) && !isCosmeticTodoRewrite(_name, result)) {
-            const fact = buildQuietRecapFact(_name, arg, result) ?? undefined;
+            const fact =
+              buildQuietRecapFact(_name, arg, {
+                ...result,
+                metadata: {
+                  ...(result.metadata ?? {}),
+                  ...(subagentCodename !== undefined
+                    ? { codename: subagentCodename }
+                    : {}),
+                },
+              }) ?? undefined;
             const event: QuietRecapEvent = { name: _name, arg, outcome };
             if (fact !== undefined) {
               event.fact = fact;

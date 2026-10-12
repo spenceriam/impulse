@@ -18,6 +18,7 @@ import {
   lastFailureNextLabel,
   pickQuietRecapNext,
   quietThinkingPhrase,
+  quietToolLabel,
   shortQuietArg,
   unansweredAskNextLabel,
   wrapQuietRecapLines,
@@ -281,6 +282,75 @@ describe("quiet-status", () => {
         elapsedMs: 1_000,
       })
     ).toBe("Listing the project folder (1s)");
+  });
+
+  test("codename prefixes helper work on the live line (#165)", () => {
+    expect(
+      formatQuietLiveStatus({
+        tools: [
+          { id: "1", name: "task", arg: "Research the auth module", codename: "Saratoga" },
+        ],
+        elapsedMs: 4_000,
+      })
+    ).toBe("Saratoga: Research the auth module (4s)");
+    // Gerund-led sub-step labels (fed by the progress feed) pass through
+    expect(
+      formatQuietLiveStatus({
+        tools: [
+          { id: "1", name: "task", arg: "Reading quiet-status.ts", codename: "Saratoga" },
+        ],
+        elapsedMs: 12_000,
+      })
+    ).toBe("Saratoga: Reading quiet-status.ts (12s)");
+  });
+
+  test("quietToolLabel: bash humanizes, task gerunds stand alone (#165)", () => {
+    expect(quietToolLabel("bash", "git log --oneline -5")).toBe("Reviewing recent commits");
+    expect(quietToolLabel("task", "Researching github.com/morluto/rea")).toBe(
+      "Researching github.com/morluto/rea"
+    );
+    expect(quietToolLabel("file_read", "AGENTS.md")).toBe("Reading AGENTS.md");
+  });
+
+  test("tracker: sub-step feed updates the live label; settle credits helpers (#165)", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 1_000_000;
+    t.addTool(
+      { id: "b", name: "task", arg: "Researching github.com/morluto/rea", codename: "Saratoga" },
+      t0
+    );
+    // Progress feed swaps the helper's arg to its current sub-step
+    t.updateToolArg("b", "Reading README.md");
+    expect(t.liveStatus(t0 + 12_000)).toBe("Saratoga: Reading README.md (12s)");
+    // A second tool joins → helper still leads, parallel count appears
+    t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0 + 200);
+    expect(t.liveStatus(t0 + 13_000)).toBe("Saratoga: Reading README.md (13s, +1 parallel)");
+    const settled = t.settle(t0 + 70_000);
+    expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 helper)");
+  });
+
+  test("settle omits helper credit when no subagents ran", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 1_000_000;
+    t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0);
+    expect(t.settle(t0 + 3_000)!.workedForLine).toBe("Worked for 3s using 1 tool");
+  });
+
+  test("Recap names the helper when the codename rides metadata (#165)", () => {
+    expect(
+      buildQuietRecapFact("task", "Researching github.com/morluto/rea", {
+        success: true,
+        output: "done",
+        metadata: { type: "task", codename: "Saratoga" },
+      })
+    ).toBe("helper Saratoga: researching github.com/morluto/rea");
+    // Legacy/unnamed fallback unchanged
+    expect(
+      buildQuietRecapFact("task", "review the parser", {
+        success: true,
+        output: "done",
+      })
+    ).toBe("delegated review the parser");
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {
