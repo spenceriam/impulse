@@ -367,11 +367,12 @@ export function formatQuietLiveStatus(opts: {
     // (quietToolLabel); a codename prefixes helper work: "Saratoga: …" (#165).
     // For named helpers the arg IS the helper's own activity — "Delegating"
     // belongs to the unnamed path only ("Saratoga: Delegating …" doubles agency).
+    // ↳ is the non-verbal "spawned work" marker (static, no emoji).
     const base =
       first.codename && first.name === "task"
         ? taskActivityLabel(first.arg, false)
         : quietToolLabel(first.name, first.arg);
-    const label = first.codename ? `${first.codename}: ${base}` : base;
+    const label = first.codename ? `↳ ${first.codename}: ${base}` : base;
     return fit(label, parts);
   }
   if (opts.thinking) {

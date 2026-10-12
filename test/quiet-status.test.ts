@@ -307,7 +307,7 @@ describe("quiet-status", () => {
         ],
         elapsedMs: 4_000,
       })
-    ).toBe("Saratoga: Researching the auth module (4s)");
+    ).toBe("↳ Saratoga: Researching the auth module (4s)");
     // Gerund-led sub-step labels (fed by the progress feed) pass through
     expect(
       formatQuietLiveStatus({
@@ -316,7 +316,7 @@ describe("quiet-status", () => {
         ],
         elapsedMs: 12_000,
       })
-    ).toBe("Saratoga: Reading quiet-status.ts (12s)");
+    ).toBe("↳ Saratoga: Reading quiet-status.ts (12s)");
   });
 
   test("quietToolLabel: bash humanizes, task gerunds stand alone (#165)", () => {
@@ -337,10 +337,10 @@ describe("quiet-status", () => {
     );
     // Progress feed swaps the helper's arg to its current sub-step
     t.updateToolArg("b", "Reading README.md");
-    expect(t.liveStatus(t0 + 12_000)).toBe("Saratoga: Reading README.md (12s)");
+    expect(t.liveStatus(t0 + 12_000)).toBe("↳ Saratoga: Reading README.md (12s)");
     // A second tool joins → helper still leads, parallel count appears
     t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0 + 200);
-    expect(t.liveStatus(t0 + 13_000)).toBe("Saratoga: Reading README.md (13s, +1 parallel)");
+    expect(t.liveStatus(t0 + 13_000)).toBe("↳ Saratoga: Reading README.md (13s, +1 parallel)");
     const settled = t.settle(t0 + 70_000);
     expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 subagent)");
   });
