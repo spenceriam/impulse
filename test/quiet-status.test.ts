@@ -324,7 +324,7 @@ describe("quiet-status", () => {
         })
       )
     ).toBe(" Saratoga : Reading quiet-status.ts (12s)");
-    // …with the truecolor badge wrapped around the codename (theme-proof)
+    // …with the bold badge in the impulse header color (palette 33)
     expect(
       formatQuietLiveStatus({
         tools: [
@@ -332,7 +332,7 @@ describe("quiet-status", () => {
         ],
         elapsedMs: 12_000,
       })
-    ).toContain("\x1b[30m\x1b[48;2;92;255;255m Saratoga \x1b[0m");
+    ).toContain("\x1b[1m\x1b[30m\x1b[48;5;33m Saratoga \x1b[0m");
   });
 
   test("quietToolLabel: bash humanizes, task gerunds stand alone (#165)", () => {
@@ -342,6 +342,11 @@ describe("quiet-status", () => {
     );
     expect(quietToolLabel("task", "Map the dependency graph")).toBe("Mapping the dependency graph");
     expect(quietToolLabel("file_read", "AGENTS.md")).toBe("Reading AGENTS.md");
+    // grep tool alternation patterns extract the topic instead of raw pipes
+    expect(quietToolLabel("grep", "subagent-progress-labels|updateToolArg|subagentBadge")).toBe(
+      "Searching the code for 'subagent-progress-labels' and 2 more terms"
+    );
+    expect(quietToolLabel("grep", "quiet-status")).toBe("Searching quiet-status");
   });
 
   test("tracker: sub-step feed updates the live label; settle credits helpers (#165)", () => {

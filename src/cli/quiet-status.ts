@@ -297,12 +297,13 @@ function taskActivityLabel(arg: string, delegatingFallback: boolean): string {
 }
 
 /**
- * Subagent codename badge: black on impulse cyan in TRUECOLOR
- * (`48;2;92;255;255` = #5cffff) so terminal themes can't recolor it.
- * Ends by restoring the ghost line's dim+italic, which the reset kills.
+ * Subagent codename badge: bold black on the "impulse" chat-header color
+ * (palette 33 — theme-COUPLED to the header, so it always matches whatever
+ * the theme shows for "impulse"). Ends by restoring the ghost line's
+ * dim+italic, which the reset kills.
  */
 export function subagentBadge(codename: string): string {
-  return `\x1b[30m\x1b[48;2;92;255;255m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
+  return `\x1b[1m\x1b[30m\x1b[48;5;33m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
 }
 
 /**
@@ -313,6 +314,16 @@ export function subagentBadge(codename: string): string {
 export function quietToolLabel(name: string, arg: string): string {
   if (name === "bash") return humanizeBashCommand(arg).live;
   if (name === "task") return taskActivityLabel(arg, true);
+  // grep tool: alternation patterns get the same topic treatment as bash
+  // grep — "a|b|c" reads as "'a' and 2 more terms", never raw pipes (#165).
+  if (name === "grep" && /\\\||\|/.test(arg)) {
+    const alts = arg.split(/\\\||\|/).map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    const first = alts[0];
+    if (first) {
+      const more = alts.length - 1;
+      return `Searching the code for '${truncateArg(first, 48)}'${more > 0 ? ` and ${more} more term${more === 1 ? "" : "s"}` : ""}`;
+    }
+  }
   return arg ? `${quietToolVerb(name)} ${arg}` : quietToolVerb(name);
 }
 
