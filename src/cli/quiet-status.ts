@@ -119,12 +119,75 @@ export function shortQuietArg(name: string, args: Record<string, unknown>): stri
  * 40-char cap: the narration line truncates to terminal width at render
  * time, so wide terminals see the whole URL/command.
  */
+
+/** Vague opener verbs that carry no topic of their own. */
+const GENERIC_TASK_VERB_RE =
+  /^(research|researching|explore|exploring|investigate|investigating|look|looking|check|checking|analy[sz]e|analy[sz]ing|review|reviewing|study|studying|examine|examining|open|opening|read|reading|dig|digging)$/i;
+
+/** Objects that name nothing: "a website page", "the repo", "some files". */
+const GENERIC_TASK_OBJECT_RE =
+  /^((a|an|the|some|this|that)\s+(website\s+page|webpage|web\s*page|website|site|page|directory|folder|repo|repository|codebase|code|file|files|things?|stuff|project|module)\.?)?$/i;
+
+/** URL / path / quoted phrase / #ref / CamelCase in the object = already concrete. */
+const CONCRETE_TASK_TOKEN_RE =
+  /(https?:\/\/|~\/|\.?\/|`[^`]+`|"[^"]+"|'[^']+'|#\d+|\b[A-Z][a-z]+[A-Z]\w*)/;
+
+/**
+ * A task description is generic when the verb is vague AND the object names
+ * nothing ("Researching a website page"). "Research the auth module" is
+ * specific and passes through untouched.
+ */
+function isGenericTaskDescription(description: string): boolean {
+  const m = description.match(/^(\S+)\s*(.*)$/);
+  if (!m) return false;
+  const [, verb, rest] = m;
+  if (!GENERIC_TASK_VERB_RE.test(verb!)) return false;
+  if (CONCRETE_TASK_TOKEN_RE.test(rest!)) return false;
+  return GENERIC_TASK_OBJECT_RE.test(rest!.trim());
+}
+
+/** Pull a concrete topic (URL host+path, file path, quoted phrase) from the task prompt. */
+function extractTaskTopic(prompt: string): string | null {
+  const url = prompt.match(/https?:\/\/[^\s)"']+/);
+  if (url) {
+    try {
+      const u = new URL(url[0]);
+      const seg = u.pathname.replace(/\/+$/, "").split("/").filter(Boolean).slice(0, 2).join("/");
+      return u.hostname + (seg ? `/${seg}` : "");
+    } catch {
+      /* fall through to path/quoted */
+    }
+  }
+  const pathMatch = prompt.match(/(?:~|\.?\/)[^\s)"']+/);
+  if (pathMatch) return shortPath(pathMatch[0]);
+  const quoted = prompt.match(/[`"']([^`"']{3,60})[`"']/);
+  if (quoted) return quoted[1]!;
+  return null;
+}
+
+/** Gerund form of the description's leading verb ("Research" → "Researching"). */
+function gerundLedWord(word: string): string {
+  return /ing$/i.test(word) ? word : gerundOf(word);
+}
+
 export function fullQuietArg(name: string, args: Record<string, unknown>): string {
   if (name === "todo_write" || name === "todo_read") return "";
   if (name === "task") {
     const description =
       typeof args["description"] === "string" ? String(args["description"]).trim() : "";
-    return description || "subagent";
+    if (!description) return "subagent";
+    // Model-authored descriptions are the last model-text channel in Quiet
+    // status. Generic ones ("Researching a website page") get a concrete
+    // topic pulled from the task's own prompt — event-sourced (#165).
+    if (isGenericTaskDescription(description)) {
+      const prompt = typeof args["prompt"] === "string" ? args["prompt"] : "";
+      const topic = extractTaskTopic(prompt);
+      if (topic) {
+        const first = description.split(/\s+/)[0]!;
+        return `${gerundLedWord(first)} ${topic}`;
+      }
+    }
+    return description;
   }
   if (name === "glob" || name === "grep") {
     return typeof args["pattern"] === "string" ? String(args["pattern"]).trim() : "pattern";
@@ -135,7 +198,8 @@ export function fullQuietArg(name: string, args: Record<string, unknown>): strin
   }
   if (name === "ls") {
     const p = typeof args["path"] === "string" ? String(args["path"]).trim() : "";
-    if (!p || p === "." || p === "./") return ".";
+    // "Listing ." reads as nothing — name the thing instead.
+    if (!p || p === "." || p === "./") return "the project folder";
     return shortPath(p);
   }
   const keys = ["url", "query", "pattern", "prompt", "filePath", "file", "path"];
@@ -271,12 +335,16 @@ export function formatQuietLiveStatus(opts: {
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
     // Bash narrates humanized intent ("Searching the code for X") instead
     // of "Running <raw chain>" — Quiet never renders raw shell (#164).
+    // Gerund-led task descriptions ("Researching github.com/x/y") stand
+    // alone — "Delegating Researching…" doubles the gerund (#165).
     const label =
       first.name === "bash"
         ? humanizeBashCommand(first.arg).live
-        : first.arg
-          ? `${quietToolVerb(first.name)} ${first.arg}`
-          : quietToolVerb(first.name);
+        : first.name === "task" && /^[A-Za-z]+ing\b/.test(first.arg)
+          ? first.arg.charAt(0).toUpperCase() + first.arg.slice(1)
+          : first.arg
+            ? `${quietToolVerb(first.name)} ${first.arg}`
+            : quietToolVerb(first.name);
     return fit(label, parts);
   }
   if (opts.thinking) {

@@ -11,6 +11,7 @@ import {
   formatQuietLiveStatus,
   formatQuietRecap,
   formatWorkedFor,
+  fullQuietArg,
   humanizeBashCommand,
   isQuietBreakOutcome,
   isVagueRecapNoun,
@@ -224,6 +225,62 @@ describe("quiet-status", () => {
       availableWidth: 120,
     });
     expect(line).toBe("Searching the code for 'quiet-status' and 1 more term (17s)");
+  });
+
+  test("vague task descriptions get a prompt-derived topic (#165)", () => {
+    expect(
+      fullQuietArg("task", {
+        description: "Researching a website page",
+        prompt: "Read https://github.com/morluto/rea and summarize what it does",
+      })
+    ).toBe("Researching github.com/morluto/rea");
+    expect(
+      fullQuietArg("task", {
+        description: "Explore the codebase",
+        prompt: "Look through src/cli/quiet-status.ts and report the exports",
+      })
+    ).toBe("Exploring quiet-status.ts");
+    // No concrete topic available → description passes through unchanged
+    expect(fullQuietArg("task", { description: "Check things", prompt: "look around" })).toBe(
+      "Check things"
+    );
+  });
+
+  test("specific task descriptions pass through untouched (#165)", () => {
+    expect(
+      fullQuietArg("task", {
+        description: "Research the auth module",
+        prompt: "Read src/auth/index.ts and report",
+      })
+    ).toBe("Research the auth module");
+    expect(
+      fullQuietArg("task", { description: "Review AGENTS.md sections", prompt: "…" })
+    ).toBe("Review AGENTS.md sections");
+  });
+
+  test("gerund-led task labels drop the Delegating prefix (#165)", () => {
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Researching github.com/morluto/rea" }],
+        elapsedMs: 12_000,
+      })
+    ).toBe("Researching github.com/morluto/rea (12s)");
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Research the auth module" }],
+        elapsedMs: 4_000,
+      })
+    ).toBe("Delegating Research the auth module (4s)");
+  });
+
+  test("ls of the project root names the folder, not the dot (#165)", () => {
+    expect(fullQuietArg("ls", { path: "." })).toBe("the project folder");
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "ls", arg: "the project folder" }],
+        elapsedMs: 1_000,
+      })
+    ).toBe("Listing the project folder (1s)");
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {
