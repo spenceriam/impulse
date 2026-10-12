@@ -10,8 +10,8 @@ import {
   formatDuration,
   formatQuietLiveStatus,
   formatQuietRecap,
-  formatQuietSubagentObjective,
-  formatQuietSubagentStep,
+  formatQuietSubagentLine,
+  formatQuietSubagentSettle,
   formatWorkedFor,
   fullQuietArg,
   humanizeBashCommand,
@@ -304,30 +304,41 @@ describe("quiet-status", () => {
     ).toBe("Listing the project folder (1s)");
   });
 
-  test("subagent two-row format: objective header + indented live step (#165)", () => {
-    // Row 1: badge + static objective
-    const header = formatQuietSubagentObjective(
-      "Saratoga",
-      "Exploring quiet-status.ts wiring",
-      120
+  test("subagent single row: badge + objective | step + tick (#165)", () => {
+    const state = {
+      codename: "Saratoga",
+      objective: "Exploring quiet-status.ts wiring",
+      label: "Reading README.md",
+      startedAt: 1_000_000,
+    };
+    expect(stripAnsi(formatQuietSubagentLine(state, 1_012_000, 120))).toBe(
+      " Saratoga  Exploring quiet-status.ts wiring | Reading README.md (12s)"
     );
-    expect(stripAnsi(header)).toBe(" Saratoga  Exploring quiet-status.ts wiring");
-    expect(header).toContain("\x1b[1m\x1b[30m\x1b[43m Saratoga \x1b[0m");
-
-    // Row 2: indented under the objective text, ticking
-    const step = formatQuietSubagentStep(
-      "Reading README.md",
-      1_000_000,
-      1_012_000,
-      120,
-      "Saratoga"
+    expect(formatQuietSubagentLine(state, 1_012_000, 120)).toContain(
+      "\x1b[1m\x1b[30m\x1b[43m Saratoga \x1b[0m"
     );
-    expect(step).toBe(`${" ".repeat("Saratoga".length + 3)}Reading README.md (12s)`);
-
-    // Width-fitted like the group line: label truncates, suffix survives
-    const fitted = formatQuietSubagentStep("x".repeat(150), 1_000_000, 1_012_000, 60, "Saratoga");
+    // Width-fitted: the step (right side) truncates, the tick survives
+    const fitted = stripAnsi(
+      formatQuietSubagentLine(
+        { codename: "Saratoga", objective: "Exploring the codebase", label: "x".repeat(120), startedAt: 1_000_000 },
+        1_012_000,
+        60
+      )
+    );
     expect(fitted.length).toBeLessThanOrEqual(60);
     expect(fitted.endsWith("(12s)")).toBe(true);
+  });
+
+  test("subagent settle row: objective | Worked for, suffix survives narrow widths (#165)", () => {
+    const settled = stripAnsi(
+      formatQuietSubagentSettle("Saratoga", "Exploring quiet-status.ts wiring", 31_000, 120)
+    );
+    expect(settled).toBe(" Saratoga  Exploring quiet-status.ts wiring | Worked for 31s");
+    const narrow = stripAnsi(
+      formatQuietSubagentSettle("Saratoga", "x".repeat(120), 31_000, 40)
+    );
+    expect(narrow.length).toBeLessThanOrEqual(40);
+    expect(narrow.endsWith("Worked for 31s")).toBe(true);
   });
 
   test("quietToolLabel: bash humanizes, task gerunds stand alone (#165)", () => {

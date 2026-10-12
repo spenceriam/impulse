@@ -317,35 +317,45 @@ export function impulseBadge(): string {
 /** Visible width reserve for a badge + separator (pad + pad + space). */
 const BADGE_RESERVE = 3;
 
-/** Indent aligning a subagent's live step under its objective text. */
-export function quietSubagentIndent(codename: string): string {
-  return " ".repeat(codename.length + BADGE_RESERVE);
-}
-
-/** Subagent line 1: badge + static objective (the assignment as given). */
-export function formatQuietSubagentObjective(
-  codename: string,
-  objective: string,
+/**
+ * One named subagent's single live row: badge + objective, a pipe, then the
+ * current step with elapsed tick — truncated to width, step side first
+ * (#165). Badge padding reserved up front; ANSI substitutes post-fit.
+ */
+export function formatQuietSubagentLine(
+  s: { codename: string; objective: string; label: string; startedAt: number },
+  nowMs: number,
   availableWidth: number
 ): string {
-  const fitted = fitQuietLiveLine(`${codename} ${objective}`, "", availableWidth - 2);
+  const suffix = ` (${formatDuration(Math.max(0, nowMs - s.startedAt))})`;
+  const fitted = fitQuietLiveLine(
+    `${s.codename} ${s.objective} | ${s.label}`,
+    suffix,
+    availableWidth - 2
+  );
+  const plainPrefix = `${s.codename} `;
+  return fitted.startsWith(plainPrefix)
+    ? `${subagentBadge(s.codename)} ${fitted.slice(plainPrefix.length)}`
+    : fitted;
+}
+
+/** Settled subagent row: badge + objective | Worked for Ns (name stays). */
+export function formatQuietSubagentSettle(
+  codename: string,
+  objective: string,
+  elapsedMs: number,
+  availableWidth: number
+): string {
+  // Worked-for rides the suffix slot so narrow widths never clip it.
+  const fitted = fitQuietLiveLine(
+    `${codename} ${objective} |`,
+    ` ${formatWorkedFor(elapsedMs)}`,
+    availableWidth - 2
+  );
   const plainPrefix = `${codename} `;
   return fitted.startsWith(plainPrefix)
     ? `${subagentBadge(codename)} ${fitted.slice(plainPrefix.length)}`
     : fitted;
-}
-
-/** Subagent line 2: indented live step + elapsed tick. */
-export function formatQuietSubagentStep(
-  label: string,
-  startedAt: number,
-  nowMs: number,
-  availableWidth: number,
-  codename: string
-): string {
-  const indent = quietSubagentIndent(codename);
-  const suffix = ` (${formatDuration(Math.max(0, nowMs - startedAt))})`;
-  return `${indent}${fitQuietLiveLine(label, suffix, availableWidth - indent.length)}`;
 }
 
 /** Live state for one named subagent's own two-row narration (#165). */
