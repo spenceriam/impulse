@@ -24,6 +24,9 @@ import {
   wrapQuietRecapLines,
 } from "../src/cli/quiet-status.js";
 
+/** Strip SGR codes for text comparisons (badge ANSI rides codename lines). */
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
 describe("quiet-status", () => {
   test("templated tool verb + short arg", () => {
     expect(
@@ -301,14 +304,27 @@ describe("quiet-status", () => {
 
   test("codename prefixes helper work on the live line (#165)", () => {
     expect(
-      formatQuietLiveStatus({
-        tools: [
-          { id: "1", name: "task", arg: "Research the auth module", codename: "Saratoga" },
-        ],
-        elapsedMs: 4_000,
-      })
-    ).toBe("↳ Saratoga: Researching the auth module (4s)");
+      stripAnsi(
+        formatQuietLiveStatus({
+          tools: [
+            { id: "1", name: "task", arg: "Research the auth module", codename: "Saratoga" },
+          ],
+          elapsedMs: 4_000,
+        })
+      )
+    ).toBe(" Saratoga : Researching the auth module (4s)");
     // Gerund-led sub-step labels (fed by the progress feed) pass through
+    expect(
+      stripAnsi(
+        formatQuietLiveStatus({
+          tools: [
+            { id: "1", name: "task", arg: "Reading quiet-status.ts", codename: "Saratoga" },
+          ],
+          elapsedMs: 12_000,
+        })
+      )
+    ).toBe(" Saratoga : Reading quiet-status.ts (12s)");
+    // …with the truecolor badge wrapped around the codename (theme-proof)
     expect(
       formatQuietLiveStatus({
         tools: [
@@ -316,7 +332,7 @@ describe("quiet-status", () => {
         ],
         elapsedMs: 12_000,
       })
-    ).toBe("↳ Saratoga: Reading quiet-status.ts (12s)");
+    ).toContain("\x1b[30m\x1b[48;2;92;255;255m Saratoga \x1b[0m");
   });
 
   test("quietToolLabel: bash humanizes, task gerunds stand alone (#165)", () => {
@@ -335,12 +351,14 @@ describe("quiet-status", () => {
       { id: "b", name: "task", arg: "Researching github.com/morluto/rea", codename: "Saratoga" },
       t0
     );
-    // Progress feed swaps the helper's arg to its current sub-step
+    // Progress feed swaps the subagent's arg to its current sub-step
     t.updateToolArg("b", "Reading README.md");
-    expect(t.liveStatus(t0 + 12_000)).toBe("↳ Saratoga: Reading README.md (12s)");
-    // A second tool joins → helper still leads, parallel count appears
+    expect(stripAnsi(t.liveStatus(t0 + 12_000))).toBe(" Saratoga : Reading README.md (12s)");
+    // A second tool joins → subagent still leads, parallel count appears
     t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0 + 200);
-    expect(t.liveStatus(t0 + 13_000)).toBe("↳ Saratoga: Reading README.md (13s, +1 parallel)");
+    expect(stripAnsi(t.liveStatus(t0 + 13_000))).toBe(
+      " Saratoga : Reading README.md (13s, +1 parallel)"
+    );
     const settled = t.settle(t0 + 70_000);
     expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 subagent)");
   });

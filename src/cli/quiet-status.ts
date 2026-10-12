@@ -297,6 +297,15 @@ function taskActivityLabel(arg: string, delegatingFallback: boolean): string {
 }
 
 /**
+ * Subagent codename badge: black on impulse cyan in TRUECOLOR
+ * (`48;2;92;255;255` = #5cffff) so terminal themes can't recolor it.
+ * Ends by restoring the ghost line's dim+italic, which the reset kills.
+ */
+export function subagentBadge(codename: string): string {
+  return `\x1b[30m\x1b[48;2;92;255;255m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
+}
+
+/**
  * Humanized Quiet label for one tool call — shared by the live narration
  * line and the subagent sub-step feed (#165). Bash humanizes (never raw
  * shell); gerund-led task args stand alone (no "Delegating Researching…").
@@ -364,16 +373,22 @@ export function formatQuietLiveStatus(opts: {
     const extra = running.length - 1;
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
     // Bash narrates humanized intent, gerund-led task args stand alone
-    // (quietToolLabel); a codename prefixes helper work: "Saratoga: …" (#165).
-    // For named helpers the arg IS the helper's own activity — "Delegating"
-    // belongs to the unnamed path only ("Saratoga: Delegating …" doubles agency).
-    // ↳ is the non-verbal "spawned work" marker (static, no emoji).
+    // (quietToolLabel); named subagents get the codename badge (#165).
+    // The badge is a truecolor chip (theme-proof) — no spawn glyph needed.
+    // Fit on PLAIN text first; the badge ANSI substitutes in after, and
+    // only when the prefix survived the fitter intact (narrow degrade: plain).
     const base =
       first.codename && first.name === "task"
         ? taskActivityLabel(first.arg, false)
         : quietToolLabel(first.name, first.arg);
-    const label = first.codename ? `↳ ${first.codename}: ${base}` : base;
-    return fit(label, parts);
+    if (first.codename) {
+      const plainPrefix = `${first.codename}: `;
+      const fitted = fit(`${first.codename}: ${base}`, parts);
+      return fitted.startsWith(plainPrefix)
+        ? `${subagentBadge(first.codename)}: ${fitted.slice(plainPrefix.length)}`
+        : fitted;
+    }
+    return fit(base, parts);
   }
   if (opts.thinking) {
     let clause = opts.thinkingIntent?.trim() ?? "";
