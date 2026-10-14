@@ -670,7 +670,8 @@ export class AgentLoop {
         // The system prompt asks the model to close tool turns with a
         // human-language <recap>…</recap> envelope; capture it separately so
         // it never renders as prose and can be shown as the Recap line.
-        const recapFilter = new InlineThinkingFilter(["recap"]);
+        // finalBlockOnly: inline examples mid-sentence stay prose (#167).
+        const recapFilter = new InlineThinkingFilter(["recap"], { finalBlockOnly: true });
         let accumulatedRecap = "";
 
         const closeThinkingPhase = () => {

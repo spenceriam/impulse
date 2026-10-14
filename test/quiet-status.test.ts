@@ -827,22 +827,22 @@ describe("quiet-status", () => {
       },
     ]);
     expect(long).not.toBeNull();
-    const rows = wrapQuietRecapLines(long!, 24, 3);
-    expect(rows.length).toBeLessThanOrEqual(3);
-    expect(rows.length).toBe(3);
-    expect(rows[2]!.endsWith("…")).toBe(true);
+    // #168: full wrap, never ellipsize — no 3-line hard cap, no mid-word cut
+    const rows = wrapQuietRecapLines(long!, 24);
+    expect(rows.length).toBeGreaterThan(3);
+    expect(rows.join(" ").endsWith("…")).toBe(false);
+    expect(rows.join("")).toContain("d-very-long-command-dddddddddd");
   });
 
   test("Recap wrap under max lines stays untruncated", () => {
-    const rows = wrapQuietRecapLines("Recap: read AGENTS.md ✓", 80, 3);
+    const rows = wrapQuietRecapLines("Recap: read AGENTS.md ✓", 80);
     expect(rows).toEqual(["Recap: read AGENTS.md ✓"]);
   });
 
   test("Recap hard newlines collapse instead of stranding fragments", () => {
     const rows = wrapQuietRecapLines(
       "Recap: mapped revival paths ranked by cost, honest limits, and the\ncurrent legal position.",
-      120,
-      3
+      120
     );
     expect(rows).toEqual([
       "Recap: mapped revival paths ranked by cost, honest limits, and the current legal position.",

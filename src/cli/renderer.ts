@@ -1515,7 +1515,7 @@ export class ImpulseRenderer {
     const modelRecap = this.modelRecapThisTurn?.trim();
     if (modelRecap) {
       const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
-      const rows = wrapQuietRecapLines(`Recap: ${modelRecap}`, width, 3);
+      const rows = wrapQuietRecapLines(`Recap: ${modelRecap}`, width);
       this.addSectionGap();
       for (const row of rows) {
         this.addChatLine(ghost(row));
@@ -1558,7 +1558,7 @@ export class ImpulseRenderer {
     // columns - TOTAL_GUTTER_WIDTH) — a wider wrap width makes every row
     // overflow the chat line and re-wrap/truncate into mush.
     const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
-    const rows = wrapQuietRecapLines(line, width, 3);
+    const rows = wrapQuietRecapLines(line, width);
     this.addSectionGap();
     for (const row of rows) {
       this.addChatLine(ghost(row));
@@ -6676,7 +6676,7 @@ export class ImpulseRenderer {
         // Quiet replay: persisted model-authored Recap, same look as live.
         this.addSectionGap();
         const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
-        const rows = wrapQuietRecapLines(`Recap: ${step.text}`, width, 3);
+        const rows = wrapQuietRecapLines(`Recap: ${step.text}`, width);
         for (const row of rows) {
           this.addChatLine(ghost(row));
         }
