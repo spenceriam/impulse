@@ -247,7 +247,7 @@ export const fileRead: Tool<ReadInput> = Tool.define(
   ReadSchema,
   async (input: ReadInput): Promise<ToolResult> => {
     try {
-      const safePath = sanitizePath(input.filePath);
+      const safePath = sanitizePath(input.filePath, { allowOutsideCwd: true }); // reads never block (#142)
       const offset = input.offset ?? 0;
       const limit = input.limit ?? FILE_READ_DEFAULT_LIMIT;
       const rangeNote = buildFileReadRangeNote(input);

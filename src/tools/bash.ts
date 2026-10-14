@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./registry";
 import path from "path";
 import { statSync } from "fs";
-import { resolveToolPath } from "./resolve-tool-path.js";
+import { sanitizePath } from "../util/path";
 import { ask as askPermission } from "../permission";
 import { Bus } from "../bus";
 import { 
@@ -781,12 +781,33 @@ export async function resolvePreferredShell(preferred: string) {
 }
 
 /**
- * Check if command needs permission.
+ * Heuristic: command writes/mutates files. Reads, listings, searches,
+ * directory changes, tests, builds, and script runs never match — those
+ * were the unknown-catch-all noise (#142). Explicit write ops still gate.
+ */
+const WRITE_INDICATOR_PATTERNS = [
+  /\b(cp|mv|mkdir|touch|tee|install|clone|unzip|tar|zip)\b/,
+  /(^|\s)>>?\s/, // output redirection creates/appends a file
+  /\bsed\s+-i\b/,
+  /\bcurl\b[^|]*\s(-o|-O|--output)\b/,
+  /\bwget\b[^|]*\s(-O|--output-document)\b/,
+  /\bgit\s+(clone|checkout|restore|clean|reset|merge|rebase|commit|push|pull|apply|am)\b/,
+  /\b(npm|yarn|pnpm|bun)\s+(install|add|remove|uninstall)\b/,
+];
+
+function looksLikeWrite(command: string): boolean {
+  return WRITE_INDICATOR_PATTERNS.some((re) => re.test(command));
+}
+
+/**
+ * Check if command needs permission (#142 — destructive-only gate).
  *
  * Policy:
  * - High-risk commands always require approval
- * - Any command touching paths outside the working directory requires approval
- * - Safe and unknown commands within the working directory are allowed
+ * - Explicit write/mutating commands require approval (redirection, cp/mv,
+ *   installs, git mutations) — inside or outside the working directory
+ * - Unrecognized commands no longer prompt by default (was the main noise)
+ * - Reads, directory changes, searches, tests, builds, script runs pass
  */
 export function needsPermission(command: string, workdir?: string): { needed: boolean; reason?: string } {
   const cwd = workdir || process.cwd();
@@ -796,14 +817,13 @@ export function needsPermission(command: string, workdir?: string): { needed: bo
     return { needed: true, reason: "High-risk command" };
   }
 
-  if (classification === "unknown") {
-    return { needed: true, reason: "Unrecognized command — approval required" };
-  }
-
-  for (const path of extractPaths(command)) {
-    if (!isWithinCwd(path, cwd)) {
-      return { needed: true, reason: `Path outside working directory: ${path}` };
+  if (looksLikeWrite(command)) {
+    for (const path of extractPaths(command)) {
+      if (!isWithinCwd(path, cwd)) {
+        return { needed: true, reason: `Write outside working directory: ${path}` };
+      }
     }
+    return { needed: true, reason: "Write/mutating command — approval required" };
   }
 
   return { needed: false };
@@ -1245,7 +1265,7 @@ export const bashTool: Tool<BashInput> = Tool.define(
 
     const runBash = async (): Promise<ToolResult> => {
       const baseCwd = input.workdir
-        ? await resolveToolPath(input.workdir, "bash")
+        ? sanitizePath(input.workdir, { allowOutsideCwd: true }) // cd is non-destructive (#142)
         : process.cwd();
       const cwd = resolveSessionCwd(sessionName, baseCwd, {
         workdirProvided: !!input.workdir,

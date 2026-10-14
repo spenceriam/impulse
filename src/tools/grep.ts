@@ -69,7 +69,7 @@ export const grepTool: Tool<GrepInput> = Tool.define(
         };
       }
 
-      const searchPath = sanitizePath(input.path ?? ".");
+      const searchPath = sanitizePath(input.path ?? ".", { allowOutsideCwd: true }); // reads never block (#142)
 
       // Ensure binary has execute permissions (fixes EACCES on bundled binaries)
       try {

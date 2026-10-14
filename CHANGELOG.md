@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-10-14
+
+  **Type:** patch
+  **Title:** Recap envelope hijack fix, Recap truncation removal, destructive-only permissions
+
+  ### Fixed
+  - **#167** -- A literal `<recap>` tag used as an inline example in prose no longer hijacks the stream into the Recap capture. Envelopes are honored only at line start as the turn's final block; content after the close tag (or an unclosed tag) re-emits as plain prose in original order. Think-tag filtering unchanged.
+  - **#168** -- Recap no longer hard-truncates at 3 lines with a mid-word `…`. Model-authored and event-sourced recaps wrap fully at word boundaries; content length still governed by the ≤40-word prompt rule and ≤5-fact fallback.
+  - **#142** -- Permissions now gate on destructiveness instead of recognition. Unrecognized commands (gh, curl, npx, sed, bun/npm test, builds) no longer prompt by default; reads, directory changes, and searches run anywhere — including outside the working directory (previously hard-blocked with a path-traversal error for `file_read`/`glob`/`grep`, and prompted for bash `workdir`). Explicit write/mutating commands (redirection, cp/mv, installs, git mutations, `sed -i`) and high-risk commands still require approval. `path_outside_cwd` prompts now show a human-readable label instead of the raw internal identifier.
+
 ## [1.12.0] - 2026-10-11
 
   **Type:** minor

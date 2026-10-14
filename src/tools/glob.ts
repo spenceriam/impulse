@@ -25,7 +25,7 @@ export const globTool: Tool<GlobInput> = Tool.define(
   GlobSchema,
   async (input: GlobInput): Promise<ToolResult> => {
     try {
-      const basePath = sanitizePath(input.path ?? ".");
+      const basePath = sanitizePath(input.path ?? ".", { allowOutsideCwd: true }); // reads never block (#142)
       const options = {
         cwd: basePath,
         nodir: true, // Only return files, not directories
