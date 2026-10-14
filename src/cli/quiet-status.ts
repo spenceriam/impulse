@@ -13,6 +13,8 @@ export type QuietInflightTool = {
   id: string;
   name: string;
   arg: string;
+  /** Ship-name codename for task (subagent) tools — prefixes the label (#165). */
+  codename?: string;
 };
 
 export type QuietRecapEvent = {
@@ -119,12 +121,75 @@ export function shortQuietArg(name: string, args: Record<string, unknown>): stri
  * 40-char cap: the narration line truncates to terminal width at render
  * time, so wide terminals see the whole URL/command.
  */
+
+/** Vague opener verbs that carry no topic of their own. */
+const GENERIC_TASK_VERB_RE =
+  /^(research|researching|explore|exploring|investigate|investigating|look|looking|check|checking|analy[sz]e|analy[sz]ing|review|reviewing|study|studying|examine|examining|open|opening|read|reading|dig|digging)$/i;
+
+/** Objects that name nothing: "a website page", "the repo", "some files". */
+const GENERIC_TASK_OBJECT_RE =
+  /^((a|an|the|some|this|that)\s+(website\s+page|webpage|web\s*page|website|site|page|directory|folder|repo|repository|codebase|code|file|files|things?|stuff|project|module)\.?)?$/i;
+
+/** URL / path / quoted phrase / #ref / CamelCase in the object = already concrete. */
+const CONCRETE_TASK_TOKEN_RE =
+  /(https?:\/\/|~\/|\.?\/|`[^`]+`|"[^"]+"|'[^']+'|#\d+|\b[A-Z][a-z]+[A-Z]\w*)/;
+
+/**
+ * A task description is generic when the verb is vague AND the object names
+ * nothing ("Researching a website page"). "Research the auth module" is
+ * specific and passes through untouched.
+ */
+function isGenericTaskDescription(description: string): boolean {
+  const m = description.match(/^(\S+)\s*(.*)$/);
+  if (!m) return false;
+  const [, verb, rest] = m;
+  if (!GENERIC_TASK_VERB_RE.test(verb!)) return false;
+  if (CONCRETE_TASK_TOKEN_RE.test(rest!)) return false;
+  return GENERIC_TASK_OBJECT_RE.test(rest!.trim());
+}
+
+/** Pull a concrete topic (URL host+path, file path, quoted phrase) from the task prompt. */
+function extractTaskTopic(prompt: string): string | null {
+  const url = prompt.match(/https?:\/\/[^\s)"']+/);
+  if (url) {
+    try {
+      const u = new URL(url[0]);
+      const seg = u.pathname.replace(/\/+$/, "").split("/").filter(Boolean).slice(0, 2).join("/");
+      return u.hostname + (seg ? `/${seg}` : "");
+    } catch {
+      /* fall through to path/quoted */
+    }
+  }
+  const pathMatch = prompt.match(/(?:~|\.?\/)[^\s)"']+/);
+  if (pathMatch) return shortPath(pathMatch[0]);
+  const quoted = prompt.match(/[`"']([^`"']{3,60})[`"']/);
+  if (quoted) return quoted[1]!;
+  return null;
+}
+
+/** Gerund form of the description's leading verb ("Research" → "Researching"). */
+function gerundLedWord(word: string): string {
+  return /ing$/i.test(word) ? word : gerundOf(word);
+}
+
 export function fullQuietArg(name: string, args: Record<string, unknown>): string {
   if (name === "todo_write" || name === "todo_read") return "";
   if (name === "task") {
     const description =
       typeof args["description"] === "string" ? String(args["description"]).trim() : "";
-    return description || "subagent";
+    if (!description) return "subagent";
+    // Model-authored descriptions are the last model-text channel in Quiet
+    // status. Generic ones ("Researching a website page") get a concrete
+    // topic pulled from the task's own prompt — event-sourced (#165).
+    if (isGenericTaskDescription(description)) {
+      const prompt = typeof args["prompt"] === "string" ? args["prompt"] : "";
+      const topic = extractTaskTopic(prompt);
+      if (topic) {
+        const first = description.split(/\s+/)[0]!;
+        return `${gerundLedWord(first)} ${topic}`;
+      }
+    }
+    return description;
   }
   if (name === "glob" || name === "grep") {
     return typeof args["pattern"] === "string" ? String(args["pattern"]).trim() : "pattern";
@@ -135,7 +200,8 @@ export function fullQuietArg(name: string, args: Record<string, unknown>): strin
   }
   if (name === "ls") {
     const p = typeof args["path"] === "string" ? String(args["path"]).trim() : "";
-    if (!p || p === "." || p === "./") return ".";
+    // "Listing ." reads as nothing — name the thing instead.
+    if (!p || p === "." || p === "./") return "the project folder";
     return shortPath(p);
   }
   const keys = ["url", "query", "pattern", "prompt", "filePath", "file", "path"];
@@ -214,6 +280,117 @@ function truncatePlain(text: string, maxVisible: number): string {
 }
 
 /**
+ * Task/subagent activity label: verb-led descriptions gerundize
+ * ("Explore quiet-status.ts wiring" → "Exploring quiet-status.ts wiring");
+ * non-verb-led descriptions get "Delegating" (unnamed) or pass through
+ * capitalized (named helper — the codename already carries agency).
+ */
+function taskActivityLabel(arg: string, delegatingFallback: boolean): string {
+  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+  const firstWord = arg.split(/\s+/)[0] ?? "";
+  const lower = firstWord.toLowerCase();
+  if (/ing$/i.test(lower)) return cap(arg);
+  if (KNOWN_ACTIVITY_VERBS.has(lower)) {
+    return `${cap(gerundOf(firstWord))}${arg.slice(firstWord.length)}`;
+  }
+  return delegatingFallback ? `Delegating ${arg}` : cap(arg);
+}
+
+/**
+ * Badge chip: bold black on base-16 YELLOW background (`43` — the exact
+ * theme color the "impulse" chat header uses via fg(33); follows any
+ * theme). Ends by restoring the ghost line's dim+italic, which the reset
+ * kills.
+ */
+export function subagentBadge(codename: string): string {
+  return `\x1b[1m\x1b[30m\x1b[43m ${codename} \x1b[0m\x1b[2m\x1b[3m`;
+}
+
+/**
+ * Main-agent badge for the group narration line — worn ONLY while
+ * subagents run alongside main-agent tool calls (#165); plain otherwise.
+ */
+export function impulseBadge(): string {
+  return `\x1b[1m\x1b[30m\x1b[43m impulse \x1b[0m\x1b[2m\x1b[3m`;
+}
+
+/** Visible width reserve for a badge + separator (pad + pad + space). */
+const BADGE_RESERVE = 3;
+
+/**
+ * One named subagent's single live row: badge + objective, a pipe, then the
+ * current step with elapsed tick — truncated to width, step side first
+ * (#165). Badge padding reserved up front; ANSI substitutes post-fit.
+ */
+export function formatQuietSubagentLine(
+  s: { codename: string; objective: string; label: string; startedAt: number },
+  nowMs: number,
+  availableWidth: number
+): string {
+  const suffix = ` (${formatDuration(Math.max(0, nowMs - s.startedAt))})`;
+  const fitted = fitQuietLiveLine(
+    `${s.codename} ${s.objective} | ${s.label}`,
+    suffix,
+    availableWidth - 2
+  );
+  const plainPrefix = `${s.codename} `;
+  return fitted.startsWith(plainPrefix)
+    ? `${subagentBadge(s.codename)} ${fitted.slice(plainPrefix.length)}`
+    : fitted;
+}
+
+/** Settled subagent row: badge + objective | Worked for Ns (name stays). */
+export function formatQuietSubagentSettle(
+  codename: string,
+  objective: string,
+  elapsedMs: number,
+  availableWidth: number
+): string {
+  // Worked-for rides the suffix slot so narrow widths never clip it.
+  const fitted = fitQuietLiveLine(
+    `${codename} ${objective} |`,
+    ` ${formatWorkedFor(elapsedMs)}`,
+    availableWidth - 2
+  );
+  const plainPrefix = `${codename} `;
+  return fitted.startsWith(plainPrefix)
+    ? `${subagentBadge(codename)} ${fitted.slice(plainPrefix.length)}`
+    : fitted;
+}
+
+/** Live state for one named subagent's own two-row narration (#165). */
+export type QuietSubagentState = {
+  id: string;
+  codename: string;
+  /** Static assignment (row 1): the task description, humanized. */
+  objective: string;
+  /** Live current step (row 2): subagent's tool activity, ticking. */
+  label: string;
+  startedAt: number;
+};
+
+/**
+ * Humanized Quiet label for one tool call — shared by the live narration
+ * line and the subagent sub-step feed (#165). Bash humanizes (never raw
+ * shell); gerund-led task args stand alone (no "Delegating Researching…").
+ */
+export function quietToolLabel(name: string, arg: string): string {
+  if (name === "bash") return humanizeBashCommand(arg).live;
+  if (name === "task") return taskActivityLabel(arg, true);
+  // grep tool: alternation patterns get the same topic treatment as bash
+  // grep — "a|b|c" reads as "'a' and 2 more terms", never raw pipes (#165).
+  if (name === "grep" && /\\\||\|/.test(arg)) {
+    const alts = arg.split(/\\\||\|/).map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    const first = alts[0];
+    if (first) {
+      const more = alts.length - 1;
+      return `Searching the code for '${truncateArg(first, 48)}'${more > 0 ? ` and ${more} more term${more === 1 ? "" : "s"}` : ""}`;
+    }
+  }
+  return arg ? `${quietToolVerb(name)} ${arg}` : quietToolVerb(name);
+}
+
+/**
  * Fit a live narration line to the terminal: truncate the LABEL with `…`
  * and always preserve the trailing suffix (` (1 min 24s, 2 failed)`).
  * The suffix is measured per render — it grows on minute rollover and when
@@ -267,12 +444,12 @@ export function formatQuietLiveStatus(opts: {
   const running = opts.tools;
   if (running.length > 0) {
     const first = running[0]!;
-    const verb = quietToolVerb(first.name);
-    const arg = first.arg;
     const extra = running.length - 1;
     if (extra > 0) parts.splice(1, 0, `+${extra} parallel`);
-    const label = arg ? `${verb} ${arg}` : verb;
-    return fit(label, parts);
+    // Bash narrates humanized intent; task labels gerundize (quietToolLabel).
+    // Named subagents never reach this line — they get their own lines via
+    // formatQuietSubagentLine (#165).
+    return fit(quietToolLabel(first.name, first.arg), parts);
   }
   if (opts.thinking) {
     let clause = opts.thinkingIntent?.trim() ?? "";
@@ -346,28 +523,208 @@ const QUIET_OUTCOME_VERBS: Record<string, string> = {
 };
 
 /**
- * Plain-language intent for common shell commands. Returns null when no
- * confident mapping exists (caller falls back to the concrete command).
+ * Humanized bash command for Quiet narration — verb + topic, never raw
+ * shell (#164). Chains are decomposed (&&, ||, ;, |), scaffolding segments
+ * (cd/sleep/echo/redirects/head/tail) dropped, and the first meaningful
+ * segment classified. `live` feeds the narration line, `done` feeds Recap
+ * facts (#163) — one classifier, two tenses. Unmapped commands fall back
+ * to the bare binary name ("Running terraform"); raw args never render in
+ * Quiet (Verbose keeps them).
  */
-function plainBashIntent(command: string): string | null {
-  const c = command.replace(/\s+/g, " ").trim().toLowerCase();
-  const starts = (...prefixes: string[]) => prefixes.some((p) => c.startsWith(p));
-  if (starts("git log", "git show", "git reflog")) return "reviewed recent changes";
-  if (starts("git diff")) return "reviewed the current changes";
-  if (starts("git status")) return "checked what changed in the repo";
-  if (starts("git commit")) return "made a commit";
-  if (starts("git push")) return "pushed commits";
-  if (starts("git pull", "git fetch")) return "pulled the latest changes";
-  if (starts("git branch", "git tag")) return "checked the repo branches";
-  if (starts("npm test", "bun test", "yarn test", "go test", "cargo test", "pytest", "jest", "vitest"))
-    return "ran the tests";
-  if (starts("grep", "rg ", "ag ")) return "searched the codebase";
-  if (starts("ls", "find ", "tree")) return "checked the folder contents";
-  if (starts("cat", "head", "tail", "less", "more")) return "looked at a file";
-  if (starts("curl", "wget")) return "fetched a web page";
-  if (starts("mkdir", "touch")) return "set up files";
-  if (starts("rm", "mv", "cp")) return "reorganized files";
+export type HumanizedCommand = {
+  /** Live narration form: "Searching the code for 'quiet-status'". */
+  live: string;
+  /** Recap fact form: "searched the code for 'quiet-status'". */
+  done: string;
+};
+
+function hc(live: string, done: string): HumanizedCommand {
+  return { live, done };
+}
+
+/** Split a shell chain into segments; strip redirects and noise operators. */
+function splitShellChain(command: string): string[] {
+  return command
+    .replace(/\d*>&\d+/g, " ") // 2>&1
+    .replace(/\d*>>?\s*\S+/g, " ") // > file, 2>/dev/null, >> log
+    .split(/&&|\|\||;|(?<!\\)\|/) // &&, ||, ;, and unescaped |
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Segments that set the stage rather than carry intent. */
+const SHELL_SCAFFOLDING_RE =
+  /^(cd|sleep|echo|printf|export|set|unset|true|false|clear|wait|time|read|head|tail|xargs|env)\b/i;
+
+/** First non-scaffolding segment's tokens (env prefixes and sudo skipped). */
+function meaningfulTokens(command: string): string[] | null {
+  for (const seg of splitShellChain(command)) {
+    if (SHELL_SCAFFOLDING_RE.test(seg)) continue;
+    const tokens = seg.split(/\s+/);
+    while (
+      tokens.length > 0 &&
+      (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]!) || tokens[0] === "sudo")
+    ) {
+      tokens.shift();
+    }
+    if (tokens.length > 0) return tokens;
+  }
   return null;
+}
+
+/** First flag-free token after `skip` leading tokens. */
+function firstOperand(tokens: string[], skip: number): string | null {
+  for (let i = skip; i < tokens.length; i++) {
+    const t = tokens[i]!;
+    if (!t.startsWith("-")) return t;
+  }
+  return null;
+}
+
+/** Extract a search pattern: quoted string wins; count `\|` alternations. */
+function extractSearchPattern(tokens: string[]): { term: string; more: number } | null {
+  const quoted = tokens.join(" ").match(/["']([^"']+)["']/);
+  let pattern = quoted?.[1] ?? firstOperand(tokens, 1);
+  if (!pattern) return null;
+  const more = (pattern.match(/\\\|/g) ?? []).length;
+  const term = pattern.split(/\\\||\|/)[0]!.trim();
+  if (!term) return null;
+  return { term: truncateArg(term, 48), more };
+}
+
+function hostnameOf(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    return new URL(token).hostname;
+  } catch {
+    const m = token.match(/^(?:https?:\/\/)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/);
+    return m?.[1] ?? null;
+  }
+}
+
+function basenameOf(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() ?? p;
+}
+
+const TEST_RUNNERS_RE =
+  /^(npm|bun|yarn|pnpm)\s+test$|^(go\s+test|cargo\s+test|pytest|jest|vitest)$/;
+
+function classifyBashSegment(tokens: string[]): HumanizedCommand {
+  const bin = basenameOf(tokens[0]!);
+  const sub = tokens[1] ?? "";
+  const rest = tokens.join(" ").toLowerCase();
+
+  // git family
+  if (bin === "git") {
+    if (/^(log|show|reflog)$/.test(sub)) return hc("Reviewing recent commits", "reviewed recent changes");
+    if (sub === "diff") return hc("Reviewing the current changes", "reviewed the current changes");
+    if (sub === "status") return hc("Checking what changed in the repo", "checked what changed in the repo");
+    if (sub === "commit") return hc("Making a commit", "made a commit");
+    if (sub === "push") return hc("Pushing commits", "pushed commits");
+    if (/^(pull|fetch)$/.test(sub)) return hc("Pulling the latest changes", "pulled the latest changes");
+    if (/^(branch|tag)$/.test(sub)) return hc("Checking the repo branches", "checked the repo branches");
+    if (/^(checkout|switch)$/.test(sub)) return hc("Switching branches", "switched branches");
+    if (sub === "clone") {
+      const url = firstOperand(tokens, 2);
+      const name = url ? basenameOf(url).replace(/\.git$/, "") : null;
+      return name ? hc(`Cloning ${name}`, `cloned ${name}`) : hc("Cloning a repo", "cloned a repo");
+    }
+    return hc("Working with git", "worked with git");
+  }
+
+  // gh (GitHub CLI) family
+  if (bin === "gh") {
+    if (sub === "repo") return hc("Viewing the repo on GitHub", "viewed the repo on GitHub");
+    if (sub === "release") {
+      const tag = tokens[2] === "view" ? firstOperand(tokens, 3) : null;
+      return tag
+        ? hc(`Checking release ${tag} on GitHub`, `checked release ${tag} on GitHub`)
+        : hc("Checking releases on GitHub", "checked releases on GitHub");
+    }
+    if (sub === "pr") {
+      const num = tokens.find((t) => /^#?\d+$/.test(t));
+      return num
+        ? hc(`Checking PR #${num.replace("#", "")} on GitHub`, `checked PR #${num.replace("#", "")} on GitHub`)
+        : hc("Checking pull requests on GitHub", "checked pull requests on GitHub");
+    }
+    if (sub === "issue") {
+      const num = tokens.find((t) => /^#?\d+$/.test(t));
+      return num
+        ? hc(`Checking issue #${num.replace("#", "")} on GitHub`, `checked issue #${num.replace("#", "")} on GitHub`)
+        : hc("Checking issues on GitHub", "checked issues on GitHub");
+    }
+    if (sub === "api") {
+      return /\/readme\b/.test(rest)
+        ? hc("Reading the README on GitHub", "read the README on GitHub")
+        : hc("Querying the GitHub API", "queried the GitHub API");
+    }
+    if (sub === "search") return hc("Searching GitHub", "searched GitHub");
+    return hc("Working with GitHub", "worked with GitHub");
+  }
+
+  // test runners / package managers
+  if (TEST_RUNNERS_RE.test(rest)) return hc("Running the tests", "ran the tests");
+  if (/^(npm|bun|yarn|pnpm)$/.test(bin) && /^(install|add|i)$/.test(sub)) {
+    const pkg = firstOperand(tokens, 2);
+    return pkg
+      ? hc(`Installing ${pkg}`, `installed ${pkg}`)
+      : hc("Installing dependencies", "installed dependencies");
+  }
+  if (/^(npm|bun|yarn|pnpm)$/.test(bin) && sub === "run") {
+    const script = firstOperand(tokens, 2);
+    return script ? hc(`Running ${script}`, `ran ${script}`) : hc("Running a script", "ran a script");
+  }
+
+  // search / read / fetch
+  if (/^(grep|rg|ag|ack|fd)$/.test(bin)) {
+    const pat = extractSearchPattern(tokens);
+    if (pat) {
+      const topic = `'${pat.term}'${pat.more > 0 ? ` and ${pat.more} more term${pat.more === 1 ? "" : "s"}` : ""}`;
+      return hc(`Searching the code for ${topic}`, `searched the code for ${topic}`);
+    }
+    return hc("Searching the code", "searched the codebase");
+  }
+  if (/^(ls|find|tree|du|df)$/.test(bin)) return hc("Checking the folder contents", "checked the folder contents");
+  if (/^(cat|less|more|sed|awk)$/.test(bin)) {
+    const file = firstOperand(tokens, 1);
+    const name = file && !file.startsWith("'") ? basenameOf(file) : null;
+    return name
+      ? hc(`Looking at ${name}`, `looked at ${name}`)
+      : hc("Looking at a file", "looked at a file");
+  }
+  if (/^(curl|wget)$/.test(bin)) {
+    const host = hostnameOf(tokens.find((t) => /^https?:\/\//.test(t)) ?? null);
+    return host
+      ? hc(`Fetching a page from ${host}`, `fetched a page from ${host}`)
+      : hc("Fetching a web page", "fetched a web page");
+  }
+  if (/^(mkdir|touch|ln)$/.test(bin)) return hc("Setting up files", "set up files");
+  if (/^(rm|mv|cp|rsync)$/.test(bin)) return hc("Reorganizing files", "reorganized files");
+
+  // script runners: npx rea-agents … → "Running rea-agents"
+  if (/^(npx|bunx)$/.test(bin)) {
+    const pkg = firstOperand(tokens, 1);
+    return pkg ? hc(`Running ${basenameOf(pkg)}`, `ran ${basenameOf(pkg)}`) : hc("Running a package", "ran a package");
+  }
+  if (/^(node|python|python3|bun|deno|ts-node)$/.test(bin)) {
+    const script = firstOperand(tokens, 1);
+    return script
+      ? hc(`Running ${basenameOf(script)}`, `ran ${basenameOf(script)}`)
+      : hc(`Running ${bin}`, `ran ${bin}`);
+  }
+
+  // Default: bare binary name, never args.
+  return hc(`Running ${bin}`, `ran ${bin}`);
+}
+
+/**
+ * Humanize a shell command for Quiet narration. Chains collapse to their
+ * first meaningful segment; all-scaffolding chains get the generic.
+ */
+export function humanizeBashCommand(command: string): HumanizedCommand {
+  const tokens = meaningfulTokens(command);
+  if (!tokens) return hc("Running a terminal command", "ran a terminal command");
+  return classifyBashSegment(tokens);
 }
 
 /** Ban list — never emit these as Recap nouns (ambiguous / filler). */
@@ -494,11 +851,8 @@ export function buildQuietRecapFact(
       const cmd =
         (typeof meta["command"] === "string" && meta["command"].trim()) ||
         arg;
-      const intent = plainBashIntent(cmd);
-      if (intent) return `${intent}${statusSuffix}`;
-      const short = truncateArg(cmd.replace(/\s+/g, " ").trim(), 40);
-      if (isVagueRecapNoun(short)) return null;
-      return `ran ${short}${statusSuffix}`;
+      // Humanized past tense, never raw command echo (#163/#164).
+      return `${humanizeBashCommand(cmd).done}${statusSuffix}`;
     }
     case "web_search": {
       if (isVagueRecapNoun(arg)) return null;
@@ -510,6 +864,12 @@ export function buildQuietRecapFact(
     }
     case "task": {
       if (isVagueRecapNoun(arg) || arg === "subagent") return null;
+      // Named subagents read as people, not jargon: "subagent Saratoga: …" (#165)
+      const codename =
+        typeof meta["codename"] === "string" ? meta["codename"].trim() : "";
+      if (codename) {
+        return `subagent ${codename}: ${lowerFirst(truncateArg(arg, 48))}${statusSuffix}`;
+      }
       return `delegated ${truncateArg(arg, 36)}${statusSuffix}`;
     }
     case "question": {
@@ -583,8 +943,13 @@ export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i]!;
     if (ev.outcome !== "failed" && ev.outcome !== "blocked") continue;
-    // Prefer concrete retry target from fact/arg
-    if (ev.arg && !isVagueRecapNoun(ev.arg)) return `retry ${truncateArg(ev.arg, 40)}`;
+    // Prefer concrete retry target from fact/arg; bash args humanize so the
+    // Next line never echoes a raw command (#163).
+    if (ev.arg && !isVagueRecapNoun(ev.arg)) {
+      return ev.name === "bash"
+        ? `retry ${lowerFirst(humanizeBashCommand(ev.arg).live)}`
+        : `retry ${truncateArg(ev.arg, 40)}`;
+    }
     if (ev.fact) {
       const m = ev.fact.match(/^ran (.+?)(?: failed| blocked| aborted)?$/);
       if (m?.[1]) return `retry ${m[1]}`;
@@ -804,6 +1169,8 @@ export class QuietWorkGroupTracker {
     tools: QuietInflightTool[];
     toolCount: number;
     failedCount: number;
+    /** task (subagent) tools seen this group — settle credits "(N helpers)". */
+    helperCount: number;
     lastLabel: string | null;
     hadActivity: boolean;
     hadTools: boolean;
@@ -817,6 +1184,7 @@ export class QuietWorkGroupTracker {
     this.group = null;
     this.groupsSettled = 0;
     this.gapBeforeNextWorkedFor = false;
+    this.subagents.clear();
   }
 
   get settledCount(): number {
@@ -879,6 +1247,7 @@ export class QuietWorkGroupTracker {
       tools: [],
       toolCount: 0,
       failedCount: 0,
+      helperCount: 0,
       lastLabel: null,
       hadActivity: false,
       hadTools: false,
@@ -957,6 +1326,7 @@ export class QuietWorkGroupTracker {
       return;
     }
     g.toolCount += 1;
+    if (tool.name === "task") g.helperCount += 1;
     g.tools.push(tool);
   }
 
@@ -969,7 +1339,78 @@ export class QuietWorkGroupTracker {
     return this.group?.tools.find((t) => t.id === id)?.arg;
   }
 
-  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string {
+  // ?? Named subagent lines (#165) ??????????????????????????????????????????
+
+  /** One line per running subagent — flat, never nested. */
+  private subagents = new Map<string, QuietSubagentState>();
+
+  /**
+   * A named subagent (task tool + codename) starts its OWN two-row
+   * narration: static objective row + indented live step row (#165).
+   * The task call still counts toward the group's tool/subagent tallies,
+   * but never appears in the group narration itself.
+   */
+  addSubagent(id: string, codename: string, objective: string, nowMs: number = Date.now()): void {
+    this.ensure(nowMs);
+    const g = this.group!;
+    g.thinking = null;
+    g.thinkingIntent = null;
+    g.hadActivity = true;
+    g.hadTools = true;
+    const existing = this.subagents.get(id);
+    if (existing) {
+      // Same-id re-dispatch (permission approval flow) updates in place.
+      existing.objective = objective;
+      return;
+    }
+    g.toolCount += 1;
+    g.helperCount += 1;
+    // "Working…" until the first progress event names the current step.
+    this.subagents.set(id, { id, codename, objective, label: "Working…", startedAt: nowMs });
+  }
+
+  getSubagent(id: string): QuietSubagentState | undefined {
+    return this.subagents.get(id);
+  }
+
+  listSubagents(): QuietSubagentState[] {
+    return [...this.subagents.values()];
+  }
+
+  /** The subagent's current step (fed by the progress events). */
+  updateSubagentLabel(id: string, label: string): void {
+    const s = this.subagents.get(id);
+    if (s) s.label = label;
+  }
+
+  /** Subagent finished → wall-clock ms for its own Worked-for harden. */
+  settleSubagent(id: string, nowMs: number = Date.now()): number | null {
+    const s = this.subagents.get(id);
+    if (!s) return null;
+    this.subagents.delete(id);
+    return Math.max(0, nowMs - s.startedAt);
+  }
+
+  /** Subagent failed/blocked/aborted → drop the live line (the real tool row shows detail). */
+  dropSubagent(id: string): void {
+    this.subagents.delete(id);
+  }
+
+  /**
+   * Swap a running tool's label arg — legacy shim kept for callers from the
+   * pre-subagent-line feed; subagent steps now use updateSubagentLabel.
+   */
+  updateToolArg(id: string, arg: string): void {
+    const t = this.group?.tools.find((t) => t.id === id);
+    if (t) t.arg = arg;
+  }
+
+  /**
+   * Null when the group's only live work is subagents — their own lines
+   * carry the narration, and a lingering "Thinking/Continuing" line from
+   * the main agent would misreport waiting as activity (#165).
+   */
+  liveStatus(nowMs: number = Date.now(), availableWidth: number = 120): string | null {
     if (!this.group) return "Continuing";
     const elapsedMs = this.elapsedMs(nowMs);
     const failed = this.group.failedCount;
@@ -994,14 +1435,22 @@ export class QuietWorkGroupTracker {
         failedCount: failed,
       });
       this.group.lastLabel = stripElapsed(unfitted);
-      return formatQuietLiveStatus({
+      // The group line wears the "impulse" badge ONLY while subagents run
+      // alongside main-agent tool calls — plain the rest of the time (#165).
+      const concurrent = this.subagents.size > 0;
+      const fitted = formatQuietLiveStatus({
         thinking: null,
         tools: this.group.tools,
         elapsedMs,
         failedCount: failed,
-        availableWidth,
+        availableWidth: concurrent
+          ? availableWidth - ("impulse".length + BADGE_RESERVE)
+          : availableWidth,
       });
+      return concurrent ? `${impulseBadge()} ${fitted}` : fitted;
     }
+    // Subagent-solo group: no main-agent activity to narrate → hide the line.
+    if (this.subagents.size > 0) return null;
     // Nothing running: linger on the last activity label.
     const label = this.group.lastLabel ?? "Continuing";
     return fitQuietLiveLine(label, suffix, availableWidth);
@@ -1021,10 +1470,16 @@ export class QuietWorkGroupTracker {
     const elapsedMs = Math.max(0, nowMs - g.startedAt);
     const failedSuffix =
       g.failedCount > 0 ? `, ${g.failedCount} failed` : "";
+    const helperSuffix =
+      g.helperCount > 0
+        ? ` (${g.helperCount} subagent${g.helperCount === 1 ? "" : "s"})`
+        : "";
+    // Subagent-only groups skip "using N tools" — the task call IS the
+    // subagent, and each subagent line already settled its own Worked for.
     const workedForLine =
-      g.toolCount > 0
-        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${failedSuffix}`
-        : formatWorkedFor(elapsedMs);
+      g.toolCount > 0 && g.toolCount !== g.helperCount
+        ? `${formatWorkedFor(elapsedMs)} using ${g.toolCount} tool${g.toolCount === 1 ? "" : "s"}${helperSuffix}${failedSuffix}`
+        : `${formatWorkedFor(elapsedMs)}${helperSuffix}${failedSuffix}`;
     const toolCount = g.toolCount;
     this.group = null;
     this.groupsSettled += 1;
@@ -1075,6 +1530,13 @@ const GERUND_EXCEPTIONS: Record<string, string> = {
   get: "Getting",
   put: "Putting",
   stop: "Stopping",
+  map: "Mapping",
+  plan: "Planning",
+  scan: "Scanning",
+  debug: "Debugging",
+  format: "Formatting",
+  ship: "Shipping",
+  drop: "Dropping",
 };
 const KNOWN_ACTIVITY_VERBS = new Set([
   "review", "check", "examine", "analyze", "analyse", "read", "study",
@@ -1082,6 +1544,11 @@ const KNOWN_ACTIVITY_VERBS = new Set([
   "understand", "compare", "write", "create", "build", "update",
   "refactor", "implement", "scan", "trace", "inspect", "investigate",
   "plan", "design", "outline", "draft", "explore", "look", "set",
+  "research", "map", "summarize", "summarise", "document", "audit",
+  "assess", "evaluate", "profile", "migrate", "clean", "compile",
+  "deploy", "configure", "install", "uninstall", "scaffold", "bootstrap",
+  "orchestrate", "generate", "render", "parse", "translate", "convert",
+  "format", "lint", "bundle", "publish", "release", "ship",
 ]);
 
 function gerundOf(verb: string): string {

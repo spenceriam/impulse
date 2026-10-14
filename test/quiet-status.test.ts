@@ -10,16 +10,24 @@ import {
   formatDuration,
   formatQuietLiveStatus,
   formatQuietRecap,
+  formatQuietSubagentLine,
+  formatQuietSubagentSettle,
   formatWorkedFor,
+  fullQuietArg,
+  humanizeBashCommand,
   isQuietBreakOutcome,
   isVagueRecapNoun,
   lastFailureNextLabel,
   pickQuietRecapNext,
   quietThinkingPhrase,
+  quietToolLabel,
   shortQuietArg,
   unansweredAskNextLabel,
   wrapQuietRecapLines,
 } from "../src/cli/quiet-status.js";
+
+/** Strip SGR codes for text comparisons (badge ANSI rides codename lines). */
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 describe("quiet-status", () => {
   test("templated tool verb + short arg", () => {
@@ -73,24 +81,26 @@ describe("quiet-status", () => {
     ).toBe("Understanding the repo uses a plugin architecture (2s)");
   });
 
-  test("long bash label truncates, elapsed suffix always survives (#161)", () => {
-    const longCmd =
-      'cd /tmp/impulse-review && grep -n "concurrent\\|MAX\\|queue" src/tools/task.ts | head -20; echo "==="; sed -n \'1,40p\' docs/tools/task.md';
+  test("long label truncates, elapsed suffix always survives (#161)", () => {
+    // task descriptions are the honest long-label vehicle — bash labels are
+    // humanized short by design (#164).
+    const longDesc =
+      "Review the quiet-status module and report every exported function with its signature";
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: longCmd }],
+      tools: [{ id: "1", name: "task", arg: longDesc }],
       elapsedMs: 84_000,
       availableWidth: 80,
     });
     expect(line.length).toBeLessThanOrEqual(80);
     expect(line.endsWith("(1 min 24s)")).toBe(true);
     expect(line).toContain("…");
-    expect(line.startsWith("Running cd /tmp/impulse-review")).toBe(true);
+    expect(line.startsWith("Reviewing the quiet-status module")).toBe(true);
   });
 
   test("failure count in the suffix survives truncation (#161)", () => {
-    const longCmd = "some-command ".repeat(20).trim();
+    const longDesc = "deep-dive ".repeat(20).trim();
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: longCmd }],
+      tools: [{ id: "1", name: "task", arg: longDesc }],
       elapsedMs: 84_000,
       failedCount: 2,
       availableWidth: 80,
@@ -102,12 +112,12 @@ describe("quiet-status", () => {
   test("suffix reserve is measured per render, not constant (#161)", () => {
     const arg = "x".repeat(70);
     const seconds = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg }],
+      tools: [{ id: "1", name: "task", arg }],
       elapsedMs: 9_000,
       availableWidth: 80,
     });
     const minutes = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg }],
+      tools: [{ id: "1", name: "task", arg }],
       elapsedMs: 61_000,
       availableWidth: 80,
     });
@@ -120,7 +130,7 @@ describe("quiet-status", () => {
   test("parallel count stays inside the preserved suffix (#161)", () => {
     const line = formatQuietLiveStatus({
       tools: [
-        { id: "1", name: "bash", arg: "y".repeat(90) },
+        { id: "1", name: "task", arg: "y".repeat(90) },
         { id: "2", name: "grep", arg: "needle" },
       ],
       elapsedMs: 3_000,
@@ -132,15 +142,15 @@ describe("quiet-status", () => {
 
   test("undefined width keeps legacy no-truncation behavior", () => {
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: "z".repeat(150) }],
+      tools: [{ id: "1", name: "task", arg: "z".repeat(150) }],
       elapsedMs: 2_000,
     });
-    expect(line).toBe(`Running ${"z".repeat(150)} (2s)`);
+    expect(line).toBe(`Delegating ${"z".repeat(150)} (2s)`);
   });
 
   test("extremely narrow width degrades to suffix-only (#161)", () => {
     const line = formatQuietLiveStatus({
-      tools: [{ id: "1", name: "bash", arg: "w".repeat(60) }],
+      tools: [{ id: "1", name: "task", arg: "w".repeat(60) }],
       elapsedMs: 84_000,
       availableWidth: 12,
     });
@@ -151,6 +161,256 @@ describe("quiet-status", () => {
     expect(fitQuietLiveLine("Reading AGENTS.md", " (2s)", 80)).toBe(
       "Reading AGENTS.md (2s)"
     );
+  });
+
+  test("humanizeBashCommand: chained search collapses to intent + topic (#164)", () => {
+    const chain =
+      'cd /tmp && sleep 75 && grep -rn "quiet-status\\|midTurnSubmit\\|chatDensity\\|showRecap" ~/GitHub/impulse/src/cli ~/GitHub/impulse/src/agent --include=\'*.ts\' -l | head -20 && echo \'=== search complete ===\'';
+    expect(humanizeBashCommand(chain)).toEqual({
+      live: "Searching the code for 'quiet-status' and 3 more terms",
+      done: "searched the code for 'quiet-status' and 3 more terms",
+    });
+  });
+
+  test("humanizeBashCommand: the five #163 report commands never echo raw shell", () => {
+    expect(humanizeBashCommand("gh repo view spenceriam/impulse 2>&1 | head -50").done).toBe(
+      "viewed the repo on GitHub"
+    );
+    expect(humanizeBashCommand("gh release list -R spenceriam/impulse --limit 5").done).toBe(
+      "checked releases on GitHub"
+    );
+    expect(humanizeBashCommand("gh api repos/spenceriam/impulse/readme").done).toBe(
+      "read the README on GitHub"
+    );
+    expect(humanizeBashCommand("gh release view v1.11.0 -R spenceriam/impulse").done).toBe(
+      "checked release v1.11.0 on GitHub"
+    );
+    expect(
+      humanizeBashCommand('cd /tmp/impulse-review && echo "=== new files ===" && ls -la').done
+    ).toBe("checked the folder contents");
+  });
+
+  test("humanizeBashCommand: git, tests, packages, scripts", () => {
+    expect(humanizeBashCommand("cd /tmp/x && git log --oneline -20").live).toBe(
+      "Reviewing recent commits"
+    );
+    expect(humanizeBashCommand("npm test 2>&1 | tail -30").live).toBe("Running the tests");
+    expect(humanizeBashCommand("bun install zod").live).toBe("Installing zod");
+    expect(humanizeBashCommand("npm run build").live).toBe("Running build");
+    expect(humanizeBashCommand("npx rea-agents@latest setup").live).toBe("Running rea-agents@latest");
+    expect(humanizeBashCommand("node scripts/build.ts").live).toBe("Running build.ts");
+  });
+
+  test("humanizeBashCommand: fallbacks stay honest without echoing args", () => {
+    expect(humanizeBashCommand("terraform plan -out=tfplan")).toEqual({
+      live: "Running terraform",
+      done: "ran terraform",
+    });
+    expect(humanizeBashCommand("cd /tmp && sleep 5 && echo done")).toEqual({
+      live: "Running a terminal command",
+      done: "ran a terminal command",
+    });
+    expect(humanizeBashCommand("cat package.json | grep version").live).toBe(
+      "Looking at package.json"
+    );
+    expect(humanizeBashCommand("curl -s https://api.github.com/repos/spenceriam/impulse").live).toBe(
+      "Fetching a page from api.github.com"
+    );
+  });
+
+  test("live narration humanizes bash, keeps the suffix (#164)", () => {
+    const line = formatQuietLiveStatus({
+      tools: [
+        {
+          id: "1",
+          name: "bash",
+          arg: 'cd /tmp && sleep 75 && grep -rn "quiet-status\\|midTurnSubmit" src | head -20',
+        },
+      ],
+      elapsedMs: 17_000,
+      availableWidth: 120,
+    });
+    expect(line).toBe("Searching the code for 'quiet-status' and 1 more term (17s)");
+  });
+
+  test("vague task descriptions get a prompt-derived topic (#165)", () => {
+    expect(
+      fullQuietArg("task", {
+        description: "Researching a website page",
+        prompt: "Read https://github.com/morluto/rea and summarize what it does",
+      })
+    ).toBe("Researching github.com/morluto/rea");
+    expect(
+      fullQuietArg("task", {
+        description: "Explore the codebase",
+        prompt: "Look through src/cli/quiet-status.ts and report the exports",
+      })
+    ).toBe("Exploring quiet-status.ts");
+    // No concrete topic available → description passes through unchanged
+    expect(fullQuietArg("task", { description: "Check things", prompt: "look around" })).toBe(
+      "Check things"
+    );
+  });
+
+  test("specific task descriptions pass through untouched (#165)", () => {
+    expect(
+      fullQuietArg("task", {
+        description: "Research the auth module",
+        prompt: "Read src/auth/index.ts and report",
+      })
+    ).toBe("Research the auth module");
+    expect(
+      fullQuietArg("task", { description: "Review AGENTS.md sections", prompt: "…" })
+    ).toBe("Review AGENTS.md sections");
+  });
+
+  test("gerund-led task labels drop the Delegating prefix (#165)", () => {
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Researching github.com/morluto/rea" }],
+        elapsedMs: 12_000,
+      })
+    ).toBe("Researching github.com/morluto/rea (12s)");
+    // Imperative verb-led descriptions gerundize (no "Delegating" needed)
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Research the auth module" }],
+        elapsedMs: 4_000,
+      })
+    ).toBe("Researching the auth module (4s)");
+    // Subagent-type-led descriptions read naturally too
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Explore quiet-status.ts wiring" }],
+        elapsedMs: 2_000,
+      })
+    ).toBe("Exploring quiet-status.ts wiring (2s)");
+    // Non-verb-led descriptions keep the Delegating fallback
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "task", arg: "Auth module deep-dive" }],
+        elapsedMs: 2_000,
+      })
+    ).toBe("Delegating Auth module deep-dive (2s)");
+  });
+
+  test("ls of the project root names the folder, not the dot (#165)", () => {
+    expect(fullQuietArg("ls", { path: "." })).toBe("the project folder");
+    expect(
+      formatQuietLiveStatus({
+        tools: [{ id: "1", name: "ls", arg: "the project folder" }],
+        elapsedMs: 1_000,
+      })
+    ).toBe("Listing the project folder (1s)");
+  });
+
+  test("subagent single row: badge + objective | step + tick (#165)", () => {
+    const state = {
+      codename: "Saratoga",
+      objective: "Exploring quiet-status.ts wiring",
+      label: "Reading README.md",
+      startedAt: 1_000_000,
+    };
+    expect(stripAnsi(formatQuietSubagentLine(state, 1_012_000, 120))).toBe(
+      " Saratoga  Exploring quiet-status.ts wiring | Reading README.md (12s)"
+    );
+    expect(formatQuietSubagentLine(state, 1_012_000, 120)).toContain(
+      "\x1b[1m\x1b[30m\x1b[43m Saratoga \x1b[0m"
+    );
+    // Width-fitted: the step (right side) truncates, the tick survives
+    const fitted = stripAnsi(
+      formatQuietSubagentLine(
+        { codename: "Saratoga", objective: "Exploring the codebase", label: "x".repeat(120), startedAt: 1_000_000 },
+        1_012_000,
+        60
+      )
+    );
+    expect(fitted.length).toBeLessThanOrEqual(60);
+    expect(fitted.endsWith("(12s)")).toBe(true);
+  });
+
+  test("subagent settle row: objective | Worked for, suffix survives narrow widths (#165)", () => {
+    const settled = stripAnsi(
+      formatQuietSubagentSettle("Saratoga", "Exploring quiet-status.ts wiring", 31_000, 120)
+    );
+    expect(settled).toBe(" Saratoga  Exploring quiet-status.ts wiring | Worked for 31s");
+    const narrow = stripAnsi(
+      formatQuietSubagentSettle("Saratoga", "x".repeat(120), 31_000, 40)
+    );
+    expect(narrow.length).toBeLessThanOrEqual(40);
+    expect(narrow.endsWith("Worked for 31s")).toBe(true);
+  });
+
+  test("quietToolLabel: bash humanizes, task gerunds stand alone (#165)", () => {
+    expect(quietToolLabel("bash", "git log --oneline -5")).toBe("Reviewing recent commits");
+    expect(quietToolLabel("task", "Researching github.com/morluto/rea")).toBe(
+      "Researching github.com/morluto/rea"
+    );
+    expect(quietToolLabel("task", "Map the dependency graph")).toBe("Mapping the dependency graph");
+    expect(quietToolLabel("file_read", "AGENTS.md")).toBe("Reading AGENTS.md");
+    // grep tool alternation patterns extract the topic instead of raw pipes
+    expect(quietToolLabel("grep", "subagent-progress-labels|updateToolArg|subagentBadge")).toBe(
+      "Searching the code for 'subagent-progress-labels' and 2 more terms"
+    );
+    expect(quietToolLabel("grep", "quiet-status")).toBe("Searching quiet-status");
+  });
+
+  test("tracker: subagents get their own lines; group line hides when solo (#165)", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 1_000_000;
+    t.addSubagent("b", "Saratoga", "Researching github.com/morluto/rea", t0);
+    // Group line has nothing to narrate while only subagents run
+    expect(t.liveStatus(t0 + 5_000)).toBeNull();
+    // Objective is static; the live step starts as a generic placeholder
+    expect(t.getSubagent("b")?.objective).toBe("Researching github.com/morluto/rea");
+    expect(t.getSubagent("b")?.label).toBe("Working…");
+    // Progress feed swaps the subagent's label to its current sub-step
+    t.updateSubagentLabel("b", "Reading README.md");
+    expect(t.getSubagent("b")?.label).toBe("Reading README.md");
+    // A main-agent tool joins WHILE the subagent runs → impulse badge (#165)
+    t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0 + 10_000);
+    const concurrent = t.liveStatus(t0 + 13_000);
+    expect(concurrent).toContain("\x1b[1m\x1b[30m\x1b[43m impulse \x1b[0m");
+    expect(stripAnsi(concurrent!)).toBe(" impulse  Reading AGENTS.md (13s)");
+    // Subagent settles with its own wall-clock → badge drops with it
+    expect(t.settleSubagent("b", t0 + 31_000)).toBe(31_000);
+    expect(t.getSubagent("b")).toBeUndefined();
+    expect(t.liveStatus(t0 + 32_000)).toBe("Reading AGENTS.md (32s)");
+    // Group settle still credits the subagent; task call counted as a tool
+    const settled = t.settle(t0 + 70_000);
+    expect(settled!.workedForLine).toBe("Worked for 1 min 10s using 2 tools (1 subagent)");
+  });
+
+  test("subagent-only group settle skips 'using N tools' (#165)", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 1_000_000;
+    t.addSubagent("b", "Saratoga", "Exploring quiet-status.ts wiring", t0);
+    t.settleSubagent("b", t0 + 31_000);
+    expect(t.settle(t0 + 38_000)!.workedForLine).toBe("Worked for 38s (1 subagent)");
+  });
+
+  test("settle omits helper credit when no subagents ran", () => {
+    const t = new QuietWorkGroupTracker();
+    const t0 = 1_000_000;
+    t.addTool({ id: "a", name: "file_read", arg: "AGENTS.md" }, t0);
+    expect(t.settle(t0 + 3_000)!.workedForLine).toBe("Worked for 3s using 1 tool");
+  });
+
+  test("Recap names the helper when the codename rides metadata (#165)", () => {
+    expect(
+      buildQuietRecapFact("task", "Researching github.com/morluto/rea", {
+        success: true,
+        output: "done",
+        metadata: { type: "task", codename: "Saratoga" },
+      })
+    ).toBe("subagent Saratoga: researching github.com/morluto/rea");
+    // Legacy/unnamed fallback unchanged
+    expect(
+      buildQuietRecapFact("task", "review the parser", {
+        success: true,
+        output: "done",
+      })
+    ).toBe("delegated review the parser");
   });
 
   test("intent derives from the reasoning stream; <intent> marker wins", () => {
@@ -316,7 +576,7 @@ describe("quiet-status", () => {
         output: "ok",
         metadata: { type: "bash", command: "wibblesort --mode 7" },
       })
-    ).toBe("ran wibblesort --mode 7");
+    ).toBe("ran wibblesort");
     // Vague / no-metadata → null (skip mush)
     expect(
       buildQuietRecapFact("ls", "impulse-pr154", { success: true, output: "ok" })
@@ -463,7 +723,7 @@ describe("quiet-status", () => {
         { name: "file_edit", arg: "a.ts", outcome: "success" },
         { name: "bash", arg: "bun test", outcome: "failed" },
       ])
-    ).toBe("retry bun test");
+    ).toBe("retry running the tests");
     expect(
       unansweredAskNextLabel([
         { name: "question", arg: "Platform", outcome: "failed" },
@@ -505,7 +765,7 @@ describe("quiet-status", () => {
         fact: "ran bun test failed",
       },
     ]);
-    expect(line).toBe("Recap: ran bun test failed · Next: retry bun test");
+    expect(line).toBe("Recap: ran bun test failed · Next: retry running the tests");
   });
 
   test("Recap Next absent when hints explicitly cleared (turn complete)", () => {
