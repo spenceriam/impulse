@@ -792,6 +792,8 @@ const WRITE_INDICATOR_PATTERNS = [
   /\bcurl\b[^|]*\s(-o|-O|--output)\b/,
   /\bwget\b[^|]*\s(-O|--output-document)\b/,
   /\bgit\s+(clone|checkout|restore|clean|reset|merge|rebase|commit|push|pull|apply|am)\b/,
+  // Mutating stash ops (bare `git stash` stashes too); list/show stay free
+  /\bgit\s+stash\b(?!\s+(list|show))/,
   /\b(npm|yarn|pnpm|bun)\s+(install|add|remove|uninstall)\b/,
 ];
 

@@ -45,6 +45,14 @@ describe("bash permission policy", () => {
     expect(needsPermission("sed -i s/a/b/ /tmp/file").needed).toBe(true);
   });
 
+  test("git stash mutations prompt; list/show stay free", () => {
+    expect(needsPermission("git stash").needed).toBe(true);
+    expect(needsPermission("git stash pop").needed).toBe(true);
+    expect(needsPermission("git stash drop stash@{0}").needed).toBe(true);
+    expect(needsPermission("git stash list").needed).toBe(false);
+    expect(needsPermission("git stash show -p stash@{1}").needed).toBe(false);
+  });
+
   test("unknown command with outside path but no write indicator passes (#142)", () => {
     expect(needsPermission("mystery-cli /tmp/out").needed).toBe(false);
   });
