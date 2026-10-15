@@ -213,10 +213,12 @@ export class PermissionOverlay implements Component {
       const labelRows: Array<[string, string]> = [];
       if (details.command) labelRows.push(["Command", details.command]);
       if (details.target) labelRows.push(["Target", details.target]);
-      if (details.effect) labelRows.push(["Effect", details.effect]);
-      if (details.why) labelRows.push(["Why", details.why]);
+      if (details.result) labelRows.push(["Result", details.result]);
+      if (details.justification) labelRows.push(["Justification", details.justification]);
+      // Label column sizes to the longest label ("Justification" sets it).
+      const labelWidth = Math.max(...labelRows.map(([label]) => label.length)) + 1;
       for (const [label, value] of labelRows) {
-        const padded = `${label.padEnd(8)} `;
+        const padded = `${label.padEnd(labelWidth)} `;
         const prefixWidth = visibleWidth(padded);
         const wrapped = wrapTextWithAnsi(value, Math.max(8, innerWidth - prefixWidth));
         wrapped.forEach((line, index) => {

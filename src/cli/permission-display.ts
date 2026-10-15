@@ -92,10 +92,10 @@ export type PermissionDetails = {
   command?: string;
   /** Absolute target path when known. */
   target?: string | undefined;
-  /** What happens on approval ("Creates a new file; overwrites it if it exists"). */
-  effect?: string;
-  /** Policy reason with cwd context. */
-  why?: string;
+  /** What you get on approval ("Creates a new file; overwrites it if it exists"). */
+  result?: string;
+  /** Why approval is required, with cwd context. */
+  justification?: string;
 };
 
 /** Tokens that look like filesystem paths. */
@@ -111,7 +111,7 @@ function homeTilde(p: string): string {
   return home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
-type DerivedBash = Omit<PermissionDetails, "enriched" | "why">;
+type DerivedBash = Omit<PermissionDetails, "enriched" | "justification">;
 
 function bashDetails(command: string): DerivedBash | null {
   const redir = command.match(/(?:^|\s)(>>?)\s*["']?([^\s"'|>]+)/);
@@ -121,7 +121,7 @@ function bashDetails(command: string): DerivedBash | null {
       action: append ? "Append to file" : "Write file",
       command,
       target: redir[2],
-      effect: append
+      result: append
         ? "Appends to the file if it exists; creates it if missing"
         : "Creates a new file; overwrites it if it already exists",
     };
@@ -131,25 +131,25 @@ function bashDetails(command: string): DerivedBash | null {
     return paths[paths.length - 1];
   };
   if (/\bcp\b/.test(command)) {
-    return { action: "Copy files", command, target: lastPath(command), effect: "Writes to the target; overwrites it if it exists" };
+    return { action: "Copy files", command, target: lastPath(command), result: "Writes to the target; overwrites it if it exists" };
   }
   if (/\bmv\b/.test(command)) {
-    return { action: "Move files", command, target: lastPath(command), effect: "Moves the file(s); overwrites the target if it exists" };
+    return { action: "Move files", command, target: lastPath(command), result: "Moves the file(s); overwrites the target if it exists" };
   }
   if (/\bmkdir\b/.test(command)) {
-    return { action: "Create directories", command, target: pathTokens(command).join(", "), effect: "Creates new directories" };
+    return { action: "Create directories", command, target: pathTokens(command).join(", "), result: "Creates new directories" };
   }
   if (/\btouch\b/.test(command)) {
-    return { action: "Touch file", command, target: pathTokens(command).join(", "), effect: "Creates the file if missing; updates its timestamp if it exists" };
+    return { action: "Touch file", command, target: pathTokens(command).join(", "), result: "Creates the file if missing; updates its timestamp if it exists" };
   }
   if (/\btee\b/.test(command)) {
-    return { action: "Write file", command, target: lastPath(command), effect: "Writes the command's output to the file; overwrites if it exists" };
+    return { action: "Write file", command, target: lastPath(command), result: "Writes the command's output to the file; overwrites if it exists" };
   }
   if (/\bsed\s+-i\b/.test(command)) {
-    return { action: "Edit file in place", command, target: lastPath(command), effect: "Rewrites the file with the substitution applied" };
+    return { action: "Edit file in place", command, target: lastPath(command), result: "Rewrites the file with the substitution applied" };
   }
   if (/\b(npm|yarn|pnpm|bun)\s+(install|add|remove|uninstall)\b/.test(command)) {
-    return { action: "Change dependencies", command, effect: "Downloads and writes packages into this project and its lockfile" };
+    return { action: "Change dependencies", command, result: "Downloads and writes packages into this project and its lockfile" };
   }
   const git = command.match(/\bgit\s+(clone|commit|push|pull|merge|rebase|apply|am|checkout|restore|clean|reset)\b/);
   if (git) {
@@ -167,19 +167,19 @@ function bashDetails(command: string): DerivedBash | null {
       clean: ["Clean untracked files", "Deletes untracked files from the working tree"],
       reset: ["Reset state", "Moves the branch pointer and may rewrite the working tree"],
     };
-    const [action, effect] = map[git[1]!]!;
-    return { action, command, target: lastPath(command), effect };
+    const [action, result] = map[git[1]!]!;
+    return { action, command, target: lastPath(command), result };
   }
   if (/\bcurl\b[^|]*\s(?:-o|-O|--output)\b/.test(command)) {
     const out = command.match(/(?:-o|--output)\s*["']?([^\s"']+)/);
-    return { action: "Download file", command, target: out?.[1], effect: "Writes the response body to disk" };
+    return { action: "Download file", command, target: out?.[1], result: "Writes the response body to disk" };
   }
   if (/\bwget\b[^|]*\s(?:-O|--output-document)\b/.test(command)) {
     const out = command.match(/(?:-O|--output-document=?)\s*["']?([^\s"']+)/);
-    return { action: "Download file", command, target: out?.[1], effect: "Writes the response body to disk" };
+    return { action: "Download file", command, target: out?.[1], result: "Writes the response body to disk" };
   }
   if (/\b(unzip|tar|zip)\b/.test(command)) {
-    return { action: "Extract or create archive", command, effect: "Writes extracted/archived files to disk" };
+    return { action: "Extract or create archive", command, result: "Writes extracted/archived files to disk" };
   }
   return null;
 }
@@ -197,25 +197,25 @@ export function formatPermissionDetails(request: PermissionRequest): PermissionD
   if (request.permission === "bash" && typeof meta["command"] === "string") {
     const derived = bashDetails(String(meta["command"]).trim());
     if (derived) {
-      const why = /outside working directory/i.test(reason)
+      const justification = /outside working directory/i.test(reason)
         ? `Target is outside your working directory (${homeTilde(cwd)})`
         : reason;
-      return { enriched: true, ...derived, why };
+      return { enriched: true, ...derived, justification };
     }
-    return { enriched: false, action: formatPermissionAction(request), why: reason };
+    return { enriched: false, action: formatPermissionAction(request), justification: reason };
   }
 
   if (request.permission === "write" || request.permission === "edit") {
     const target =
       typeof meta["path"] === "string" ? String(meta["path"]) : request.patterns[0];
     const isNew = meta["isNewFile"] === true;
-    const effect =
+    const result =
       request.permission === "edit"
         ? "Applies a code edit to the existing file"
         : isNew
           ? "Creates a new file"
           : "Overwrites the existing file";
-    const why = /outside (cwd|the project working directory)/i.test(reason)
+    const justification = /outside (cwd|the project working directory)/i.test(reason)
       ? `Target is outside your working directory (${homeTilde(cwd)})`
       : reason;
     return {
@@ -223,10 +223,10 @@ export function formatPermissionDetails(request: PermissionRequest): PermissionD
       action:
         request.permission === "edit" ? "Edit file" : isNew ? "Create file" : "Overwrite file",
       ...(target !== undefined ? { target } : {}),
-      effect,
-      why,
+      result,
+      justification,
     };
   }
 
-  return { enriched: false, action: formatPermissionAction(request), why: reason };
+  return { enriched: false, action: formatPermissionAction(request), justification: reason };
 }

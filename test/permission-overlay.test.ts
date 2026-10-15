@@ -70,8 +70,8 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
     expect(d.action).toBe("Write file");
     expect(d.command).toBe('echo "permission test" > /tmp/impulse-permission-test.txt');
     expect(d.target).toBe("/tmp/impulse-permission-test.txt");
-    expect(d.effect).toBe("Creates a new file; overwrites it if it already exists");
-    expect(d.why).toContain("outside your working directory");
+    expect(d.result).toBe("Creates a new file; overwrites it if it already exists");
+    expect(d.justification).toContain("outside your working directory");
   });
 
   test("append redirect says append semantics", () => {
@@ -80,7 +80,7 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
       metadata: { command: "echo x >> /tmp/log.txt", reason: "Write outside working directory: /tmp/log.txt" },
     });
     expect(d.action).toBe("Append to file");
-    expect(d.effect).toBe("Appends to the file if it exists; creates it if missing");
+    expect(d.result).toBe("Appends to the file if it exists; creates it if missing");
   });
 
   test("git push derives publish semantics", () => {
@@ -90,7 +90,7 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
     });
     expect(d.enriched).toBe(true);
     expect(d.action).toBe("Push commits");
-    expect(d.effect).toBe("Publishes commits to the remote repository");
+    expect(d.result).toBe("Publishes commits to the remote repository");
   });
 
   test("file overwrite request enriches with target + effect", () => {
@@ -105,7 +105,7 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
     expect(d.enriched).toBe(true);
     expect(d.action).toBe("Overwrite file");
     expect(d.target).toBe("/tmp/out.txt");
-    expect(d.effect).toBe("Overwrites the existing file");
+    expect(d.result).toBe("Overwrites the existing file");
   });
 
   test("unrecognized command falls back to the old short form", () => {
