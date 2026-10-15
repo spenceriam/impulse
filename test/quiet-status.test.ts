@@ -13,6 +13,7 @@ import {
   formatQuietSubagentLine,
   formatQuietSubagentSettle,
   formatWorkedFor,
+  humanizeWebFetchTarget,
   fullQuietArg,
   humanizeBashCommand,
   isQuietBreakOutcome,
@@ -24,6 +25,7 @@ import {
   shortQuietArg,
   unansweredAskNextLabel,
   wrapQuietRecapLines,
+  type QuietRecapEvent,
 } from "../src/cli/quiet-status.js";
 
 /** Strip SGR codes for text comparisons (badge ANSI rides codename lines). */
@@ -568,7 +570,7 @@ describe("quiet-status", () => {
         success: true,
         output: "ok",
       })
-    ).toBe("fetched github.com/spenceriam/jelico");
+    ).toBe("viewed spenceriam/jelico on GitHub");
     expect(
       buildQuietRecapFact("bash", "git log", {
         success: true,
@@ -592,7 +594,7 @@ describe("quiet-status", () => {
     expect(isVagueRecapNoun("AGENTS.md")).toBe(false);
   });
 
-  test("Recap facts are specific + semicolon-joined + ✓ when all succeed", () => {
+  test("Recap facts are specific + semicolon-joined, no trailing symbols", () => {
     const line = formatQuietRecap([
       {
         name: "file_read",
@@ -614,7 +616,7 @@ describe("quiet-status", () => {
       },
     ]);
     expect(line).toBe(
-      "Recap: read AGENTS.md (120 lines); listed 27 top-level entries; ran bun test ✓"
+      "Recap: read AGENTS.md (120 lines); listed 27 top-level entries; ran bun test"
     );
     expect(line).not.toMatch(/looking at|working on|listing things/i);
   });
@@ -638,7 +640,7 @@ describe("quiet-status", () => {
       { pendingTodo: "token-refresh test" }
     );
     expect(line).toBe(
-      "Recap: edited auth.ts; ran bun test ✓ · Next: token-refresh test"
+      "Recap: edited auth.ts; ran bun test · Next: token-refresh test"
     );
   });
 
@@ -659,7 +661,7 @@ describe("quiet-status", () => {
         openPlanItem: null,
       }
     );
-    expect(line).toBe("Recap: read AGENTS.md ✓");
+    expect(line).toBe("Recap: read AGENTS.md");
     expect(line).not.toContain("Next:");
   });
 
@@ -677,7 +679,7 @@ describe("quiet-status", () => {
       },
     ]);
     expect(line).toBe(
-      "Recap: reviewed AGENTS.md, quiet-status.ts; looked through the project folder (27 items) ✓"
+      "Recap: reviewed AGENTS.md, quiet-status.ts; looked through the project folder (27 items)"
     );
   });
 
@@ -842,8 +844,8 @@ describe("quiet-status", () => {
   });
 
   test("Recap wrap under max lines stays untruncated", () => {
-    const rows = wrapQuietRecapLines("Recap: read AGENTS.md ✓", 80);
-    expect(rows).toEqual(["Recap: read AGENTS.md ✓"]);
+    const rows = wrapQuietRecapLines("Recap: read AGENTS.md", 80);
+    expect(rows).toEqual(["Recap: read AGENTS.md"]);
   });
 
   test("web fetch variants dedupe to one Recap fact (#173)", () => {
@@ -859,7 +861,26 @@ describe("quiet-status", () => {
       mk("https://github.com/spenceriam/jelico/"),
       mk("http://github.com/spenceriam/jelico"),
     ]);
-    expect(line).toBe("Recap: fetched github.com/spenceriam/jelico ✓");
+    expect(line).toBe("Recap: viewed spenceriam/jelico on GitHub");
+  });
+
+  test("web fetch facts read as meaning, not URLs (#173)", () => {
+    expect(humanizeWebFetchTarget("https://github.com/spenceriam/impulse/issues/173")).toBe(
+      "read issue #173 on GitHub"
+    );
+    expect(humanizeWebFetchTarget("https://github.com/spenceriam/impulse/pull/171")).toBe(
+      "read PR #171 on GitHub"
+    );
+    expect(humanizeWebFetchTarget("https://github.com/spenceriam/impulse/README.md")).toBe(
+      "read the README on GitHub"
+    );
+    expect(humanizeWebFetchTarget("https://github.com/spenceriam/impulse/releases")).toBe(
+      "checked releases on GitHub"
+    );
+    expect(humanizeWebFetchTarget("https://example.com/docs/guide.html")).toBe(
+      "read a page from example.com"
+    );
+    expect(humanizeWebFetchTarget("not a url")).toBeNull();
   });
 
   test("Recap hard newlines collapse instead of stranding fragments", () => {

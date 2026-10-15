@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Changed
   - **#143** -- "Always allow" in the permission modal no longer shows a confirmation screen — it grants immediately for the project (persistence details moved out of the UI; revises the 06-09 double-confirm decision).
-  - **#173** -- The event-sourced Recap fallback (used when a model doesn't emit a `<recap>` envelope) no longer echoes raw URL plumbing: web facts render as `fetched github.com/spenceriam/jelico` (protocol and trailing slashes stripped), and URL variants (https/http, trailing `/`) normalize so repeated fetches dedupe to a single fact instead of stacking near-identical truncated URLs. Driver-agnostic guarantee: the fallback is the product regardless of model.
+  - **#173** -- The event-sourced Recap fallback (used when a model doesn't emit a `<recap>` envelope) no longer echoes raw URL plumbing: web facts read as meaning — `viewed spenceriam/jelico on GitHub`, `read issue #173 on GitHub`, `read PR #171 on GitHub`, `read the README on GitHub`, `checked releases on GitHub`, `read a page from example.com` — and URL variants dedupe to a single fact. The trailing success `✓` is removed from all Recap lines: facts are sentences, no symbols. Driver-agnostic guarantee: the fallback is the product regardless of model.
 
 ## [1.12.1] - 2026-10-14
 
