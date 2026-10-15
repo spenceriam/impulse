@@ -95,12 +95,24 @@ export class PermissionOverlay implements Component {
     const innerWidth = Math.max(8, cap - 4);
     const plainWidths: number[] = [measureOverlayTopChromeWidth("Permission required", 33)];
 
-    plainWidths.push(visibleWidth(formatPermissionAction(this.request)));
-    plainWidths.push(visibleWidth(formatPermissionReason(this.request)));
+    // Measure the actual rows rendered: enriched detail block when present,
+    // legacy short lines otherwise (#169).
+    const details = formatPermissionDetails(this.request);
+    if (details.enriched) {
+      plainWidths.push(visibleWidth(details.action));
+      const labelWidth =
+        Math.max(...["Command", "Target", "Justification"].map((l) => l.length)) + 2;
+      for (const value of [details.command, details.target, details.justification]) {
+        if (value) plainWidths.push(labelWidth + visibleWidth(value));
+      }
+    } else {
+      plainWidths.push(visibleWidth(formatPermissionAction(this.request)));
+      plainWidths.push(visibleWidth(formatPermissionReason(this.request)));
 
-    const { why } = formatPermissionWhyPolicy(this.request);
-    if (why) {
-      plainWidths.push(visibleWidth(`Why: ${why}`));
+      const { why } = formatPermissionWhyPolicy(this.request);
+      if (why) {
+        plainWidths.push(visibleWidth(`Why: ${why}`));
+      }
     }
 
     const optionLine = this.options()
@@ -260,7 +272,7 @@ export class PermissionOverlay implements Component {
     pushBoxLine("");
     const sessionSelected = options[this.selectedIndex]?.value === "session";
     const footer = sessionSelected
-      ? "←/→ choose   Shift+Tab: this only ↔ all   Enter confirm   Esc deny"
+      ? "←/→ choose   Shift+Tab: this ↔ all   Enter confirm   Esc deny"
       : "←/→ choose   Enter confirm   Esc deny";
     pushBoxLine(`${A.dim}${footer}${A.reset}`);
     lines.push(overlayBottomBorder(boxWidth));
