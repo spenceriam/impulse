@@ -106,7 +106,7 @@ export class LoopCheckinOverlay implements Component {
     const optionLine = OPTIONS.map((option, index) => {
       const isSelected = index === this.selectedIndex;
       if (isSelected) {
-        return `${A.bg(39, A.fg(16, ` ${option.label} `))}`;
+        return `${A.bg(46, A.fg(16, ` ${option.label} `))}`;
       }
       return `${A.fg(250, `[ ${option.label} ]`)}`;
     }).join("   ");

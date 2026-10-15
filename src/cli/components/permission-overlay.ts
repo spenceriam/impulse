@@ -6,6 +6,7 @@ import {
 } from "../../permission/index.js";
 import {
   formatPermissionAction,
+  formatPermissionDetails,
   formatPermissionReason,
   formatPermissionWhyPolicy,
 } from "../permission-display.js";
@@ -188,7 +189,7 @@ export class PermissionOverlay implements Component {
       const optionLine = confirmOptions
         .map((option) =>
           option.selected
-            ? `${A.bg(39, A.fg(16, ` ${option.label} `))}`
+            ? `${A.bg(46, A.fg(16, ` ${option.label} `))}`
             : `${A.fg(250, `[ ${option.label} ]`)}`
         )
         .join("   ");
@@ -201,20 +202,41 @@ export class PermissionOverlay implements Component {
       return lines;
     }
 
-    const action = formatPermissionAction(this.request);
-    const reason = formatPermissionReason(this.request);
-    const { why } = formatPermissionWhyPolicy(this.request);
+    const details = formatPermissionDetails(this.request);
 
-    pushBoxLine(`${A.bold}${action}${A.reset}`);
+    pushBoxLine(`${A.bold}${details.action}${A.reset}`);
+    pushBoxLine("");
 
-    for (const line of wrapTextWithAnsi(reason, innerWidth)) {
-      pushBoxLine(A.fg(250, line));
-    }
-
-    if (why) {
-      pushBoxLine("");
-      for (const line of wrapTextWithAnsi(`${A.dim}Why:${A.reset} ${why}`, innerWidth)) {
-        pushBoxLine(line);
+    if (details.enriched) {
+      // Rich block: Command / Target / Effect / Why rows, labels dim, values
+      // wrapped with continuation lines aligned under the value column.
+      const labelRows: Array<[string, string]> = [];
+      if (details.command) labelRows.push(["Command", details.command]);
+      if (details.target) labelRows.push(["Target", details.target]);
+      if (details.effect) labelRows.push(["Effect", details.effect]);
+      if (details.why) labelRows.push(["Why", details.why]);
+      for (const [label, value] of labelRows) {
+        const padded = `${label.padEnd(8)} `;
+        const prefixWidth = visibleWidth(padded);
+        const wrapped = wrapTextWithAnsi(value, Math.max(8, innerWidth - prefixWidth));
+        wrapped.forEach((line, index) => {
+          const prefix =
+            index === 0 ? `${A.dim}${padded}${A.reset}` : " ".repeat(prefixWidth);
+          pushBoxLine(`${prefix}${A.fg(250, line)}`);
+        });
+      }
+    } else {
+      // Fallback: today's short action + reason + optional why.
+      const reason = formatPermissionReason(this.request);
+      const { why } = formatPermissionWhyPolicy(this.request);
+      for (const line of wrapTextWithAnsi(reason, innerWidth)) {
+        pushBoxLine(A.fg(250, line));
+      }
+      if (why) {
+        pushBoxLine("");
+        for (const line of wrapTextWithAnsi(`${A.dim}Why:${A.reset} ${why}`, innerWidth)) {
+          pushBoxLine(line);
+        }
       }
     }
 
@@ -224,7 +246,7 @@ export class PermissionOverlay implements Component {
     const optionLine = options.map((option, index) => {
       const isSelected = index === this.selectedIndex;
       if (isSelected) {
-        return `${A.bg(39, A.fg(16, ` ${option.label} `))}`;
+        return `${A.bg(46, A.fg(16, ` ${option.label} `))}`;
       }
       return `${A.fg(250, `[ ${option.label} ]`)}`;
     }).join("   ");

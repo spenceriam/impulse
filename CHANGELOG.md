@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#168** -- Recap no longer hard-truncates at 3 lines with a mid-word `…`. Model-authored and event-sourced recaps wrap fully at word boundaries; content length still governed by the ≤40-word prompt rule and ≤5-fact fallback.
   - **#142** -- Permissions now gate on destructiveness instead of recognition. Unrecognized commands (gh, curl, npx, sed, bun/npm test, builds) no longer prompt by default; reads, directory changes, and searches run anywhere — including outside the working directory (previously hard-blocked with a path-traversal error for `file_read`/`glob`/`grep`, and prompted for bash `workdir`). Explicit write/mutating commands (redirection, cp/mv, installs, git mutations, `sed -i`) and high-risk commands still require approval. `path_outside_cwd` prompts now show a human-readable label instead of the raw internal identifier.
 
+  ### Changed
+  - **#169** -- Permission/question modal redesign: selection accent is now cyan (base-16 `bg 46`), matching the model name's color in the context bar (was 256-cube blue). Prompts for write/mutating actions show a detail block — derived action (`Write file`, `Push commits`), full command (never truncated), target path, effect on approval (`Creates a new file; overwrites it if it exists`), and the policy reason with your working directory — instead of a generic action line and a bare path. Unrecognized actions keep the previous short form.
+
 ## [1.12.0] - 2026-10-11
 
   **Type:** minor
