@@ -13,14 +13,14 @@ const VERSION = JSON.parse(readFileSync("package.json", "utf-8")).version;
 // Platforms to build for
 const PLATFORMS = [
   // Linux
-  { name: "linux-x64", target: "bun-linux-x64", binary: "impulse", os: "linux" },
-  { name: "linux-arm64", target: "bun-linux-arm64", binary: "impulse", os: "linux" },
+  { name: "linux-x64", target: "bun-linux-x64", binary: "impulse", workerBinary: "impulse-worker", os: "linux" },
+  { name: "linux-arm64", target: "bun-linux-arm64", binary: "impulse", workerBinary: "impulse-worker", os: "linux" },
   // macOS (Intel and Apple Silicon M-series)
-  { name: "darwin-x64", target: "bun-darwin-x64", binary: "impulse", os: "darwin" },
-  { name: "darwin-arm64", target: "bun-darwin-arm64", binary: "impulse", os: "darwin" },
+  { name: "darwin-x64", target: "bun-darwin-x64", binary: "impulse", workerBinary: "impulse-worker", os: "darwin" },
+  { name: "darwin-arm64", target: "bun-darwin-arm64", binary: "impulse", workerBinary: "impulse-worker", os: "darwin" },
   // Windows
-  { name: "windows-x64", target: "bun-windows-x64", binary: "impulse.exe", os: "win32" },
-  { name: "windows-arm64", target: "bun-windows-arm64", binary: "impulse.exe", os: "win32" },
+  { name: "windows-x64", target: "bun-windows-x64", binary: "impulse.exe", workerBinary: "impulse-worker.exe", os: "win32" },
+  { name: "windows-arm64", target: "bun-windows-arm64", binary: "impulse.exe", workerBinary: "impulse-worker.exe", os: "win32" },
 ] as const;
 
 async function buildPlatform(platform: typeof PLATFORMS[number]) {
@@ -40,8 +40,11 @@ async function buildPlatform(platform: typeof PLATFORMS[number]) {
     // Bun compile with cross-compilation target
     // Note: We need to compile from the pre-built dist/index.js since plugins don't work with --compile
     await $`bun build --compile --minify --sourcemap --target=${platform.target} ./dist/index.js --outfile ${outFile}`;
+    const workerOutFile = join(binDir, platform.workerBinary);
+    await $`bun build --compile --minify --sourcemap --target=${platform.target} ./dist/worker.js --outfile ${workerOutFile}`;
     
     console.log(`  ✓ Built ${outFile}`);
+    console.log(`  ✓ Built ${workerOutFile}`);
     
     // Create package.json for this platform package
     const packageJson = {

@@ -25,7 +25,7 @@ if (existsSync("./docs/tools")) {
 }
 
 const result = await Bun.build({
-  entrypoints: ["./src/index.ts"],
+  entrypoints: ["./src/index.ts", "./src/worker.ts"],
   outdir: "./dist",
   target: "bun",
 });
@@ -48,11 +48,13 @@ if (existsSync(rgPath)) {
   console.warn("  Warning: @vscode/ripgrep binary not found at", rgPath);
 }
 
-// Add shebang to the output file
-const outputPath = join(distDir, "index.js");
-const content = readFileSync(outputPath, "utf-8");
-if (!content.startsWith("#!/")) {
-  writeFileSync(outputPath, `#!/usr/bin/env bun\n${content}`);
+// Add shebangs to the output files
+for (const outputName of ["index.js", "worker.js"]) {
+  const outputPath = join(distDir, outputName);
+  const content = readFileSync(outputPath, "utf-8");
+  if (!content.startsWith("#!/")) {
+    writeFileSync(outputPath, `#!/usr/bin/env bun\n${content}`);
+  }
 }
 
 console.log("Build successful!");

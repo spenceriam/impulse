@@ -43,10 +43,10 @@ function detectPlatformAndArch() {
   return { platform, arch };
 }
 
-function findBinary() {
+function findBinary(requestedBinaryName) {
   const { platform, arch } = detectPlatformAndArch();
   const packageName = platformPackageName(platform, arch);
-  const binaryName = platform === "windows" ? "impulse.exe" : "impulse";
+  const binaryName = requestedBinaryName || (platform === "windows" ? "impulse.exe" : "impulse");
 
   // Check for unsupported platform/arch combinations
   const supportedCombos = [
@@ -130,12 +130,17 @@ async function main() {
     return;
   }
 
-  const { binaryPath, binaryName } = findBinary();
-  const { targetPath } = prepareBinDirectory(binaryName);
+  const impulse = findBinary();
+  const impulseTarget = prepareBinDirectory(impulse.binaryName);
+  symlinkBinary(impulse.binaryPath, impulseTarget.targetPath);
+  console.log(`impulse binary symlinked: ${impulseTarget.targetPath} -> ${impulse.binaryPath}`);
 
-  symlinkBinary(binaryPath, targetPath);
+  const workerName = process.platform === "win32" ? "impulse-worker.exe" : "impulse-worker";
+  const worker = findBinary(workerName);
+  const workerTarget = prepareBinDirectory(worker.binaryName);
+  symlinkBinary(worker.binaryPath, workerTarget.targetPath);
+  console.log(`impulse-worker binary symlinked: ${workerTarget.targetPath} -> ${worker.binaryPath}`);
 
-  console.log(`impulse binary symlinked: ${targetPath} -> ${binaryPath}`);
   console.log(`impulse installed successfully!`);
 }
 

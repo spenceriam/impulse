@@ -32,6 +32,16 @@ export function shouldShowSlashAutocomplete(
   }
 
   const matches = commands.filter((c) => c.cmd.toLowerCase().startsWith(token));
+
+  // A token that already has multiple prefix matches remains a prefix list.
+  // This keeps partial aliases such as /sh as (/show, /show-think) suggestions.
+  if (matches.length > 1) {
+    const extensions = matches.filter((c) => c.cmd.toLowerCase().length > token.length);
+    if (extensions.length > 0) {
+      return { show: true, matches: extensions };
+    }
+  }
+
   const aliasTarget = slashAliasTarget(token.slice(1));
   if (aliasTarget) {
     const canonical = `/${aliasTarget}`;
@@ -45,7 +55,6 @@ export function shouldShowSlashAutocomplete(
     return { show: false, matches: [] };
   }
 
-  // e.g. token /show → still list /show-think even though /show is an exact match
   const extensions = matches.filter((c) => c.cmd.toLowerCase().length > token.length);
   if (extensions.length > 0) {
     return { show: true, matches: extensions };

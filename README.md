@@ -33,6 +33,7 @@ A brutally minimal terminal interface for AI-assisted software development. Supp
 - **DEBUG workflow** — Tab DEBUG mode uses evidence-first debugging; `/debug` toggles session log file only
 - **Profile** — `/user` overlay to view and edit preferences
 - **Parallel sub-agents** — the `task` tool runs up to **8** sub-agents at once (extra tasks queue); batches of **9+** `general` tasks show one approval dialog; per-task progress rows in chat
+- **Factory worker** — `impulse-worker` runs the real agent loop unattended with an isolated HOME, JSONL events, noninteractive gates, and a validated result artifact; see [docs/factory-worker.md](docs/factory-worker.md)
 
 ## Installation
 
@@ -65,7 +66,12 @@ impulse --setup
 
 # Show version
 impulse --version
+
+# Verify the unattended factory worker protocol
+impulse-worker --factory-protocol
 ```
+
+See [docs/factory-worker.md](docs/factory-worker.md) for the full worker contract.
 
 ## CLI Options
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Factory worker** -- New `impulse-worker` entry point implements `impulse-factory-worker/v1`: isolated per-run HOME, no default-skill checkout mutation, real `AgentLoop` execution without the TUI, JSONL lifecycle events, noninteractive permission/question gates, and a validated `impulse-factory-result/v1` artifact. Builds now emit both `impulse` and `impulse-worker` binaries.
+
+### Fixed
+
+- Slash autocomplete no longer collapses a partial alias such as `/sh` to only `/show`; prefix completion still lists every extension (`/show`, `/show-think`).
+
 ## [1.12.0] - 2026-10-11
 
   **Type:** minor
