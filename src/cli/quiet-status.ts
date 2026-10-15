@@ -501,6 +501,21 @@ export function formatDuration(ms: number): string {
   return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds}s`;
 }
 
+/**
+ * Web target for Recap facts (#173): strip protocol and trailing slashes so
+ * URL variants (https/http, trailing /) normalize to one form — the exact
+ * dedupe in formatQuietRecap then collapses repeated fetches. Protocol
+ * plumbing never renders.
+ */
+function shortWebTarget(raw: string): string | null {
+  const t = raw
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  if (!t || isVagueRecapNoun(t)) return null;
+  return truncateArg(t, 48);
+}
+
 /** Past-tense plain-language verbs for done→next Recap facts. */
 const QUIET_OUTCOME_VERBS: Record<string, string> = {
   file_read: "reviewed",
@@ -859,8 +874,9 @@ export function buildQuietRecapFact(
       return `searched the web for ${truncateArg(arg, 32)}`;
     }
     case "web_fetch": {
-      if (isVagueRecapNoun(arg)) return null;
-      return `fetched ${truncateArg(arg, 36)}`;
+      // Humanized, normalized target — never raw protocol plumbing (#173).
+      const target = shortWebTarget(arg);
+      return target ? `fetched ${target}` : null;
     }
     case "task": {
       if (isVagueRecapNoun(arg) || arg === "subagent") return null;

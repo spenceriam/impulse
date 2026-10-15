@@ -562,6 +562,13 @@ describe("quiet-status", () => {
         metadata: { type: "bash", command: "bun test" },
       })
     ).toBe("ran the tests");
+    // Web facts: protocol stripped, path visible (#173)
+    expect(
+      buildQuietRecapFact("web_fetch", "https://github.com/spenceriam/jelico", {
+        success: true,
+        output: "ok",
+      })
+    ).toBe("fetched github.com/spenceriam/jelico");
     expect(
       buildQuietRecapFact("bash", "git log", {
         success: true,
@@ -837,6 +844,22 @@ describe("quiet-status", () => {
   test("Recap wrap under max lines stays untruncated", () => {
     const rows = wrapQuietRecapLines("Recap: read AGENTS.md ✓", 80);
     expect(rows).toEqual(["Recap: read AGENTS.md ✓"]);
+  });
+
+  test("web fetch variants dedupe to one Recap fact (#173)", () => {
+    // Renderer shape: events carry facts built by buildQuietRecapFact
+    const mk = (url: string): QuietRecapEvent => ({
+      name: "web_fetch",
+      arg: url,
+      outcome: "success",
+      fact: buildQuietRecapFact("web_fetch", url, { success: true, output: "ok" })!,
+    });
+    const line = formatQuietRecap([
+      mk("https://github.com/spenceriam/jelico"),
+      mk("https://github.com/spenceriam/jelico/"),
+      mk("http://github.com/spenceriam/jelico"),
+    ]);
+    expect(line).toBe("Recap: fetched github.com/spenceriam/jelico ✓");
   });
 
   test("Recap hard newlines collapse instead of stranding fragments", () => {
