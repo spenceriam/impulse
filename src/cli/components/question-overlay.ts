@@ -357,7 +357,7 @@ export class QuestionOverlay implements Component {
         const answered = (this.answers[index] ?? []).length > 0 ? ` ${A.fg(34, "✓")}` : "";
         const label = `${question.topic}${answered}`;
         if (index === this.selectedTopic) {
-          return `${A.bg(39, A.fg(16, ` ${label} `))}`;
+          return `${A.bg(46, A.fg(16, ` ${label} `))}`;
         }
         return `${A.fg(250, `[ ${label} ]`)}`;
       })

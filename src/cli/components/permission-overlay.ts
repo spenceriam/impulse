@@ -1,13 +1,14 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import {
-  getPermissionLabel,
   type PermissionRequest,
   type PermissionResponse,
 } from "../../permission/index.js";
 import {
   formatPermissionAction,
+  formatPermissionDetails,
   formatPermissionReason,
   formatPermissionWhyPolicy,
+  sessionScopeLabel,
 } from "../permission-display.js";
 import {
   isAbortKey,
@@ -39,13 +40,13 @@ const BASE_OPTIONS: Array<{ value: PermissionResponse; label: string }> = [
   { value: "reject", label: "Deny" },
   { value: "once", label: "Allow once" },
   { value: "session", label: "Allow session" },
-  { value: "always", label: "Always" },
+  { value: "always", label: "Always allow" },
 ];
 
 function sessionOptionLabel(request: PermissionRequest, wildcard: boolean): string {
-  const kind = getPermissionLabel(request.permission).toLowerCase();
-  if (!wildcard) return "Allow session (this only)";
-  return `Allow session (all ${kind})`;
+  // Labels say what the grant covers: directory scope, exact command, or
+  // this file (#170) — never a bare "this only".
+  return sessionScopeLabel(request, wildcard);
 }
 
 function stripAnsi(s: string): string {
@@ -93,12 +94,24 @@ export class PermissionOverlay implements Component {
     const innerWidth = Math.max(8, cap - 4);
     const plainWidths: number[] = [measureOverlayTopChromeWidth("Permission required", 33)];
 
-    plainWidths.push(visibleWidth(formatPermissionAction(this.request)));
-    plainWidths.push(visibleWidth(formatPermissionReason(this.request)));
+    // Measure the actual rows rendered: enriched detail block when present,
+    // legacy short lines otherwise (#169).
+    const details = formatPermissionDetails(this.request);
+    if (details.enriched) {
+      plainWidths.push(visibleWidth(details.action));
+      const labelWidth =
+        Math.max(...["Command", "Target", "Justification"].map((l) => l.length)) + 2;
+      for (const value of [details.command, details.target, details.justification]) {
+        if (value) plainWidths.push(labelWidth + visibleWidth(value));
+      }
+    } else {
+      plainWidths.push(visibleWidth(formatPermissionAction(this.request)));
+      plainWidths.push(visibleWidth(formatPermissionReason(this.request)));
 
-    const { why } = formatPermissionWhyPolicy(this.request);
-    if (why) {
-      plainWidths.push(visibleWidth(`Why: ${why}`));
+      const { why } = formatPermissionWhyPolicy(this.request);
+      if (why) {
+        plainWidths.push(visibleWidth(`Why: ${why}`));
+      }
     }
 
     const optionLine = this.options()
@@ -178,8 +191,10 @@ export class PermissionOverlay implements Component {
     };
 
     if (this.confirmAlways) {
-      const kind = getPermissionLabel(this.request.permission).toLowerCase();
-      pushBoxLine(`${A.bold}Confirm: always allow ${kind}?${A.reset}`);
+      pushBoxLine(`${A.bold}Remember this grant for the project?${A.reset}`);
+      pushBoxLine(
+        `${A.dim}Saved to .impulse/permissions.json — applies to every future session here.${A.reset}`
+      );
       pushBoxLine("");
       const confirmOptions = [
         { label: "Yes", selected: this.selectedIndex === 0 },
@@ -188,7 +203,7 @@ export class PermissionOverlay implements Component {
       const optionLine = confirmOptions
         .map((option) =>
           option.selected
-            ? `${A.bg(39, A.fg(16, ` ${option.label} `))}`
+            ? `${A.bg(46, A.fg(16, ` ${option.label} `))}`
             : `${A.fg(250, `[ ${option.label} ]`)}`
         )
         .join("   ");
@@ -201,20 +216,42 @@ export class PermissionOverlay implements Component {
       return lines;
     }
 
-    const action = formatPermissionAction(this.request);
-    const reason = formatPermissionReason(this.request);
-    const { why } = formatPermissionWhyPolicy(this.request);
+    const details = formatPermissionDetails(this.request);
 
-    pushBoxLine(`${A.bold}${action}${A.reset}`);
+    pushBoxLine(`${A.bold}${details.action}${A.reset}`);
+    pushBoxLine("");
 
-    for (const line of wrapTextWithAnsi(reason, innerWidth)) {
-      pushBoxLine(A.fg(250, line));
-    }
-
-    if (why) {
-      pushBoxLine("");
-      for (const line of wrapTextWithAnsi(`${A.dim}Why:${A.reset} ${why}`, innerWidth)) {
-        pushBoxLine(line);
+    if (details.enriched) {
+      // Rich block: Command / Target / Effect / Why rows, labels dim, values
+      // wrapped with continuation lines aligned under the value column.
+      const labelRows: Array<[string, string]> = [];
+      if (details.command) labelRows.push(["Command", details.command]);
+      if (details.target) labelRows.push(["Target", details.target]);
+      if (details.justification) labelRows.push(["Justification", details.justification]);
+      // Label column sizes to the longest label ("Justification" sets it).
+      const labelWidth = Math.max(...labelRows.map(([label]) => label.length)) + 1;
+      for (const [label, value] of labelRows) {
+        const padded = `${label.padEnd(labelWidth)} `;
+        const prefixWidth = visibleWidth(padded);
+        const wrapped = wrapTextWithAnsi(value, Math.max(8, innerWidth - prefixWidth));
+        wrapped.forEach((line, index) => {
+          const prefix =
+            index === 0 ? `${A.dim}${padded}${A.reset}` : " ".repeat(prefixWidth);
+          pushBoxLine(`${prefix}${A.fg(250, line)}`);
+        });
+      }
+    } else {
+      // Fallback: today's short action + reason + optional why.
+      const reason = formatPermissionReason(this.request);
+      const { why } = formatPermissionWhyPolicy(this.request);
+      for (const line of wrapTextWithAnsi(reason, innerWidth)) {
+        pushBoxLine(A.fg(250, line));
+      }
+      if (why) {
+        pushBoxLine("");
+        for (const line of wrapTextWithAnsi(`${A.dim}Why:${A.reset} ${why}`, innerWidth)) {
+          pushBoxLine(line);
+        }
       }
     }
 
@@ -224,7 +261,7 @@ export class PermissionOverlay implements Component {
     const optionLine = options.map((option, index) => {
       const isSelected = index === this.selectedIndex;
       if (isSelected) {
-        return `${A.bg(39, A.fg(16, ` ${option.label} `))}`;
+        return `${A.bg(46, A.fg(16, ` ${option.label} `))}`;
       }
       return `${A.fg(250, `[ ${option.label} ]`)}`;
     }).join("   ");
@@ -236,7 +273,7 @@ export class PermissionOverlay implements Component {
     pushBoxLine("");
     const sessionSelected = options[this.selectedIndex]?.value === "session";
     const footer = sessionSelected
-      ? "←/→ choose   Shift+Tab: this only ↔ all   Enter confirm   Esc deny"
+      ? "←/→ choose   Shift+Tab: this ↔ all   Enter confirm   Esc deny"
       : "←/→ choose   Enter confirm   Esc deny";
     pushBoxLine(`${A.dim}${footer}${A.reset}`);
     lines.push(overlayBottomBorder(boxWidth));

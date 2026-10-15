@@ -112,3 +112,65 @@ describe("InlineThinkingFilter", () => {
     expect(out.captured).toBe("y");
   });
 });
+
+describe("InlineThinkingFilter finalBlockOnly (recap envelopes #167)", () => {
+  function feedFinal(deltas: string[]): { prose: string; captured: string } {
+    const filter = new InlineThinkingFilter(["recap"], { finalBlockOnly: true });
+    let prose = "";
+    let captured = "";
+    for (const d of deltas) {
+      const out = filter.push(d);
+      prose += out.prose;
+      captured += out.captured;
+    }
+    const flushed = filter.flush();
+    prose += flushed.prose;
+    captured += flushed.captured;
+    return { prose, captured };
+  }
+
+  test("inline example mid-sentence is always prose, real envelope still captures", () => {
+    // The exact dogfood shape: model explains the feature with a literal
+    // <recap> example, then closes with a proper final-line envelope.
+    const out = feedFinal([
+      '5. Quiet chat density — one live narration line, plus a recap line\n',
+      "(which is why your replies here get that `<recap>` line).\n\n",
+      '## Why it exists\nThe README has no "Why" section.\n\n',
+      "<recap>Explained what the impulse repo is.</recap>",
+    ]);
+    expect(out.captured).toBe("Explained what the impulse repo is.");
+    expect(out.prose).toContain('get that `<recap>` line');
+    expect(out.prose).toContain("## Why it exists");
+    expect(out.prose).not.toContain("Explained what the impulse repo is.");
+  });
+
+  test("inline example with no later envelope leaves everything as prose", () => {
+    const out = feedFinal(["get that `<recap>` line). More text here."]);
+    expect(out.prose).toBe("get that `<recap>` line). More text here.");
+    expect(out.captured).toBe("");
+  });
+
+  test("proper final-line envelope captures only at flush", () => {
+    const out = feedFinal(["Answer.\n<recap>Fixed the wrap width.</recap>"]);
+    expect(out.captured).toBe("Fixed the wrap width.");
+    expect(out.prose).toBe("Answer.\n");
+  });
+
+  test("content after the close tag re-emits the whole envelope as prose", () => {
+    const out = feedFinal(["<recap>not really</recap>More prose after."]);
+    expect(out.prose).toBe("<recap>not really</recap>More prose after.");
+    expect(out.captured).toBe("");
+  });
+
+  test("unclosed envelope at stream end is prose, not a capture", () => {
+    const out = feedFinal(["<recap>half a thought"]);
+    expect(out.prose).toBe("<recap>half a thought");
+    expect(out.captured).toBe("");
+  });
+
+  test("split tag at line start across deltas still captures", () => {
+    const out = feedFinal(["Answer.\n<rec", "ap>Fixed the wrap</rec", "ap>"]);
+    expect(out.captured).toBe("Fixed the wrap");
+    expect(out.prose).toBe("Answer.\n");
+  });
+});

@@ -4,7 +4,9 @@ import {
 } from "../src/cli/components/permission-overlay.js";
 import {
   formatPermissionAction,
+  formatPermissionDetails,
   formatPermissionReason,
+  sessionScopeLabel,
 } from "../src/cli/permission-display.js";
 import type { PermissionRequest } from "../src/permission/types.js";
 
@@ -47,5 +49,122 @@ describe("permission overlay", () => {
     for (const w of widths) {
       expect(w).toBe(boxWidth);
     }
+  });
+});
+
+describe("formatPermissionDetails (modal redesign, #169)", () => {
+  const bashWrite: PermissionRequest = {
+    id: "2",
+    sessionID: "s1",
+    permission: "bash",
+    patterns: ['echo "permission test" > /tmp/impulse-permission-test.txt'],
+    message: "Execute: echo …",
+    metadata: {
+      command: 'echo "permission test" > /tmp/impulse-permission-test.txt',
+      reason: "Write outside working directory: /tmp/impulse-permission-test.txt",
+    },
+  };
+
+  test("redirect write derives action, full command, target, concrete justification", () => {
+    const d = formatPermissionDetails(bashWrite);
+    expect(d.enriched).toBe(true);
+    expect(d.action).toBe("Write file");
+    expect(d.command).toBe('echo "permission test" > /tmp/impulse-permission-test.txt');
+    expect(d.target).toBe("/tmp/impulse-permission-test.txt");
+    // Justification = exactly what happens + the policy reason (#169)
+    expect(d.justification).toContain("Creates a new file; overwrites it if it already exists");
+    expect(d.justification).toContain("outside your working directory");
+    expect(d).not.toHaveProperty("result");
+  });
+
+  test("append redirect says append semantics in the justification", () => {
+    const d = formatPermissionDetails({
+      ...bashWrite,
+      metadata: { command: "echo x >> /tmp/log.txt", reason: "Write outside working directory: /tmp/log.txt" },
+    });
+    expect(d.action).toBe("Append to file");
+    expect(d.justification).toContain("Appends to the file if it exists; creates it if missing");
+  });
+
+  test("git push justification names the happening + the gate", () => {
+    const d = formatPermissionDetails({
+      ...bashWrite,
+      metadata: { command: "git push origin main", reason: "High-risk command" },
+    });
+    expect(d.enriched).toBe(true);
+    expect(d.action).toBe("Push commits");
+    expect(d.justification).toBe(
+      "Publishes commits to the remote repository; high-risk commands need approval"
+    );
+  });
+
+  test("file overwrite request enriches with target + concrete justification", () => {
+    const d = formatPermissionDetails({
+      id: "3",
+      sessionID: "s1",
+      permission: "write",
+      patterns: ["/tmp/out.txt"],
+      message: "Overwrite file: /tmp/out.txt",
+      metadata: { path: "/tmp/out.txt", isNewFile: false, reason: "Overwrite a file outside the project working directory" },
+    });
+    expect(d.enriched).toBe(true);
+    expect(d.action).toBe("Overwrite file");
+    expect(d.target).toBe("/tmp/out.txt");
+    expect(d.justification).toContain("Overwrites the existing file");
+    expect(d.justification).toContain("outside your working directory");
+  });
+
+  test("unrecognized command falls back to the old short form", () => {
+    const d = formatPermissionDetails(bashRequest);
+    expect(d.enriched).toBe(false);
+    expect(d.action).toBe("execute command: npm test -- --coverage");
+  });
+});
+
+describe("session grant labels (#170)", () => {
+  test("directory-scoped bash write grant names the directory", () => {
+    expect(
+      sessionScopeLabel(
+        { ...bashRequest, patterns: ["write:/tmp"] },
+        false
+      )
+    ).toBe("Allow in this session");
+  });
+
+  test("unscoped bash grant says exact command", () => {
+    expect(sessionScopeLabel(bashRequest, false)).toBe(
+      "Allow in this session"
+    );
+  });
+
+  test("file grant says this file", () => {
+    expect(
+      sessionScopeLabel(
+        {
+          id: "4",
+          sessionID: "s1",
+          permission: "edit",
+          patterns: ["/tmp/a.ts"],
+          message: "Edit file: /tmp/a.ts",
+        },
+        false
+      )
+    ).toBe("Allow in this session");
+  });
+
+  test("wildcard grants use proper plurals", () => {
+    expect(sessionScopeLabel(bashRequest, true)).toBe("Allow in this session (all commands)");
+    expect(
+      sessionScopeLabel(
+        {
+          id: "5",
+          sessionID: "s1",
+          permission: "edit",
+          patterns: ["/tmp/a.ts"],
+          message: "Edit file: /tmp/a.ts",
+        },
+        true
+      )
+    ).toBe("Allow in this session (all file edits)");
   });
 });

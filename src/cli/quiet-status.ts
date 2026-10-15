@@ -5,7 +5,7 @@
  */
 
 import path from "path";
-import { wrapTextWithAnsi, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { wrapTextWithAnsi, visibleWidth } from "@mariozechner/pi-tui";
 
 export type QuietToolOutcome = "success" | "failed" | "blocked" | "aborted";
 
@@ -1123,27 +1123,22 @@ export function formatQuietRecap(
 /**
  * Wrap Recap to at most `maxLines` rows; ellipsize the last line if truncated.
  */
+/**
+ * Wrap a Recap at the chat inner width. Full wrap, never ellipsize (#168):
+ * cutting a sentence mid-word defeats the Recap. Content length is governed
+ * by the ≤40-word model instruction and the ≤5-fact fallback rule, not by a
+ * hard visual cap.
+ */
 export function wrapQuietRecapLines(
   recapLine: string,
-  width: number,
-  maxLines = 3
+  width: number
 ): string[] {
   const avail = Math.max(8, width);
   // Model-authored recaps may carry hard newlines; the Recap is one flowing
   // paragraph, so collapse them — otherwise the wrapper strands fragments
   // ("and the" alone on a row).
   const flat = recapLine.replace(/\s*\n\s*/g, " ");
-  const wrapped = wrapTextWithAnsi(flat, avail);
-  if (wrapped.length === 0) return [];
-  if (wrapped.length <= maxLines) return wrapped;
-
-  const kept = wrapped.slice(0, maxLines);
-  const last = kept[maxLines - 1]!;
-  // Leave room for ellipsis
-  const ellipsis = "…";
-  const truncated = truncateToWidth(last, Math.max(1, avail - ellipsis.length));
-  kept[maxLines - 1] = `${truncated}${ellipsis}`;
-  return kept;
+  return wrapTextWithAnsi(flat, avail);
 }
 
 export type QuietSettleResult = {

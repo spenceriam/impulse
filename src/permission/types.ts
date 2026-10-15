@@ -50,6 +50,7 @@ export const PERMISSION_TYPES = {
   write: "Create file",
   bash: "Execute command",
   task: "Launch subagent",
+  path_outside_cwd: "Access path outside working directory",
 } as const;
 
 export type PermissionType = keyof typeof PERMISSION_TYPES;
