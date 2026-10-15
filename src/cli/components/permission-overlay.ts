@@ -213,7 +213,6 @@ export class PermissionOverlay implements Component {
       const labelRows: Array<[string, string]> = [];
       if (details.command) labelRows.push(["Command", details.command]);
       if (details.target) labelRows.push(["Target", details.target]);
-      if (details.result) labelRows.push(["Result", details.result]);
       if (details.justification) labelRows.push(["Justification", details.justification]);
       // Label column sizes to the longest label ("Justification" sets it).
       const labelWidth = Math.max(...labelRows.map(([label]) => label.length)) + 1;

@@ -64,36 +64,40 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
     },
   };
 
-  test("redirect write derives action, full command, target, effect, why", () => {
+  test("redirect write derives action, full command, target, concrete justification", () => {
     const d = formatPermissionDetails(bashWrite);
     expect(d.enriched).toBe(true);
     expect(d.action).toBe("Write file");
     expect(d.command).toBe('echo "permission test" > /tmp/impulse-permission-test.txt');
     expect(d.target).toBe("/tmp/impulse-permission-test.txt");
-    expect(d.result).toBe("Creates a new file; overwrites it if it already exists");
+    // Justification = exactly what happens + the policy reason (#169)
+    expect(d.justification).toContain("Creates a new file; overwrites it if it already exists");
     expect(d.justification).toContain("outside your working directory");
+    expect(d).not.toHaveProperty("result");
   });
 
-  test("append redirect says append semantics", () => {
+  test("append redirect says append semantics in the justification", () => {
     const d = formatPermissionDetails({
       ...bashWrite,
       metadata: { command: "echo x >> /tmp/log.txt", reason: "Write outside working directory: /tmp/log.txt" },
     });
     expect(d.action).toBe("Append to file");
-    expect(d.result).toBe("Appends to the file if it exists; creates it if missing");
+    expect(d.justification).toContain("Appends to the file if it exists; creates it if missing");
   });
 
-  test("git push derives publish semantics", () => {
+  test("git push justification names the happening + the gate", () => {
     const d = formatPermissionDetails({
       ...bashWrite,
       metadata: { command: "git push origin main", reason: "High-risk command" },
     });
     expect(d.enriched).toBe(true);
     expect(d.action).toBe("Push commits");
-    expect(d.result).toBe("Publishes commits to the remote repository");
+    expect(d.justification).toBe(
+      "Publishes commits to the remote repository; high-risk commands need approval"
+    );
   });
 
-  test("file overwrite request enriches with target + effect", () => {
+  test("file overwrite request enriches with target + concrete justification", () => {
     const d = formatPermissionDetails({
       id: "3",
       sessionID: "s1",
@@ -105,7 +109,8 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
     expect(d.enriched).toBe(true);
     expect(d.action).toBe("Overwrite file");
     expect(d.target).toBe("/tmp/out.txt");
-    expect(d.result).toBe("Overwrites the existing file");
+    expect(d.justification).toContain("Overwrites the existing file");
+    expect(d.justification).toContain("outside your working directory");
   });
 
   test("unrecognized command falls back to the old short form", () => {

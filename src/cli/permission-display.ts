@@ -92,9 +92,11 @@ export type PermissionDetails = {
   command?: string;
   /** Absolute target path when known. */
   target?: string | undefined;
-  /** What you get on approval ("Creates a new file; overwrites it if it exists"). */
-  result?: string;
-  /** Why approval is required, with cwd context. */
+  /**
+   * Exactly what happens, plus the policy reason — e.g. "Creates a new file
+   * (overwrites it if it exists); the target is outside your working
+   * directory (~/impulse)". This is the only prose row.
+   */
   justification?: string;
 };
 
@@ -111,7 +113,13 @@ function homeTilde(p: string): string {
   return home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
-type DerivedBash = Omit<PermissionDetails, "enriched" | "justification">;
+type DerivedBash = {
+  action: string;
+  command?: string;
+  target?: string | undefined;
+  /** Exactly what the command does ("Creates a new file; overwrites…"). */
+  happening: string;
+};
 
 function bashDetails(command: string): DerivedBash | null {
   const redir = command.match(/(?:^|\s)(>>?)\s*["']?([^\s"'|>]+)/);
@@ -121,7 +129,7 @@ function bashDetails(command: string): DerivedBash | null {
       action: append ? "Append to file" : "Write file",
       command,
       target: redir[2],
-      result: append
+      happening: append
         ? "Appends to the file if it exists; creates it if missing"
         : "Creates a new file; overwrites it if it already exists",
     };
@@ -131,25 +139,25 @@ function bashDetails(command: string): DerivedBash | null {
     return paths[paths.length - 1];
   };
   if (/\bcp\b/.test(command)) {
-    return { action: "Copy files", command, target: lastPath(command), result: "Writes to the target; overwrites it if it exists" };
+    return { action: "Copy files", command, target: lastPath(command), happening: "Writes to the target; overwrites it if it exists" };
   }
   if (/\bmv\b/.test(command)) {
-    return { action: "Move files", command, target: lastPath(command), result: "Moves the file(s); overwrites the target if it exists" };
+    return { action: "Move files", command, target: lastPath(command), happening: "Moves the file(s); overwrites the target if it exists" };
   }
   if (/\bmkdir\b/.test(command)) {
-    return { action: "Create directories", command, target: pathTokens(command).join(", "), result: "Creates new directories" };
+    return { action: "Create directories", command, target: pathTokens(command).join(", "), happening: "Creates new directories" };
   }
   if (/\btouch\b/.test(command)) {
-    return { action: "Touch file", command, target: pathTokens(command).join(", "), result: "Creates the file if missing; updates its timestamp if it exists" };
+    return { action: "Touch file", command, target: pathTokens(command).join(", "), happening: "Creates the file if missing; updates its timestamp if it exists" };
   }
   if (/\btee\b/.test(command)) {
-    return { action: "Write file", command, target: lastPath(command), result: "Writes the command's output to the file; overwrites if it exists" };
+    return { action: "Write file", command, target: lastPath(command), happening: "Writes the command's output to the file; overwrites if it exists" };
   }
   if (/\bsed\s+-i\b/.test(command)) {
-    return { action: "Edit file in place", command, target: lastPath(command), result: "Rewrites the file with the substitution applied" };
+    return { action: "Edit file in place", command, target: lastPath(command), happening: "Rewrites the file with the substitution applied" };
   }
   if (/\b(npm|yarn|pnpm|bun)\s+(install|add|remove|uninstall)\b/.test(command)) {
-    return { action: "Change dependencies", command, result: "Downloads and writes packages into this project and its lockfile" };
+    return { action: "Change dependencies", command, happening: "Downloads and writes packages into this project and its lockfile" };
   }
   const git = command.match(/\bgit\s+(clone|commit|push|pull|merge|rebase|apply|am|checkout|restore|clean|reset)\b/);
   if (git) {
@@ -167,21 +175,39 @@ function bashDetails(command: string): DerivedBash | null {
       clean: ["Clean untracked files", "Deletes untracked files from the working tree"],
       reset: ["Reset state", "Moves the branch pointer and may rewrite the working tree"],
     };
-    const [action, result] = map[git[1]!]!;
-    return { action, command, target: lastPath(command), result };
+    const [action, happening] = map[git[1]!]!;
+    return { action, command, target: lastPath(command), happening };
   }
   if (/\bcurl\b[^|]*\s(?:-o|-O|--output)\b/.test(command)) {
     const out = command.match(/(?:-o|--output)\s*["']?([^\s"']+)/);
-    return { action: "Download file", command, target: out?.[1], result: "Writes the response body to disk" };
+    return { action: "Download file", command, target: out?.[1], happening: "Writes the response body to disk" };
   }
   if (/\bwget\b[^|]*\s(?:-O|--output-document)\b/.test(command)) {
     const out = command.match(/(?:-O|--output-document=?)\s*["']?([^\s"']+)/);
-    return { action: "Download file", command, target: out?.[1], result: "Writes the response body to disk" };
+    return { action: "Download file", command, target: out?.[1], happening: "Writes the response body to disk" };
   }
   if (/\b(unzip|tar|zip)\b/.test(command)) {
-    return { action: "Extract or create archive", command, result: "Writes extracted/archived files to disk" };
+    return { action: "Extract or create archive", command, happening: "Writes extracted/archived files to disk" };
   }
   return null;
+}
+
+/**
+ * Justification = exactly what happens (the happening sentence) + the policy
+ * reason in plain terms. The happening comes first — that is what the user
+ * is approving (#169).
+ */
+function composeJustification(happening: string, reason: string, cwd: string): string {
+  const policy = /outside working directory|outside (cwd|the project working directory)/i.test(
+    reason
+  )
+    ? `the target is outside your working directory (${homeTilde(cwd)})`
+    : /high-risk/i.test(reason)
+      ? "high-risk commands need approval"
+      : /write\/mutating/i.test(reason)
+        ? "write commands need approval"
+        : reason;
+  return `${happening}; ${policy}`;
 }
 
 /**
@@ -197,10 +223,11 @@ export function formatPermissionDetails(request: PermissionRequest): PermissionD
   if (request.permission === "bash" && typeof meta["command"] === "string") {
     const derived = bashDetails(String(meta["command"]).trim());
     if (derived) {
-      const justification = /outside working directory/i.test(reason)
-        ? `Target is outside your working directory (${homeTilde(cwd)})`
-        : reason;
-      return { enriched: true, ...derived, justification };
+      return {
+        enriched: true,
+        ...derived,
+        justification: composeJustification(derived.happening, reason, cwd),
+      };
     }
     return { enriched: false, action: formatPermissionAction(request), justification: reason };
   }
@@ -209,22 +236,18 @@ export function formatPermissionDetails(request: PermissionRequest): PermissionD
     const target =
       typeof meta["path"] === "string" ? String(meta["path"]) : request.patterns[0];
     const isNew = meta["isNewFile"] === true;
-    const result =
+    const happening =
       request.permission === "edit"
         ? "Applies a code edit to the existing file"
         : isNew
           ? "Creates a new file"
           : "Overwrites the existing file";
-    const justification = /outside (cwd|the project working directory)/i.test(reason)
-      ? `Target is outside your working directory (${homeTilde(cwd)})`
-      : reason;
     return {
       enriched: true,
       action:
         request.permission === "edit" ? "Edit file" : isNew ? "Create file" : "Overwrite file",
       ...(target !== undefined ? { target } : {}),
-      result,
-      justification,
+      justification: composeJustification(happening, reason, cwd),
     };
   }
 
