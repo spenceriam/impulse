@@ -222,8 +222,13 @@ export async function ask(input: {
   message: string;
   metadata?: Record<string, unknown>;
   tool?: { messageID: string; callID: string };
+  /**
+   * Absolutely-destructive asks still prompt under the allow-all bypass
+   * (trust mode / /allow-all, #143) — the bypass skips everything else.
+   */
+  exemptFromBypass?: boolean;
 }): Promise<void> {
-  if (allowAllBypass) {
+  if (allowAllBypass && !input.exemptFromBypass) {
     return;
   }
 

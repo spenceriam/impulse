@@ -2434,6 +2434,16 @@ export class ImpulseRenderer {
         this.addChatLine(clr.dim("Allow-all not enabled."));
       }
       this.tui.requestRender();
+    } else if (config.permissionMode === "trust") {
+      // Persisted trust mode (#143): allow-all at startup without the
+      // disclaimer nag (enabling it in /settings was the consent), while
+      // absolutely-destructive commands still ask (exemptFromBypass).
+      this.allowAllStartupAgreed = true;
+      this.applyAllowAllForSessionScope();
+      this.addChatLine(
+        clr.dim("Permissions: trust mode — everything allowed except destructive commands")
+      );
+      this.tui.requestRender();
     }
     // Discover reasoning capabilities in background (non-blocking)
     void this.refreshReasoningCapability();
@@ -5627,6 +5637,7 @@ export class ImpulseRenderer {
     const initialValues: SettingsValues = {
       chatDensity: config.chatDensity ?? "quiet",
       midTurnSubmit: config.midTurnSubmit ?? "redirect",
+      permissionMode: config.permissionMode ?? "gate",
       showRecap: config.showRecap ?? true,
       thinkingDisplay: config.thinkingDisplay ?? "summary",
       reasoningLevel: config.reasoningLevel ?? "medium",
@@ -5652,6 +5663,7 @@ export class ImpulseRenderer {
       }
       config.chatDensity = values.chatDensity;
       config.midTurnSubmit = values.midTurnSubmit;
+      config.permissionMode = values.permissionMode;
       config.showRecap = values.showRecap;
       config.thinkingDisplay = values.thinkingDisplay;
       config.showMainThinking = values.thinkingDisplay === "full";

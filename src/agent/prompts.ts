@@ -473,9 +473,11 @@ function getModePromptName(mode: Mode): string {
 export function buildAllowAllBypassPromptBlock(): string {
   if (!isAllowAllBypass()) return "";
   return `
-### Permissions bypass (/allow-all)
+### Permissions bypass (trust mode or /allow-all)
 
-Session bypass is ON: tool permission prompts are auto-approved.
+Session bypass is ON: tool permission prompts are auto-approved — except
+absolutely-destructive commands (deletions, force-pushes, hard resets),
+which still require user approval.
 Do not spend multiple turns on planning or repeated todo_write before substantive tools.
 When the user gave a clear multi-step task, call real tools in parallel on the first tool-using response.
 `.trim();

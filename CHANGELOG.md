@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-15
+
+  **Type:** minor
+  **Title:** Trust mode — persisted allow-all that still gates destructive commands
+
+  ### Added
+  - **#143** -- `permissionMode` profile setting (`~/.impulse/config.json`, `/settings` → Permissions): **Gate writes** (default — today's behavior) or **Trust** — allow-all at startup so you never type `/aa` again, while absolutely-destructive commands (`rm`/`rmdir`/`shred`, `git push`, `reset --hard`, `clean -fdx`, `checkout .`) still require approval. Enabling Trust in `/settings` is the one-time consent; launches apply silently with a status line. `/allow-all` remains the session-scoped full override — and under both, destructive commands now always ask (`exemptFromBypass`): the bypass skips everything else, never the irreversibles.
+
 ## [1.12.1] - 2026-10-14
 
   **Type:** patch
