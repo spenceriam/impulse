@@ -1,6 +1,5 @@
 import { visibleWidth, wrapTextWithAnsi, type Component } from "@mariozechner/pi-tui";
 import {
-  getPermissionLabel,
   type PermissionRequest,
   type PermissionResponse,
 } from "../../permission/index.js";
@@ -41,7 +40,7 @@ const BASE_OPTIONS: Array<{ value: PermissionResponse; label: string }> = [
   { value: "reject", label: "Deny" },
   { value: "once", label: "Allow once" },
   { value: "session", label: "Allow session" },
-  { value: "always", label: "Always" },
+  { value: "always", label: "Always allow" },
 ];
 
 function sessionOptionLabel(request: PermissionRequest, wildcard: boolean): string {
@@ -192,8 +191,10 @@ export class PermissionOverlay implements Component {
     };
 
     if (this.confirmAlways) {
-      const kind = getPermissionLabel(this.request.permission).toLowerCase();
-      pushBoxLine(`${A.bold}Confirm: always allow ${kind}?${A.reset}`);
+      pushBoxLine(`${A.bold}Remember this grant for the project?${A.reset}`);
+      pushBoxLine(
+        `${A.dim}Saved to .impulse/permissions.json — applies to every future session here.${A.reset}`
+      );
       pushBoxLine("");
       const confirmOptions = [
         { label: "Yes", selected: this.selectedIndex === 0 },

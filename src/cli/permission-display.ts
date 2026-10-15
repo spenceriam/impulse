@@ -123,25 +123,25 @@ const PLURAL_KIND: Record<string, string> = {
 };
 
 /**
- * What "Allow session" actually grants (#170). Directory-scoped bash write
- * grants name their directory; exact-command grants say so; file grants say
- * "this file". Wildcard grants use proper plurals.
+ * What "Allow session" actually grants (#170). Verb-first plain English:
+ * "Allow writes to /tmp (this session)", never "Allow session (writes to
+ * /tmp)" — the scope-in-parentheses order reads backwards.
  */
 export function sessionScopeLabel(
   request: PermissionRequest,
   wildcard: boolean
 ): string {
   const kind = getPermissionLabel(request.permission).toLowerCase();
-  if (wildcard) {
-    return `Allow session (all ${PLURAL_KIND[kind] ?? `${kind}s`})`;
-  }
   const pattern = request.patterns[0] ?? "";
-  if (pattern.startsWith("write:")) {
-    return `Allow session (writes to ${homeTilde(pattern.slice("write:".length))})`;
+  if (wildcard) {
+    return `Allow all ${PLURAL_KIND[kind] ?? `${kind}s`} (this session)`;
   }
-  if (request.permission === "bash") return "Allow session (this exact command)";
-  if (kind === "edit file" || kind === "create file") return "Allow session (this file)";
-  return "Allow session (this action)";
+  if (pattern.startsWith("write:")) {
+    return `Allow writes to ${homeTilde(pattern.slice("write:".length))} (this session)`;
+  }
+  if (request.permission === "bash") return "Allow this exact command (this session)";
+  if (kind === "edit file" || kind === "create file") return "Allow this file (this session)";
+  return "Allow this action (this session)";
 }
 
 type DerivedBash = {
