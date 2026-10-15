@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Changed
   - **#169** -- Permission/question modal redesign: selection accent is now cyan (base-16 `bg 46`), matching the model name's color in the context bar (was 256-cube blue). Prompts for write/mutating actions show a detail block — derived action (`Write file`, `Push commits`), full command (never truncated), target path, and a concrete justification (`Creates a new file (overwrites it if it exists); the target is outside your working directory (~/GitHub/impulse)`). Unrecognized actions keep the previous short form.
-  - **#170** -- "Allow session" on bash prompts now works as users expect: write commands grant a directory-scoped session approval (`write:<dir>`) instead of storing the full command string (which never matched twice). Labels say what the grant covers — `Allow session (writes to /tmp)`, `Allow session (this exact command)`, `Allow session (this file)` — and wildcard grants use proper plurals (`all commands`, not `all execute command`).
+  - **#170** -- "Allow session" on bash prompts now works as users expect: write commands grant a directory-scoped session approval (`write:<dir>`) instead of storing the full command string (which never matched twice). The label is short and uniform — `Allow in this session`, or `Allow in this session (all commands)` on the wildcard toggle (plurals fixed — was `all execute command`).
 
 ## [1.12.0] - 2026-10-11
 

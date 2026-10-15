@@ -128,12 +128,12 @@ describe("session grant labels (#170)", () => {
         { ...bashRequest, patterns: ["write:/tmp"] },
         false
       )
-    ).toBe("Allow writes to /tmp (this session)");
+    ).toBe("Allow in this session");
   });
 
   test("unscoped bash grant says exact command", () => {
     expect(sessionScopeLabel(bashRequest, false)).toBe(
-      "Allow this exact command (this session)"
+      "Allow in this session"
     );
   });
 
@@ -149,11 +149,11 @@ describe("session grant labels (#170)", () => {
         },
         false
       )
-    ).toBe("Allow this file (this session)");
+    ).toBe("Allow in this session");
   });
 
   test("wildcard grants use proper plurals", () => {
-    expect(sessionScopeLabel(bashRequest, true)).toBe("Allow all commands (this session)");
+    expect(sessionScopeLabel(bashRequest, true)).toBe("Allow in this session (all commands)");
     expect(
       sessionScopeLabel(
         {
@@ -165,6 +165,6 @@ describe("session grant labels (#170)", () => {
         },
         true
       )
-    ).toBe("Allow all file edits (this session)");
+    ).toBe("Allow in this session (all file edits)");
   });
 });
