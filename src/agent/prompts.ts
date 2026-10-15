@@ -8,7 +8,7 @@ import { MODES } from "../constants";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { isAllowAllBypass } from "../permission/index.js";
+import { getPermissionBypass } from "../permission/index.js";
 import {
   isExperimentalAdvisorEnabled,
   isExperimentalGoalEnabled,
@@ -471,13 +471,16 @@ function getModePromptName(mode: Mode): string {
 
 /** System prompt block when /allow-all permission bypass is active. */
 export function buildAllowAllBypassPromptBlock(): string {
-  if (!isAllowAllBypass()) return "";
+  const mode = getPermissionBypass();
+  if (mode === "off") return "";
+  const gate =
+    mode === "trust"
+      ? " — except absolutely-destructive commands (deletions, force-pushes, hard resets), which still require user approval"
+      : "";
   return `
-### Permissions bypass (trust mode or /allow-all)
+### Permissions bypass (${mode === "trust" ? "trust mode" : "full auto"})
 
-Session bypass is ON: tool permission prompts are auto-approved — except
-absolutely-destructive commands (deletions, force-pushes, hard resets),
-which still require user approval.
+Session bypass is ON: tool permission prompts are auto-approved${gate}.
 Do not spend multiple turns on planning or repeated todo_write before substantive tools.
 When the user gave a clear multi-step task, call real tools in parallel on the first tool-using response.
 `.trim();

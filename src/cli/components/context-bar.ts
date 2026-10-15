@@ -367,7 +367,7 @@ export class ContextBarComponent implements Component {
 
     let statsFull = "";
     if (s.allowAllBypass) {
-      statsFull = c.fg(214, visual === "full" ? "Allow-All" : "AA");
+      statsFull = c.fg(214, visual === "full" ? "Full Auto" : "FA");
     } else if (visual === "full" && s.showTurnSpeed) {
       if (s.tokensPerSecond !== undefined && s.tokensPerSecond > 0) {
         statsFull += clr.dim(`\u26a1 ${s.tokensPerSecond} tk/s`);

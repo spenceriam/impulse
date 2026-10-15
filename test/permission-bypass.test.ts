@@ -1,56 +1,62 @@
 import { describe, expect, test } from "bun:test";
-import { ask, resetAllowAllBypass, setAllowAllBypass } from "../src/permission/index.js";
+import {
+  ask,
+  getPermissionBypass,
+  resetAllowAllBypass,
+  setPermissionBypass,
+} from "../src/permission/index.js";
 
-describe("allow-all bypass exemption (#143)", () => {
-  test("non-exempt asks auto-approve under the bypass", async () => {
-    setAllowAllBypass(true);
-    // Resolves immediately — no prompt published.
+function staysPending(input: Parameters<typeof ask>[0]): Promise<boolean> {
+  let settled = false;
+  const p = ask(input);
+  p.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    }
+  );
+  return new Promise((resolve) =>
+    setTimeout(() => resolve(!settled), 25)
+  );
+}
+
+describe("permission bypass modes (#143)", () => {
+  test("gated (off): everything prompts normally", async () => {
+    setPermissionBypass("off");
+    await expect(staysPending({ sessionID: "t", permission: "bash", patterns: ["x"], message: "m" })).resolves.toBe(true);
+    await expect(
+      staysPending({ sessionID: "t", permission: "bash", patterns: ["rm -rf x"], message: "m", exemptFromBypass: true })
+    ).resolves.toBe(true);
+  });
+
+  test("trust: non-destructive auto-approves; destructive still prompts", async () => {
+    setPermissionBypass("trust");
+    expect(getPermissionBypass()).toBe("trust");
+    // Non-exempt resolves immediately (no prompt)
     await ask({ sessionID: "t", permission: "bash", patterns: ["x"], message: "m" });
-    resetAllowAllBypass();
+    // Exempt (absolutely-destructive) still waits on the user
+    await expect(
+      staysPending({ sessionID: "t", permission: "bash", patterns: ["rm -rf x"], message: "m", exemptFromBypass: true })
+    ).resolves.toBe(true);
   });
 
-  test("exempt (absolutely-destructive) asks still prompt under the bypass", async () => {
-    setAllowAllBypass(true);
-    let settled = false;
-    const p = ask({
+  test("full: nothing asks — even destructive", async () => {
+    setPermissionBypass("full");
+    await ask({ sessionID: "t", permission: "bash", patterns: ["x"], message: "m" });
+    await ask({
       sessionID: "t",
       permission: "bash",
-      patterns: ["rm -rf build"],
-      message: "Execute: rm -rf build",
+      patterns: ["rm -rf x"],
+      message: "m",
       exemptFromBypass: true,
     });
-    p.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      }
-    );
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(settled).toBe(false); // still waiting on a user decision
-    resetAllowAllBypass();
   });
 
-  test("exempt asks prompt normally without the bypass", async () => {
+  test("reset clears the mode", () => {
+    setPermissionBypass("full");
     resetAllowAllBypass();
-    let settled = false;
-    const p = ask({
-      sessionID: "t",
-      permission: "bash",
-      patterns: ["rm -rf build"],
-      message: "Execute: rm -rf build",
-      exemptFromBypass: true,
-    });
-    p.then(
-      () => {
-        settled = true;
-      },
-      () => {
-        settled = true;
-      }
-    );
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(settled).toBe(false);
+    expect(getPermissionBypass()).toBe("off");
   });
 });

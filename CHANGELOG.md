@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.13.0] - 2026-10-15
 
   **Type:** minor
-  **Title:** Trust mode — persisted allow-all that still gates destructive commands
+  **Title:** Permission modes — Gated / Trust / Full Auto (persisted posture)
 
   ### Added
-  - **#143** -- `permissionMode` profile setting (`~/.impulse/config.json`, `/settings` → Permissions): **Gate writes** (default — today's behavior) or **Trust** — allow-all at startup so you never type `/aa` again, while absolutely-destructive commands (`rm`/`rmdir`/`shred`, `git push`, `reset --hard`, `clean -fdx`, `checkout .`) still require approval. Enabling Trust in `/settings` is the one-time consent; launches apply silently with a status line. `/allow-all` remains the session-scoped full override — and under both, destructive commands now always ask (`exemptFromBypass`): the bypass skips everything else, never the irreversibles.
+  - **#143** -- `permissionMode` profile setting (`~/.impulse/config.json`, `/settings` → Permissions), three values: **Gated** (default — writes/mutations prompt), **Trust** (allow-all at startup; only absolutely-destructive commands — deletions, force-pushes, hard resets — still ask), and **Full Auto** (nothing asks, ever — the persisted form of the old Allow-All). `/allow-all` (`/aa`) remains the session-scoped Full Auto toggle; the footer indicator is renamed **Full Auto** (shown only in that mode — Gated and Trust stay silent). Startup always prints the active mode (`Permissions: Gated` / `Trust` / `Full Auto`).
+
+  ### Changed
+  - **#143** -- "Always allow" in the permission modal no longer shows a confirmation screen — it grants immediately for the project (persistence details moved out of the UI; revises the 06-09 double-confirm decision).
 
 ## [1.12.1] - 2026-10-14
 

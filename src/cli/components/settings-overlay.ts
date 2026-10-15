@@ -37,7 +37,7 @@ const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
 const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
 const CHAT_DENSITY_CYCLE: ChatDensity[] = ["quiet", "verbose"];
 const MID_TURN_CYCLE: MidTurnSubmit[] = ["redirect", "queue"];
-const PERMISSION_MODE_CYCLE: PermissionMode[] = ["gate", "trust"];
+const PERMISSION_MODE_CYCLE: PermissionMode[] = ["gated", "trust", "full-auto"];
 
 export interface SettingsValues {
   chatDensity: ChatDensity;
@@ -119,7 +119,8 @@ function formatMidTurnSubmit(value: MidTurnSubmit): string {
 }
 
 function formatPermissionMode(value: PermissionMode): string {
-  return value === "gate" ? "Gate writes" : "Trust (all but destructive)";
+  if (value === "gated") return "Gated";
+  return value === "trust" ? "Trust" : "Full Auto";
 }
 
 function formatChatDensity(value: ChatDensity): string {
@@ -174,7 +175,7 @@ export class SettingsOverlay implements Component {
         {
           key: "permissionMode",
           label: "Permissions",
-          hint: "Gate writes (default) → Trust: allow all, but destructive commands still ask",
+          hint: "Gated (default: writes ask) → Trust (destructive asks only) → Full Auto (nothing asks)",
           kind: "cycle",
         },
       ],

@@ -66,22 +66,22 @@ describe("context bar visuals", () => {
 });
 
 describe("context bar allow-all indicator", () => {
-  test("full shows Allow-All when bypass is on", () => {
+  test("full shows Full Auto when bypass is on", () => {
     const text = renderBarWithAllowAll("full");
-    expect(text).toContain("Allow-All");
-    expect(text).not.toContain(" AA");
+    expect(text).toContain("Full Auto");
+    expect(text).not.toContain(" FA");
   });
 
-  test("reduced shows AA when bypass is on", () => {
+  test("reduced shows FA when bypass is on", () => {
     const text = renderBarWithAllowAll("reduced");
-    expect(text).toContain("AA");
-    expect(text).not.toContain("Allow-All");
+    expect(text).toContain("FA");
+    expect(text).not.toContain("Full Auto");
   });
 
-  test("minimal shows AA when bypass is on", () => {
+  test("minimal shows FA when bypass is on", () => {
     const text = renderBarWithAllowAll("minimal");
-    expect(text).toContain("AA");
-    expect(text).not.toContain("Allow-All");
+    expect(text).toContain("FA");
+    expect(text).not.toContain("Full Auto");
   });
 
   test("off hides AA when bypass is on", () => {
@@ -94,14 +94,14 @@ describe("context bar allow-all indicator", () => {
     const text = stripAnsi(lines.join("\n"));
     expect(lines.length).toBe(1);
     expect(text).not.toContain("AA");
-    expect(text).not.toContain("Allow-All");
+    expect(text).not.toContain("Full Auto");
   });
 
   test("no allow-all label when bypass is off", () => {
     for (const visual of ["full", "reduced", "minimal", "off"] as const) {
       const text = stripAnsi(renderBar(visual));
-      expect(text).not.toContain("Allow-All");
-      expect(text).not.toContain(" AA");
+      expect(text).not.toContain("Full Auto");
+      expect(text).not.toContain(" FA");
     }
   });
 });
