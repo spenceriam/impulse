@@ -32,6 +32,15 @@ const ChatDensitySchema = z.enum(["quiet", "verbose"]);
 export type MidTurnSubmit = "redirect" | "queue";
 const MidTurnSubmitSchema = z.enum(["redirect", "queue"]);
 
+/**
+ * Persisted permission posture (#143): gated = write/mutating commands
+ * prompt (default); trust = allow-all at startup, absolutely-destructive
+ * commands (deletions, force-pushes, hard resets) still ask;
+ * full-auto = nothing asks, ever (persisted /allow-all).
+ */
+export type PermissionMode = "gated" | "trust" | "full-auto";
+const PermissionModeSchema = z.enum(["gated", "trust", "full-auto"]);
+
 const ProviderKeySchema = z.object({
   /** API key for this provider */
   apiKey: z.string().optional(),
@@ -143,6 +152,14 @@ const ConfigSchema = z.object({
 
   /** Mid-turn Enter: redirect (steer) | queue until free */
   midTurnSubmit: MidTurnSubmitSchema.default("redirect"),
+
+  /**
+   * Persisted permission posture (#143): gated = write/mutating commands
+   * prompt (default); trust = allow-all at startup while absolutely
+   * destructive commands (deletions, force-pushes, hard resets) still ask;
+   * full-auto = nothing asks, ever.
+   */
+  permissionMode: PermissionModeSchema.default("gated"),
 
   /** Ghost Recap: line after Quiet turns (event-sourced; no extra model call) */
   showRecap: z.boolean().default(true),

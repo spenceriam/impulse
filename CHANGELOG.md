@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-15
+
+  **Type:** minor
+  **Title:** Permission modes — Gated / Trust / Full Auto (persisted posture)
+
+  ### Added
+  - **#143** -- `permissionMode` profile setting (`~/.impulse/config.json`, `/settings` → Permissions), three values: **Gated** (default — writes/mutations prompt), **Trust** (allow-all at startup; only absolutely-destructive commands — deletions, force-pushes, hard resets — still ask), and **Full Auto** (nothing asks, ever — the persisted form of the old Allow-All). `/allow-all` (`/aa`) remains the session-scoped Full Auto toggle; the footer indicator is renamed **Full Auto** (shown only in that mode — Gated and Trust stay silent). Startup always prints the active mode (`Permissions: Gated` / `Trust` / `Full Auto`).
+
+  ### Changed
+  - **#143** -- "Always allow" in the permission modal no longer shows a confirmation screen — it grants immediately for the project (persistence details moved out of the UI; revises the 06-09 double-confirm decision).
+  - **#173** -- The event-sourced Recap fallback (used when a model doesn't emit a `<recap>` envelope) no longer echoes raw URL plumbing: web facts read as meaning — `viewed spenceriam/jelico on GitHub`, `read issue #173 on GitHub`, `read PR #171 on GitHub`, `read the README on GitHub`, `checked releases on GitHub`, `read a page from example.com` — and URL variants dedupe to a single fact. The trailing success `✓` is removed from all Recap lines: facts are sentences, no symbols. Driver-agnostic guarantee: the fallback is the product regardless of model.
+
 ## [1.12.1] - 2026-10-14
 
   **Type:** patch

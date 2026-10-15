@@ -1314,6 +1314,11 @@ export const bashTool: Tool<BashInput> = Tool.define(
               permCheck.reason ||
               "Run a shell command on your machine",
           },
+          // Absolutely-destructive commands ask even under allow-all /
+          // trust mode (#143).
+          ...(classifyCommand(input.command) === "high_risk"
+            ? { exemptFromBypass: true as const }
+            : {}),
         });
       }
 

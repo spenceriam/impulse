@@ -76,8 +76,32 @@ const sessionApprovals = new Map<string, Map<string, Set<string>>>();
  */
 let projectApprovals: Map<string, Set<string>> | null = null;
 
-/** /allow-all bypass — auto-approve all tool permissions (in-memory only). */
-let allowAllBypass = false;
+/** Session bypass mode (#143): off | trust (all but destructive) | full (nothing asks). */
+export type PermissionBypassMode = "off" | "trust" | "full";
+let bypassMode: PermissionBypassMode = "off";
+
+export function isAllowAllBypass(): boolean {
+  return bypassMode !== "off";
+}
+
+/** Current bypass mode — distinguishes Trust from Full Auto (#143). */
+export function getPermissionBypass(): PermissionBypassMode {
+  return bypassMode;
+}
+
+export function setPermissionBypass(mode: PermissionBypassMode): void {
+  bypassMode = mode;
+}
+
+/** Legacy boolean API — true = full bypass (old /allow-all semantics). */
+export function setAllowAllBypass(on: boolean): void {
+  bypassMode = on ? "full" : "off";
+}
+
+/** Reset bypass (new session, resume, /new — never persisted). */
+export function resetAllowAllBypass(): void {
+  bypassMode = "off";
+}
 
 /**
  * Load project permissions from .impulse/permissions.json
@@ -161,19 +185,6 @@ function isProjectApproved(permission: string, pattern: string): boolean {
   return permissionApprovals.has(pattern) || permissionApprovals.has("*");
 }
 
-export function isAllowAllBypass(): boolean {
-  return allowAllBypass;
-}
-
-export function setAllowAllBypass(on: boolean): void {
-  allowAllBypass = on;
-}
-
-/** Reset bypass (new session, resume, /new — never persisted). */
-export function resetAllowAllBypass(): void {
-  allowAllBypass = false;
-}
-
 /**
  * Check if a pattern is approved (session or project level)
  */
@@ -222,8 +233,16 @@ export async function ask(input: {
   message: string;
   metadata?: Record<string, unknown>;
   tool?: { messageID: string; callID: string };
+  /**
+   * Absolutely-destructive asks still prompt under the TRUST bypass; the
+   * FULL bypass asks nothing (#143). Gated mode prompts normally.
+   */
+  exemptFromBypass?: boolean;
 }): Promise<void> {
-  if (allowAllBypass) {
+  if (bypassMode === "full") {
+    return;
+  }
+  if (bypassMode === "trust" && !input.exemptFromBypass) {
     return;
   }
 

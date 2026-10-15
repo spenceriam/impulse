@@ -3,6 +3,7 @@ import type {
   BottomBarVisual,
   ChatDensity,
   MidTurnSubmit,
+  PermissionMode,
   ReasoningLevel,
   ThinkingDisplay,
 } from "../../util/config.js";
@@ -36,10 +37,12 @@ const REASONING_CYCLE: ReasoningLevel[] = ["off", "low", "medium", "high"];
 const BOTTOM_BAR_CYCLE: BottomBarVisual[] = ["full", "reduced", "minimal", "off"];
 const CHAT_DENSITY_CYCLE: ChatDensity[] = ["quiet", "verbose"];
 const MID_TURN_CYCLE: MidTurnSubmit[] = ["redirect", "queue"];
+const PERMISSION_MODE_CYCLE: PermissionMode[] = ["gated", "trust", "full-auto"];
 
 export interface SettingsValues {
   chatDensity: ChatDensity;
   midTurnSubmit: MidTurnSubmit;
+  permissionMode: PermissionMode;
   showRecap: boolean;
   thinkingDisplay: ThinkingDisplay;
   reasoningLevel: ReasoningLevel;
@@ -57,6 +60,7 @@ export function settingsValuesEqual(a: SettingsValues, b: SettingsValues): boole
   return (
     a.chatDensity === b.chatDensity &&
     a.midTurnSubmit === b.midTurnSubmit &&
+    a.permissionMode === b.permissionMode &&
     a.showRecap === b.showRecap &&
     a.thinkingDisplay === b.thinkingDisplay &&
     a.reasoningLevel === b.reasoningLevel &&
@@ -114,6 +118,11 @@ function formatMidTurnSubmit(value: MidTurnSubmit): string {
   return value === "redirect" ? "Redirect live turn" : "Queue until free";
 }
 
+function formatPermissionMode(value: PermissionMode): string {
+  if (value === "gated") return "Gated";
+  return value === "trust" ? "Trust" : "Full Auto";
+}
+
 function formatChatDensity(value: ChatDensity): string {
   return value === "quiet" ? "Quiet" : "Verbose";
 }
@@ -162,6 +171,12 @@ export class SettingsOverlay implements Component {
           label: "Recap line",
           hint: "Ghost Recap: after Quiet turns (event-sourced, no extra model call)",
           kind: "bool",
+        },
+        {
+          key: "permissionMode",
+          label: "Permissions",
+          hint: "Gated (default: writes ask) → Trust (destructive asks only) → Full Auto (nothing asks)",
+          kind: "cycle",
         },
       ],
     },
@@ -293,6 +308,8 @@ export class SettingsOverlay implements Component {
         return formatCycleValue(row.label, formatChatDensity(this.values.chatDensity));
       case "midTurnSubmit":
         return formatCycleValue(row.label, formatMidTurnSubmit(this.values.midTurnSubmit));
+      case "permissionMode":
+        return formatCycleValue(row.label, formatPermissionMode(this.values.permissionMode));
       case "showRecap":
         return formatBool(this.values.showRecap);
       case "thinkingDisplay":
@@ -382,6 +399,12 @@ export class SettingsOverlay implements Component {
         break;
       case "midTurnSubmit":
         this.values.midTurnSubmit = cycleValue(this.values.midTurnSubmit, MID_TURN_CYCLE);
+        break;
+      case "permissionMode":
+        this.values.permissionMode = cycleValue(
+          this.values.permissionMode,
+          PERMISSION_MODE_CYCLE
+        );
         break;
       case "showRecap":
         this.values.showRecap = !this.values.showRecap;

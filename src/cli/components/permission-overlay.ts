@@ -57,7 +57,6 @@ export class PermissionOverlay implements Component {
   private request: PermissionRequest;
   private selectedIndex = 1;
   private sessionWildcard = false;
-  private confirmAlways = false;
   private measureTerminalWidth: number | null = null;
 
   onDecision?: (
@@ -73,7 +72,6 @@ export class PermissionOverlay implements Component {
     this.request = request;
     this.selectedIndex = 1;
     this.sessionWildcard = false;
-    this.confirmAlways = false;
   }
 
   private options(): Array<{ value: PermissionResponse; label: string }> {
@@ -141,7 +139,7 @@ export class PermissionOverlay implements Component {
       }
     }
 
-    const optionCount = this.confirmAlways ? 2 : this.options().length;
+    const optionCount = this.options().length;
 
     if (isLeft(data)) {
       this.selectedIndex = (this.selectedIndex - 1 + optionCount) % optionCount;
@@ -154,22 +152,8 @@ export class PermissionOverlay implements Component {
     }
 
     if (isEnter(data)) {
-      if (this.confirmAlways) {
-        if (this.selectedIndex === 0) {
-          this.onDecision?.("always");
-        } else {
-          this.confirmAlways = false;
-          this.selectedIndex = 1;
-        }
-        return;
-      }
       const options = this.options();
       const choice = options[this.selectedIndex]!.value;
-      if (choice === "always") {
-        this.confirmAlways = true;
-        this.selectedIndex = 0;
-        return;
-      }
       if (choice === "session" && this.sessionWildcard) {
         this.onDecision?.(choice, { wildcard: true });
       } else {
@@ -190,32 +174,9 @@ export class PermissionOverlay implements Component {
       lines.push(overlaySideLine(content, innerWidth, boxWidth));
     };
 
-    if (this.confirmAlways) {
-      pushBoxLine(`${A.bold}Remember this grant for the project?${A.reset}`);
-      pushBoxLine(
-        `${A.dim}Saved to .impulse/permissions.json — applies to every future session here.${A.reset}`
-      );
-      pushBoxLine("");
-      const confirmOptions = [
-        { label: "Yes", selected: this.selectedIndex === 0 },
-        { label: "Back", selected: this.selectedIndex === 1 },
-      ];
-      const optionLine = confirmOptions
-        .map((option) =>
-          option.selected
-            ? `${A.bg(46, A.fg(16, ` ${option.label} `))}`
-            : `${A.fg(250, `[ ${option.label} ]`)}`
-        )
-        .join("   ");
-      for (const line of wrapTextWithAnsi(optionLine, innerWidth)) {
-        pushBoxLine(line);
-      }
-      pushBoxLine("");
-      pushBoxLine(`${A.dim}←/→ choose   Enter confirm   Esc deny${A.reset}`);
-      lines.push(overlayBottomBorder(boxWidth));
-      return lines;
-    }
-
+    // "Always allow" commits directly — no confirmation screen (owner
+    // direction 10-15: the grant is project-scoped; persistence details
+    // belong in docs, not the modal). Revises the 06-09 double-confirm lock.
     const details = formatPermissionDetails(this.request);
 
     pushBoxLine(`${A.bold}${details.action}${A.reset}`);

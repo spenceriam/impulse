@@ -116,9 +116,10 @@ import { overlayMaxHeightForContent, overlayViewportMaxHeight } from "./overlay-
 import { PromptHistory } from "./prompt-history.js";
 import { loadPromptHistory, savePromptHistory } from "../util/prompt-history-store.js";
 import {
+  getPermissionBypass,
   isAllowAllBypass,
   resetAllowAllBypass,
-  setAllowAllBypass,
+  setPermissionBypass,
 } from "../permission/index.js";
 import { ContextBarComponent, gitBranch } from "./components/context-bar.js";
 import { clearActiveSessionMarker } from "../util/active-session-marker.js";
@@ -444,7 +445,8 @@ export class ImpulseRenderer {
   private readonly startupResumeReason: "interrupted" | null;
   private readonly allowAllOnStartup: boolean;
   /** True once the startup disclaimer is accepted; keeps allow-all sticky across session switches. */
-  private allowAllStartupAgreed = false;
+  /** Startup-mandated bypass mode (#143): off | trust | full. */
+  private permissionBypassSource: "off" | "trust" | "full" = "off";
   private skipGoalContinuation = false;
   /** Chat children below welcome header (fixed); cleared on /new and /resume */
   private welcomeChildCount = 0;
@@ -2427,12 +2429,30 @@ export class ImpulseRenderer {
     if (this.allowAllOnStartup) {
       const agreed = await this.showAllowAllDisclaimer();
       if (agreed) {
-        this.allowAllStartupAgreed = true;
+        this.permissionBypassSource = "full";
         this.applyAllowAllForSessionScope();
-        this.addChatLine(clr.dim("All permissions bypassed"));
+        this.addChatLine(clr.dim("Permissions: Full Auto"));
       } else {
-        this.addChatLine(clr.dim("Allow-all not enabled."));
+        this.permissionBypassSource = "off";
+        this.addChatLine(clr.dim("Permissions: Gated"));
       }
+      this.tui.requestRender();
+    } else {
+      // Persisted posture (#143): /settings was the consent — apply without
+      // a disclaimer, and always announce the active mode.
+      const mode = config.permissionMode ?? "gated";
+      this.permissionBypassSource =
+        mode === "trust" ? "trust" : mode === "full-auto" ? "full" : "off";
+      this.applyAllowAllForSessionScope();
+      this.addChatLine(
+        clr.dim(
+          this.permissionBypassSource === "trust"
+            ? "Permissions: Trust"
+            : this.permissionBypassSource === "full"
+              ? "Permissions: Full Auto"
+              : "Permissions: Gated"
+        )
+      );
       this.tui.requestRender();
     }
     // Discover reasoning capabilities in background (non-blocking)
@@ -5627,6 +5647,7 @@ export class ImpulseRenderer {
     const initialValues: SettingsValues = {
       chatDensity: config.chatDensity ?? "quiet",
       midTurnSubmit: config.midTurnSubmit ?? "redirect",
+      permissionMode: config.permissionMode ?? "gated",
       showRecap: config.showRecap ?? true,
       thinkingDisplay: config.thinkingDisplay ?? "summary",
       reasoningLevel: config.reasoningLevel ?? "medium",
@@ -5652,6 +5673,7 @@ export class ImpulseRenderer {
       }
       config.chatDensity = values.chatDensity;
       config.midTurnSubmit = values.midTurnSubmit;
+      config.permissionMode = values.permissionMode;
       config.showRecap = values.showRecap;
       config.thinkingDisplay = values.thinkingDisplay;
       config.showMainThinking = values.thinkingDisplay === "full";
@@ -5919,14 +5941,15 @@ export class ImpulseRenderer {
 
   private applyAllowAllForSessionScope(): void {
     resetAllowAllBypass();
-    if (this.allowAllStartupAgreed) {
-      setAllowAllBypass(true);
+    if (this.permissionBypassSource !== "off") {
+      setPermissionBypass(this.permissionBypassSource);
     }
     this.syncAllowAllBypassUi();
   }
 
   private syncAllowAllBypassUi(): void {
-    this.syncContextBar({ allowAllBypass: isAllowAllBypass() });
+    // The footer bar shows ONLY Full Auto (#143): Gated/Trust stay silent.
+    this.syncContextBar({ allowAllBypass: getPermissionBypass() === "full" });
     this.tui?.requestRender();
   }
 
@@ -5987,8 +6010,8 @@ export class ImpulseRenderer {
     }
 
     if (isAllowAllBypass()) {
-      this.allowAllStartupAgreed = false;
-      setAllowAllBypass(false);
+      this.permissionBypassSource = "off";
+      setPermissionBypass("off");
       this.syncAllowAllBypassUi();
       this.addChatLine(clr.dim("Permission bypass off"));
       this.tui.requestRender();
@@ -5997,14 +6020,15 @@ export class ImpulseRenderer {
 
     const agreed = await this.showAllowAllDisclaimer();
     if (!agreed) {
-      this.addChatLine(clr.dim("Allow-all not enabled."));
+      this.addChatLine(clr.dim("Full Auto not enabled."));
       this.tui.requestRender();
       return;
     }
 
-    setAllowAllBypass(true);
+    this.permissionBypassSource = "full";
+    setPermissionBypass("full");
     this.syncAllowAllBypassUi();
-    this.addChatLine(clr.dim("All permissions bypassed"));
+    this.addChatLine(clr.dim("Permissions: Full Auto"));
     this.tui.requestRender();
   }
 

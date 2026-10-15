@@ -501,6 +501,45 @@ export function formatDuration(ms: number): string {
   return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds}s`;
 }
 
+/**
+ * Humanize a fetched URL for the Recap fallback (#173) — same bar as the
+ * bash humanizer ("viewed the repo on GitHub"), never URL echo. GitHub
+ * paths map to their meaning; other hosts name the site, not the plumbing.
+ */
+export function humanizeWebFetchTarget(url: string): string | null {
+  const raw = url.trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(/^https?:\/\//.test(raw) ? raw : `https://${raw}`);
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+    const segs = u.pathname.split("/").filter(Boolean);
+
+    if (host === "github.com" || host.endsWith(".github.com")) {
+      const [owner, repo, kind, num] = segs;
+      if (owner && repo) {
+        if (kind === "issues" && num && /^\d+$/.test(num)) {
+          return `read issue #${num} on GitHub`;
+        }
+        if ((kind === "pull" || kind === "p") && num && /^\d+$/.test(num)) {
+          return `read PR #${num} on GitHub`;
+        }
+        if (kind === "issues") return "checked issues on GitHub";
+        if (kind === "releases" || kind === "tags") return "checked releases on GitHub";
+        if (/^readme/i.test(kind ?? "")) return "read the README on GitHub";
+        if (kind === "tree" || kind === "blob" || kind === undefined || kind === "") {
+          return `viewed ${owner}/${repo.replace(/\.git$/, "")} on GitHub`;
+        }
+        return `viewed ${owner}/${repo.replace(/\.git$/, "")} on GitHub`;
+      }
+      return "read a page on GitHub";
+    }
+
+    return `read a page from ${host}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Past-tense plain-language verbs for done→next Recap facts. */
 const QUIET_OUTCOME_VERBS: Record<string, string> = {
   file_read: "reviewed",
@@ -859,8 +898,9 @@ export function buildQuietRecapFact(
       return `searched the web for ${truncateArg(arg, 32)}`;
     }
     case "web_fetch": {
-      if (isVagueRecapNoun(arg)) return null;
-      return `fetched ${truncateArg(arg, 36)}`;
+      // Humanized, never URL echo — "viewed owner/repo on GitHub" (#173).
+      const phrase = humanizeWebFetchTarget(arg);
+      return phrase ?? null;
     }
     case "task": {
       if (isVagueRecapNoun(arg) || arg === "subagent") return null;
@@ -1093,10 +1133,9 @@ export function formatQuietRecap(
     }
   }
 
-  let done = capped.join("; ");
-  if (failed.length === 0 && anySuccess) {
-    done = `${done} ✓`;
-  }
+  // Facts are sentences; no trailing symbols — the owner never asked for a
+  // success checkmark and rejected it (#173 dogfood).
+  const done = capped.join("; ");
 
   const lastFailure =
     nextHints.lastFailure !== undefined
