@@ -800,6 +800,28 @@ function looksLikeWrite(command: string): boolean {
 }
 
 /**
+ * Session-grant key for a bash command (#170). Write-ish commands with a
+ * target path scope to the target DIRECTORY ("write:/tmp") so approving
+ * once generalizes to later writes into the same directory — the old
+ * full-command-string grant never matched anything twice. High-risk and
+ * path-less commands keep exact-command grants.
+ */
+export function bashGrantScope(command: string, workdir?: string): string {
+  const cwd = workdir || process.cwd();
+  const classification = classifyCommand(command);
+  if (classification === "high_risk") return command;
+  if (!looksLikeWrite(command)) return command;
+  // Redirect target first (bare filenames like `> file.txt` aren't paths
+  // with slashes), then the general path list.
+  const redir = command.match(/(?:^|\s)(>>?)\s*["']?([^\s"'|>]+)/);
+  const paths = extractPaths(command);
+  const target = redir?.[2] ?? paths[paths.length - 1];
+  if (!target) return command;
+  const resolved = path.isAbsolute(target) ? path.resolve(target) : path.resolve(cwd, target);
+  return `write:${path.dirname(resolved)}`;
+}
+
+/**
  * Check if command needs permission (#142 — destructive-only gate).
  *
  * Policy:
@@ -1279,7 +1301,7 @@ export const bashTool: Tool<BashInput> = Tool.define(
         await askPermission({
           sessionID: SessionManager.getCurrentSessionID() ?? "unknown",
           permission: "bash",
-          patterns: [input.command],
+          patterns: [bashGrantScope(input.command, cwd)], // directory-scoped write grants (#170)
           message: input.description || `Execute: ${input.command.slice(0, 50)}…`,
           metadata: {
             command: input.command,

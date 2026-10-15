@@ -9,6 +9,7 @@ import {
   formatPermissionDetails,
   formatPermissionReason,
   formatPermissionWhyPolicy,
+  sessionScopeLabel,
 } from "../permission-display.js";
 import {
   isAbortKey,
@@ -44,9 +45,9 @@ const BASE_OPTIONS: Array<{ value: PermissionResponse; label: string }> = [
 ];
 
 function sessionOptionLabel(request: PermissionRequest, wildcard: boolean): string {
-  const kind = getPermissionLabel(request.permission).toLowerCase();
-  if (!wildcard) return "Allow session (this only)";
-  return `Allow session (all ${kind})`;
+  // Labels say what the grant covers: directory scope, exact command, or
+  // this file (#170) — never a bare "this only".
+  return sessionScopeLabel(request, wildcard);
 }
 
 function stripAnsi(s: string): string {

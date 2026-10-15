@@ -113,6 +113,37 @@ function homeTilde(p: string): string {
   return home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
+/** Plural kinds for wildcard session grants ("all commands", not "all execute command"). */
+const PLURAL_KIND: Record<string, string> = {
+  "execute command": "commands",
+  "edit file": "file edits",
+  "create file": "file writes",
+  "launch subagent": "subagent launches",
+  "access path outside working directory": "outside-cwd accesses",
+};
+
+/**
+ * What "Allow session" actually grants (#170). Directory-scoped bash write
+ * grants name their directory; exact-command grants say so; file grants say
+ * "this file". Wildcard grants use proper plurals.
+ */
+export function sessionScopeLabel(
+  request: PermissionRequest,
+  wildcard: boolean
+): string {
+  const kind = getPermissionLabel(request.permission).toLowerCase();
+  if (wildcard) {
+    return `Allow session (all ${PLURAL_KIND[kind] ?? `${kind}s`})`;
+  }
+  const pattern = request.patterns[0] ?? "";
+  if (pattern.startsWith("write:")) {
+    return `Allow session (writes to ${homeTilde(pattern.slice("write:".length))})`;
+  }
+  if (request.permission === "bash") return "Allow session (this exact command)";
+  if (kind === "edit file" || kind === "create file") return "Allow session (this file)";
+  return "Allow session (this action)";
+}
+
 type DerivedBash = {
   action: string;
   command?: string;

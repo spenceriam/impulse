@@ -6,6 +6,7 @@ import {
   formatPermissionAction,
   formatPermissionDetails,
   formatPermissionReason,
+  sessionScopeLabel,
 } from "../src/cli/permission-display.js";
 import type { PermissionRequest } from "../src/permission/types.js";
 
@@ -117,5 +118,53 @@ describe("formatPermissionDetails (modal redesign, #169)", () => {
     const d = formatPermissionDetails(bashRequest);
     expect(d.enriched).toBe(false);
     expect(d.action).toBe("execute command: npm test -- --coverage");
+  });
+});
+
+describe("session grant labels (#170)", () => {
+  test("directory-scoped bash write grant names the directory", () => {
+    expect(
+      sessionScopeLabel(
+        { ...bashRequest, patterns: ["write:/tmp"] },
+        false
+      )
+    ).toBe("Allow session (writes to /tmp)");
+  });
+
+  test("unscoped bash grant says exact command", () => {
+    expect(sessionScopeLabel(bashRequest, false)).toBe(
+      "Allow session (this exact command)"
+    );
+  });
+
+  test("file grant says this file", () => {
+    expect(
+      sessionScopeLabel(
+        {
+          id: "4",
+          sessionID: "s1",
+          permission: "edit",
+          patterns: ["/tmp/a.ts"],
+          message: "Edit file: /tmp/a.ts",
+        },
+        false
+      )
+    ).toBe("Allow session (this file)");
+  });
+
+  test("wildcard grants use proper plurals", () => {
+    expect(sessionScopeLabel(bashRequest, true)).toBe("Allow session (all commands)");
+    expect(
+      sessionScopeLabel(
+        {
+          id: "5",
+          sessionID: "s1",
+          permission: "edit",
+          patterns: ["/tmp/a.ts"],
+          message: "Edit file: /tmp/a.ts",
+        },
+        true
+      )
+    ).toBe("Allow session (all file edits)");
   });
 });

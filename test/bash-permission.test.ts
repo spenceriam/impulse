@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyCommand, needsPermission } from "../src/tools/bash.js";
+import { classifyCommand, needsPermission, bashGrantScope } from "../src/tools/bash.js";
 
 describe("bash permission policy", () => {
   test("unknown commands no longer require approval by default (#142)", () => {
@@ -47,5 +47,25 @@ describe("bash permission policy", () => {
 
   test("unknown command with outside path but no write indicator passes (#142)", () => {
     expect(needsPermission("mystery-cli /tmp/out").needed).toBe(false);
+  });
+});
+
+describe("bash session-grant scopes (#170)", () => {
+  test("write-ish commands scope to the target directory", () => {
+    expect(bashGrantScope('echo x > /tmp/impulse-permission-test.txt')).toBe("write:/tmp");
+    expect(bashGrantScope("cp src/a.ts /tmp/a.ts")).toBe("write:/tmp");
+    expect(bashGrantScope("sed -i s/a/b/ ./src/cli/x.ts")).toBe(
+      `write:${process.cwd()}/src/cli`
+    );
+  });
+
+  test("high-risk commands keep exact-command grants", () => {
+    expect(bashGrantScope("rm -rf build")).toBe("rm -rf build");
+    expect(bashGrantScope("git push origin main")).toBe("git push origin main");
+  });
+
+  test("non-write and path-less commands keep exact-command grants", () => {
+    expect(bashGrantScope("echo data > file.txt")).toBe(`write:${process.cwd()}`);
+    expect(bashGrantScope("mystery-cli --foo")).toBe("mystery-cli --foo");
   });
 });
