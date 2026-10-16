@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-10-16
+
+  **Type:** patch
+  **Title:** Every turn opens with one intent sentence — no more cold starts
+
+  ### Fixed
+  - **#174** -- Turns no longer open cold into tool machinery. Every turn's first response now opens with a single short sentence stating what the model is about to do, before any tool calls — a universal floor that applies regardless of permission mode, response preference, or custom instructions. Follow-up responses within a turn are unchanged. Root cause: the Full Auto/Trust bypass prompt told models to call tools "on the first tool-using response" (written for the old anti-dither problem), which models read as skip-the-preamble — the posture with the fewest signals (Full Auto, no permission modals) was the coldest. The bypass block now keeps its anti-dither intent without suppressing the opening line.
+
 ## [1.13.0] - 2026-10-15
 
   **Type:** minor

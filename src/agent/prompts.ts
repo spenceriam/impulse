@@ -103,6 +103,16 @@ export function formatUserCollaborationProfile(
     lines.push(`- User-described preference: ${preference}`);
   }
 
+  // Universal floor (#174): every turn's first response opens with a short
+  // intent sentence — regardless of permission mode, style preset, or custom
+  // instructions. Turns must never open cold into tool machinery.
+  lines.push(
+    "",
+    "Turn openings:",
+    "- The FIRST response of every turn opens with one short sentence stating what you are about to do, before any tool calls.",
+    "- Follow-up responses in the same turn do not repeat it."
+  );
+
   const instructions = effectiveInstructions?.content ?? profile?.customInstructions ?? "";
   if (instructions.trim()) {
     const source = effectiveInstructions?.sourceLabel ?? "~/.impulse/config.json";
@@ -481,8 +491,9 @@ export function buildAllowAllBypassPromptBlock(): string {
 ### Permissions bypass (${mode === "trust" ? "trust mode" : "full auto"})
 
 Session bypass is ON: tool permission prompts are auto-approved${gate}.
-Do not spend multiple turns on planning or repeated todo_write before substantive tools.
-When the user gave a clear multi-step task, call real tools in parallel on the first tool-using response.
+The one opening intent sentence plus real tools is enough — call substantive
+tools in parallel on the first tool-using response. Do not spend turns on
+planning chatter or repeated todo_write.
 `.trim();
 }
 
