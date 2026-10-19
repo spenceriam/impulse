@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-19
+
+  **Type:** minor
+  **Title:** Restored sessions reproduce the live turn (settle anchors, collapsed thinking, chrome-typed status)
+
+  ### Added
+  - **#176** -- Quiet settle lines are now persisted with the session (as `[impulse_settle]` system records — excluded from API history) and replayed as the same ghost chrome as the live line, so a restored session shows its `Worked for 31s using 1 tool` anchors, subagent counts, and failure counts instead of dropping them entirely.
+
+  ### Fixed
+  - **#176** -- Replay collapses thinking into one row per assistant message (durations summed) — restoring a turn used to show a dozen `Thought for 0.4s` rows where the live view showed one.
+  - **#176** -- Runtime notices (e.g. `Reliability profile: reasoning off`) render as dim+italic chrome in both live and replay, so they can no longer be mistaken for model prose.
+
 ## [1.13.1] - 2026-10-16
 
   **Type:** patch

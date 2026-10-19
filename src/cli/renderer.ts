@@ -1498,6 +1498,9 @@ export class ImpulseRenderer {
       this.chat.addChild(new Text(this.ghostChatLine(result.workedForLine), 0, 0));
       this.hasTrailingGap = false;
     }
+    // Persist the settle anchor so a restored session reproduces the live
+    // turn's "Worked for …" lines (#176).
+    void this.persistQuietSettle(result.workedForLine);
     // Blank row between settled Worked for and following AI prose: flagged
     // and consumed at header creation so the gap lands directly above the
     // "impulse" label no matter what happens between settle and stream.
@@ -1507,6 +1510,21 @@ export class ImpulseRenderer {
     // own "impulse" header so users can tell streamed responses apart.
     this.turnShowsImpulseHeader = false;
     return true;
+  }
+
+  /** Persist a Quiet settle line so restored sessions keep their anchors (#176). */
+  private async persistQuietSettle(line: string): Promise<void> {
+    try {
+      const { formatImpulseSettle } = await import("../session/status-events.js");
+      await SessionManager.addMessage({
+        role: "system",
+        content: formatImpulseSettle(line),
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      // No active session (or persistence failed) — settle lines are chrome,
+      // never worth breaking a turn over.
+    }
   }
 
   private emitQuietRecapIfNeeded(): void {
@@ -3496,7 +3514,9 @@ export class ImpulseRenderer {
       });
     }
     if (live) {
-      this.addChatLine(clr.dim(text));
+      // Impulse chrome (dim+italic), never plain prose — status lines must
+      // not read as model output (#176).
+      this.addChatLine(ghost(text));
     }
   }
 
@@ -6652,7 +6672,13 @@ export class ImpulseRenderer {
   private appendReplayStep(step: ReplayStep): void {
     switch (step.type) {
       case "status":
-        this.addChatLine(clr.dim(step.text));
+        // Impulse chrome (dim+italic) — matches the live rendering and
+        // can't be mistaken for model prose (#176).
+        this.addChatLine(ghost(step.text));
+        break;
+      case "settle":
+        // Persisted Quiet settle line — same ghost chrome as the live one.
+        this.addChatLine(this.ghostChatLine(step.text));
         break;
       case "user":
         this.addSectionGap();
