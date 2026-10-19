@@ -1501,17 +1501,12 @@ bun test src/path/to/test.ts
 
 ## How to Debug
 
-### Verbose Mode (`--verbose`)
+### Debug log (`/debug`)
 
-Run with `--verbose` flag to enable debug logging:
-
-```bash
-# Development
-bun run start -- --verbose
-
-# Production binary
-impulse --verbose
-```
+`/debug` toggles the session JSONL log on/off (session-scoped). It prints the
+file path when enabled. There is **no** `--verbose` or `--debug` startup flag —
+`/verbose` is chat density (full tool stream), not logging; Tab DEBUG mode is
+the evidence-first persona, also not logging.
 
 **Log Location:** `~/.impulse/debug/session-<timestamp>.jsonl`
 
@@ -1527,14 +1522,19 @@ impulse --verbose
 - Debugging API message serialization (tool_calls, tool results)
 - Verifying conversation history is correctly formatted
 - Tracking tool execution flow
-- Diagnosing MCP tool failures
+- Checking whether missing spaces/characters came from the provider stream
+  (`raw_api_messages` holds the received assistant text) or from rendering
 
-**Performance Impact:** None when `--verbose` is not passed. All log functions check `debugEnabled` first and return immediately if false.
+**Performance Impact:** None while disabled. All log functions check
+`debugEnabled` first and return immediately.
 
 **Example Log Entry:**
 ```json
 {"type":"api_request","timestamp":"2026-01-25T01:58:31.331Z","model":"glm-4.7","messageCount":5,"messages":[{"role":"system","contentLength":6735},{"role":"user","contentLength":240},{"role":"assistant","contentLength":112},{"role":"tool","contentLength":45},{"role":"assistant","contentLength":1831}],"toolCount":27}
 ```
+
+**Layout instrumentation:** `IMPULSE_DEBUG_LAYOUT=1` appends layout events to
+`~/.impulse/debug/layout.log` (row math, gutter widths, wrap decisions).
 
 ## CI/CD Pipeline
 
