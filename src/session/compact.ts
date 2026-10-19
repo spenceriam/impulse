@@ -10,6 +10,24 @@ import {
 // Compact thresholds (exported for context bar + agent loop)
 export const COMPACT_WARNING_THRESHOLD = 0.50;  // Orange % in context bar (50–59%)
 export const COMPACT_TRIGGER_THRESHOLD = 0.60;  // Auto-compact triggers at 60%
+
+/** Min NEW messages beyond the recent tail before auto-compact may fire again
+ *  (#179 thrash guard — prevents compact-per-message and summary self-feed). */
+export const MIN_NEW_MESSAGES_AFTER_COMPACT = 5;
+
+/**
+ * Auto-compact eligibility (#179): compact only when enough NEW messages have
+ * accumulated past the recent tail to be worth summarizing. When the tail
+ * alone exceeds the threshold, compaction cannot help — the hard-limit hint
+ * (Use /compact or /new) is the graceful path, not a summarizer cycle.
+ */
+export function autoCompactEligible(
+  messageCount: number,
+  keepRecentCount: number,
+  minNew: number = MIN_NEW_MESSAGES_AFTER_COMPACT
+): boolean {
+  return messageCount > keepRecentCount + minNew;
+}
 /** Steer-style wrap-up inject when context pressure is high (before hard stop). */
 export const CONTEXT_WRAPUP_THRESHOLD = 0.80;
 /** Safety margin applied to token estimates before emergency compact / hard cutoff. */
@@ -446,6 +464,16 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       }
 
       const messagesToCompact = messages.slice(0, -keepRecentCount);
+      if (messagesToCompact.length <= 1) {
+        // Only the prior summary (or nothing meaningful) would be summarized
+        // — never feed the summary back into the summarizer (#179).
+        return {
+          compacted: false,
+          summary: "",
+          removedCount: 0,
+          newMessageCount: messages.length,
+        };
+      }
       const recentMessages = messages.slice(-keepRecentCount);
 
       const summary = await this.summarizeMessages(messagesToCompact, todos);
@@ -532,6 +560,16 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
    */
   async maybeCompact(sessionID: string): Promise<CompactResult | null> {
     if (!(await this.shouldCompact(sessionID))) {
+      return null;
+    }
+
+    const session = await SessionStoreInstance.read(sessionID);
+    // Thrash guard (#179): only compact when enough NEW messages have
+    // accumulated to be worth summarizing. When the recent tail alone exceeds
+    // the threshold, compaction cannot help — compacting once per message
+    // just burns summarizer calls and re-feeds the summary back into itself.
+    // The hard-limit hint (Use /compact or /new) is the graceful path then.
+    if (!autoCompactEligible(session.messages.length, this.config.keepRecentCount)) {
       return null;
     }
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-10-19
+
+  **Type:** patch
+  **Title:** Auto-compaction thrash guard + honest Recap facts for definitions and bare flags
+
+  ### Fixed
+  - **#179** -- Auto-compaction no longer thrashes. When the recent tail alone exceeds the compact threshold (e.g. large tool outputs like spectrogram images in a mic-debug session), auto-compact fired after every message — compacting repeatedly, re-feeding the summary back into the summarizer, and burning a summarizer call per cycle while the context kept climbing to the hard limit anyway. Auto-compact now only fires once at least 5 new messages have accumulated past the recent tail (`autoCompactEligible`), and `compact()` never feeds a lone prior summary back into the summarizer. When the tail alone is too big, the existing hard-limit hint (`Use /compact or /new`) is the graceful path.
+  - **#180** -- Recap facts no longer read as garbage for shell function definitions and bare flags: `stats(){ … }` now reports `defined a function` instead of `ran stats(){}`, and bare-flag commands (`sudo -v`, `-v` alone) fall back to `ran a terminal command` instead of `ran -v`.
+
 ## [1.14.0] - 2026-10-19
 
   **Type:** minor
