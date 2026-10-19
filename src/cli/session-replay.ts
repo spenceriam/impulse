@@ -4,7 +4,13 @@
 
 import type { Message, MessageContentBlock, ToolCall, ToolResult } from "../session/store.js";
 import { isInjectedUserMessage, messageDisplayText } from "../session/injected-message.js";
-import { isImpulseUiMessage, parseImpulseUiContent } from "../session/status-events.js";
+import {
+  COMPACTION_SUMMARY_PREFIX,
+  isImpulseSettleMessage,
+  isImpulseUiMessage,
+  parseImpulseSettleContent,
+  parseImpulseUiContent,
+} from "../session/status-events.js";
 import { SILENT_TOOLS } from "../tools/silent-tools.js";
 import { isSilentUnchangedTodoWrite } from "./components/tool-block.js";
 
@@ -32,7 +38,11 @@ export type ReplayStep =
       durationMs: number;
     }
   /** Quiet density: model-authored Recap line persisted on the assistant message. */
-  | { type: "recap"; text: string };
+  | { type: "recap"; text: string }
+  /** Quiet density: settle line ("Worked for 31s using 1 tool") persisted by the renderer (#176). */
+  | { type: "settle"; text: string }
+  /** Compaction summary ("Previous conversation summary:…") — rendered as ghost chrome at the compaction point. */
+  | { type: "compacted"; text: string };
 
 export interface BuildReplayOptions {
   /** Quiet density: skip per-tool rows (live Quiet never shows them) and
@@ -158,8 +168,9 @@ function replayAssistantFromContentBlocks(
   quiet: boolean
 ): void {
   const blocks = msg.content_blocks ?? [];
+  const messageStart = steps.length;
   for (const block of blocks) {
-    appendBlockStep(block, msg, toolResults, steps, quiet);
+    appendBlockStep(block, msg, toolResults, steps, quiet, messageStart);
   }
 
   // Fallback: content_blocks may reference tools not listed as blocks
@@ -183,7 +194,8 @@ function appendBlockStep(
   msg: Message,
   toolResults: Map<string, { content: string; durationMs?: number }>,
   steps: ReplayStep[],
-  quiet: boolean
+  quiet: boolean,
+  messageStart = 0
 ): void {
   if (block.type === "text" && block.text.trim()) {
     const clean = stripLegacyThinkTags(block.text);
@@ -191,11 +203,11 @@ function appendBlockStep(
     return;
   }
   if (block.type === "thinking" && block.thinking.trim()) {
-    steps.push({
-      type: "thinking",
-      text: block.thinking,
-      ...(block.durationMs !== undefined ? { durationMs: block.durationMs } : {}),
-    });
+    // Live, thinking collapses into ONE block per turn. Replay used to push a
+    // row per persisted block, so a restored turn showed a dozen "Thought
+    // for 0.4s" rows (#176). Merge into the live shape: one step per
+    // assistant message, durations summed.
+    mergeThinkingStep(steps, block.thinking, block.durationMs, messageStart);
     return;
   }
   if (block.type === "tool_call") {
@@ -204,6 +216,27 @@ function appendBlockStep(
       emitToolStep(steps, tc, toolResults, quiet);
     }
   }
+}
+
+/** Merge a thinking block into the pending thinking step for this message (#176). */
+function mergeThinkingStep(
+  steps: ReplayStep[],
+  thinking: string,
+  durationMs: number | undefined,
+  messageStart: number
+): void {
+  for (let i = steps.length - 1; i >= messageStart; i--) {
+    const step = steps[i]!;
+    if (step.type !== "thinking") break;
+    step.text = `${step.text}\n\n${thinking}`.trim();
+    step.durationMs = (step.durationMs ?? 0) + (durationMs ?? 0);
+    return;
+  }
+  steps.push({
+    type: "thinking",
+    text: thinking,
+    ...(durationMs !== undefined ? { durationMs } : {}),
+  });
 }
 
 function replayAssistantLinear(
@@ -261,6 +294,21 @@ export function buildReplaySteps(
 
   for (const msg of messages) {
     if (msg.role === "system") {
+      // Compaction summary — the handoff for everything that was compacted.
+      // Replay it as ghost chrome at the compaction point; skipping it leaves
+      // the restored session with an invisible gap.
+      if (msg.content.startsWith(COMPACTION_SUMMARY_PREFIX)) {
+        const text = msg.content.slice(COMPACTION_SUMMARY_PREFIX.length).trim();
+        if (text) steps.push({ type: "compacted", text });
+        continue;
+      }
+      // Persisted settle line ("Worked for …") — restore the live turn's
+      // settle anchors (#176).
+      if (isImpulseSettleMessage(msg)) {
+        const text = parseImpulseSettleContent(msg.content).trim();
+        if (text) steps.push({ type: "settle", text });
+        continue;
+      }
       if (isImpulseUiMessage(msg)) {
         const text = parseImpulseUiContent(msg.content);
         if (/^Mode: /.test(text)) continue;
