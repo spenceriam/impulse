@@ -44,6 +44,22 @@ describe("buildReplaySteps settle lines (#176)", () => {
       { type: "status", text: "Reliability profile: reasoning off" },
     ]);
   });
+
+  test("compaction summary becomes a compacted step at its position", () => {
+    const messages: Message[] = [
+      {
+        role: "system",
+        content: "Previous conversation summary:\n\nGoal was installing the CLI; verified working.",
+        timestamp: ts,
+      },
+      { role: "user", content: "continue", timestamp: ts },
+    ];
+    const steps = buildReplaySteps(messages);
+    expect(steps.map((s) => s.type)).toEqual(["compacted", "user"]);
+    if (steps[0]?.type === "compacted") {
+      expect(steps[0].text).toContain("Goal was installing the CLI");
+    }
+  });
 });
 
 describe("buildReplaySteps thinking merge (#176)", () => {

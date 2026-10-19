@@ -5,6 +5,7 @@
 import type { Message, MessageContentBlock, ToolCall, ToolResult } from "../session/store.js";
 import { isInjectedUserMessage, messageDisplayText } from "../session/injected-message.js";
 import {
+  COMPACTION_SUMMARY_PREFIX,
   isImpulseSettleMessage,
   isImpulseUiMessage,
   parseImpulseSettleContent,
@@ -39,7 +40,9 @@ export type ReplayStep =
   /** Quiet density: model-authored Recap line persisted on the assistant message. */
   | { type: "recap"; text: string }
   /** Quiet density: settle line ("Worked for 31s using 1 tool") persisted by the renderer (#176). */
-  | { type: "settle"; text: string };
+  | { type: "settle"; text: string }
+  /** Compaction summary ("Previous conversation summary:…") — rendered as ghost chrome at the compaction point. */
+  | { type: "compacted"; text: string };
 
 export interface BuildReplayOptions {
   /** Quiet density: skip per-tool rows (live Quiet never shows them) and
@@ -291,6 +294,14 @@ export function buildReplaySteps(
 
   for (const msg of messages) {
     if (msg.role === "system") {
+      // Compaction summary — the handoff for everything that was compacted.
+      // Replay it as ghost chrome at the compaction point; skipping it leaves
+      // the restored session with an invisible gap.
+      if (msg.content.startsWith(COMPACTION_SUMMARY_PREFIX)) {
+        const text = msg.content.slice(COMPACTION_SUMMARY_PREFIX.length).trim();
+        if (text) steps.push({ type: "compacted", text });
+        continue;
+      }
       // Persisted settle line ("Worked for …") — restore the live turn's
       // settle anchors (#176).
       if (isImpulseSettleMessage(msg)) {

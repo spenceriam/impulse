@@ -28,6 +28,9 @@ export function parseImpulseUiContent(content: string): string {
  */
 export const IMPULSE_SETTLE_PREFIX = "[impulse_settle] ";
 
+/** Prefix on the compaction summary system message (compact.ts writes it; replay detects it). */
+export const COMPACTION_SUMMARY_PREFIX = "Previous conversation summary:";
+
 export function formatImpulseSettle(line: string): string {
   return `${IMPULSE_SETTLE_PREFIX}${line}`;
 }

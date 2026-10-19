@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Added
   - **#176** -- Quiet settle lines are now persisted with the session (as `[impulse_settle]` system records — excluded from API history) and replayed as the same ghost chrome as the live line, so a restored session shows its `Worked for 31s using 1 tool` anchors, subagent counts, and failure counts instead of dropping them entirely.
+  - **#176** -- Compaction summaries now replay as ghost chrome (`Compacted:` followed by the full summary in dim+italic, wrapped at the current width) at the compaction point. A restored compacted session previously showed only the recent tail with no sign that compaction ever happened.
 
   ### Fixed
   - **#176** -- Replay collapses thinking into one row per assistant message (durations summed) — restoring a turn used to show a dozen `Thought for 0.4s` rows where the live view showed one.

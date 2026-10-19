@@ -132,6 +132,7 @@ import { TaskBatchPermissionOverlay } from "./components/task-batch-permission-o
 import type { TaskBatchDecision } from "../permission/task-batch.js";
 import { MarkdownTextBlock } from "./components/markdown-text.js";
 import { QuietRecapBlock } from "./components/recap-block.js";
+import { CompactedSummaryBlock } from "./components/compacted-summary-block.js";
 import {
   planStreamingRotation,
   splitAtSafeBoundary,
@@ -6680,6 +6681,15 @@ export class ImpulseRenderer {
         // Persisted Quiet settle line — same ghost chrome as the live one.
         this.addChatLine(this.ghostChatLine(step.text));
         break;
+      case "compacted": {
+        // Compaction summary — ghost chrome (dim+italic), full text, wrapped
+        // at the current width. Restores the handoff at the compaction point.
+        this.addSectionGap();
+        this.chat.addChild(new CompactedSummaryBlock(`Compacted: ${step.text}`));
+        this.hasTrailingGap = false;
+        this.addSectionGap();
+        break;
+      }
       case "user":
         this.addSectionGap();
         this.addChatLine(`${A.fg(36, this.userName)}`);
