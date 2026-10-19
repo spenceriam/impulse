@@ -94,7 +94,6 @@ import {
   QuietWorkGroupTracker,
   quietToolLabel,
   shortQuietArg,
-  wrapQuietRecapLines,
   type QuietRecapEvent,
   type QuietToolOutcome,
 } from "./quiet-status.js";
@@ -132,6 +131,7 @@ import {
 import { TaskBatchPermissionOverlay } from "./components/task-batch-permission-overlay.js";
 import type { TaskBatchDecision } from "../permission/task-batch.js";
 import { MarkdownTextBlock } from "./components/markdown-text.js";
+import { QuietRecapBlock } from "./components/recap-block.js";
 import {
   planStreamingRotation,
   splitAtSafeBoundary,
@@ -1516,12 +1516,11 @@ export class ImpulseRenderer {
     // event-sourced line is the fallback when the model sent none.
     const modelRecap = this.modelRecapThisTurn?.trim();
     if (modelRecap) {
-      const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
-      const rows = wrapQuietRecapLines(`Recap: ${modelRecap}`, width);
       this.addSectionGap();
-      for (const row of rows) {
-        this.addChatLine(ghost(row));
-      }
+      // Width-aware block: re-wraps at the current terminal width on resize
+      // (#175) instead of freezing at emission width.
+      this.chat.addChild(new QuietRecapBlock(`Recap: ${modelRecap}`));
+      this.hasTrailingGap = true;
       this.modelRecapThisTurn = null;
       return;
     }
@@ -1556,15 +1555,10 @@ export class ImpulseRenderer {
       // lastFailure derived inside formatQuietRecap from events when omitted
     });
     if (!line) return;
-    // Wrap at the same inner width addChatLine uses (wrapGutterLines:
-    // columns - TOTAL_GUTTER_WIDTH) — a wider wrap width makes every row
-    // overflow the chat line and re-wrap/truncate into mush.
-    const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
-    const rows = wrapQuietRecapLines(line, width);
     this.addSectionGap();
-    for (const row of rows) {
-      this.addChatLine(ghost(row));
-    }
+    // Width-aware block: re-wraps at the current terminal width on resize
+    // (#175).
+    this.chat.addChild(new QuietRecapBlock(line));
     // Recap is the turn's last row: block any further trailing gap so the
     // composer separator sits one blank below it — never two or three.
     this.hasTrailingGap = true;
@@ -6697,13 +6691,10 @@ export class ImpulseRenderer {
         }
         break;
       case "recap": {
-        // Quiet replay: persisted model-authored Recap, same look as live.
+        // Quiet replay: persisted model-authored Recap, same look and
+        // width-aware re-wrap as live (#175).
         this.addSectionGap();
-        const width = Math.max(8, this.terminal.columns - TOTAL_GUTTER_WIDTH);
-        const rows = wrapQuietRecapLines(`Recap: ${step.text}`, width);
-        for (const row of rows) {
-          this.addChatLine(ghost(row));
-        }
+        this.chat.addChild(new QuietRecapBlock(`Recap: ${step.text}`));
         this.addSectionGap();
         break;
       }
