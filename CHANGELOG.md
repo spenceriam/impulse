@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-20
+
+  **Type:** minor
+  **Title:** Compaction trigger accuracy — provider-anchored tokens + per-model threshold overrides
+
+  ### Added
+  - **#182** -- Compaction now prefers the provider-reported `prompt_tokens` from the most recent turn over the `3.5 chars/token` heuristic when deciding context usage (`resolveCompactUsage`, persisted as `session.lastPromptTokens` after each turn). The compact trigger and the context bar now agree on the same number, matching Hermes's provider-anchored pattern.
+  - **#182** -- `compaction` config section in `~/.impulse/config.json`: `threshold` (default trigger, fraction of the model's context window) plus `modelThresholds` — per-model overrides resolved by longest substring match on the model id (Hermes's config shape, e.g. `{ "glm-5.2": 0.40, "claude-sonnet": 0.35 }`). Small local models can compact earlier than cloud ones.
+  - Threshold/thrash helpers moved to a canonical home in `src/util/compaction-thresholds.ts` (re-exported from `src/session/compact.ts` for existing consumers).
+
 ## [1.14.1] - 2026-10-19
 
   **Type:** patch
