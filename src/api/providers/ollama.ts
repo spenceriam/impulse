@@ -376,8 +376,12 @@ export function mapOllamaReasoningParams(level: ReasoningLevel): {
     case "high":
       return { reasoning_effort: "high", think: "high" };
     case "medium":
-    default:
       return { reasoning_effort: "medium", think: "medium" };
+    default:
+      // A tier Ollama did not advertise (xhigh, max, …): its native `think`
+      // only knows low/medium/high, so clamp to high rather than silently
+      // downgrading to medium (#210).
+      return { reasoning_effort: "high", think: "high" };
   }
 }
 

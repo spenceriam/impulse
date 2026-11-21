@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.21.8] - 2026-11-21
+## [1.21.9] - 2026-11-21
 
   **Type:** patch
-  **Title:** Reasoning levels from the provider, not a hard set
+  **Title:** Reasoning capability: unknown is not "no reasoning"
 
-  ### Added
-  - **#147** -- `ReasoningLevel` is no longer a closed union: the config schema accepts any provider tier, so values like `xhigh` or `max` round-trip instead of being rejected.
-  - **#147** -- OpenRouter's per-model advertised tiers (from `reasoning_efforts` / `supported_parameters` during model discovery) are merged into the reasoning cycle for that model, and the effort is passed through unchanged instead of being collapsed to `medium`.
+  ### Fixed
+  - **#210** -- Ollama reasoning discovery no longer reports "no reasoning" when it simply doesn't know: an empty/absent `/api/show` capability list, an unreachable endpoint, or an unrecognized model name now yields the on/off baseline (`UNKNOWN_REASONING`) instead of `off`-only. A model that reasons without `thinking`/`deepseek`/`r1` in its name keeps its thinking toggle.
+  - **#210** -- Provider-advertised tiers are no longer collapsed: `levelToEffort` passes `xhigh`/`max` through (instead of mapping to `medium`), `levelToBudgetTokens` gives them their own budgets, and Ollama clamps an unadvertised tier to `high` rather than silently downgrading to `medium`.
+
+## [1.21.8] - 2026-11-21
 
 
 ## [1.21.7] - 2026-11-21

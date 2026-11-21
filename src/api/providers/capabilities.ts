@@ -44,6 +44,17 @@ export const EFFORT_LEVELS: ReasoningLevel[] = ["off", "low", "medium", "high"];
 export const BINARY_LEVELS: ReasoningLevel[] = ["off", "medium"]; // medium = "on"
 export const NO_LEVELS:     ReasoningLevel[] = ["off"];
 
+/**
+ * Baseline when a provider gives no capability data (#210). We know thinking
+ * can be toggled on most OpenAI-compatible models, so offer on/off rather than
+ * silently claiming the model cannot reason.
+ */
+export const UNKNOWN_REASONING: ReasoningCapability = {
+  supported: true,
+  style: "binary",
+  levels: BINARY_LEVELS,
+};
+
 export function getLevelsForStyle(style: ReasoningStyle): ReasoningLevel[] {
   switch (style) {
     case "effort": return EFFORT_LEVELS;
@@ -166,7 +177,7 @@ export async function discoverOllamaReasoning(
 
     if (res.ok) {
       const data = (await res.json()) as OllamaShowResponse;
-      if (Array.isArray(data.capabilities)) {
+      if (Array.isArray(data.capabilities) && data.capabilities.length > 0) {
         const caps = data.capabilities;
         const hasThinking = caps.includes("thinking");
         return {
@@ -175,12 +186,13 @@ export async function discoverOllamaReasoning(
           levels:    hasThinking ? BINARY_LEVELS : NO_LEVELS,
         };
       }
-      // Capabilities not a meaningful array (Ollama Cloud may return empty object) —
-      // fall through to heuristic
+      // Empty/absent capability list is UNKNOWN, not "no reasoning" (#210):
+      // report the baseline and never claim the model cannot think.
+      return UNKNOWN_REASONING;
     }
   } catch {
-    // /api/show not available (Ollama Cloud might not expose it) —
-    // fall back to a heuristic on the model name
+    // /api/show unreachable is also unknown (#210) — the name heuristic
+    // below only refines what we can guess, never denies capability.
   }
 
   // Heuristic fallback: stay conservative unless the model name clearly signals
@@ -196,10 +208,15 @@ export async function discoverOllamaReasoning(
     lower.includes("marco-o1")    ||
     lower.includes("openthinker");
 
+  if (!likelyReasoning) {
+    // Unknown, not "no reasoning": the model may still think, we just have no
+    // evidence. Offering on/off is honest; offering only "off" is a guess (#210).
+    return UNKNOWN_REASONING;
+  }
   return {
-    supported: likelyReasoning,
-    style:     likelyReasoning ? "binary" : "none",
-    levels:    likelyReasoning ? BINARY_LEVELS : NO_LEVELS,
+    supported: true,
+    style:     "binary",
+    levels:    BINARY_LEVELS,
   };
 }
 
@@ -298,22 +315,27 @@ export async function discoverOllamaMaxOutputTokens(
 // ── Map ReasoningLevel to provider parameters ────────────────────────────────
 
 /** Map to OpenAI-style reasoning_effort string */
-export function levelToEffort(level: ReasoningLevel): "low" | "medium" | "high" | undefined {
+export function levelToEffort(level: ReasoningLevel): string | undefined {
   if (level === "off") return undefined;
   if (level === "low") return "low";
   if (level === "high") return "high";
-  return "medium"; // default for "medium" and binary "on"
+  if (level === "medium") return "medium";
+  // Provider-advertised tiers (xhigh, max, …) pass through unchanged (#147/#210).
+  return level;
 }
 
 /** Map to Anthropic budget_tokens */
 export function levelToBudgetTokens(level: ReasoningLevel): number | undefined {
-  const map: Record<ReasoningLevel, number | undefined> = {
-    off:    undefined,
+  if (level === "off") return undefined;
+  const map: Record<string, number | undefined> = {
     low:    2048,
     medium: 8192,
     high:   16384,
+    // Tiers beyond the baseline scale from high rather than collapsing to it.
+    xhigh:  24576,
+    max:    32768,
   };
-  return map[level];
+  return map[level] ?? 8192;
 }
 
 /** Probe a custom provider endpoint to detect reasoning support.
