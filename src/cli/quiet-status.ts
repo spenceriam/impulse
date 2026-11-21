@@ -806,6 +806,36 @@ export function quietOutcomeVerb(name: string): string {
   return QUIET_OUTCOME_VERBS[name] ?? name.replace(/_/g, " ");
 }
 
+/**
+ * Base-form verbs for failure phrasing. The past-tense verbs above read as
+ * "looked at package.json failed" when a tool fails; "couldn't read
+ * package.json" is what a colleague would say (#188 follow-up: Recap stays
+ * plain English regardless of response style).
+ */
+const QUIET_BASE_VERBS: Record<string, string> = {
+  file_read: "read",
+  file_write: "create",
+  file_edit: "update",
+  glob: "list the files",
+  grep: "search the code",
+  ls: "list the folder",
+  bash: "run",
+  task: "delegate",
+  web_search: "search the web",
+  web_fetch: "fetch the page",
+  todo_write: "update the todos",
+  todo_read: "review the todos",
+  question: "ask the question",
+  github_issue: "file the issue",
+  plan_revision: "update the plan",
+  install_skill: "install the skill",
+  vision_translate: "translate the image",
+};
+
+export function quietBaseVerb(name: string): string {
+  return QUIET_BASE_VERBS[name] ?? name.replace(/_/g, " ");
+}
+
 /** True when an arg/fact is too mushy for Recap. */
 export function isVagueRecapNoun(text: string | null | undefined): boolean {
   if (text == null) return true;
@@ -1013,11 +1043,11 @@ export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
       if (m?.[1] && m[1] !== "a terminal command") target = m[1];
     }
     // A retry of the identical call changes nothing — say what to check
-    // instead of recommending a blind retry (#188).
+    // instead of recommending a blind retry (#188). Plain English either way.
     if (!target) {
-      return `check the ${quietOutcomeVerb(ev.name)} step that ${ev.outcome}`;
+      return `try the ${quietBaseVerb(ev.name)} step again`;
     }
-    return `retry ${target}`;
+    return `try ${target} again`;
   }
   return null;
 }
@@ -1050,9 +1080,13 @@ function resolveRecapFact(ev: QuietRecapEvent): string | null {
 
   const status = ev.outcome;
   if (ev.arg && !isVagueRecapNoun(ev.arg)) {
-    return `${quietOutcomeVerb(ev.name)} ${ev.arg} ${status}`;
+    return status === "failed"
+      ? `couldn't ${quietBaseVerb(ev.name)} ${ev.arg}`
+      : `${quietOutcomeVerb(ev.name)} ${ev.arg} ${status}`;
   }
-  return `${quietOutcomeVerb(ev.name)} ${status}`;
+  return status === "failed"
+    ? `couldn't ${quietBaseVerb(ev.name)}`
+    : `${quietOutcomeVerb(ev.name)} ${status}`;
 }
 
 /**
@@ -1097,6 +1131,43 @@ function coalesceFileFacts(events: QuietRecapEvent[]): {
   }
 
   return { facts, consumed };
+}
+
+/**
+ * Validate a model-authored Recap before it is shown (#203).
+ *
+ * The system prompt asks the model for a plain 1-2 sentence recap, but models
+ * vary: some emit markdown, tool-name lists, raw commands, or a whole essay.
+ * The event-sourced line is the guaranteed floor, so a model recap is only
+ * accepted when it clears this bar — otherwise the caller falls back.
+ *
+ * Returns null when acceptable, or a short reason when rejected.
+ */
+export const RECAP_MAX_CHARS = 400;
+export const RECAP_MAX_WORDS = 60;
+
+const RECAP_TOOL_NAMES = [
+  "file_read", "file_write", "file_edit", "bash", "grep", "glob", "ls",
+  "web_search", "web_fetch", "todo_write", "todo_read", "task", "question",
+  "github_issue", "plan_revision", "install_skill",
+];
+
+export function rejectModelRecap(text: string | null | undefined): string | null {
+  const t = (text ?? "").trim();
+  if (!t) return "empty";
+  if (t.length > RECAP_MAX_CHARS) return "too long";
+  if (t.split(/\s+/).filter(Boolean).length > RECAP_MAX_WORDS) return "too many words";
+
+  // Markdown leftovers: fences, headings, bold/italic markers, list bullets.
+  if (/```|^\s*#{1,6}\s|\*\*|__|^\s*[-*+]\s/m.test(t)) return "markdown";
+  // Tool-name lists are implementation detail, not a recap.
+  if (RECAP_TOOL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(t))) return "tool names";
+  // Raw command echo.
+  if (/^\s*[$>]\s/m.test(t) || /\b(npm|bun|git|gh|curl|sudo)\s+\w+/.test(t)) return "raw command";
+  // First-person meta prose is not a recap of the work.
+  if (/^(the user|i\b|i'm|let me|here's|okay|alright|sure)\b/i.test(t)) return "meta prose";
+
+  return null;
 }
 
 /**

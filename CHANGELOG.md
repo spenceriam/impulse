@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.3] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Plain-English Recap failures
+
+  ### Fixed
+  - **#203** -- Recap failure facts read as broken English (`looked at package.json failed`) and `Next:` recommended repeating the identical failed call. Failures now read `couldn't read package.json` (base-form verb per tool), and `Next:` says `try … again`, or names the step when the cause is unknown. Success facts are unchanged.
+
+
 ## [1.21.2] - 2026-11-21
 
   **Type:** patch

@@ -19,6 +19,7 @@ import {
   isQuietBreakOutcome,
   isVagueRecapNoun,
   lastFailureNextLabel,
+  rejectModelRecap,
   pickQuietRecapNext,
   quietThinkingPhrase,
   quietToolLabel,
@@ -753,7 +754,7 @@ describe("quiet-status", () => {
         { name: "file_edit", arg: "a.ts", outcome: "success" },
         { name: "bash", arg: "bun test", outcome: "failed" },
       ])
-    ).toBe("retry running the tests");
+    ).toBe("try running the tests again");
     expect(
       unansweredAskNextLabel([
         { name: "question", arg: "Platform", outcome: "failed" },
@@ -795,7 +796,7 @@ describe("quiet-status", () => {
         fact: "ran bun test failed",
       },
     ]);
-    expect(line).toBe("Recap: ran bun test failed · Next: retry running the tests");
+    expect(line).toBe("Recap: ran bun test failed · Next: try running the tests again");
   });
 
   test("Recap Next absent when hints explicitly cleared (turn complete)", () => {
@@ -1014,6 +1015,41 @@ describe("Recap composition stays a summary, not a tool log (#188)", () => {
       { name: "bash", arg: "$body", outcome: "failed", fact: "ran $body failed" },
     ]);
     expect(next).not.toMatch(/^retry/);
-    expect(next).toContain("check");
+    expect(next).toContain("try");
+  });
+});
+
+describe("model-authored Recap validation (#203)", () => {
+  test("accepts a plain one-sentence recap", () => {
+    expect(
+      rejectModelRecap(
+        "Set up the global rules on this machine and verified the config loads. Next, dogfood the picker."
+      )
+    ).toBeNull();
+  });
+
+  test("rejects markdown", () => {
+    expect(rejectModelRecap("**Done** with the work")).toBe("markdown");
+    expect(rejectModelRecap("```bash\nls\n```")).toBe("markdown");
+    expect(rejectModelRecap("- one\n- two")).toBe("markdown");
+  });
+
+  test("rejects tool-name lists", () => {
+    expect(rejectModelRecap("Used file_read and grep to find it")).toBe("tool names");
+  });
+
+  test("rejects raw command echo", () => {
+    expect(rejectModelRecap("$ git status")).toBe("raw command");
+    expect(rejectModelRecap("Ran npm install for you")).toBe("raw command");
+  });
+
+  test("rejects meta prose and empty", () => {
+    expect(rejectModelRecap("The user asked me to fix it")).toBe("meta prose");
+    expect(rejectModelRecap("Let me check that")).toBe("meta prose");
+    expect(rejectModelRecap("   ")).toBe("empty");
+  });
+
+  test("rejects runaway length", () => {
+    expect(rejectModelRecap("word ".repeat(100))).toBe("too long");
   });
 });
