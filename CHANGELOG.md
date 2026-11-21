@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Cache retention config and prefix-hash debug field
+
+  ### Added
+  - **#193** -- `cache.retention` config (`short` default, `long` for slow multi-turn sessions), threaded to the provider request; Anthropic uses a 1h TTL for `long`. Providers without an explicit retention control ignore it.
+  - **#194** -- With `/debug` on, each request logs a `cache_prefix` entry: the hash of the system prompt plus tool count, so comparing consecutive entries shows exactly when the cacheable prefix changed.
+
+
 ## [1.19.0] - 2026-11-21
 
   **Type:** minor

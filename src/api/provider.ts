@@ -28,6 +28,8 @@ export interface CompletionOptions {
   tool_choice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
   stream?: boolean;
   signal?: AbortSignal;
+  /** Prompt-cache retention for providers that expose it (#193). */
+  cacheRetention?: "short" | "long";
   /** @deprecated use reasoningLevel instead */
   thinking?: ThinkingConfig;
   /** Unified reasoning level. "off" disables; low/medium/high map to provider-specific params.
