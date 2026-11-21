@@ -180,6 +180,17 @@ const ConfigSchema = z.object({
     })
     .default({ threshold: COMPACT_TRIGGER_THRESHOLD, modelThresholds: {} }),
 
+  /**
+   * Prompt-cache shaping (#193). `retention` picks how long a cached prefix
+   * should live where the provider exposes it: `short` (default, provider
+   * default TTL) or `long` (1h on Anthropic, for slow multi-turn sessions).
+   */
+  cache: z
+    .object({
+      retention: z.enum(["short", "long"]).default("short"),
+    })
+    .default({ retention: "short" }),
+
   /** Per-model reliability overrides when tool continuations fail */
   modelProfiles: z
     .record(

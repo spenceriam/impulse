@@ -332,8 +332,12 @@ export class AnthropicProvider implements AIProvider {
     };
 
     if (system) {
+      const cacheControl =
+        options.cacheRetention === "long"
+          ? { type: "ephemeral" as const, ttl: "1h" }
+          : { type: "ephemeral" as const };
       request.system = shouldApplySessionCache(system)
-        ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+        ? [{ type: "text", text: system, cache_control: cacheControl }]
         : system;
     }
     if (options.temperature !== undefined) request.temperature = options.temperature;
