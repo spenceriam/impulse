@@ -287,6 +287,13 @@ import { invalidatePromptCache } from "../agent/prompts.js";
 import { clearProjectStructureCache } from "../agent/project-structure.js";
 import { getRepairTelemetrySummary } from "../harness/repair-telemetry.js";
 import {
+  appendTraceRecord,
+  TRACE_SCHEMA_VERSION,
+  type TraceToolOutcome,
+  type TraceToolStep,
+} from "../harness/trace.js";
+import { ColdCacheTracker, computeCacheStats } from "../harness/cache-stats.js";
+import {
   collectSessionStats,
   formatSessionStatsBlock,
 } from "../session/session-stats.js";
@@ -1637,6 +1644,56 @@ export class ImpulseRenderer {
     });
   }
 
+  /**
+   * Structured trajectory record for this turn (#195), plus the cold-cache
+   * check (#194). Both are byproducts: failures never break the turn.
+   */
+  private recordTurnTrace(usage: {
+    inputTokens: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    durationMs?: number;
+  }): void {
+    const session = SessionManager.getCurrentSession();
+    if (!session?.id) return;
+
+    const cached = usage.cacheReadTokens ?? 0;
+    const stats = computeCacheStats({
+      cacheReadTokens: cached,
+      promptTokens: usage.inputTokens,
+    });
+    if (this.coldCacheTracker.observe(stats)) {
+      this.addChatLine(
+        clr.dim("prefix cache seems cold — something in the prompt changed")
+      );
+    }
+
+    const tools: TraceToolStep[] = this.quietRecapEvents.map((ev) => ({
+      name: ev.name,
+      ...(ev.fact ? { args: ev.fact } : {}),
+      outcome: (ev.outcome === "failed" || ev.outcome === "blocked"
+        ? ev.outcome
+        : "success") as TraceToolOutcome,
+    }));
+    const failed = this.quietRecapEvents.filter((ev) => ev.outcome === "failed");
+
+    this.traceTurn += 1;
+    void appendTraceRecord(session.id, {
+      schema: TRACE_SCHEMA_VERSION,
+      turn: this.traceTurn,
+      timestamp: new Date().toISOString(),
+      mode: this.mode,
+      model: session.model ?? "unknown",
+      input: {
+        messageCount: session.messages.length,
+        promptTokens: usage.inputTokens,
+        ...(cached > 0 ? { cachedTokens: cached } : {}),
+      },
+      steps: { tools, permissions: [] },
+      outcome: failed.length > 0 ? "failed" : "success",
+    });
+  }
+
   private async persistGoalState(): Promise<void> {
     const session = SessionManager.getCurrentSession();
     if (!session) return;
@@ -1991,6 +2048,10 @@ export class ImpulseRenderer {
   private modelRecapThisTurn: string | null = null;
   /** Event-sourced Recap inputs for the current turn. */
   private quietRecapEvents: QuietRecapEvent[] = [];
+  /** Per-turn trajectory record counter (#195). */
+  private traceTurn = 0;
+  /** Cold-cache streak tracking for the one-time warning (#194). */
+  private readonly coldCacheTracker = new ColdCacheTracker();
   private streamRenderScheduled = false;
   private streamBusyPhraseSet = false;
   private lastExpandableTool: ToolBlock | null = null;
@@ -3408,6 +3469,7 @@ export class ImpulseRenderer {
 
         this.lastAssistantTurnText = turnText;
         this.emitQuietRecapIfNeeded();
+        this.recordTurnTrace(usage);
         this.quietRecapEvents = [];
         this.clearSteeringChrome();
         this.addSectionGap();
@@ -5316,6 +5378,23 @@ export class ImpulseRenderer {
     if (repairs.length > 0) {
       const top = repairs.slice(0, 5).map((r) => `${r.tool}/${r.repairType}×${r.count}`);
       this.addChatLine(clr.dim(`Tool input repairs: ${top.join(", ")}`));
+    }
+    // Cache accounting (#194): hit rate and what caching saved, so a
+    // regression is visible instead of hiding in the bill.
+    if (session) {
+      const cacheRead =
+        typeof session.metadata?.["cacheReadTokens"] === "number"
+          ? (session.metadata["cacheReadTokens"] as number)
+          : 0;
+      const stats = computeCacheStats({ cacheReadTokens: cacheRead, promptTokens: tokens });
+      if (stats.cacheReadTokens > 0) {
+        const pctHit = Math.round(stats.hitRate * 100);
+        this.addChatLine(
+          clr.dim(
+            `Cache: ${stats.cacheReadTokens} read tokens (${pctHit}% of prompt) · ~${stats.savedTokens} saved`
+          )
+        );
+      }
     }
     this.tui.requestRender();
   }

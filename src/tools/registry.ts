@@ -233,16 +233,23 @@ export namespace Tool {
   /**
    * Get all tools as API-compatible definitions (JSON Schema format)
    * for passing to provider streaming APIs.
+   *
+   * Sorted by name so the serialized tool block — part of the cacheable
+   * prompt prefix — is byte-stable across runs and registration order
+   * changes (#193). A reordered tool list invalidates the provider's prefix
+   * cache for the whole conversation.
    */
   export function getAPIDefinitions(): ToolDefinition[] {
-    return Array.from(tools.values()).map((tool) => ({
-      type: "function" as const,
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: toToolParameters(tool.schema),
-      },
-    }));
+    return Array.from(tools.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((tool) => ({
+        type: "function" as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: toToolParameters(tool.schema),
+        },
+      }));
   }
   
   /**
@@ -255,6 +262,7 @@ export namespace Tool {
    */
   export function getAPIDefinitionsForMode(mode: Mode): ToolDefinition[] {
     return Array.from(tools.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
       .filter((tool) => isToolAllowedForMode(tool.name, mode))
       .map((tool) => {
         // For PLAN, modify tool descriptions to note restrictions

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Cache-aware prefix, cache accounting, and per-turn trajectory records
+
+  ### Added
+  - **#195** -- Per-turn trajectory records: one schema-versioned JSONL record per turn under `~/.impulse/traces/<projectID>/<sessionID>.jsonl` (turn index, mode, model, input token counts incl. cached, tool steps with outcome, turn outcome). Written as a byproduct of the turn from the same place the settle/Recap lines are produced, rotated past 8 MB, best-effort so tracing never breaks a turn. Read back with `readTraceRecords` / `listTracedSessions` for replay and scoring.
+  - **#194** -- Cache accounting: `computeCacheStats` (hit rate, saved tokens) surfaced in `/usage`, plus a `ColdCacheTracker` that warns once — not every turn — when a large prompt gets zero cache reads for several consecutive turns, since that usually means the prompt prefix changed.
+
+  ### Changed
+  - **#193** -- Tool definitions are sorted by name before serialization, so the cacheable prompt prefix is byte-stable across runs and registration-order changes.
+
+
 ## [1.16.0] - 2026-11-21
 
   **Type:** minor
