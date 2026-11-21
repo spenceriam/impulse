@@ -52,8 +52,8 @@ function toolResult(content = "ok"): Message {
 }
 
 describe("title hard cap", () => {
-  test("cap is 80 characters", () => {
-    expect(TITLE_MAX_LENGTH).toBe(80);
+  test("cap is 48 characters", () => {
+    expect(TITLE_MAX_LENGTH).toBe(48);
   });
 
   test("clamps to whole words inside the cap", () => {
@@ -62,9 +62,7 @@ describe("title hard cap", () => {
     expect(long.length).toBeGreaterThan(TITLE_MAX_LENGTH);
     const clamped = clampGeneratedTitle(long);
     expect(clamped.length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
-    expect(clamped).toBe(
-      "Refactor the session title generation pipeline completely across every provider"
-    );
+    expect(clamped).toBe("Refactor the session title generation pipeline");
     expect(clamped.endsWith(" ")).toBe(false);
   });
 

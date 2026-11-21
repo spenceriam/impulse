@@ -111,8 +111,10 @@ function finalizeCleanup(text: string): string {
 function isStrongTitleCandidate(text: string): boolean {
   const finalized = finalizeCleanup(text);
   if (!finalized) return false;
-  const clamped = clampGeneratedTitle(finalized);
-  return Boolean(clamped) && !isWeakHeaderTitle(clamped);
+  // Judge the candidate as written — clamping first would let the cap decide
+  // which titles (and which salvaged lines) are acceptable (#139).
+  if (finalized.length > TITLE_MAX_LENGTH) return false;
+  return !isWeakHeaderTitle(finalized);
 }
 
 function pickStrongCandidate(parts: string[]): string | null {

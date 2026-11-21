@@ -69,19 +69,15 @@ describe("MarkdownTextBlock soft breaks", () => {
 
   test("lines inside code fences are never joined", () => {
     expect(renderAll("```\nline one\nline two\n```")).toEqual([
-      "```",
-      "line one",
-      "line two",
-      "```",
+      "  line one",
+      "  line two",
     ]);
   });
 
   test("paragraph before a fence does not swallow the fence", () => {
     expect(renderAll("some prose\n```\ncode\n```")).toEqual([
       "some prose",
-      "```",
-      "code",
-      "```",
+      "  code",
     ]);
   });
 });

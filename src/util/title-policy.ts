@@ -8,7 +8,7 @@
  */
 
 /** Hard character display/content clamp (shared with set_header). */
-export const TITLE_MAX_LENGTH = 80;
+export const TITLE_MAX_LENGTH = 48;
 
 /**
  * Completion ceiling for the title LLM call (#150).
@@ -47,6 +47,13 @@ const GENERIC_TITLE_PATTERNS: RegExp[] = [
   /^(test|testing|test session|smoke test|my session)$/,
 ];
 
+/**
+ * First-person / meta prose that is never a session label. Length alone does
+ * not catch it: a clamped meta sentence can land inside the word band.
+ */
+const META_PROSE_TITLE_RE =
+  /^(the user|i\b|i'm|let me|here's|okay|alright|sure)\b/i;
+
 /** Reject answer-echo, numeric-only, generic, and out-of-band session titles. */
 export function isWeakHeaderTitle(title: string): boolean {
   const t = normalizeTitle(title);
@@ -54,6 +61,7 @@ export function isWeakHeaderTitle(title: string): boolean {
   if (t.length < 3) return true;
   if (/^#?\s*[\d.,\s]+$/.test(t)) return true;
   if (/^\d+$/.test(t)) return true;
+  if (META_PROSE_TITLE_RE.test(t)) return true;
 
   const lower = t.toLowerCase();
   if (GENERIC_TITLE_PATTERNS.some((re) => re.test(lower))) return true;
