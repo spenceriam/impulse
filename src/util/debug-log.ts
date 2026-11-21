@@ -8,6 +8,7 @@
 import { Global } from "../global";
 import fs from "fs/promises";
 import path from "path";
+import { createHash } from "crypto";
 import packageJson from "../../package.json";
 
 let debugEnabled = false;
@@ -229,5 +230,28 @@ export async function logRawAPIMessages(
     type: "raw_api_messages",
     timestamp: new Date().toISOString(),
     messages,
+  });
+}
+
+/**
+ * Log the cacheable prompt prefix identity (#194): a hash of the system
+ * prompt plus the tool count. Comparing consecutive entries shows exactly
+ * when the prefix changed — the usual cause of a cold provider cache.
+ */
+export async function logCachePrefix(opts: {
+  systemPrompt: string;
+  toolCount: number;
+}): Promise<void> {
+  const hash = createHash("sha256")
+    .update(opts.systemPrompt)
+    .update(`\u0000tools:${opts.toolCount}`)
+    .digest("hex")
+    .slice(0, 32);
+  await appendLog({
+    type: "cache_prefix",
+    timestamp: new Date().toISOString(),
+    prefixHash: hash,
+    systemPromptChars: opts.systemPrompt.length,
+    toolCount: opts.toolCount,
   });
 }

@@ -49,6 +49,7 @@ import {
   isDebugEnabled,
   logAPIRequest,
   logRawAPIMessages,
+  logCachePrefix,
 } from "../util/debug-log.js";
 import { bashRepeatNote, todoUnchangedRepeatNote } from "./repeat-notes.js";
 import { InlineThinkingFilter } from "../util/inline-thinking-filter.js";
@@ -649,6 +650,12 @@ export class AgentLoop {
 
         await logAPIRequest(model, chatMessages, toolDefs.length > 0 ? toolDefs : undefined);
         await logRawAPIMessages(chatMessages);
+        // Prefix hash (#194): system + tool definitions, the cacheable part.
+        // A changed hash between turns means the provider cache is cold.
+        await logCachePrefix({
+          systemPrompt: lastSystemPrompt,
+          toolCount: toolDefs.length,
+        });
 
         abortIterationText = "";
         abortIterationAssistantPersisted = false;
