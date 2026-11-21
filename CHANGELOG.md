@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#214** -- Removing a provider key uses the established `SelectableListOverlay` (Keep it / Remove it, Esc cancels) instead of the question tool, which is the agent's interface, not the harness's.
   - **#214** -- `d` in the provider list actually removes the highlighted key: `SelectableListOverlay` gained an `onRemove` hook, fired only when the search box is empty so `d` stays a normal letter while filtering.
   - **#214** -- Secret prompts always show something: `(paste or type your key)` when empty, and `******** (54 chars)` once a value exists, so a short pasted key is never invisible.
+  - **#214** -- `/login`, `/logout` and `/providers` are registered slash commands (autocomplete and `/help`), not just dispatch entries.
+  - **#214** -- The `--setup` / first-run CLI setup lists the same providers as the app (`MODEL_PROVIDERS`) and runs the same discovery, instead of its own hardcoded four; first-class providers ask only for a key.
 
 
 ## [1.21.11] - 2026-11-21
