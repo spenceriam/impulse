@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.7] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Capability column in the model picker
+
+  ### Added
+  - **#159** -- The `/model` picker shows a `Cap` column from the cached provider capabilities: `v` for vision, `r` for reasoning, `—` when unknown (never a guess). Search already matches row text, so a capability is filterable too.
+
+
 ## [1.21.6] - 2026-11-21
 
   **Type:** patch

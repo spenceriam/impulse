@@ -4,11 +4,13 @@ import {
   isManualModelRow,
   manualRowProviderKey,
   MANUAL_MODEL_ROW_PREFIX,
+  capabilityTags,
   modelInfoToTableCells,
 } from "../src/cli/components/model-picker-overlay.js";
 import { TextInputOverlay } from "../src/cli/components/text-input-overlay.js";
 import { parseMaxTokensCapError } from "../src/agent/loop.js";
 import type { ModelInfo } from "../src/cli/model-catalog.js";
+import { clearModelCapabilities, setModelCapabilities } from "../src/api/capabilities.js";
 
 function info(id: string): ModelInfo {
   return { id, vendor: "MiniMax", displayName: id } as ModelInfo;
@@ -142,5 +144,38 @@ describe("TextInputOverlay", () => {
     for (const ch of "abc") overlay.handleInput(ch);
     overlay.handleInput("\x1b[13u");
     expect(submitted).toBe("abc");
+  });
+});
+
+describe("model picker capability column (#159)", () => {
+  test("vision-capable model shows a v tag", () => {
+    setModelCapabilities("vision-model", {
+      vision: true,
+      reasoning: false,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("vision-model")).toBe("v");
+    clearModelCapabilities("vision-model");
+  });
+
+  test("reasoning model shows an r tag", () => {
+    setModelCapabilities("reasoning-model", {
+      vision: false,
+      reasoning: true,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("reasoning-model")).toBe("r");
+    clearModelCapabilities("reasoning-model");
+  });
+
+  test("unknown capabilities render as an em dash, not a guess", () => {
+    const cells = modelInfoToTableCells({
+      id: "totally-unknown-model-xyz",
+      vendor: "—",
+      displayName: "x",
+    } as ModelInfo);
+    expect(cells.model === "—" || cells.model === "").toBe(true);
   });
 });

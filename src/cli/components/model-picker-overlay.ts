@@ -14,7 +14,7 @@ import {
   formatModelDate,
   type ModelInfo,
 } from "../model-catalog.js";
-import { modelSupportsVisionCached } from "../../api/capabilities.js";
+import { getModelCapabilities, modelSupportsVisionCached } from "../../api/capabilities.js";
 import {
   SelectableListOverlay,
   type SelectableListRow,
@@ -50,9 +50,22 @@ export function manualRowProviderKey(rowId: string): string {
 export const MODEL_PICKER_TABLE_HEADERS: SelectableListTableHeaders = {
   title: "Model",
   mode: "Ctx",
-  model: "",
+  model: "Cap",
   updated: "Added",
 };
+
+/**
+ * Capability tags from the cached provider capabilities (#159): `v` vision,
+ * `r` reasoning. Unknown capabilities show nothing rather than guessing.
+ */
+export function capabilityTags(modelId: string): string {
+  const caps = getModelCapabilities(modelId);
+  const tags = [
+    modelSupportsVisionCached(modelId) ? "v" : "",
+    caps?.reasoning ? "r" : "",
+  ].filter(Boolean).join("");
+  return tags;
+}
 
 export function modelInfoToTableCells(info: ModelInfo): {
   title: string;
@@ -63,8 +76,9 @@ export function modelInfoToTableCells(info: ModelInfo): {
   const title = `${info.vendor}/${info.displayName} (${info.id})`;
   const mode =
     info.contextTokens != null ? formatContextK(info.contextTokens) : "—";
+  const tags = capabilityTags(info.id);
   const updated = info.addedAt ? formatModelDate(info.addedAt) : "—";
-  return { title, mode, model: "", updated };
+  return { title, mode, model: tags || "—", updated };
 }
 
 /** Build grouped rows for model picker (exported for tests). */
@@ -186,7 +200,7 @@ export async function buildModelPickerState(
     boxSizing: "responsive",
     layout: "table",
     tableHeaders: MODEL_PICKER_TABLE_HEADERS,
-    tableOmitModelColumn: true,
+    tableOmitModelColumn: false,
     helpLines: opts?.helpLines ?? [
       "↑/↓ navigate   Type to filter   Enter select   m: Manage providers   Esc cancel",
     ],
