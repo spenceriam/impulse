@@ -5362,14 +5362,16 @@ export class ImpulseRenderer {
 
   /**
    * `/traces` — failure clusters over this project's trajectory records
-   * (#195). `/traces <sessionID>` narrows to one session.
+   * (#195). `/traces <sessionID>` narrows to one session; `/traces --propose`
+   * adds harness proposals (propose-only — nothing is applied).
    */
   private async cmdTraces(arg: string): Promise<void> {
     const { listTracedSessions, readTraceRecords } = await import("../harness/trace.js");
     const { buildFailureReport, formatFailureReport } = await import(
       "../harness/failure-clusters.js"
     );
-    const target = arg.trim();
+    const wantsProposals = arg.includes("--propose");
+    const target = arg.replace("--propose", "").trim();
     const sessionIDs = target
       ? [target]
       : await listTracedSessions();
@@ -5385,6 +5387,15 @@ export class ImpulseRenderer {
     ).flat();
     for (const line of formatFailureReport(buildFailureReport(records))) {
       this.addChatLine(clr.dim(line));
+    }
+    if (wantsProposals) {
+      const { proposeFromRecords, formatProposals } = await import(
+        "../harness/proposals.js"
+      );
+      this.addChatLine("");
+      for (const line of formatProposals(proposeFromRecords(records))) {
+        this.addChatLine(clr.dim(line));
+      }
     }
     this.tui.requestRender();
   }

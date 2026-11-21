@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Harness proposals from failure clusters — the propose stage
+
+  ### Added
+  - **#195** -- `proposeFromClusters` / `proposeFromRecords` turn ranked failure clusters into ranked, propose-only suggestions: area (tool-repair, tool-interface, loop-control, verification, prompt), summary, evidence rationale, and where to look. Multi-model clusters outrank single-model ones; single failures never propose. `/traces --propose` renders them in-session. Nothing is applied automatically — applying self-edits without a validation gate is the documented overfitting failure mode.
+
+
 ## [1.19.0] - 2026-11-21
 
   **Type:** minor
