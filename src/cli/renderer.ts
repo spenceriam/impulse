@@ -98,6 +98,7 @@ import {
   type QuietRecapEvent,
   type QuietToolOutcome,
 } from "./quiet-status.js";
+import { codeBlocksToText, describeCodeBlocks, extractCodeBlocks } from "./copy-code.js";
 import { dimRuleIndented } from "./format-helpers.js";
 
 /** pi-tui maxHeight for session/model list overlays */
@@ -4000,7 +4001,7 @@ export class ImpulseRenderer {
       cmdQueue: (arg) => r.cmdQueue(arg),
       cmdQuiet: () => r.cmdQuiet(),
       cmdVerbose: () => r.cmdVerbose(),
-      cmdCopy: () => r.cmdCopy(),
+      cmdCopy: (arg) => r.cmdCopy(arg),
       cmdSide: (arg) => r.cmdSide(arg),
       showThinkingSettingsHint: () => r.showThinkingSettingsHint(),
       cmdCompact: (arg) => r.cmdCompact(arg),
@@ -4145,10 +4146,23 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private async cmdCopy(): Promise<void> {
+  private async cmdCopy(arg = ""): Promise<void> {
     const text = this.lastAssistantTurnText.trim();
     if (!text) {
       this.addChatLine(clr.warn("Nothing to copy — no assistant response yet"));
+      this.tui.requestRender();
+      return;
+    }
+    // `/copy code` copies only the fenced blocks, paste-clean (#130).
+    if (arg.trim().toLowerCase() === "code") {
+      const blocks = extractCodeBlocks(text);
+      const code = codeBlocksToText(blocks);
+      if (!code) {
+        this.addChatLine(clr.warn("No code blocks in the last response"));
+      } else {
+        await copyToClipboard(code);
+        this.addChatLine(clr.dim(describeCodeBlocks(blocks)));
+      }
     } else {
       await copyToClipboard(text);
       this.addChatLine(clr.dim(`Copied last response (${text.length} chars)`));

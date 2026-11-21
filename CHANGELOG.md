@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.6] - 2026-11-21
+
+  **Type:** patch
+  **Title:** `/copy code` for paste-clean code blocks
+
+  ### Added
+  - **#130** -- `/copy code` copies only the fenced code blocks from the last assistant response: fence markers, fence indentation, and language tags stripped, blocks separated by a blank line. Confirms with `Copied 2 code blocks (14 lines) · bash`. The system prompt now lets the agent mention the command once when it hands over something runnable.
+
+
 ## [1.21.5] - 2026-11-21
 
   **Type:** patch
