@@ -29,6 +29,10 @@ export const CONTEXT_WRAPUP_THRESHOLD = 0.80;
 /** Safety margin applied to token estimates before emergency compact / hard cutoff. */
 export const SAFETY_MARGIN = 1.15;
 const TOOL_OUTPUT_RETENTION = 3;               // Keep outputs for last N tool calls
+/** Chars of old tool output to reclaim before summarizing (#183 phase 1). */
+const PRUNE_BUDGET_CHARS = 60_000;
+/** Fraction of the context window the kept tail may occupy (#183 phase 3). */
+const TAIL_TARGET_RATIO = 0.2;
 /** Max chars for a tool message kept in the recent tail after compaction. */
 const MAX_RECENT_TOOL_MESSAGE_CHARS = 8000;
 
@@ -217,7 +221,7 @@ class CompactManagerImpl {
     });
   }
 
-  private pruneToolOutputs(messages: Message[]): Message[] {
+  private pruneToolOutputs(messages: Message[], budgetChars = PRUNE_BUDGET_CHARS): Message[] {
     const toolCallIndices: number[] = [];
 
     messages.forEach((msg, index) => {
@@ -228,8 +232,21 @@ class CompactManagerImpl {
 
     const protectedIndices = new Set(toolCallIndices.slice(-TOOL_OUTPUT_RETENTION));
 
+    // Phase 1 (#183): prune the LARGEST old outputs first, up to the budget.
+    const sizes = toolCallIndices
+      .filter((i) => !protectedIndices.has(i))
+      .map((index) => {
+        const msg = messages[index]!;
+        const chars = (msg.tool_calls ?? []).reduce((sum, tc) => {
+          const out = tc.result?.output ?? tc.result?.error ?? "";
+          return sum + String(out).length;
+        }, 0);
+        return { index, chars };
+      });
+    const toPrune = new Set(planPruneBySize(sizes, protectedIndices, budgetChars));
+
     return messages.map((msg, index) => {
-      if (!msg.tool_calls || protectedIndices.has(index)) {
+      if (!msg.tool_calls || protectedIndices.has(index) || !toPrune.has(index)) {
         return msg;
       }
 
@@ -450,19 +467,35 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       await SessionStoreInstance.flushSave(sessionID);
       const session = await SessionStoreInstance.read(sessionID);
       const messages = this.capOversizedToolMessages(session.messages);
+      // Phase 1 (#183): prune the largest old tool outputs before any
+      // summarizer call, using the fixed budget as the target.
+      const prunedMessages = this.pruneToolOutputs(messages);
       const todos = session.todos || [];
-      const keepRecentCount =
-        options.force && messages.length <= this.config.keepRecentCount
-          ? Math.max(1, Math.floor(messages.length / 2))
-          : this.config.keepRecentCount;
 
-      if (messages.length <= keepRecentCount) {
+      // Phase 2 (#183): system prompt + first exchange never get summarized.
+      const headEnd = planHeadBoundary(prunedMessages);
+
+      // Phase 3 (#183): size the kept tail by TOKEN BUDGET, not message count.
+      const contextWindow = session.context_window || 0;
+      // `force` (manual compact) keeps a smaller tail so more gets summarized.
+      const tailTarget = Math.max(
+        1,
+        Math.floor((contextWindow || 0) * TAIL_TARGET_RATIO) ||
+          this.config.keepRecentCount * 500
+      ) * (options.force ? 0.5 : 1);
+      const messageTokens = prunedMessages.map((m) => estimateMessageTokens(m));
+      const tailStart = Math.max(
+        headEnd,
+        planTailBoundary(messageTokens, tailTarget)
+      );
+
+      if (prunedMessages.length <= tailStart) {
         // Nothing to compact - still generate a "what next?" prompt for manual compacts
         const result: CompactResult = {
           compacted: false,
           summary: "",
           removedCount: 0,
-          newMessageCount: messages.length,
+          newMessageCount: prunedMessages.length,
         };
         
         if (isManual) {
@@ -481,18 +514,21 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         return result;
       }
 
-      const messagesToCompact = messages.slice(0, -keepRecentCount);
-      if (messagesToCompact.length <= 1) {
+      const messagesToCompact = prunedMessages.slice(headEnd, tailStart);
+      if (messagesToCompact.length <= 0) {
         // Only the prior summary (or nothing meaningful) would be summarized
         // — never feed the summary back into the summarizer (#179).
         return {
           compacted: false,
           summary: "",
           removedCount: 0,
-          newMessageCount: messages.length,
+          newMessageCount: prunedMessages.length,
         };
       }
-      const recentMessages = messages.slice(-keepRecentCount);
+      // Head stays verbatim ahead of the summary; the budget-sized tail
+      // follows it (#183 phases 2-3).
+      const headMessages = prunedMessages.slice(0, headEnd);
+      const recentMessages = prunedMessages.slice(tailStart);
 
       const summary = await this.summarizeMessages(messagesToCompact, todos);
 
@@ -502,7 +538,7 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         timestamp: new Date().toISOString(),
       };
 
-      const newMessages = [systemMessage, ...recentMessages] as Message[];
+      const newMessages = [systemMessage, ...headMessages, ...recentMessages] as Message[];
 
       await SessionStoreInstance.update(sessionID, {
         messages: newMessages,
@@ -597,6 +633,87 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
   isInProgress(sessionID: string): boolean {
     return this.inProgress.has(sessionID);
   }
+}
+
+/**
+ * Rough per-message token estimate for tail sizing (#183 phase 3). Same
+ * chars/token heuristic the context-usage path uses; only relative sizes
+ * matter here.
+ */
+export function estimateMessageTokens(message: {
+  content?: string;
+  reasoning_content?: string;
+  tool_calls?: Array<{ tool?: string; arguments?: unknown; result?: { output?: string; error?: string } }>;
+}): number {
+  const perToken = 3.5;
+  let chars = message.content?.length ?? 0;
+  chars += message.reasoning_content?.length ?? 0;
+  for (const tc of message.tool_calls ?? []) {
+    chars += tc.tool?.length ?? 0;
+    chars += JSON.stringify(tc.arguments ?? {}).length;
+    chars += String(tc.result?.output ?? tc.result?.error ?? "").length;
+  }
+  return Math.ceil(chars / perToken);
+}
+
+/**
+ * Prune the LARGEST old tool outputs first (#183 phase 1), instead of stubbing
+ * all-but-the-last-N uniformly. The recent tail is protected by index; among
+ * the rest, biggest outputs are stubbed until the reclaimed chars cover the
+ * prune budget.
+ */
+export function planPruneBySize(
+  sizes: Array<{ index: number; chars: number }>,
+  protectedIndices: Set<number>,
+  budgetChars: number
+): number[] {
+  const candidates = sizes
+    .filter((s) => !protectedIndices.has(s.index) && s.chars > 0)
+    .sort((a, b) => b.chars - a.chars || a.index - b.index);
+
+  const pruned: number[] = [];
+  let reclaimed = 0;
+  for (const candidate of candidates) {
+    if (reclaimed >= budgetChars) break;
+    pruned.push(candidate.index);
+    reclaimed += candidate.chars;
+  }
+  return pruned.sort((a, b) => a - b);
+}
+
+/**
+ * Choose the tail boundary by TOKEN BUDGET rather than message count
+ * (#183 phase 3): walk backwards from the newest message, keeping messages
+ * until `targetTokens` is reached. Returns the index of the first kept
+ * message, or messages.length when everything fits.
+ */
+export function planTailBoundary(
+  messageTokens: number[],
+  targetTokens: number
+): number {
+  let accumulated = 0;
+  let index = messageTokens.length;
+  while (index > 0) {
+    const next = messageTokens[index - 1] ?? 0;
+    if (accumulated + next > targetTokens && accumulated > 0) break;
+    accumulated += next;
+    index -= 1;
+  }
+  return index;
+}
+
+/**
+ * Protect the head (#183 phase 2): system prompt plus the first exchange
+ * (first user message and the assistant reply that follows it) never enters
+ * the summarized span. Returns the index after the protected head.
+ */
+export function planHeadBoundary(messages: Array<{ role: string }>): number {
+  const firstUser = messages.findIndex((m) => m.role === "user");
+  if (firstUser < 0) return 0;
+  const assistantAfter = messages.findIndex(
+    (m, i) => i > firstUser && m.role === "assistant"
+  );
+  return assistantAfter < 0 ? firstUser + 1 : assistantAfter + 1;
 }
 
 export const CompactManager = CompactManagerImpl.getInstance();
