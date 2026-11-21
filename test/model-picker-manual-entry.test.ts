@@ -170,12 +170,12 @@ describe("model picker capability column (#159)", () => {
     clearModelCapabilities("reasoning-model");
   });
 
-  test("unknown capabilities render as an em dash, not a guess", () => {
+  test("unknown capabilities render as xx, not a guess", () => {
     const cells = modelInfoToTableCells({
       id: "totally-unknown-model-xyz",
       vendor: "—",
       displayName: "x",
     } as ModelInfo);
-    expect(cells.model === "—" || cells.model === "").toBe(true);
+    expect(cells.model).toBe("xx");
   });
 });

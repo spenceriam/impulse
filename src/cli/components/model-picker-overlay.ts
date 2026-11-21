@@ -78,7 +78,7 @@ export function modelInfoToTableCells(info: ModelInfo): {
     info.contextTokens != null ? formatContextK(info.contextTokens) : "—";
   const tags = capabilityTags(info.id);
   const updated = info.addedAt ? formatModelDate(info.addedAt) : "—";
-  return { title, mode, model: tags || "—", updated };
+  return { title, mode, model: tags || "xx", updated };
 }
 
 /** Build grouped rows for model picker (exported for tests). */
@@ -203,7 +203,7 @@ export async function buildModelPickerState(
     tableOmitModelColumn: false,
     helpLines: opts?.helpLines ?? [
       "↑/↓ navigate   Type to filter   Enter select   m: Manage providers   Esc cancel",
-      "Mod: v vision · r reasoning · — unknown",
+      "Mod: v vision · r reasoning · xx unknown",
     ],
   });
 

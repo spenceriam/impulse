@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Title:** Capability column in the model picker
 
   ### Added
-  - **#159** -- The `/model` picker shows a `Mod` (modality) column from the cached provider capabilities: `v` for vision, `r` for reasoning, `—` when unknown (never a guess), with a legend line under the list. Search already matches row text, so a capability is filterable too.
+  - **#159** -- The `/model` picker shows a `Mod` (modality) column from the cached provider capabilities: `v` for vision, `r` for reasoning, `xx` when unknown (never a guess), with a legend line under the list. Search already matches row text, so a capability is filterable too.
 
 
 ## [1.21.6] - 2026-11-21
