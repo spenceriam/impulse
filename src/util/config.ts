@@ -14,8 +14,13 @@ import { clearWindowsShellCache, clearWslCache } from "./windows-shell.js";
 // Reasoning/thinking level — unified across all providers
 // "off" = disabled; "low"/"medium"/"high" = enabled at that depth
 // Binary providers (Ollama, ZAI) treat any non-"off" value as on
-export type ReasoningLevel = "off" | "low" | "medium" | "high";
-const ReasoningLevelSchema = z.enum(["off", "low", "medium", "high"]);
+// Providers may expose more tiers than these (e.g. "xhigh", "max"), so the
+// type stays open: the built-ins are the baseline, discovery can add to them.
+export type ReasoningLevel = "off" | "low" | "medium" | "high" | (string & {});
+const ReasoningLevelSchema = z.string().refine(
+  (v) => v.length > 0 && v.length <= 24,
+  "reasoning level must be 1-24 characters"
+);
 
 /** Main-agent thinking visibility in chat UI. */
 export type ThinkingDisplay = "off" | "summary" | "full";
