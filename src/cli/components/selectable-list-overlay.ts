@@ -370,6 +370,8 @@ export class SelectableListOverlay implements Component {
   }
   onCancel?: () => void;
   onManageProviders?: () => void;
+  /** Fired on `d` when the search box is empty (remove the highlighted row). */
+  onRemove?: () => void;
 
   constructor(opts: SelectableListOverlayOptions) {
     this.title = opts.title;
@@ -689,6 +691,15 @@ export class SelectableListOverlay implements Component {
     if (data === "m" || data === "M") {
       if (this.onManageProviders) {
         this.onManageProviders();
+        return;
+      }
+    }
+
+    // `d` removes the highlighted row, but only while not filtering: with a
+    // search query active, "d" is a letter the user is typing.
+    if ((data === "d" || data === "D") && this.searchQuery.length === 0) {
+      if (this.onRemove) {
+        this.onRemove();
         return;
       }
     }

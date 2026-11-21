@@ -5153,7 +5153,7 @@ export class ImpulseRenderer {
       this.tui.setFocus(this.promptInput);
     };
     // `d` removes the key for the highlighted row.
-    overlay.onManageProviders = () => {
+    overlay.onRemove = () => {
       void (async () => {
         const selected = overlay.currentRowId();
         const key = selected ? parseProviderLoginRow(selected) : null;
@@ -5252,20 +5252,31 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    const { ConfirmOverlay } = await import("./components/confirm-overlay.js");
+    const { SelectableListOverlay } = await import(
+      "./components/selectable-list-overlay.js"
+    );
+    const keyPreview = maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "");
     const confirmed = await new Promise<boolean>((resolve) => {
-      const overlay = new ConfirmOverlay(
-        "Remove a provider key",
-        [
-          `Delete ${maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "")} from ${provider.label}?`,
-          "Models using this provider will be unset.",
+      const overlay = new SelectableListOverlay({
+        title: "Remove a provider key",
+        rows: [
+          { id: "keep", label: `Keep it — leave ${provider.label} unchanged` },
+          {
+            id: "remove",
+            label: `Remove it — delete ${keyPreview} and unset models using it`,
+          },
         ],
-        { confirmLabel: "Remove it", cancelLabel: "Keep it" }
-      );
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+        helpLines: ["↑/↓ navigate   Enter select   Esc cancel"],
+      });
       let handle: OverlayHandle | null = null;
-      overlay.onDecision = (ok: boolean) => {
+      overlay.onSelect = (id: string) => {
         this.dismissListOverlay(handle);
-        resolve(ok);
+        resolve(id === "remove");
+      };
+      overlay.onCancel = () => {
+        this.dismissListOverlay(handle);
+        resolve(false);
       };
       handle = this.showListOverlay(overlay);
     });

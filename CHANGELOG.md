@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ### Fixed
   - **#214** -- `m: Manage providers` in `/model` opens the provider list instead of the setup wizard, and `/providers` is an alias for `/login`.
-  - **#214** -- Removing a provider key uses the CLI `ConfirmOverlay` (defaults to the safe choice) instead of the question tool, which is the agent's interface, not the harness's.
+  - **#214** -- Removing a provider key uses the established `SelectableListOverlay` (Keep it / Remove it, Esc cancels) instead of the question tool, which is the agent's interface, not the harness's.
+  - **#214** -- `d` in the provider list actually removes the highlighted key: `SelectableListOverlay` gained an `onRemove` hook, fired only when the search box is empty so `d` stays a normal letter while filtering.
   - **#214** -- Secret prompts always show something: `(paste or type your key)` when empty, and `******** (54 chars)` once a value exists, so a short pasted key is never invisible.
 
 
