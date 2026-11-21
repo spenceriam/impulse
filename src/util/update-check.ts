@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "child_process";
 import { writeSync } from "fs";
 import { Bus, UpdateEvents } from "../bus/index";
 import { isDebugEnabled } from "./debug-log";
+import { RESUME_AUTHORIZED_ENV } from "./active-session-marker.js";
 import packageJson from "../../package.json";
 
 // Package info
@@ -158,6 +159,9 @@ export function isInternalAutoUpdate(argv: string[] = process.argv.slice(2), env
 export function relaunchImpulse(): void {
   const env = { ...process.env };
   delete env[INTERNAL_AUTO_UPDATE_ENV];
+  // Orchestrated restart: the relaunched process may restore the live
+  // session (#140 / #78).
+  env[RESUME_AUTHORIZED_ENV] = "1";
   const child = spawn(impulseCommand(), [], {
     detached: true,
     stdio: "ignore",

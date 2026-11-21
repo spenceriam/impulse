@@ -260,6 +260,7 @@ if (!currentConfig.userProfile?.name) {
 
 let resumeStartup = parseResumeArg(args);
 let resumeReason: "interrupted" | undefined;
+let resumableOffer: { sessionId: string; title?: string } | undefined;
 if (!resumeStartup) {
   const { consumeUpdateResumeHint, isUpdateResumeHintValid } = await import(
     "./util/update-resume-hint.js"
@@ -270,14 +271,20 @@ if (!resumeStartup) {
   }
 }
 if (!resumeStartup) {
-  // Auto-resume sessions interrupted by dev watch reloads, crashes, or kills (#78).
+  // Auto-resume sessions interrupted by dev watch reloads, crashes, or kills (#78)
+  // — but only for restarts impulse orchestrated; a plain relaunch starts clean (#140).
   const { resolveInterruptedSessionResume } = await import(
     "./util/active-session-marker.js"
   );
   const interrupted = await resolveInterruptedSessionResume();
-  if (interrupted) {
-    resumeStartup = interrupted;
+  if (interrupted?.resumed) {
+    resumeStartup = { sessionId: interrupted.sessionId };
     resumeReason = "interrupted";
+  } else if (interrupted) {
+    resumableOffer = {
+      sessionId: interrupted.sessionId,
+      ...(interrupted.title ? { title: interrupted.title } : {}),
+    };
   }
 }
 const { flags: startupFlags } = parseStartupFlags(args);
@@ -294,6 +301,7 @@ const renderer = new ImpulseRenderer({
   ...(resumeStartup
     ? { resume: resumeStartup, ...(resumeReason ? { resumeReason } : {}) }
     : {}),
+  ...(resumableOffer ? { resumableOffer } : {}),
   allowAllOnStartup: startupFlags.allowAllOnStartup,
 });
 await renderer.start();

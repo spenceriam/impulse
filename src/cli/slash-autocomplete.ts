@@ -32,6 +32,16 @@ export function shouldShowSlashAutocomplete(
   }
 
   const matches = commands.filter((c) => c.cmd.toLowerCase().startsWith(token));
+  const hasExactMatch = matches.some((c) => c.cmd.toLowerCase() === token);
+
+  // e.g. token /show → still list /show-think even though /show is an exact match.
+  // Also covers partial tokens: /sh prefixes both /show and /show-think (#157).
+  const extensions = matches.filter((c) => c.cmd.toLowerCase().length > token.length);
+  if (extensions.length > 0) {
+    return { show: true, matches: extensions };
+  }
+
+  // Exact alias token (/aa → /allow-all) suggests its canonical command.
   const aliasTarget = slashAliasTarget(token.slice(1));
   if (aliasTarget) {
     const canonical = `/${aliasTarget}`;
@@ -41,22 +51,11 @@ export function shouldShowSlashAutocomplete(
     }
   }
 
-  if (matches.length === 0) {
-    return { show: false, matches: [] };
-  }
-
-  // e.g. token /show → still list /show-think even though /show is an exact match
-  const extensions = matches.filter((c) => c.cmd.toLowerCase().length > token.length);
-  if (extensions.length > 0) {
-    return { show: true, matches: extensions };
-  }
-
-  const hasExactMatch = matches.some((c) => c.cmd.toLowerCase() === token);
   if (hasExactMatch) {
     return { show: false, matches };
   }
 
-  return { show: true, matches };
+  return { show: matches.length > 0, matches };
 }
 
 /** True when the prompt is entering or editing a slash command. */

@@ -100,16 +100,36 @@ export function isActiveSessionMarkerValid(marker: ActiveSessionMarker): boolean
   return true;
 }
 
+export type InterruptedSessionResolution =
+  | { sessionId: string; resumed: true; title?: string }
+  | { sessionId: string; resumed: false; title?: string };
+
+/**
+ * Handshake env set by restarts impulse itself orchestrates (/update relaunch),
+ * so those restore the live session while a plain launch starts clean (#140).
+ */
+export const RESUME_AUTHORIZED_ENV = "IMPULSE_RESUME_AUTHORIZED";
+
 /**
  * Startup resolution: returns the interrupted session to auto-resume, or
  * undefined. Clears stale markers pointing at missing/empty sessions.
+ *
+ * Auto-resume requires an orchestrated restart (#140): a plain `impulse`
+ * launch after a kill/crash starts a new session and offers /resume instead.
+ * `resumed: false` means the marker was found but the restart was not
+ * orchestrated — the caller starts fresh and offers /resume.
  */
 export async function resolveInterruptedSessionResume(
   baseDir = DEFAULT_MARKER_DIR
-): Promise<{ sessionId: string } | undefined> {
+): Promise<InterruptedSessionResolution | undefined> {
   const marker = readActiveSessionMarker(baseDir);
   if (!marker) return undefined;
   if (!isActiveSessionMarkerValid(marker)) return undefined;
+
+  // A watch reload re-execs in the same pid; an /update relaunch passes the
+  // handshake env. Anything else is a user-initiated restart (#140).
+  const orchestrated =
+    process.env[RESUME_AUTHORIZED_ENV] === "1" || marker.pid === process.pid;
 
   try {
     const { SessionStoreInstance } = await import("../session/store.js");
@@ -119,7 +139,10 @@ export async function resolveInterruptedSessionResume(
       clearActiveSessionMarker(baseDir);
       return undefined;
     }
-    return { sessionId: marker.sessionId };
+    const title = session?.headerTitle?.trim() || session?.name?.trim() || undefined;
+    return orchestrated
+      ? { sessionId: marker.sessionId, resumed: true, ...(title ? { title } : {}) }
+      : { sessionId: marker.sessionId, resumed: false, ...(title ? { title } : {}) };
   } catch {
     clearActiveSessionMarker(baseDir);
     return undefined;
