@@ -288,6 +288,14 @@ Version numbers follow format: **MAJOR.MINOR.PATCH** (e.g., 0.1.0)
 - MINOR can go from 0 to 100 (e.g., 0.9.5 → 0.10.0 → ... → 0.100.0 → 1.0.0)
 - PATCH can go from 0 to 99 within each minor (e.g., 0.9.0 → 0.9.99 → 0.10.0)
 
+**Post-1.0 versioning (current rule since 2026-11-21):**
+- Exhaust the **right-most** number first: PATCH runs 0 → 100 inclusive (101 releases per minor line).
+- After `X.Y.100`, roll the middle number: `X.(Y+1).0`.
+- Roll the left-most number only when the middle is exhausted at 100: `X.100.Z` → `(X+1).0.0`.
+- **Exception:** a breaking change bumps MINOR (or MAJOR) immediately and resets PATCH to 0, so a breaking release never waits for patch exhaustion.
+- **Features are judged by size:** a significant feature (new subsystem, new user-facing capability, a change that alters how the agent works) bumps MINOR and resets PATCH; a small feature (a command, a flag, a helper module inside an existing subsystem) is a PATCH. When in doubt, ask the user.
+- Example: 1.21.0 → 1.21.1 → … → 1.21.100 → 1.22.0 → … → 1.100.0 → 2.0.0
+
 **Version Bump Rules:**
 - **MAJOR** (X.0.0): Breaking changes, API changes, architectural overhauls
   - Pre-1.0: Only bump to 1.0.0 when reaching 0.100.0 OR when project is production-ready

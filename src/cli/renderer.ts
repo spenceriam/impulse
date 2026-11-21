@@ -5370,8 +5370,9 @@ export class ImpulseRenderer {
     const { buildFailureReport, formatFailureReport } = await import(
       "../harness/failure-clusters.js"
     );
-    const wantsProposals = arg.includes("--propose");
-    const target = arg.replace("--propose", "").trim();
+    const wantsProposals = arg.includes("--propose") || arg.includes("--validate");
+    const wantsValidation = arg.includes("--validate");
+    const target = arg.replace("--propose", "").replace("--validate", "").trim();
     const sessionIDs = target
       ? [target]
       : await listTracedSessions();
@@ -5392,9 +5393,19 @@ export class ImpulseRenderer {
       const { proposeFromRecords, formatProposals } = await import(
         "../harness/proposals.js"
       );
+      const proposals = proposeFromRecords(records);
       this.addChatLine("");
-      for (const line of formatProposals(proposeFromRecords(records))) {
-        this.addChatLine(clr.dim(line));
+      if (wantsValidation) {
+        const { validateProposals, formatValidatedProposals } = await import(
+          "../harness/proposal-validation.js"
+        );
+        for (const line of formatValidatedProposals(validateProposals(proposals, records))) {
+          this.addChatLine(clr.dim(line));
+        }
+      } else {
+        for (const line of formatProposals(proposals)) {
+          this.addChatLine(clr.dim(line));
+        }
       }
     }
     this.tui.requestRender();
