@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.5] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Speculative async compaction
+
+  ### Added
+  - **#185** -- When context enters the pre-threshold band (trigger minus 5 points), a summary is armed in the background so a threshold crossing commits without the synchronous summarizer stall. The armed summary is keyed to the exact span it summarized (head end, tail start, message count) and is discarded on any mismatch; a degraded (fallback) summary is never armed. Manual `/compact` keeps working synchronously.
+
+
 ## [1.21.4] - 2026-11-21
 
   **Type:** patch

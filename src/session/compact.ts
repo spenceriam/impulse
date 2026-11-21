@@ -36,6 +36,8 @@ const PRUNE_BUDGET_CHARS = 60_000;
 const TAIL_TARGET_RATIO = 0.2;
 /** Skip the LLM summarizer this long after a failure (#184). */
 const SUMMARIZER_COOLDOWN_MS = 5 * 60_000;
+/** How far below the trigger the speculative band starts (#185). */
+const SPECULATIVE_LEAD = 0.05;
 /** Max chars for a tool message kept in the recent tail after compaction. */
 const MAX_RECENT_TOOL_MESSAGE_CHARS = 8000;
 
@@ -57,6 +59,24 @@ interface CompactOptions {
   force?: boolean
   /** Focus text from `/compact <instructions>` (#184). */
   focus?: string
+}
+
+/** Snapshot of what a compaction would do, shared by sync and speculative paths (#185). */
+interface CompactionPlan {
+  prunedMessages: Message[];
+  headEnd: number;
+  tailStart: number;
+  todos: TodoItem[];
+  focus?: string;
+  force: boolean;
+}
+
+/** An armed background summary plus the span it was computed for (#185). */
+interface ArmedSummary {
+  summary: string;
+  headEnd: number;
+  tailStart: number;
+  messageCount: number;
 }
 
 interface CacheEntry {
@@ -82,6 +102,10 @@ class CompactManagerImpl {
   private inProgress: Set<string> = new Set();
   /** Epoch ms until which the summarizer LLM route is skipped (#184). */
   private summarizerCooldownUntil = 0;
+  /** Armed background summaries, keyed by session (#185). */
+  private armed = new Map<string, ArmedSummary>();
+  /** Speculations in flight, keyed by session (#185). */
+  private speculating = new Set<string>();
   private usageCache: Map<string, CacheEntry> = new Map();
   private readonly CACHE_TTL = 30000;
 
@@ -208,8 +232,20 @@ class CompactManagerImpl {
    * Check if in warning zone (50–59%)
    */
   async isInWarningZone(sessionID: string): Promise<boolean> {
+    return this.isNearThreshold(sessionID);
+  }
+
+  /** True when usage sits in the warning band below the trigger (#185). */
+  async isNearThreshold(sessionID: string): Promise<boolean> {
     const usage = await this.calculateContextUsage(sessionID);
-    return usage >= COMPACT_WARNING_THRESHOLD && usage < COMPACT_TRIGGER_THRESHOLD;
+    const session = await SessionStoreInstance.read(sessionID);
+    const threshold = resolveCompactionThreshold({
+      model: session.model,
+      userThreshold: (await loadConfig()).compaction?.threshold,
+      modelThresholds: (await loadConfig()).compaction?.modelThresholds,
+    });
+    const bandStart = Math.max(COMPACT_WARNING_THRESHOLD, threshold - SPECULATIVE_LEAD);
+    return usage >= bandStart && usage < threshold;
   }
 
   invalidateCache(sessionID: string): void {
@@ -509,18 +545,27 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         planTailBoundary(messageTokens, tailTarget)
       );
 
-      if (prunedMessages.length <= tailStart) {
+      const plan = {
+        prunedMessages,
+        headEnd,
+        tailStart,
+        todos,
+        ...(options.focus ? { focus: options.focus } : {}),
+        force: options.force === true,
+      };
+
+      if (plan.prunedMessages.length <= plan.tailStart) {
         // Nothing to compact - still generate a "what next?" prompt for manual compacts
         const result: CompactResult = {
           compacted: false,
           summary: "",
           removedCount: 0,
-          newMessageCount: prunedMessages.length,
+          newMessageCount: plan.prunedMessages.length,
         };
-        
+
         if (isManual) {
           result.continuationPrompt = "The conversation is already within size limits - no compaction needed.\n\nWhat would you like to focus on next?";
-          
+
           // Still publish event so UI shows the message
           Bus.publish(SessionEvents.Compacted, {
             sessionID,
@@ -530,37 +575,36 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
             continuationPrompt: result.continuationPrompt,
           });
         }
-        
+
         return result;
       }
 
-      const messagesToCompact = prunedMessages.slice(headEnd, tailStart);
-      if (messagesToCompact.length <= 0) {
-        // Only the prior summary (or nothing meaningful) would be summarized
-        // — never feed the summary back into the summarizer (#179).
-        return {
-          compacted: false,
-          summary: "",
-          removedCount: 0,
-          newMessageCount: prunedMessages.length,
-        };
+      // #185: an armed speculative summary commits instantly when it still
+      // matches this plan's span.
+      const armed = this.takeArmedSummary(sessionID, plan);
+      let summary: string;
+      if (armed) {
+        summary = armed;
+      } else {
+        const prepared = await this.prepareCompaction(plan, sessionID);
+        if (!prepared.messagesToCompact) {
+          return {
+            compacted: false,
+            summary: "",
+            removedCount: 0,
+            newMessageCount: plan.prunedMessages.length,
+          };
+        }
+        const summarized = await this.summarizeMessages(
+          prepared.messagesToCompact,
+          plan.todos,
+          {
+            ...(plan.focus ? { focus: plan.focus } : {}),
+            ...(prepared.priorSummary ? { priorSummary: prepared.priorSummary } : {}),
+          }
+        );
+        summary = summarized.summary;
       }
-      // Head stays verbatim ahead of the summary; the budget-sized tail
-      // follows it (#183 phases 2-3).
-      const headMessages = prunedMessages.slice(0, headEnd);
-      const recentMessages = prunedMessages.slice(tailStart);
-
-      // #184: on a repeat compaction, update the prior summary instead of
-      // replacing it; `/compact <focus>` steers what the summary emphasizes.
-      const priorSummary = session.messages
-        .filter((m) => m.role === "system" && m.content.startsWith("Previous conversation summary:"))
-        .map((m) => m.content.replace("Previous conversation summary:", "").trim())
-        .pop();
-      const summarized = await this.summarizeMessages(messagesToCompact, todos, {
-        ...(options.focus ? { focus: options.focus } : {}),
-        ...(priorSummary ? { priorSummary } : {}),
-      });
-      const summary = summarized.summary;
 
       const systemMessage: Message = {
         role: "system",
@@ -568,7 +612,11 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         timestamp: new Date().toISOString(),
       };
 
-      const newMessages = [systemMessage, ...headMessages, ...recentMessages] as Message[];
+      const newMessages = [
+        systemMessage,
+        ...plan.prunedMessages.slice(0, plan.headEnd),
+        ...plan.prunedMessages.slice(plan.tailStart),
+      ] as Message[];
 
       await SessionStoreInstance.update(sessionID, {
         messages: newMessages,
@@ -593,7 +641,7 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       Bus.publish(SessionEvents.Compacted, {
         sessionID,
         summary,
-        removedCount: messagesToCompact.length,
+        removedCount: Math.max(0, plan.tailStart - plan.headEnd),
         isManual,
         continuationPrompt,
       });
@@ -601,7 +649,7 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       return {
         compacted: true,
         summary,
-        removedCount: messagesToCompact.length,
+        removedCount: Math.max(0, plan.tailStart - plan.headEnd),
         newMessageCount: newMessages.length,
         continuationPrompt,
       };
@@ -657,12 +705,117 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
     }
   }
 
+  /** Resolve what a compaction of this session would summarize (#185). */
+  private async prepareCompaction(plan: CompactionPlan, sessionID: string): Promise<{
+    messagesToCompact: Message[] | null;
+    priorSummary?: string;
+  }> {
+    const session = await SessionStoreInstance.read(sessionID);
+    const messagesToCompact = plan.prunedMessages.slice(plan.headEnd, plan.tailStart);
+    if (messagesToCompact.length <= 0) return { messagesToCompact: null };
+    const priorSummary = session.messages
+      .filter((m) => m.role === "system" && m.content.startsWith("Previous conversation summary:"))
+      .map((m) => m.content.replace("Previous conversation summary:", "").trim())
+      .pop();
+    return {
+      messagesToCompact,
+      ...(priorSummary ? { priorSummary } : {}),
+    };
+  }
+
+  /** An armed summary is only valid for the exact span it summarized (#185). */
+  private takeArmedSummary(sessionID: string, plan: CompactionPlan): string | null {
+    const armed = this.armed.get(sessionID);
+    if (!armed) return null;
+    this.armed.delete(sessionID);
+    const sameSpan =
+      armed.headEnd === plan.headEnd &&
+      armed.tailStart === plan.tailStart &&
+      armed.messageCount === plan.prunedMessages.length;
+    return sameSpan ? armed.summary : null;
+  }
+
+  /**
+   * Speculative compaction (#185): when context enters the pre-threshold band,
+   * summarize a snapshot in the background so a threshold crossing commits
+   * instantly instead of stalling on the summarizer.
+   *
+   * Returns false when speculation is not applicable (already armed or in
+   * flight, no room yet, or the session cannot be read).
+   */
+  async speculate(sessionID: string): Promise<boolean> {
+    if (this.armed.has(sessionID) || this.speculating.has(sessionID)) return false;
+    if (this.inProgress.has(sessionID)) return false;
+
+    this.speculating.add(sessionID);
+    try {
+      await SessionStoreInstance.flushSave(sessionID);
+      const session = await SessionStoreInstance.read(sessionID);
+      const messages = this.capOversizedToolMessages(session.messages);
+      const prunedMessages = this.pruneToolOutputs(messages);
+      const headEnd = planHeadBoundary(prunedMessages);
+      const contextWindow = session.context_window || 0;
+      const tailTarget = Math.max(
+        1,
+        Math.floor(contextWindow * TAIL_TARGET_RATIO) || this.config.keepRecentCount * 500
+      );
+      const tailStart = Math.max(
+        headEnd,
+        planTailBoundary(prunedMessages.map((m) => estimateMessageTokens(m)), tailTarget)
+      );
+      if (prunedMessages.length <= tailStart) return false;
+
+      const plan: CompactionPlan = {
+        prunedMessages,
+        headEnd,
+        tailStart,
+        todos: session.todos || [],
+        force: false,
+      };
+      const prepared = await this.prepareCompaction(plan, sessionID);
+      if (!prepared.messagesToCompact) return false;
+
+      const summarized = await this.summarizeMessages(
+        prepared.messagesToCompact,
+        plan.todos,
+        prepared.priorSummary ? { priorSummary: prepared.priorSummary } : {}
+      );
+      if (summarized.fallback) return false;  // never arm a degraded summary
+      this.armed.set(sessionID, {
+        summary: summarized.summary,
+        headEnd,
+        tailStart,
+        messageCount: prunedMessages.length,
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.speculating.delete(sessionID);
+    }
+  }
+
+  /** True when a summary is armed and can commit without a summarizer call. */
+  hasArmedSummary(sessionID: string): boolean {
+    return this.armed.has(sessionID);
+  }
+
+  /** Drop an armed summary (e.g. on a branch change or new session). */
+  discardArmedSummary(sessionID: string): void {
+    this.armed.delete(sessionID);
+  }
+
   /**
    * Auto-compact if threshold reached
    * Called after each message is added
    */
   async maybeCompact(sessionID: string): Promise<CompactResult | null> {
     if (!(await this.shouldCompact(sessionID))) {
+      // #185: in the pre-threshold band, arm a summary in the background so a
+      // later threshold crossing commits without the summarizer stall.
+      if (await this.isNearThreshold(sessionID)) {
+        void this.speculate(sessionID);
+      }
       return null;
     }
 
