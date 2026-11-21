@@ -103,7 +103,7 @@ export interface ProviderModelEntry {
   created_at?: string;
 }
 
-type CatalogData = Record<
+export type CatalogData = Record<
   string,
   { name?: string; models?: Record<string, ModelsDevRecord> }
 >;

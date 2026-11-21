@@ -4,11 +4,13 @@ import {
   isManualModelRow,
   manualRowProviderKey,
   MANUAL_MODEL_ROW_PREFIX,
+  capabilityTags,
   modelInfoToTableCells,
 } from "../src/cli/components/model-picker-overlay.js";
 import { TextInputOverlay } from "../src/cli/components/text-input-overlay.js";
 import { parseMaxTokensCapError } from "../src/agent/loop.js";
 import type { ModelInfo } from "../src/cli/model-catalog.js";
+import { clearModelCapabilities, setModelCapabilities } from "../src/api/capabilities.js";
 
 function info(id: string): ModelInfo {
   return { id, vendor: "MiniMax", displayName: id } as ModelInfo;
@@ -142,5 +144,75 @@ describe("TextInputOverlay", () => {
     for (const ch of "abc") overlay.handleInput(ch);
     overlay.handleInput("\x1b[13u");
     expect(submitted).toBe("abc");
+  });
+});
+
+describe("model picker capability column (#159)", () => {
+  test("vision-capable model shows a v tag", () => {
+    setModelCapabilities("vision-model", {
+      vision: true,
+      reasoning: false,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("vision-model")).toBe("v");
+    clearModelCapabilities("vision-model");
+  });
+
+  test("reasoning model shows an r tag", () => {
+    setModelCapabilities("reasoning-model", {
+      vision: false,
+      reasoning: true,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("reasoning-model")).toBe("r");
+    clearModelCapabilities("reasoning-model");
+  });
+
+  test("unknown capabilities render as xx, not a guess", () => {
+    const cells = modelInfoToTableCells({
+      id: "totally-unknown-model-xyz",
+      vendor: "—",
+      displayName: "x",
+    } as ModelInfo);
+    expect(cells.model).toBe("xx");
+  });
+});
+
+describe("modality source order (#159)", () => {
+  const catalog = {
+    minimax: {
+      models: {
+        "MiniMax-M3": {
+          id: "MiniMax-M3",
+          reasoning: true,
+          modalities: { input: ["text", "image"] },
+        },
+      },
+    },
+  } as never;
+
+  test("models.dev record wins over the capability cache", () => {
+    // Cache says no vision; the catalog says image input.
+    setModelCapabilities("MiniMax-M3", {
+      vision: false,
+      reasoning: false,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("MiniMax-M3", "minimax", catalog)).toBe("vr");
+    clearModelCapabilities("MiniMax-M3");
+  });
+
+  test("falls back to the cached capabilities when no record matches", () => {
+    setModelCapabilities("unlisted-model", {
+      vision: true,
+      reasoning: false,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("unlisted-model", "minimax", catalog)).toBe("v");
+    clearModelCapabilities("unlisted-model");
   });
 });
