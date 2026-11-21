@@ -5,6 +5,12 @@ import type { Editor } from "@mariozechner/pi-tui";
 import { fuzzyFilter } from "@mariozechner/pi-tui";
 import type { Config } from "../util/config.js";
 import {
+  advertisedReasoningLevels,
+  EFFORT_LEVELS,
+  mergeReasoningLevels,
+  setReasoningLevelsForModel,
+} from "../api/providers/capabilities.js";
+import {
   enrichDiscoveredModels,
   fallbackModelInfosFromIds,
   type ModelInfo,
@@ -326,6 +332,22 @@ async function discoverModelsOnce(
             ...(m.created_at !== undefined ? { created_at: m.created_at } : {}),
           }))
           .filter((m) => m.id.length > 0);
+
+        // OpenRouter advertises per-model reasoning tiers (#147); keep any
+        // beyond the built-in baseline so the reasoning cycle can offer them.
+        if (provider.key === "openrouter") {
+          for (const entry of entries) {
+            const extra = advertisedReasoningLevels(
+              (entry as { supported_parameters?: unknown; reasoning_efforts?: unknown })
+                .reasoning_efforts ??
+                (entry as { supported_parameters?: unknown }).supported_parameters
+            );
+            const id = (entry.id ?? entry.name ?? "") as string;
+            if (id && extra.length > 0) {
+              setReasoningLevelsForModel(id, mergeReasoningLevels(EFFORT_LEVELS, extra));
+            }
+          }
+        }
 
         const ids = apiRows.map((m) => m.id);
         if (ids.length === 0) {

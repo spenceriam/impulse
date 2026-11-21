@@ -159,9 +159,12 @@ export class OpenRouterProvider implements AIProvider {
         req.tool_choice = options.tool_choice as OpenAI.ChatCompletionToolChoiceOption;
       // OpenRouter supports reasoning effort levels
       if (options.reasoningLevel && options.reasoningLevel !== "off") {
-        const effort = options.reasoningLevel === "low" ? "low"
-          : options.reasoningLevel === "high" ? "high" : "medium";
-        (req as unknown as Record<string, unknown>)["reasoning"] = { effort };
+        // Pass the level through: OpenRouter accepts the tiers a model
+        // advertises (xhigh, max, …), and collapsing them to "medium" threw
+        // away the user's choice (#147).
+        (req as unknown as Record<string, unknown>)["reasoning"] = {
+          effort: options.reasoningLevel,
+        };
       } else if (options.thinking) {
         (req as unknown as Record<string, unknown>)["reasoning"] = { effort: "high" };
       }

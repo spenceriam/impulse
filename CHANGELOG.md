@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.8] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Reasoning levels from the provider, not a hard set
+
+  ### Added
+  - **#147** -- `ReasoningLevel` is no longer a closed union: the config schema accepts any provider tier, so values like `xhigh` or `max` round-trip instead of being rejected.
+  - **#147** -- OpenRouter's per-model advertised tiers (from `reasoning_efforts` / `supported_parameters` during model discovery) are merged into the reasoning cycle for that model, and the effort is passed through unchanged instead of being collapsed to `medium`.
+
+
 ## [1.21.7] - 2026-11-21
 
   **Type:** patch

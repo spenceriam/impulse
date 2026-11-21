@@ -53,6 +53,36 @@ export function getLevelsForStyle(style: ReasoningStyle): ReasoningLevel[] {
   }
 }
 
+/**
+ * Extra levels a provider advertises beyond the built-in baseline (#147).
+ * OpenRouter lists them per model as `supported_parameters`/`reasoning_efforts`
+ * (e.g. "xhigh", "max"); unknown tiers are accepted rather than dropped.
+ */
+const REASONING_TIER_RE = /^(x?high|max|minimal|none|low|medium|high|off)$/i;
+
+export function advertisedReasoningLevels(raw: unknown): ReasoningLevel[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ReasoningLevel[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const v = item.toLowerCase();
+    if (REASONING_TIER_RE.test(v) && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** Merge discovered levels into a baseline, keeping "off" first. */
+export function mergeReasoningLevels(
+  baseline: ReasoningLevel[],
+  discovered: ReasoningLevel[]
+): ReasoningLevel[] {
+  const merged = [...baseline];
+  for (const level of discovered) {
+    if (!merged.includes(level)) merged.push(level);
+  }
+  return merged.includes("off") ? merged : ["off", ...merged];
+}
+
 /** Cycle to the next reasoning level for this capability */
 export function cycleReasoningLevel(
   current: ReasoningLevel,
@@ -347,3 +377,32 @@ export async function probeReasoningSupport(
 }
 
 
+
+// ── Per-model reasoning levels discovered from providers (#147) ─────────────
+
+const discoveredReasoningLevels = new Map<string, ReasoningLevel[]>();
+
+function reasoningModelKey(model: string): string {
+  return model.toLowerCase();
+}
+
+/** Remember the level list a provider advertised for a model. */
+export function setReasoningLevelsForModel(
+  model: string,
+  levels: ReasoningLevel[]
+): void {
+  if (!model || levels.length === 0) return;
+  discoveredReasoningLevels.set(reasoningModelKey(model), levels);
+}
+
+/** Discovered levels for a model, if any provider has advertised them. */
+export function getReasoningLevelsForModel(
+  model: string
+): ReasoningLevel[] | undefined {
+  return discoveredReasoningLevels.get(reasoningModelKey(model));
+}
+
+/** Test hook: forget discovered levels. */
+export function clearReasoningLevels(): void {
+  discoveredReasoningLevels.clear();
+}

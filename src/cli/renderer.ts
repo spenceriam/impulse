@@ -229,6 +229,8 @@ import {
   discoverOllamaReasoning,
   discoverOllamaMaxOutputTokens,
   probeReasoningSupport,
+  getReasoningLevelsForModel,
+  mergeReasoningLevels,
   type ReasoningCapability,
 } from "../api/providers/capabilities.js";
 import { modelSupportsVisionCached } from "../api/capabilities.js";
@@ -2752,7 +2754,14 @@ export class ImpulseRenderer {
   }
 
   private reasoningLevels(): ReasoningLevel[] {
-    return this.reasoningCapability.supported ? this.reasoningCapability.levels : ["off"];
+    if (!this.reasoningCapability.supported) return ["off"];
+    // Per-model tiers a provider advertised (e.g. xhigh, max) extend the
+    // style baseline (#147).
+    const modelId = SessionManager.getCurrentSession()?.model ?? "";
+    const discovered = getReasoningLevelsForModel(modelId);
+    return discovered && discovered.length > 0
+      ? mergeReasoningLevels(this.reasoningCapability.levels, discovered)
+      : this.reasoningCapability.levels;
   }
 
   private reasoningDisplayLabel(level: ReasoningLevel = this.reasoningLevel): string {
