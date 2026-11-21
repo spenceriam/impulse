@@ -293,6 +293,7 @@ Version numbers follow format: **MAJOR.MINOR.PATCH** (e.g., 0.1.0)
 - After `X.Y.100`, roll the middle number: `X.(Y+1).0`.
 - Roll the left-most number only when the middle is exhausted at 100: `X.100.Z` → `(X+1).0.0`.
 - **Exception:** a breaking change bumps MINOR (or MAJOR) immediately and resets PATCH to 0, so a breaking release never waits for patch exhaustion.
+- **Features are judged by size:** a significant feature (new subsystem, new user-facing capability, a change that alters how the agent works) bumps MINOR and resets PATCH; a small feature (a command, a flag, a helper module inside an existing subsystem) is a PATCH. When in doubt, ask the user.
 - Example: 1.21.0 → 1.21.1 → … → 1.21.100 → 1.22.0 → … → 1.100.0 → 2.0.0
 
 **Version Bump Rules:**
