@@ -434,6 +434,8 @@ export interface ImpulseRendererOptions {
   resume?: ResumeStartup;
   /** "interrupted" when resume came from the active-session marker (#78). */
   resumeReason?: "interrupted";
+  /** A resumable previous session the user can reopen via /resume (#140). */
+  resumableOffer?: { sessionId: string; title?: string };
   /** Prompt the allow-all disclaimer at startup; set via --aa / --allow-all / IMPULSE_ALLOW_ALL=1 */
   allowAllOnStartup?: boolean;
 }
@@ -444,6 +446,7 @@ export class ImpulseRenderer {
   private tui!: TUI;
   private readonly startupResume: ResumeStartup | null;
   private readonly startupResumeReason: "interrupted" | null;
+  private readonly resumableOffer: { sessionId: string; title?: string } | null;
   private readonly allowAllOnStartup: boolean;
   /** True once the startup disclaimer is accepted; keeps allow-all sticky across session switches. */
   /** Startup-mandated bypass mode (#143): off | trust | full. */
@@ -2006,6 +2009,7 @@ export class ImpulseRenderer {
   constructor(options?: ImpulseRendererOptions) {
     this.startupResume = options?.resume ?? null;
     this.startupResumeReason = options?.resumeReason ?? null;
+    this.resumableOffer = options?.resumableOffer ?? null;
     this.allowAllOnStartup = options?.allowAllOnStartup ?? false;
   }
 
@@ -2485,6 +2489,12 @@ export class ImpulseRenderer {
         );
         this.tui.requestRender();
       }
+    } else if (this.resumableOffer) {
+      // Plain restart after a kill/crash: start clean, but say the old
+      // conversation is recoverable (#140).
+      const title = this.resumableOffer.title || "previous session";
+      this.addChatLine(clr.dim(`Previous session '${title}' is resumable via /resume`));
+      this.tui.requestRender();
     }
   }
 

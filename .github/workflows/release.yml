@@ -266,42 +266,41 @@ jobs:
             cd - >/dev/null
           done
 
-      - name: Verify platform tarballs
+      - name: Verify platform packages are published
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Gate before publishing the wrapper: every platform tarball the
-          # wrapper's optionalDependencies point at must be downloadable.
-          # Generous retry (~10 min total) tolerates normal registry propagation;
-          # only a genuine ghost publish (permanent 404) fails the job.
+          # Gate before publishing the wrapper: every platform package the
+          # wrapper's optionalDependencies point at must be *published*.
+          # npm resolves optionalDependencies at install time, so tarball
+          # downloadability is not a requirement here — gating on it failed
+          # releases for CDN propagation lag alone (#177).
           fail=0
           for platform_dir in artifacts/impulse-*/; do
             cd "$platform_dir"
             pkg=$(node -p "require('./package.json').name")
-            pkg_slug="${pkg#@spenceriam/}"
-            tarball_url="https://registry.npmjs.org/@spenceriam/${pkg_slug}/-/${pkg_slug}-${VERSION}.tgz"
 
-            echo "Verifying tarball: ${tarball_url}"
+            echo "Verifying published version: ${pkg}@${VERSION}"
             ok=false
-            for attempt in $(seq 1 40); do
-              if curl -fsSL -o /dev/null "${tarball_url}"; then
+            for attempt in $(seq 1 20); do
+              if npm view "${pkg}@${VERSION}" version >/dev/null 2>&1; then
                 ok=true
                 break
               fi
-              echo "Tarball not downloadable yet (attempt ${attempt}/40), waiting 15s..."
+              echo "${pkg}@${VERSION} not visible in registry yet (attempt ${attempt}/20), waiting 15s..."
               sleep 15
             done
             if [ "${ok}" != "true" ]; then
-              echo "::error::${pkg}@${VERSION} tarball still missing after ~10m (npm registry 404)."
+              echo "::error::${pkg}@${VERSION} is not published after ~5m."
               fail=1
             else
-              echo "Tarball verified for ${pkg}@${VERSION}"
+              echo "Verified ${pkg}@${VERSION}"
             fi
             cd - >/dev/null
           done
 
           if [ "${fail}" != "0" ]; then
-            echo "::error::One or more platform tarballs are missing; not publishing the wrapper."
+            echo "::error::One or more platform packages are missing; not publishing the wrapper."
             exit 1
           fi
 

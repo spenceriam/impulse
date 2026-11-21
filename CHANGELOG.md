@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Slash prefix matches, restart resume gate, test isolation, release gate
+
+  ### Fixed
+  - **#157** -- `/sh` autocomplete now lists every prefix match (`/show` and `/show-think`); extension listing runs before the exact-alias short-circuit, and the pinned test passes.
+  - **#140** -- A plain restart after a kill/crash starts a new session instead of silently adopting the previous conversation. Auto-resume from the active-session marker now requires an orchestrated restart (in-app `/update` relaunch sets `IMPULSE_RESUME_AUTHORIZED=1`; dev watch reloads keep working via same-pid detection). Otherwise one dim line offers `/resume`.
+  - **#156** -- Tests no longer touch the real `~/.impulse` store: `IMPULSE_HOME` overrides the impulse home and `test/preload.ts` points every run at a throwaway temp dir, so an interrupted run can no longer poison later runs.
+  - **#177** -- The release gate verifies platform packages are *published* (`npm view <pkg>@<version>`) instead of tarball downloadability, so CDN propagation lag no longer fails a release and leaves npm half-published.
+
 ## [1.15.0] - 2026-10-20
 
   **Type:** minor

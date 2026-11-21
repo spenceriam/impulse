@@ -6,6 +6,7 @@ import {
   clearActiveSessionMarker,
   isActiveSessionMarkerValid,
   readActiveSessionMarker,
+  RESUME_AUTHORIZED_ENV,
   resolveInterruptedSessionResume,
   writeActiveSessionMarker,
   type ActiveSessionMarker,
@@ -102,7 +103,30 @@ describe("active session marker", () => {
 
     writeRawMarker({ sessionId: session.id, pid: DEAD_PID });
     const resolved = await resolveInterruptedSessionResume(tmpDir);
+    // Plain restart (no handshake, different dead pid): offer, don't adopt (#140).
     expect(resolved?.sessionId).toBe(session.id);
+    expect(resolved?.resumed).toBe(false);
+  });
+
+  test("resolve adopts the session when the restart was orchestrated", async () => {
+    const session = await SessionManager.createNew("marker-orchestrated-test");
+    createdSessionIds.push(session.id);
+    await SessionManager.addMessage({
+      role: "user",
+      content: "hello from interrupted session",
+      timestamp: new Date().toISOString(),
+    });
+    await SessionManager.flushCurrent();
+
+    writeRawMarker({ sessionId: session.id, pid: DEAD_PID });
+    process.env[RESUME_AUTHORIZED_ENV] = "1";
+    try {
+      const resolved = await resolveInterruptedSessionResume(tmpDir);
+      expect(resolved?.sessionId).toBe(session.id);
+      expect(resolved?.resumed).toBe(true);
+    } finally {
+      delete process.env[RESUME_AUTHORIZED_ENV];
+    }
   });
 
   test("resolve clears marker and returns undefined for empty session", async () => {
