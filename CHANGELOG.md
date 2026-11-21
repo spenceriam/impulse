@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ### Added
   - **#211** -- Provider entries for Z.ai (Coding Plan and API/balance), Kimi (Coding Plan and Moonshot API), MiniMax (one entry: Token Plan and pay-as-you-go share the endpoint and the key decides billing), and DeepSeek, each pointing at its documented endpoint so a plan key is never sent to a general endpoint.
   - **#211** -- DeepSeek model discovery reads its machine-readable `/models` metadata: context window, max output, input modalities (vision), and thinking effort levels, all fed into the capability cache and the reasoning cycle.
+  - **#211** -- `/login` opens a provider list (key set or not, cached model count) to set or change a key; `/logout [provider]` removes one after confirmation; `d` in the list removes the highlighted key. `m: Manage providers` in `/model` routes here instead of straight into the setup wizard.
+  - **#211** -- Secret text inputs mask the value (bullets, only the last two characters visible) so a pasted key is safe in screenshots or screen shares. The submitted value is still the real key.
 
 
 ## [1.21.9] - 2026-11-21

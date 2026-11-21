@@ -55,6 +55,7 @@ export interface SlashDispatchHost {
   cmdMode(arg: string): void;
   showReasoningHint(): void;
   cmdUsage(): Promise<void>;
+  cmdLogin(mode: "login" | "logout", arg: string): Promise<void>;
   cmdTraces(arg: string): Promise<void>;
   cmdCheckpoint(): Promise<void>;
   cmdUndo(arg: string): Promise<void>;
@@ -101,6 +102,8 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   reason: (h) => h.showReasoningHint(),
   think: (h) => h.showReasoningHint(),
   usage: (h) => h.cmdUsage(),
+  login: (h) => h.cmdLogin("login", ""),
+  logout: (h, arg) => h.cmdLogin("logout", arg),
   traces: (h, arg) => h.cmdTraces(arg),
   checkpoint: (h) => h.cmdCheckpoint(),
   undo: (h, arg) => h.cmdUndo(arg),
