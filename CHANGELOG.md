@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Pasteable code blocks + a 48-character title cap
+
+  ### Changed
+  - **#130** -- Fenced code renders without fence markers: the language shows as a dim label, code lines are literal (no inline markdown, no joining) and sit at a fixed indent, so what renders is what you'd paste. Per-block copy is still open — the CLI has no focus/mouse mechanism yet.
+  - **#139** -- Session titles are capped at 48 characters (was 80), shared by the generator, `set_header`, and `--enrich-session-titles`. Candidates are now judged at their real length instead of being clamped first, and first-person meta prose ("The user is asking me…") is rejected outright — a clamped meta sentence could otherwise land inside the word band and become a title.
+
+
 ## [1.15.1] - 2026-11-21
 
   **Type:** patch

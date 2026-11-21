@@ -70,14 +70,28 @@ export class MarkdownTextBlock implements Component {
       const rawLine = rawLines[index] ?? "";
 
       if (FENCE_LINE_RE.test(rawLine)) {
+        const opening = !inFence;
         inFence = !inFence;
-        pushFormatted(rawLine);
+        if (opening) {
+          // Fence markers are markdown, not content (#130): show the language
+          // as a dim label instead of ```lang.
+          const lang = rawLine.replace(FENCE_LINE_RE, " ").trim();
+          if (lang) {
+            rendered.push(
+              truncateGutterLine(`${this.indent}  ${A.dim}${lang}${A.reset}`, width)
+            );
+          }
+        }
         index += 1;
         continue;
       }
       if (inFence) {
-        // Code lines never join — a fence's newlines are literal.
-        pushFormatted(rawLine);
+        // Code lines never join and never take inline markdown formatting —
+        // what renders is what you'd paste.
+        const line = rawLine.length > 0 ? `${this.indent}  ${rawLine}` : "";
+        for (const wrapped of wrapTextWithAnsi(line, width)) {
+          rendered.push(truncateGutterLine(wrapped, width));
+        }
         index += 1;
         continue;
       }
