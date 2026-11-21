@@ -22,6 +22,8 @@ export const UPDATE_PARENT_PID_ENV = "IMPULSE_UPDATE_PARENT_PID";
 export interface PerformUpdateOptions {
   /** Relaunch impulse after a successful update. Defaults to false. */
   relaunch?: boolean;
+  /** Session to hand off explicitly to the relaunched process (#141). */
+  resumeSessionId?: string;
 }
 
 /**
@@ -156,15 +158,18 @@ export function isInternalAutoUpdate(argv: string[] = process.argv.slice(2), env
   return argv.includes("--auto-update") && env[INTERNAL_AUTO_UPDATE_ENV] === "1";
 }
 
-export function relaunchImpulse(): void {
+export function relaunchImpulse(sessionId?: string): void {
   const env = { ...process.env };
   delete env[INTERNAL_AUTO_UPDATE_ENV];
   // Orchestrated restart: the relaunched process may restore the live
   // session (#140 / #78).
   env[RESUME_AUTHORIZED_ENV] = "1";
-  const child = spawn(impulseCommand(), [], {
-    detached: true,
-    stdio: "ignore",
+  // Restart in place (#141): never `detached` — on Windows that means a new
+  // console window — and inherit the terminal so the TUI comes back where
+  // the user was. The session id is an explicit handoff, not a hint file.
+  const resumeArgs = sessionId ? ["--resume", sessionId] : [];
+  const child = spawn(impulseCommand(), resumeArgs, {
+    stdio: "inherit",
     shell: useShellForCommandShims(),
     env,
   });
@@ -227,7 +232,7 @@ export function performUpdate(latestVersion: string, options: PerformUpdateOptio
     rawPrint("--------------------------------------------------------\n");
 
     if (relaunch) {
-      relaunchImpulse();
+      relaunchImpulse(options.resumeSessionId);
     }
     return 0;
   } else {

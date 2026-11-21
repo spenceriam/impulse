@@ -71,7 +71,14 @@ if (args.includes("--update") || args.includes("--auto-update")) {
     process.exit(0);
   }
   console.log(`Updating ${update.currentVersion} -> ${update.latestVersion}...`);
-  process.exit(performUpdate(update.latestVersion, { relaunch: isInternalAutoUpdate(args) }));
+  const resumeIdx = args.findIndex((a) => a === "--resume" || a === "-r");
+  const resumeSessionId = resumeIdx >= 0 ? args[resumeIdx + 1] : undefined;
+  process.exit(
+    performUpdate(update.latestVersion, {
+      relaunch: isInternalAutoUpdate(args),
+      ...(resumeSessionId && !resumeSessionId.startsWith("-") ? { resumeSessionId } : {}),
+    })
+  );
 }
 
 // ─── --help ──────────────────────────────────────────────────────────────────

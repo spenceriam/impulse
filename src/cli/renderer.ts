@@ -290,7 +290,6 @@ import {
   collectSessionStats,
   formatSessionStatsBlock,
 } from "../session/session-stats.js";
-import { writeUpdateResumeHint } from "../util/update-resume-hint.js";
 import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js";
 import { listInstalledSkills, type InstalledSkillMeta } from "../tools/install-skill-source.js";
 import { countRunningBgJobs, cleanupAllBgJobs, BgJobEvents } from "../tools/bg-process-registry.js";
@@ -4705,8 +4704,11 @@ export class ImpulseRenderer {
     this.tui.requestRender();
     await SessionManager.flushCurrent();
     const session = SessionManager.getCurrentSession();
-    const child = spawn(impulseCommand(), ["--auto-update"], {
-      detached: true,
+    // Explicit handoff (#141): the relaunch carries the session id itself.
+    const resumeArgs = session?.id ? ["--resume", session.id] : [];
+    const child = spawn(impulseCommand(), ["--auto-update", ...resumeArgs], {
+      // Never detached: on Windows that opens a new console window, and the
+      // update should run in the terminal the user is already in (#141).
       stdio: "inherit",
       shell: process.platform === "win32",
       env: {
@@ -4725,9 +4727,6 @@ export class ImpulseRenderer {
       this.addChatLine(clr.error(`Failed to start update: ${message}`));
       this.tui.requestRender();
       return;
-    }
-    if (session?.id) {
-      writeUpdateResumeHint(session.id);
     }
     clearActiveSessionMarker();
     cleanupAllBgJobs();
