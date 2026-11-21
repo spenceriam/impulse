@@ -48,3 +48,23 @@ describe("first-class provider entries (#211)", () => {
     expect(parseProviderChoice("kimi-api", "ollama")?.key).toBe("kimi-api");
   });
 });
+
+describe("first-class providers skip the endpoint step (#211)", () => {
+  const provider = (key: string) => MODEL_PROVIDERS.find((p) => p.key === key)!;
+
+  test("Ollama Cloud no longer asks for a base URL", () => {
+    expect(provider("ollama").needsBaseUrl).toBeFalsy();
+    expect(provider("ollama").modelBaseUrl).toBe("https://ollama.com");
+  });
+
+  test("Z.ai and OpenRouter have fixed endpoints", () => {
+    expect(provider("z.ai").needsBaseUrl).toBeFalsy();
+    expect(provider("openrouter").needsBaseUrl).toBeFalsy();
+  });
+
+  test("only custom providers need a base URL", () => {
+    for (const p of MODEL_PROVIDERS) {
+      if (p.needsBaseUrl) expect(p.isCustom).toBe(true);
+    }
+  });
+});

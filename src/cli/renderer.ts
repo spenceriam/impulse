@@ -4405,7 +4405,7 @@ export class ImpulseRenderer {
     if (opts?.edit && isStoredProviderConfigured(effectiveKey, existing)) {
       await this.clearModelsUsingProvider(state.config, effectiveKey);
       state.editingProvider = true;
-      state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+      state.step = this.stepAfterProvider(provider);
       this.renderModelSetup();
       return;
     }
@@ -4439,7 +4439,7 @@ export class ImpulseRenderer {
       return;
     }
 
-    state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+    state.step = this.stepAfterProvider(provider);
   }
 
   /** Validate API keys for configured providers */
@@ -4517,7 +4517,7 @@ export class ImpulseRenderer {
         return;
       }
       state.customProviderName = slug;
-      state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+      state.step = this.stepAfterProvider(provider);
       this.renderModelSetup();
       return;
     }
@@ -5261,6 +5261,16 @@ export class ImpulseRenderer {
       return;
     }
     await this.removeConfiguredProvider(provider);
+  }
+
+  /**
+   * Step after a provider is chosen (#211): first-class providers have fixed
+   * endpoints, so ask for the API key; only custom providers ever ask for a URL.
+   */
+  private stepAfterProvider(provider: ModelProviderOption | undefined): "baseUrl" | "apiKey" {
+    if (!provider) return "apiKey";
+    if (provider.isCustom) return "baseUrl";
+    return "apiKey";
   }
 
   private async promptForManualModelId(

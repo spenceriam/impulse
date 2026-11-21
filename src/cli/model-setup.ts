@@ -49,13 +49,14 @@ export const KNOWN_PROVIDER_KEYS = new Set([
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
   {
+    // First-class: the endpoint is fixed. A custom or self-hosted Ollama is the
+    // custom-provider path, so setup asks for the API key only (#211).
     key: "ollama",
     label: "Ollama Cloud",
     envVar: "OLLAMA_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://ollama.com",
     defaultBaseUrl: "https://ollama.com",
-    needsBaseUrl: true,
   },
   {
     key: "openrouter",
@@ -88,7 +89,6 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.kimi.com/coding/v1",
     defaultBaseUrl: "https://api.kimi.com/coding/v1",
-    needsBaseUrl: true,
   },
   {
     key: "kimi-api",
@@ -97,7 +97,6 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.moonshot.ai/v1",
     defaultBaseUrl: "https://api.moonshot.ai/v1",
-    needsBaseUrl: true,
   },
   {
     // One entry: Token Plan and pay-as-you-go share the endpoint, and the key
@@ -108,7 +107,6 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.minimax.io/v1",
     defaultBaseUrl: "https://api.minimax.io/v1",
-    needsBaseUrl: true,
   },
   {
     key: "deepseek",
@@ -117,7 +115,6 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.deepseek.com",
     defaultBaseUrl: "https://api.deepseek.com",
-    needsBaseUrl: true,
   },
   {
     key: "__custom_openai__",

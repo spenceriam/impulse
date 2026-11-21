@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#211** -- `/login` opens a provider list (key set or not, cached model count) to set or change a key; `/logout [provider]` removes one after confirmation; `d` in the list removes the highlighted key. `m: Manage providers` in `/model` routes here instead of straight into the setup wizard.
   - **#211** -- Secret text inputs mask the value (bullets, only the last two characters visible) so a pasted key is safe in screenshots or screen shares. The submitted value is still the real key.
 
+  ### Changed
+  - **#211** -- Setup for a first-class provider goes straight from selection to the API key: no endpoint prompt, since the endpoint is fixed. Only custom providers ask for a base URL (`stepAfterProvider`). Ollama Cloud, Z.ai, Kimi, MiniMax, DeepSeek and OpenRouter all skip it.
+
 
 ## [1.21.9] - 2026-11-21
 
