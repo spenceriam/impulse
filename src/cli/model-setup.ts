@@ -10,7 +10,7 @@ import {
   mergeReasoningLevels,
   setReasoningLevelsForModel,
 } from "../api/providers/capabilities.js";
-import { setModelCapabilities } from "../api/capabilities.js";
+import { modelSupportsVisionCached, setModelCapabilities } from "../api/capabilities.js";
 import {
   enrichDiscoveredModels,
   fallbackModelInfosFromIds,
@@ -44,7 +44,8 @@ export interface ModelDiscoveryResult {
 
 export const KNOWN_PROVIDER_KEYS = new Set([
   "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
-  "z.ai-api", "kimi", "kimi-api", "minimax", "deepseek",
+  "z.ai-api", "z.ai-anthropic", "kimi", "kimi-api", "kimi-anthropic",
+  "kimi-cn", "minimax", "minimax-anthropic", "minimax-cn", "deepseek", "deepseek-anthropic",
 ]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
@@ -115,6 +116,56 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.deepseek.com",
     defaultBaseUrl: "https://api.deepseek.com",
+  },
+  // Anthropic-protocol endpoints for the same plans (docs, 2026-11-21):
+  // some tools speak Anthropic Messages and the provider serves both.
+  {
+    key: "z.ai-anthropic",
+    label: "Z.ai (Coding Plan, Anthropic)",
+    envVar: "ZAI_API_KEY",
+    defaultModel: "z.ai/glm-5.3",
+    modelBaseUrl: "https://api.z.ai/api/anthropic",
+    customType: "anthropic-compatible",
+  },
+  {
+    key: "kimi-anthropic",
+    label: "Kimi (Coding Plan, Anthropic)",
+    envVar: "KIMI_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.kimi.com/coding/",
+    customType: "anthropic-compatible",
+  },
+  {
+    key: "minimax-anthropic",
+    label: "MiniMax (Token Plan or API key, Anthropic)",
+    envVar: "MINIMAX_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.minimax.io/anthropic",
+    customType: "anthropic-compatible",
+  },
+  {
+    key: "deepseek-anthropic",
+    label: "DeepSeek (Anthropic)",
+    envVar: "DEEPSEEK_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.deepseek.com/anthropic",
+    customType: "anthropic-compatible",
+  },
+  {
+    key: "kimi-cn",
+    label: "Kimi (Moonshot China)",
+    envVar: "MOONSHOT_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.moonshot.cn/v1",
+    defaultBaseUrl: "https://api.moonshot.cn/v1",
+  },
+  {
+    key: "minimax-cn",
+    label: "MiniMax (China)",
+    envVar: "MINIMAX_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.minimaxi.com/v1",
+    defaultBaseUrl: "https://api.minimaxi.com/v1",
   },
   {
     key: "__custom_openai__",
@@ -387,46 +438,43 @@ async function discoverModelsOnce(
           }))
           .filter((m) => m.id.length > 0);
 
-        // OpenRouter advertises per-model reasoning tiers (#147); keep any
-        // beyond the built-in baseline so the reasoning cycle can offer them.
-        if (provider.key === "openrouter") {
-          for (const entry of entries) {
-            const extra = advertisedReasoningLevels(
-              (entry as { supported_parameters?: unknown; reasoning_efforts?: unknown })
-                .reasoning_efforts ??
-                (entry as { supported_parameters?: unknown }).supported_parameters
-            );
-            const id = (entry.id ?? entry.name ?? "") as string;
-            if (id && extra.length > 0) {
-              setReasoningLevelsForModel(id, mergeReasoningLevels(EFFORT_LEVELS, extra));
-            }
-          }
-        }
+        // Provider-advertised per-model metadata (#147 / #210 / #211), read
+        // generically so a new provider needs no new branch: reasoning tiers
+        // (OpenRouter `reasoning_efforts`/`supported_parameters`, DeepSeek
+        // `effort.supported_levels`), context window, output cap, and input
+        // modalities. Providers that publish nothing simply yield nothing.
+        for (const entry of entries as Array<Record<string, unknown>>) {
+          const id = (entry["id"] ?? entry["name"] ?? "") as string;
+          if (!id) continue;
 
-        // DeepSeek's /models reports capabilities machine-readably (#211):
-        // context window, output cap, input modalities, and the effort levels
-        // thinking mode supports.
-        if (provider.key === "deepseek") {
-          for (const entry of entries as Array<Record<string, unknown>>) {
-            const id = (entry["id"] ?? "") as string;
-            if (!id) continue;
-            const modalities = entry["input_modalities"];
-            const effort = entry["effort"] as { supported_levels?: unknown } | undefined;
-            const levels = advertisedReasoningLevels(effort?.supported_levels);
+          const effort = entry["effort"] as { supported_levels?: unknown } | undefined;
+          const extra = advertisedReasoningLevels(
+            entry["reasoning_efforts"] ??
+              entry["supported_parameters"] ??
+              effort?.supported_levels
+          );
+          if (extra.length > 0) {
+            setReasoningLevelsForModel(id, mergeReasoningLevels(EFFORT_LEVELS, extra));
+          }
+
+          const modalities = entry["input_modalities"];
+          const context = entry["context_window"] ?? entry["context_length"];
+          const maxOut = entry["max_output_tokens"];
+          const hasCapabilityData =
+            Array.isArray(modalities) ||
+            typeof context === "number" ||
+            typeof maxOut === "number" ||
+            extra.length > 0;
+          if (hasCapabilityData) {
             setModelCapabilities(id, {
-              vision: Array.isArray(modalities) && modalities.includes("image"),
-              reasoning: levels.length > 0,
-              ...(typeof entry["context_window"] === "number"
-                ? { contextLength: entry["context_window"] }
-                : {}),
-              ...(typeof entry["max_output_tokens"] === "number"
-                ? { maxOutputTokens: entry["max_output_tokens"] }
-                : {}),
+              vision: Array.isArray(modalities)
+                ? modalities.includes("image")
+                : modelSupportsVisionCached(id),
+              reasoning: extra.length > 0,
+              ...(typeof context === "number" ? { contextLength: context } : {}),
+              ...(typeof maxOut === "number" ? { maxOutputTokens: maxOut } : {}),
               source: "provider-api",
             });
-            if (levels.length > 0) {
-              setReasoningLevelsForModel(id, mergeReasoningLevels(["off"], levels));
-            }
           }
         }
 

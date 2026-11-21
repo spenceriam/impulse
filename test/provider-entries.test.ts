@@ -12,10 +12,16 @@ describe("first-class provider entries (#211)", () => {
     for (const key of [
       "z.ai",
       "z.ai-api",
+      "z.ai-anthropic",
       "kimi",
       "kimi-api",
+      "kimi-anthropic",
+      "kimi-cn",
       "minimax",
+      "minimax-anthropic",
+      "minimax-cn",
       "deepseek",
+      "deepseek-anthropic",
     ]) {
       expect(keys.has(key)).toBe(true);
       expect(KNOWN_PROVIDER_KEYS.has(key)).toBe(true);
@@ -65,6 +71,28 @@ describe("first-class providers skip the endpoint step (#211)", () => {
   test("only custom providers need a base URL", () => {
     for (const p of MODEL_PROVIDERS) {
       if (p.needsBaseUrl) expect(p.isCustom).toBe(true);
+    }
+  });
+});
+
+describe("Anthropic-protocol and region variants (#211)", () => {
+  const provider = (key: string) => MODEL_PROVIDERS.find((p) => p.key === key)!;
+
+  test("Anthropic-protocol entries use each provider's documented endpoint", () => {
+    expect(provider("z.ai-anthropic").modelBaseUrl).toBe("https://api.z.ai/api/anthropic");
+    expect(provider("kimi-anthropic").modelBaseUrl).toBe("https://api.kimi.com/coding/");
+    expect(provider("minimax-anthropic").modelBaseUrl).toBe("https://api.minimax.io/anthropic");
+    expect(provider("deepseek-anthropic").modelBaseUrl).toBe("https://api.deepseek.com/anthropic");
+  });
+
+  test("region variants point at the China hosts", () => {
+    expect(provider("kimi-cn").modelBaseUrl).toBe("https://api.moonshot.cn/v1");
+    expect(provider("minimax-cn").modelBaseUrl).toBe("https://api.minimaxi.com/v1");
+  });
+
+  test("Anthropic-protocol entries are OpenAI-compat false only by customType", () => {
+    for (const key of ["z.ai-anthropic", "kimi-anthropic", "minimax-anthropic", "deepseek-anthropic"]) {
+      expect(provider(key).customType).toBe("anthropic-compatible");
     }
   });
 });

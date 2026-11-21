@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.11] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Provider leftovers: generic tier discovery, Anthropic endpoints, region variants, post-save discovery
+
+  ### Added
+  - **#211** -- Anthropic-protocol entries for Z.ai, Kimi, MiniMax and DeepSeek, plus China region variants for Kimi (`api.moonshot.cn`) and MiniMax (`api.minimaxi.com`).
+  - **#214** -- Saving a key from `/login` now discovers that provider's models immediately, so the count is fresh without reopening `/model`.
+
+  ### Changed
+  - **#210** -- Per-model metadata discovery is generic instead of per-provider: reasoning tiers (`reasoning_efforts`, `supported_parameters`, `effort.supported_levels`), context window, output cap and input modalities are read from whatever a provider's `/models` returns. A new provider needs no new branch.
+
+
 ## [1.21.10] - 2026-11-21
 
   **Type:** patch

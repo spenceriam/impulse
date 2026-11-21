@@ -5202,6 +5202,26 @@ export class ImpulseRenderer {
           resetProviderManager();
           this.addChatLine(clr.dim(`${provider.label} key saved (${maskKeyFull(raw)}).`));
           this.tui.requestRender();
+          // Refresh the model count right away instead of waiting for the
+          // next /model open (#214). Failure is fine: the list falls back to
+          // the cached count.
+          try {
+            const result = await discoverModels(
+              provider,
+              raw,
+              cfg.providers[provider.key as keyof typeof cfg.providers]?.baseUrl
+            );
+            if (result.success && result.models.length > 0) {
+              this.addChatLine(
+                clr.dim(`${result.models.length} model${result.models.length === 1 ? "" : "s"} found.`)
+              );
+            } else if (!result.success) {
+              this.addChatLine(clr.dim(`Model discovery: ${result.message}`));
+            }
+          } catch {
+            /* keep the saved key; discovery is best-effort */
+          }
+          this.tui.requestRender();
           resolve();
         })();
       };
