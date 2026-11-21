@@ -976,3 +976,44 @@ describe("QuietWorkGroupTracker settle-once", () => {
     expect(t.settledCount).toBe(0);
   });
 });
+
+describe("Recap composition stays a summary, not a tool log (#188)", () => {
+  test("shell variables never leak as command names", () => {
+    expect(humanizeBashCommand("$body")).toEqual({
+      live: "Running a terminal command",
+      done: "ran a terminal command",
+    });
+    expect(humanizeBashCommand("$body | Out-File out.txt")).toEqual({
+      live: "Running a terminal command",
+      done: "ran a terminal command",
+    });
+  });
+
+  test("a failed fact replaces the same success fact instead of repeating it", () => {
+    const line = formatQuietRecap([
+      { name: "github_issue", arg: "", outcome: "success", fact: "filed an issue" },
+      {
+        name: "web_fetch",
+        arg: "",
+        outcome: "success",
+        fact: "checked issue #20 on GitHub",
+      },
+      {
+        name: "web_fetch",
+        arg: "",
+        outcome: "failed",
+        fact: "checked issue #20 on GitHub failed",
+      },
+    ]);
+    expect(line).not.toContain("checked issue #20 on GitHub;");
+    expect(line).toContain("filed an issue");
+  });
+
+  test("Next does not recommend a blind retry of an unclassifiable failure", () => {
+    const next = lastFailureNextLabel([
+      { name: "bash", arg: "$body", outcome: "failed", fact: "ran $body failed" },
+    ]);
+    expect(next).not.toMatch(/^retry/);
+    expect(next).toContain("check");
+  });
+});
