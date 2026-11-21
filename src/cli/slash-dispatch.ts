@@ -77,7 +77,7 @@ export interface SlashDispatchHost {
   cmdCopy(): void | Promise<void>;
   cmdSide(arg: string): Promise<void>;
   showThinkingSettingsHint(): void;
-  cmdCompact(): Promise<void>;
+  cmdCompact(arg: string): Promise<void>;
   gracefulExit(): Promise<void>;
   showUnknownSlash(cmd: string): void;
 }
@@ -127,7 +127,7 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   side: (h, arg) => h.cmdSide(arg),
   "show-think": (h) => h.showThinkingSettingsHint(),
   "hide-think": (h) => h.showThinkingSettingsHint(),
-  compact: (h) => h.cmdCompact(),
+  compact: (h, arg) => h.cmdCompact(arg),
   quit: (h) => h.gracefulExit(),
   exit: (h) => h.gracefulExit(),
 };

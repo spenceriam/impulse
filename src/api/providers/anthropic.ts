@@ -473,6 +473,7 @@ export class AnthropicProvider implements AIProvider {
     let model = request.model;
     let created = Math.floor(Date.now() / 1000);
     let inputTokens = 0;
+    let cachedTokens = 0;
     let outputTokens = 0;
     let currentText = "";
     const toolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map();
@@ -505,6 +506,11 @@ export class AnthropicProvider implements AIProvider {
                   const usage = msg["usage"] as Record<string, number> | undefined;
                   if (usage) {
                     inputTokens = usage["input_tokens"] ?? inputTokens;
+                    // Cache accounting (#194): Anthropic reports reads and
+                    // writes separately from input_tokens.
+                    cachedTokens =
+                      (usage["cache_read_input_tokens"] ?? 0) +
+                      (usage["cache_creation_input_tokens"] ?? 0);
                   }
                 }
                 break;
@@ -637,6 +643,9 @@ export class AnthropicProvider implements AIProvider {
           prompt_tokens: inputTokens,
           completion_tokens: outputTokens,
           total_tokens: inputTokens + outputTokens,
+          ...(cachedTokens > 0
+            ? { prompt_tokens_details: { cached_tokens: cachedTokens } }
+            : {}),
         },
       };
 

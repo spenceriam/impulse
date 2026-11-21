@@ -14,6 +14,7 @@ import {
   MAX_COMPACT_TOOL_MESSAGE_CHARS,
   stubOversizedMessageContent,
 } from "../util/tool-output-cap.js";
+import { isDebugEnabled, logCachePrefix } from "../util/debug-log.js";
 
 // Canonical threshold/thrash helpers live in util/compaction-thresholds.ts
 // (#182). Re-exported here for existing consumers (context-bar, agent loop).
@@ -33,6 +34,8 @@ const TOOL_OUTPUT_RETENTION = 3;               // Keep outputs for last N tool c
 const PRUNE_BUDGET_CHARS = 60_000;
 /** Fraction of the context window the kept tail may occupy (#183 phase 3). */
 const TAIL_TARGET_RATIO = 0.2;
+/** Skip the LLM summarizer this long after a failure (#184). */
+const SUMMARIZER_COOLDOWN_MS = 5 * 60_000;
 /** Max chars for a tool message kept in the recent tail after compaction. */
 const MAX_RECENT_TOOL_MESSAGE_CHARS = 8000;
 
@@ -52,6 +55,8 @@ export interface CompactResult {
 
 interface CompactOptions {
   force?: boolean
+  /** Focus text from `/compact <instructions>` (#184). */
+  focus?: string
 }
 
 interface CacheEntry {
@@ -75,6 +80,8 @@ class CompactManagerImpl {
     systemPrompt: "You are a context compaction assistant. Follow the provided summary template precisely.",
   };
   private inProgress: Set<string> = new Set();
+  /** Epoch ms until which the summarizer LLM route is skipped (#184). */
+  private summarizerCooldownUntil = 0;
   private usageCache: Map<string, CacheEntry> = new Map();
   private readonly CACHE_TTL = 30000;
 
@@ -266,7 +273,11 @@ class CompactManagerImpl {
     });
   }
 
-  private buildCompactionPrompt(messages: Message[], todos: TodoItem[]): string {
+  private buildCompactionPrompt(
+    messages: Message[],
+    todos: TodoItem[],
+    opts: { focus?: string; priorSummary?: string } = {}
+  ): string {
     const userMessages: string[] = [];
     const conversationParts: string[] = [];
 
@@ -311,8 +322,17 @@ class CompactManagerImpl {
     const todoLines = todos.map((todo) => `- [${todo.status}] ${todo.content}`);
     const todoSection = todoLines.length > 0 ? todoLines.join("\n") : "(no todos)";
 
-    return `You are a context compaction assistant. Create a detailed summary that will serve as a handoff to continue the work without losing critical information.
+    // #184: iterative update keeps goal/files/decisions continuous instead of
+    // re-deriving a fresh handoff each cycle (which degrades a little every time).
+    const priorSection = opts.priorSummary
+      ? `\n## Previous Summary (UPDATE it, do not replace it)\n${opts.priorSummary}\n\nKeep everything still true from this summary, correct anything that changed, and fold in what is new from the conversation below.`
+      : "";
+    const focusSection = opts.focus?.trim()
+      ? `\n## Focus for this summary\nPrioritize and expand on: ${opts.focus.trim()}\n`
+      : "";
 
+    return `You are a context compaction assistant. Create a detailed summary that will serve as a handoff to continue the work without losing critical information.
+${priorSection}${focusSection}
 ## Conversation to Summarize:
 ${conversationText}
 
@@ -530,7 +550,17 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       const headMessages = prunedMessages.slice(0, headEnd);
       const recentMessages = prunedMessages.slice(tailStart);
 
-      const summary = await this.summarizeMessages(messagesToCompact, todos);
+      // #184: on a repeat compaction, update the prior summary instead of
+      // replacing it; `/compact <focus>` steers what the summary emphasizes.
+      const priorSummary = session.messages
+        .filter((m) => m.role === "system" && m.content.startsWith("Previous conversation summary:"))
+        .map((m) => m.content.replace("Previous conversation summary:", "").trim())
+        .pop();
+      const summarized = await this.summarizeMessages(messagesToCompact, todos, {
+        ...(options.focus ? { focus: options.focus } : {}),
+        ...(priorSummary ? { priorSummary } : {}),
+      });
+      const summary = summarized.summary;
 
       const systemMessage: Message = {
         role: "system",
@@ -544,8 +574,16 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
         messages: newMessages,
       });
 
-      // Invalidate cache after compaction
+      // Cache-aware placement (#193): the summary is the FIRST message, so
+      // the post-compaction prefix is [summary, head, tail] and the provider
+      // can cache it fresh. The old prefix is gone either way, so say it once.
       this.invalidateCache(sessionID);
+      if (isDebugEnabled()) {
+        await logCachePrefix({
+          systemPrompt: `[post-compaction] ${summary.slice(0, 200)}`,
+          toolCount: 0,
+        });
+      }
 
       // Generate appropriate continuation prompt
       const continuationPrompt = isManual
@@ -579,9 +617,19 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
     }
   }
 
-  private async summarizeMessages(messages: Message[], todos: TodoItem[]): Promise<string> {
+  private async summarizeMessages(
+    messages: Message[],
+    todos: TodoItem[],
+    opts: { focus?: string; priorSummary?: string } = {}
+  ): Promise<{ summary: string; fallback: boolean }> {
     const prunedMessages = this.pruneToolOutputs(messages);
-    const prompt = this.buildCompactionPrompt(prunedMessages, todos);
+    const prompt = this.buildCompactionPrompt(prunedMessages, todos, opts);
+
+    // Cooldown after a failed summarizer call: skip the LLM route and use the
+    // deterministic fallback instead of burning another call (and another wait).
+    if (Date.now() < this.summarizerCooldownUntil) {
+      return { summary: buildFallbackSummary(messages), fallback: true };
+    }
 
     try {
       const apiMessages: ChatMessage[] = [
@@ -598,13 +646,14 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       });
 
       const content = response.choices[0]?.message?.content;
-      if (typeof content === "string") {
-        return content;
+      if (typeof content === "string" && content.trim()) {
+        return { summary: content, fallback: false };
       }
-      return "Failed to generate summary (unexpected content format)";
+      return { summary: buildFallbackSummary(messages), fallback: true };
     } catch (e) {
       console.error("Failed to generate AI summary:", e);
-      return "Failed to generate summary. Manual compaction required.";
+      this.summarizerCooldownUntil = Date.now() + SUMMARIZER_COOLDOWN_MS;
+      return { summary: buildFallbackSummary(messages), fallback: true };
     }
   }
 
@@ -633,6 +682,42 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
   isInProgress(sessionID: string): boolean {
     return this.inProgress.has(sessionID);
   }
+}
+
+/**
+ * Deterministic fallback summary (#184): if the summarizer call fails or is
+ * cooling down, keep the important structured facts instead of dropping the
+ * handoff entirely. Same 9-section skeleton, filled from what the messages
+ * themselves contain.
+ */
+export function buildFallbackSummary(messages: Message[]): string {
+  const firstUser = messages.find((m) => m.role === "user" && m.content?.trim());
+  const lastAssistant = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content?.trim());
+  const files = new Set<string>();
+  for (const m of messages) {
+    for (const tc of m.tool_calls ?? []) {
+      const arg = JSON.stringify(tc.arguments ?? {});
+      for (const hit of arg.matchAll(/"((?:[\w.-]+\/)*[\w.-]+\.(?:ts|tsx|js|jsx|json|md|py|go|rs|java|sh|yml|yaml))"/g)) {
+        files.add(hit[1]!);
+      }
+    }
+  }
+
+  const lines = [
+    "### 1. Primary Request and Intent",
+    firstUser?.content.trim() ?? "(no user message captured)",
+    "",
+    "### 3. Files and Code Sections",
+    files.size > 0 ? [...files].slice(0, 20).map((f) => `- ${f}`).join("\n") : "(none detected)",
+    "",
+    "### 8. Current Work",
+    lastAssistant?.content.trim().slice(0, 1500) ?? "(no assistant reply captured)",
+    "",
+    "_(Fallback summary: the summarizer did not produce one, so this is built from the conversation's own structure.)_",
+  ];
+  return lines.join("\n");
 }
 
 /**
