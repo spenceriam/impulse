@@ -364,6 +364,10 @@ export class SelectableListOverlay implements Component {
   private selectedIndex = 0;
 
   onSelect?: (id: string) => void;
+  /** Id of the row under the cursor (respects the active filter). */
+  currentRowId(): string | null {
+    return this.filtered[this.selectedIndex]?.id ?? null;
+  }
   onCancel?: () => void;
   onManageProviders?: () => void;
 

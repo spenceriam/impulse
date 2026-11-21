@@ -21,6 +21,7 @@ export class TextInputOverlay implements Component {
   private readonly description: string;
   private readonly placeholder: string;
   private readonly hint: string;
+  private readonly secret: boolean;
 
   onSubmit?: (value: string) => void;
   onCancel?: () => void;
@@ -30,11 +31,23 @@ export class TextInputOverlay implements Component {
     description?: string;
     placeholder?: string;
     hint?: string;
+    /** Mask the value as bullets (API keys, tokens) so screenshots are safe. */
+    secret?: boolean;
   }) {
     this.title = input.title;
     this.description = input.description ?? "";
     this.placeholder = input.placeholder ?? "";
     this.hint = input.hint ?? "Enter confirm   Esc cancel";
+    this.secret = input.secret ?? false;
+  }
+
+  /** What the user sees: the raw value, or bullets with a short tail hint. */
+  private displayValue(): string {
+    if (!this.secret || this.value.length === 0) return this.value;
+    const masked = "•".repeat(this.value.length);
+    // Keep the last 2 chars visible so a mistyped paste is noticeable.
+    const tail = this.value.slice(-2);
+    return `${masked.slice(0, Math.max(0, masked.length - 2))}${tail}`;
   }
 
   invalidate(): void {}
@@ -76,7 +89,8 @@ export class TextInputOverlay implements Component {
       pushBoxLine();
     }
 
-    const shown = this.value.length > 0 ? this.value : overlayDim(this.placeholder);
+    const shown =
+      this.value.length > 0 ? this.displayValue() : overlayDim(this.placeholder);
     pushBoxLine(`  > ${shown}_`);
 
     pushBoxLine();

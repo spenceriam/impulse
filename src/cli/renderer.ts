@@ -3991,6 +3991,7 @@ export class ImpulseRenderer {
       cmdMode: (arg) => r.cmdMode(arg),
       showReasoningHint: () => r.showReasoningHint(),
       cmdUsage: () => r.cmdUsage(),
+      cmdLogin: (mode, arg) => r.cmdLogin(mode, arg),
       cmdTraces: (arg) => r.cmdTraces(arg),
       cmdCheckpoint: () => r.cmdCheckpoint(),
       cmdUndo: (arg) => r.cmdUndo(arg),
@@ -4404,7 +4405,7 @@ export class ImpulseRenderer {
     if (opts?.edit && isStoredProviderConfigured(effectiveKey, existing)) {
       await this.clearModelsUsingProvider(state.config, effectiveKey);
       state.editingProvider = true;
-      state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+      state.step = this.stepAfterProvider(provider);
       this.renderModelSetup();
       return;
     }
@@ -4438,7 +4439,7 @@ export class ImpulseRenderer {
       return;
     }
 
-    state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+    state.step = this.stepAfterProvider(provider);
   }
 
   /** Validate API keys for configured providers */
@@ -4516,7 +4517,7 @@ export class ImpulseRenderer {
         return;
       }
       state.customProviderName = slug;
-      state.step = provider.needsBaseUrl ? "baseUrl" : "apiKey";
+      state.step = this.stepAfterProvider(provider);
       this.renderModelSetup();
       return;
     }
@@ -5067,6 +5068,211 @@ export class ImpulseRenderer {
   }
 
   /** Manual model-id entry for models a provider accepts but never lists (#159). */
+  /**
+   * `/login` and `/logout` (#211): one provider list, Enter sets/changes a key,
+   * `d` removes it (confirmed). `/logout <provider>` removes directly.
+   */
+  private async cmdLogin(mode: "login" | "logout" = "login", arg = ""): Promise<void> {
+    if (this.isRunning) return;
+    const config = await loadConfig();
+
+    if (mode === "logout" && arg.trim()) {
+      const key = arg.trim();
+      const provider = MODEL_PROVIDERS.find((p) => p.key === key);
+      if (!provider) {
+        this.addChatLine(clr.warn(`Unknown provider '${key}'`));
+        this.tui.requestRender();
+        return;
+      }
+      await this.confirmAndRemoveProvider(provider);
+      return;
+    }
+
+    const {
+      buildProviderLoginRows,
+      parseProviderLoginRow,
+      providerLoginEntries,
+      PROVIDER_LOGIN_TABLE_HEADERS,
+    } = await import("./provider-login.js");
+    const { SelectableListOverlay } = await import(
+      "./components/selectable-list-overlay.js"
+    );
+
+    const entries = providerLoginEntries(
+      MODEL_PROVIDERS,
+      (key) => isStoredProviderConfigured(key, providerConfig(config, key)),
+      (key) => getCachedModelInfos(key)?.length ?? null
+    );
+    const overlay = new SelectableListOverlay({
+      title: mode === "logout" ? "Remove a provider key" : "Providers",
+      rows: buildProviderLoginRows(entries),
+      layout: "table",
+      tableHeaders: PROVIDER_LOGIN_TABLE_HEADERS,
+      tableOmitModelColumn: false,
+      boxSizing: "responsive",
+      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+      emptyMessage: "  No providers",
+      helpLines: [
+        mode === "logout"
+          ? "↑/↓ navigate   Enter: remove key   Esc done"
+          : "↑/↓ navigate   Enter: set/change key   d: remove key   Esc done",
+      ],
+    });
+
+    let handle: OverlayHandle | null = null;
+    const refresh = async () => {
+      const cfg = await loadConfig();
+      overlay.setRows(
+        buildProviderLoginRows(
+          providerLoginEntries(
+            MODEL_PROVIDERS,
+            (key) => isStoredProviderConfigured(key, providerConfig(cfg, key)),
+            (key) => getCachedModelInfos(key)?.length ?? null
+          )
+        )
+      );
+      this.tui.requestRender();
+    };
+
+    overlay.onSelect = (rowId) => {
+      const key = parseProviderLoginRow(rowId);
+      const provider = MODEL_PROVIDERS.find((p) => p.key === key);
+      if (!provider) return;
+      if (mode === "logout") {
+        void this.confirmAndRemoveProvider(provider).then(refresh);
+      } else {
+        void this.promptForProviderKey(provider).then(refresh);
+      }
+    };
+    overlay.onCancel = () => {
+      this.dismissListOverlay(handle);
+      handle = null;
+      this.tui.setFocus(this.promptInput);
+    };
+    // `d` removes the key for the highlighted row.
+    overlay.onManageProviders = () => {
+      void (async () => {
+        const selected = overlay.currentRowId();
+        const key = selected ? parseProviderLoginRow(selected) : null;
+        const provider = MODEL_PROVIDERS.find((p) => p.key === key);
+        if (provider) await this.confirmAndRemoveProvider(provider);
+        await refresh();
+      })();
+    };
+
+    handle = this.showListOverlay(overlay);
+  }
+
+  /** Ask for a provider key (masked) and save it, then discover its models. */
+  private async promptForProviderKey(provider: ModelProviderOption): Promise<void> {
+    const config = await loadConfig();
+    const existing = providerConfig(config, provider.key);
+    this.promptInput.setSecretMode(true);
+    this.promptInput.clear();
+    this.promptInput.getEditor().setText?.("");
+    this.addChatLine(
+      clr.dim(
+        `${provider.label}: paste the API key, then Enter (Esc cancels). ` +
+          (existing.apiKey ? `Current: ${maskKeyFull(existing.apiKey)}` : "No key set.")
+      )
+    );
+    this.tui.requestRender();
+
+    await new Promise<void>((resolve) => {
+      const listener = () => {
+        const raw = this.promptInput.getText().trim();
+        this.promptInput.clear();
+        this.promptInput.setSecretMode(false);
+        this.modelSetupInputListener = null;
+        if (!raw) {
+          this.addChatLine(clr.dim("Cancelled — key unchanged."));
+          this.tui.requestRender();
+          resolve();
+          return;
+        }
+        void (async () => {
+          const cfg = await loadConfig();
+          const providers = {
+            ...(cfg.providers as Record<string, StoredProviderConfig | undefined>),
+          };
+          providers[provider.key] = { ...(existing ?? {}), apiKey: raw };
+          cfg.providers = providers as Config["providers"];
+          await saveConfig(cfg);
+          await saveHomeEnv(provider, raw, existing.baseUrl);
+          resetProviderManager();
+          this.addChatLine(clr.dim(`${provider.label} key saved (${maskKeyFull(raw)}).`));
+          this.tui.requestRender();
+          resolve();
+        })();
+      };
+      this.modelSetupInputListener = listener;
+      this.promptInput.onEnter = listener;
+      this.promptInput.onEscape = () => {
+        this.promptInput.onEnter = null;
+        this.promptInput.onEscape = () => {};
+        this.modelSetupInputListener = null;
+        this.promptInput.clear();
+        this.promptInput.setSecretMode(false);
+        this.addChatLine(clr.dim("Cancelled — key unchanged."));
+        this.tui.requestRender();
+        resolve();
+      };
+    });
+  }
+
+  /** Confirm, then delete a provider's key and any models using it. */
+  private async confirmAndRemoveProvider(provider: ModelProviderOption): Promise<void> {
+    const config = await loadConfig();
+    const stored = providerConfig(config, provider.key);
+    if (!stored.apiKey && !stored.baseUrl) {
+      this.addChatLine(clr.dim(`${provider.label} has no key to remove.`));
+      this.tui.requestRender();
+      return;
+    }
+    const { QuestionOverlay } = await import("./components/question-overlay.js");
+    const answer = await new Promise<string>((resolve) => {
+      const overlay = new QuestionOverlay({
+        context: `Remove the stored key for ${provider.label}?`,
+        questions: [
+          {
+            topic: "Remove",
+            question: `Delete ${maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "")} from ${provider.label}?`,
+            options: [
+              { label: "Keep it", description: "Nothing changes" },
+              { label: "Remove it", description: "Delete the key and unset models using it" },
+            ],
+          },
+        ],
+      });
+      let handle: OverlayHandle | null = null;
+      overlay.onSubmit = (answers: string[][]) => {
+        this.dismissListOverlay(handle);
+        resolve(answers[0]?.[0] ?? "");
+      };
+      overlay.onAbort = () => {
+        this.dismissListOverlay(handle);
+        resolve("");
+      };
+      handle = this.showListOverlay(overlay);
+    });
+    if (!answer.startsWith("Remove")) {
+      this.addChatLine(clr.dim("Kept."));
+      this.tui.requestRender();
+      return;
+    }
+    await this.removeConfiguredProvider(provider);
+  }
+
+  /**
+   * Step after a provider is chosen (#211): first-class providers have fixed
+   * endpoints, so ask for the API key; only custom providers ever ask for a URL.
+   */
+  private stepAfterProvider(provider: ModelProviderOption | undefined): "baseUrl" | "apiKey" {
+    if (!provider) return "apiKey";
+    if (provider.isCustom) return "baseUrl";
+    return "apiKey";
+  }
+
   private async promptForManualModelId(
     providerKey: string,
     opts: {

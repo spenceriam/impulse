@@ -216,3 +216,32 @@ describe("modality source order (#159)", () => {
     clearModelCapabilities("unlisted-model");
   });
 });
+
+describe("secret input masking (#211)", () => {
+  test("a pasted key is never rendered in full", () => {
+    const overlay = new TextInputOverlay({
+      title: "API key",
+      secret: true,
+    });
+    for (const ch of "sk-abcdef123456") overlay.handleInput(ch);
+    const rendered = overlay.render(80).join("\n");
+    expect(rendered).not.toContain("sk-abcdef123456");
+    expect(rendered).toContain("•");
+    expect(rendered).toContain("56");
+  });
+
+  test("non-secret input renders as typed", () => {
+    const overlay = new TextInputOverlay({ title: "Model id" });
+    for (const ch of "glm-5.3") overlay.handleInput(ch);
+    expect(overlay.render(80).join("\n")).toContain("glm-5.3");
+  });
+
+  test("the submitted value is the real value, not the mask", () => {
+    const overlay = new TextInputOverlay({ title: "API key", secret: true });
+    let submitted = "";
+    overlay.onSubmit = (v) => { submitted = v; };
+    for (const ch of "sk-secret") overlay.handleInput(ch);
+    overlay.handleInput("\r");
+    expect(submitted).toBe("sk-secret");
+  });
+});

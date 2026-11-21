@@ -10,6 +10,7 @@ import {
   mergeReasoningLevels,
   setReasoningLevelsForModel,
 } from "../api/providers/capabilities.js";
+import { setModelCapabilities } from "../api/capabilities.js";
 import {
   enrichDiscoveredModels,
   fallbackModelInfosFromIds,
@@ -43,17 +44,19 @@ export interface ModelDiscoveryResult {
 
 export const KNOWN_PROVIDER_KEYS = new Set([
   "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
+  "z.ai-api", "kimi", "kimi-api", "minimax", "deepseek",
 ]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
   {
+    // First-class: the endpoint is fixed. A custom or self-hosted Ollama is the
+    // custom-provider path, so setup asks for the API key only (#211).
     key: "ollama",
     label: "Ollama Cloud",
     envVar: "OLLAMA_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://ollama.com",
     defaultBaseUrl: "https://ollama.com",
-    needsBaseUrl: true,
   },
   {
     key: "openrouter",
@@ -61,6 +64,57 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     envVar: "OPENROUTER_API_KEY",
     defaultModel: "openrouter/anthropic/claude-haiku-4.5",
     modelBaseUrl: "https://openrouter.ai/api/v1",
+  },
+  // Subscription/plan and pay-as-you-go endpoints differ per provider and keys
+  // are not interchangeable between them (docs, 2026-11-21) — each is its own
+  // entry so the user picks the one matching their key (#211).
+  {
+    key: "z.ai",
+    label: "Z.ai (Coding Plan)",
+    envVar: "ZAI_API_KEY",
+    defaultModel: "z.ai/glm-5.3",
+    modelBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+  },
+  {
+    key: "z.ai-api",
+    label: "Z.ai (API / balance)",
+    envVar: "ZAI_API_KEY",
+    defaultModel: "z.ai/glm-5.2",
+    modelBaseUrl: "https://api.z.ai/api/paas/v4",
+  },
+  {
+    key: "kimi",
+    label: "Kimi (Coding Plan)",
+    envVar: "KIMI_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.kimi.com/coding/v1",
+    defaultBaseUrl: "https://api.kimi.com/coding/v1",
+  },
+  {
+    key: "kimi-api",
+    label: "Kimi (Moonshot API)",
+    envVar: "MOONSHOT_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.moonshot.ai/v1",
+    defaultBaseUrl: "https://api.moonshot.ai/v1",
+  },
+  {
+    // One entry: Token Plan and pay-as-you-go share the endpoint, and the key
+    // decides the billing (sk-cp-… = subscription).
+    key: "minimax",
+    label: "MiniMax (Token Plan or API key)",
+    envVar: "MINIMAX_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.minimax.io/v1",
+    defaultBaseUrl: "https://api.minimax.io/v1",
+  },
+  {
+    key: "deepseek",
+    label: "DeepSeek",
+    envVar: "DEEPSEEK_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.deepseek.com",
+    defaultBaseUrl: "https://api.deepseek.com",
   },
   {
     key: "__custom_openai__",
@@ -345,6 +399,33 @@ async function discoverModelsOnce(
             const id = (entry.id ?? entry.name ?? "") as string;
             if (id && extra.length > 0) {
               setReasoningLevelsForModel(id, mergeReasoningLevels(EFFORT_LEVELS, extra));
+            }
+          }
+        }
+
+        // DeepSeek's /models reports capabilities machine-readably (#211):
+        // context window, output cap, input modalities, and the effort levels
+        // thinking mode supports.
+        if (provider.key === "deepseek") {
+          for (const entry of entries as Array<Record<string, unknown>>) {
+            const id = (entry["id"] ?? "") as string;
+            if (!id) continue;
+            const modalities = entry["input_modalities"];
+            const effort = entry["effort"] as { supported_levels?: unknown } | undefined;
+            const levels = advertisedReasoningLevels(effort?.supported_levels);
+            setModelCapabilities(id, {
+              vision: Array.isArray(modalities) && modalities.includes("image"),
+              reasoning: levels.length > 0,
+              ...(typeof entry["context_window"] === "number"
+                ? { contextLength: entry["context_window"] }
+                : {}),
+              ...(typeof entry["max_output_tokens"] === "number"
+                ? { maxOutputTokens: entry["max_output_tokens"] }
+                : {}),
+              source: "provider-api",
+            });
+            if (levels.length > 0) {
+              setReasoningLevelsForModel(id, mergeReasoningLevels(["off"], levels));
             }
           }
         }
