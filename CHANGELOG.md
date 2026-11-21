@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.4] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Compaction quality — iterative summary, fallback, focus, cache accounting
+
+  ### Added
+  - **#184** -- `/compact <instructions>` focuses the summary ("Prioritize and expand on: …").
+  - **#184** -- Repeat compaction now *updates* the previous summary (keeping goal, files, and decisions continuous) instead of replacing it.
+  - **#184** -- A failed summarizer call no longer loses the handoff: a deterministic fallback summary is built from the conversation itself (first user message, files touched, last assistant reply), and the LLM route cools down for 5 minutes so a broken provider is not retried every message.
+
+  ### Fixed
+  - **#194** -- Anthropic streaming usage now reports `cache_read_input_tokens` + `cache_creation_input_tokens` as `cached_tokens`, so cache accounting works on Anthropic (it was silently dropped).
+  - **#193** -- Compaction logs the new prefix hash when debug is on, making the post-compaction cache invalidation visible.
+  - **#194** -- DeepSeek-style top-level `prompt_cache_hit_tokens` now maps to cached tokens (the nested `prompt_tokens_details.cached_tokens` still wins when both are present) -- a gap carried over from the first cache-accounting pass.
+
+
 ## [1.21.3] - 2026-11-21
 
   **Type:** patch

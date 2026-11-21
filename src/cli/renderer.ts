@@ -4003,7 +4003,7 @@ export class ImpulseRenderer {
       cmdCopy: () => r.cmdCopy(),
       cmdSide: (arg) => r.cmdSide(arg),
       showThinkingSettingsHint: () => r.showThinkingSettingsHint(),
-      cmdCompact: () => r.cmdCompact(),
+      cmdCompact: (arg) => r.cmdCompact(arg),
       gracefulExit: () => r.gracefulExit(),
       showUnknownSlash: (cmd) => r.showUnknownSlash(cmd),
     };
@@ -4156,7 +4156,7 @@ export class ImpulseRenderer {
     this.tui.requestRender();
   }
 
-  private async cmdCompact(): Promise<void> {
+  private async cmdCompact(arg = ""): Promise<void> {
     const sessionID = SessionManager.getCurrentSessionID();
     if (!sessionID) {
       this.addChatLine(clr.warn("No active session"));
@@ -4165,7 +4165,11 @@ export class ImpulseRenderer {
     this.compactStartMs = Date.now();
     this.addChatLine(clr.dim("Compaction in progress"));
     this.setBusyStatus("Compacting…", BUSY_COMPACTING);
-    const result = await CompactManager.compact(sessionID, true, { force: true });
+    const focus = arg.trim();
+    const result = await CompactManager.compact(sessionID, true, {
+      force: true,
+      ...(focus ? { focus } : {}),
+    });
     this.spinStop();
     this.contextTokens = this.estimateCurrentSessionTokens();
     if (result.compacted) {
