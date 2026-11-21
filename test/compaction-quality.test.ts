@@ -46,7 +46,7 @@ describe("usage mapping across provider shapes (#194)", () => {
     expect(extractCachedTokens(null)).toBe(0);
   });
 
-  test("DeepSeek-style top-level cache fields are not silently dropped", () => {
+  test("DeepSeek-style top-level cache hits are mapped", () => {
     // DeepSeek reports prompt_cache_hit_tokens alongside prompt_tokens.
     const parsed = parseOpenAIUsage({
       prompt_tokens: 1000,
@@ -55,8 +55,16 @@ describe("usage mapping across provider shapes (#194)", () => {
       prompt_cache_hit_tokens: 600,
     });
     expect(parsed?.promptTokens).toBe(1000);
-    // Documented gap: only prompt_tokens_details.cached_tokens is read today.
-    expect(parsed?.cachedTokens).toBe(0);
+    expect(parsed?.cachedTokens).toBe(600);
+  });
+
+  test("nested cached_tokens wins over the top-level field when both exist", () => {
+    expect(
+      extractCachedTokens({
+        prompt_tokens_details: { cached_tokens: 90 },
+        prompt_cache_hit_tokens: 600,
+      })
+    ).toBe(90);
   });
 
   test("toApiUsageFields omits details when nothing was cached", () => {

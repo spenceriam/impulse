@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ### Fixed
   - **#194** -- Anthropic streaming usage now reports `cache_read_input_tokens` + `cache_creation_input_tokens` as `cached_tokens`, so cache accounting works on Anthropic (it was silently dropped).
   - **#193** -- Compaction logs the new prefix hash when debug is on, making the post-compaction cache invalidation visible.
+  - **#194** -- DeepSeek-style top-level `prompt_cache_hit_tokens` now maps to cached tokens (the nested `prompt_tokens_details.cached_tokens` still wins when both are present) -- a gap carried over from the first cache-accounting pass.
 
 
 ## [1.21.3] - 2026-11-21

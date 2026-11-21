@@ -10,8 +10,16 @@ export interface ParsedUsage {
 }
 
 export function extractCachedTokens(usage: unknown): number {
-  const u = usage as { prompt_tokens_details?: { cached_tokens?: number } } | null | undefined;
-  return u?.prompt_tokens_details?.cached_tokens ?? 0;
+  const u = usage as
+    | {
+        prompt_tokens_details?: { cached_tokens?: number };
+        /** DeepSeek / some OpenAI-compatible endpoints report cache hits here. */
+        prompt_cache_hit_tokens?: number;
+      }
+    | null
+    | undefined;
+  // Prefer the standard nested field; fall back to DeepSeek's top-level one.
+  return u?.prompt_tokens_details?.cached_tokens ?? u?.prompt_cache_hit_tokens ?? 0;
 }
 
 export function parseOpenAIUsage(usage: unknown): ParsedUsage | undefined {
