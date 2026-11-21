@@ -753,7 +753,7 @@ describe("quiet-status", () => {
         { name: "file_edit", arg: "a.ts", outcome: "success" },
         { name: "bash", arg: "bun test", outcome: "failed" },
       ])
-    ).toBe("retry running the tests");
+    ).toBe("try running the tests again");
     expect(
       unansweredAskNextLabel([
         { name: "question", arg: "Platform", outcome: "failed" },
@@ -795,7 +795,7 @@ describe("quiet-status", () => {
         fact: "ran bun test failed",
       },
     ]);
-    expect(line).toBe("Recap: ran bun test failed · Next: retry running the tests");
+    expect(line).toBe("Recap: ran bun test failed · Next: try running the tests again");
   });
 
   test("Recap Next absent when hints explicitly cleared (turn complete)", () => {
@@ -1014,6 +1014,6 @@ describe("Recap composition stays a summary, not a tool log (#188)", () => {
       { name: "bash", arg: "$body", outcome: "failed", fact: "ran $body failed" },
     ]);
     expect(next).not.toMatch(/^retry/);
-    expect(next).toContain("check");
+    expect(next).toContain("try");
   });
 });

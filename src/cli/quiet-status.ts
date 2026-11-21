@@ -806,6 +806,36 @@ export function quietOutcomeVerb(name: string): string {
   return QUIET_OUTCOME_VERBS[name] ?? name.replace(/_/g, " ");
 }
 
+/**
+ * Base-form verbs for failure phrasing. The past-tense verbs above read as
+ * "looked at package.json failed" when a tool fails; "couldn't read
+ * package.json" is what a colleague would say (#188 follow-up: Recap stays
+ * plain English regardless of response style).
+ */
+const QUIET_BASE_VERBS: Record<string, string> = {
+  file_read: "read",
+  file_write: "create",
+  file_edit: "update",
+  glob: "list the files",
+  grep: "search the code",
+  ls: "list the folder",
+  bash: "run",
+  task: "delegate",
+  web_search: "search the web",
+  web_fetch: "fetch the page",
+  todo_write: "update the todos",
+  todo_read: "review the todos",
+  question: "ask the question",
+  github_issue: "file the issue",
+  plan_revision: "update the plan",
+  install_skill: "install the skill",
+  vision_translate: "translate the image",
+};
+
+export function quietBaseVerb(name: string): string {
+  return QUIET_BASE_VERBS[name] ?? name.replace(/_/g, " ");
+}
+
 /** True when an arg/fact is too mushy for Recap. */
 export function isVagueRecapNoun(text: string | null | undefined): boolean {
   if (text == null) return true;
@@ -1013,11 +1043,11 @@ export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
       if (m?.[1] && m[1] !== "a terminal command") target = m[1];
     }
     // A retry of the identical call changes nothing — say what to check
-    // instead of recommending a blind retry (#188).
+    // instead of recommending a blind retry (#188). Plain English either way.
     if (!target) {
-      return `check the ${quietOutcomeVerb(ev.name)} step that ${ev.outcome}`;
+      return `try the ${quietBaseVerb(ev.name)} step again`;
     }
-    return `retry ${target}`;
+    return `try ${target} again`;
   }
   return null;
 }
@@ -1050,9 +1080,13 @@ function resolveRecapFact(ev: QuietRecapEvent): string | null {
 
   const status = ev.outcome;
   if (ev.arg && !isVagueRecapNoun(ev.arg)) {
-    return `${quietOutcomeVerb(ev.name)} ${ev.arg} ${status}`;
+    return status === "failed"
+      ? `couldn't ${quietBaseVerb(ev.name)} ${ev.arg}`
+      : `${quietOutcomeVerb(ev.name)} ${ev.arg} ${status}`;
   }
-  return `${quietOutcomeVerb(ev.name)} ${status}`;
+  return status === "failed"
+    ? `couldn't ${quietBaseVerb(ev.name)}`
+    : `${quietOutcomeVerb(ev.name)} ${status}`;
 }
 
 /**
