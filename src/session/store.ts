@@ -49,6 +49,9 @@ export interface Session {
   model: string
   todos: Todo[]
   context_window: number
+  /** Provider-reported prompt_tokens from the most recent turn's usage chunk
+   *  (provider anchor for compact usage; #182). */
+  lastPromptTokens?: number
   cost: number
   headerTitle?: string  // AI-generated session header title
   /** Retitle bookkeeping for the header title (#139). Local only. */

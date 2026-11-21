@@ -1533,6 +1533,15 @@ export class AgentLoop {
         estimatedTokens: estimatedContextTokens,
       });
       const contextTokens = contextUsage.tokens;
+      // Provider anchor (#182): persist the provider-reported prompt tokens so
+      // compaction's usage check prefers real counts over the heuristic.
+      if (latestPromptTokens !== undefined && latestPromptTokens > 0) {
+        try {
+          await SessionManager.update({ lastPromptTokens: latestPromptTokens });
+        } catch {
+          // No active session / persist failure — never break the turn over it.
+        }
+      }
       const debugInstrumentationNudge =
         mode === "DEBUG"
           ? buildDebugInstrumentationNudge([...debugEditedFiles])

@@ -220,6 +220,27 @@ describe("quiet-status", () => {
     );
   });
 
+  test("humanizeBashCommand: definitions and bare flags never read as commands (#180)", () => {
+    // Function definitions are definitions, not invocations — never "ran stats(){}"
+    expect(humanizeBashCommand("stats(){ echo hi; }")).toEqual({
+      live: "Defining a function",
+      done: "defined a function",
+    });
+    expect(humanizeBashCommand("function stats { echo hi; }")).toEqual({
+      live: "Defining a function",
+      done: "defined a function",
+    });
+    // Bare flags are not commands — never "ran -v" / "ran --verbose"
+    expect(humanizeBashCommand("-v")).toEqual({
+      live: "Running a terminal command",
+      done: "ran a terminal command",
+    });
+    expect(humanizeBashCommand("sudo -v")).toEqual({
+      live: "Running a terminal command",
+      done: "ran a terminal command",
+    });
+  });
+
   test("live narration humanizes bash, keeps the suffix (#164)", () => {
     const line = formatQuietLiveStatus({
       tools: [
