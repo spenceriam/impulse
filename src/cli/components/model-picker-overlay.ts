@@ -50,7 +50,7 @@ export function manualRowProviderKey(rowId: string): string {
 export const MODEL_PICKER_TABLE_HEADERS: SelectableListTableHeaders = {
   title: "Model",
   mode: "Ctx",
-  model: "Cap",
+  model: "Mod",
   updated: "Added",
 };
 
@@ -203,6 +203,7 @@ export async function buildModelPickerState(
     tableOmitModelColumn: false,
     helpLines: opts?.helpLines ?? [
       "↑/↓ navigate   Type to filter   Enter select   m: Manage providers   Esc cancel",
+      "Mod: v vision · r reasoning · — unknown",
     ],
   });
 
