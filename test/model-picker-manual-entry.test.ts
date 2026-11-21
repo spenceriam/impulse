@@ -179,3 +179,40 @@ describe("model picker capability column (#159)", () => {
     expect(cells.model).toBe("xx");
   });
 });
+
+describe("modality source order (#159)", () => {
+  const catalog = {
+    minimax: {
+      models: {
+        "MiniMax-M3": {
+          id: "MiniMax-M3",
+          reasoning: true,
+          modalities: { input: ["text", "image"] },
+        },
+      },
+    },
+  } as never;
+
+  test("models.dev record wins over the capability cache", () => {
+    // Cache says no vision; the catalog says image input.
+    setModelCapabilities("MiniMax-M3", {
+      vision: false,
+      reasoning: false,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("MiniMax-M3", "minimax", catalog)).toBe("vr");
+    clearModelCapabilities("MiniMax-M3");
+  });
+
+  test("falls back to the cached capabilities when no record matches", () => {
+    setModelCapabilities("unlisted-model", {
+      vision: true,
+      reasoning: false,
+      discoveredAt: Date.now(),
+      source: "provider-api",
+    });
+    expect(capabilityTags("unlisted-model", "minimax", catalog)).toBe("v");
+    clearModelCapabilities("unlisted-model");
+  });
+});

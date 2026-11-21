@@ -12,6 +12,9 @@ import type { Config } from "../../util/config.js";
 import {
   formatContextK,
   formatModelDate,
+  recordSupportsVision,
+  resolveModelsDevRecord,
+  type CatalogData,
   type ModelInfo,
 } from "../model-catalog.js";
 import { getModelCapabilities, modelSupportsVisionCached } from "../../api/capabilities.js";
@@ -55,19 +58,40 @@ export const MODEL_PICKER_TABLE_HEADERS: SelectableListTableHeaders = {
 };
 
 /**
- * Capability tags from the cached provider capabilities (#159): `v` vision,
- * `r` reasoning. Unknown capabilities show nothing rather than guessing.
+ * Modality tags (#159): `v` vision, `r` reasoning.
+ *
+ * Source order: the models.dev record for this model when the catalog is
+ * loaded (it is the authority on modalities), then the cached provider
+ * capabilities warmed from the provider API. Unknown stays unknown.
  */
-export function capabilityTags(modelId: string): string {
-  const caps = getModelCapabilities(modelId);
-  const tags = [
-    modelSupportsVisionCached(modelId) ? "v" : "",
-    caps?.reasoning ? "r" : "",
-  ].filter(Boolean).join("");
+export function capabilityTags(
+  modelId: string,
+  providerKey = "",
+  catalog?: CatalogData
+): string {
+  let vision: boolean | undefined;
+  let reasoning: boolean | undefined;
+
+  if (catalog && providerKey) {
+    const record = resolveModelsDevRecord(providerKey, modelId, catalog);
+    if (record) {
+      vision = recordSupportsVision(record);
+      reasoning = record.reasoning;
+    }
+  }
+
+  if (vision === undefined) vision = modelSupportsVisionCached(modelId) ? true : undefined;
+  if (reasoning === undefined) reasoning = getModelCapabilities(modelId)?.reasoning;
+
+  const tags = [vision ? "v" : "", reasoning ? "r" : ""].filter(Boolean).join("");
   return tags;
 }
 
-export function modelInfoToTableCells(info: ModelInfo): {
+export function modelInfoToTableCells(
+  info: ModelInfo,
+  providerKey = "",
+  catalog?: CatalogData
+): {
   title: string;
   mode: string;
   model: string;
@@ -76,14 +100,15 @@ export function modelInfoToTableCells(info: ModelInfo): {
   const title = `${info.vendor}/${info.displayName} (${info.id})`;
   const mode =
     info.contextTokens != null ? formatContextK(info.contextTokens) : "—";
-  const tags = capabilityTags(info.id);
+  const tags = capabilityTags(info.id, providerKey, catalog);
   const updated = info.addedAt ? formatModelDate(info.addedAt) : "—";
   return { title, mode, model: tags || "xx", updated };
 }
 
 /** Build grouped rows for model picker (exported for tests). */
 export function buildProviderGroupedRows(
-  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>
+  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>,
+  catalog?: CatalogData
 ): SelectableListRow[] {
   const rows: SelectableListRow[] = [];
   const withModels = entries.filter((e) => e.infos.length > 0);
@@ -102,7 +127,7 @@ export function buildProviderGroupedRows(
       label: `${entry.label}:`,
     });
     for (const info of entry.infos) {
-      const cells = modelInfoToTableCells(info);
+      const cells = modelInfoToTableCells(info, entry.providerKey, catalog);
       rows.push({
         id: `${entry.providerKey}\0${info.id}`,
         label: info.pickerLine,
@@ -118,9 +143,10 @@ export function buildProviderGroupedRows(
 }
 
 function flatRows(
-  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>
+  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>,
+  catalog?: CatalogData
 ): SelectableListRow[] {
-  return buildProviderGroupedRows(entries);
+  return buildProviderGroupedRows(entries, catalog);
 }
 
 export interface BuildModelPickerOptions {
