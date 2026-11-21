@@ -86,6 +86,7 @@ import {
   classifyQuietOutcome,
   extractOpenPlanItem,
   formatQuietRecap,
+  rejectModelRecap,
   formatQuietSubagentLine,
   formatQuietSubagentSettle,
   formatWorkedFor,
@@ -1540,10 +1541,11 @@ export class ImpulseRenderer {
   private emitQuietRecapIfNeeded(): void {
     if (!this.isQuietMode() || !this.showRecap) return;
 
-    // Model-authored recap (from the <recap> envelope) wins; the
-    // event-sourced line is the fallback when the model sent none.
+    // Model-authored recap (from the <recap> envelope) wins only when it
+    // clears the plain-English bar; the event-sourced line is the guaranteed
+    // floor (#203). Models vary in what they emit, so never trust it raw.
     const modelRecap = this.modelRecapThisTurn?.trim();
-    if (modelRecap) {
+    if (modelRecap && rejectModelRecap(modelRecap) === null) {
       this.addSectionGap();
       // Width-aware block: re-wraps at the current terminal width on resize
       // (#175) instead of freezing at emission width.

@@ -1134,6 +1134,43 @@ function coalesceFileFacts(events: QuietRecapEvent[]): {
 }
 
 /**
+ * Validate a model-authored Recap before it is shown (#203).
+ *
+ * The system prompt asks the model for a plain 1-2 sentence recap, but models
+ * vary: some emit markdown, tool-name lists, raw commands, or a whole essay.
+ * The event-sourced line is the guaranteed floor, so a model recap is only
+ * accepted when it clears this bar — otherwise the caller falls back.
+ *
+ * Returns null when acceptable, or a short reason when rejected.
+ */
+export const RECAP_MAX_CHARS = 400;
+export const RECAP_MAX_WORDS = 60;
+
+const RECAP_TOOL_NAMES = [
+  "file_read", "file_write", "file_edit", "bash", "grep", "glob", "ls",
+  "web_search", "web_fetch", "todo_write", "todo_read", "task", "question",
+  "github_issue", "plan_revision", "install_skill",
+];
+
+export function rejectModelRecap(text: string | null | undefined): string | null {
+  const t = (text ?? "").trim();
+  if (!t) return "empty";
+  if (t.length > RECAP_MAX_CHARS) return "too long";
+  if (t.split(/\s+/).filter(Boolean).length > RECAP_MAX_WORDS) return "too many words";
+
+  // Markdown leftovers: fences, headings, bold/italic markers, list bullets.
+  if (/```|^\s*#{1,6}\s|\*\*|__|^\s*[-*+]\s/m.test(t)) return "markdown";
+  // Tool-name lists are implementation detail, not a recap.
+  if (RECAP_TOOL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(t))) return "tool names";
+  // Raw command echo.
+  if (/^\s*[$>]\s/m.test(t) || /\b(npm|bun|git|gh|curl|sudo)\s+\w+/.test(t)) return "raw command";
+  // First-person meta prose is not a recap of the work.
+  if (/^(the user|i\b|i'm|let me|here's|okay|alright|sure)\b/i.test(t)) return "meta prose";
+
+  return null;
+}
+
+/**
  * Event-sourced done→next Recap.
  * Shape: `Recap: read AGENTS.md; listed 27 top-level entries · Next: token-refresh test`
  * Concrete facts only; omits `· Next:` when no open work. Never invents. No LLM.

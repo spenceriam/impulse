@@ -19,6 +19,7 @@ import {
   isQuietBreakOutcome,
   isVagueRecapNoun,
   lastFailureNextLabel,
+  rejectModelRecap,
   pickQuietRecapNext,
   quietThinkingPhrase,
   quietToolLabel,
@@ -1015,5 +1016,40 @@ describe("Recap composition stays a summary, not a tool log (#188)", () => {
     ]);
     expect(next).not.toMatch(/^retry/);
     expect(next).toContain("try");
+  });
+});
+
+describe("model-authored Recap validation (#203)", () => {
+  test("accepts a plain one-sentence recap", () => {
+    expect(
+      rejectModelRecap(
+        "Set up the global rules on this machine and verified the config loads. Next, dogfood the picker."
+      )
+    ).toBeNull();
+  });
+
+  test("rejects markdown", () => {
+    expect(rejectModelRecap("**Done** with the work")).toBe("markdown");
+    expect(rejectModelRecap("```bash\nls\n```")).toBe("markdown");
+    expect(rejectModelRecap("- one\n- two")).toBe("markdown");
+  });
+
+  test("rejects tool-name lists", () => {
+    expect(rejectModelRecap("Used file_read and grep to find it")).toBe("tool names");
+  });
+
+  test("rejects raw command echo", () => {
+    expect(rejectModelRecap("$ git status")).toBe("raw command");
+    expect(rejectModelRecap("Ran npm install for you")).toBe("raw command");
+  });
+
+  test("rejects meta prose and empty", () => {
+    expect(rejectModelRecap("The user asked me to fix it")).toBe("meta prose");
+    expect(rejectModelRecap("Let me check that")).toBe("meta prose");
+    expect(rejectModelRecap("   ")).toBe("empty");
+  });
+
+  test("rejects runaway length", () => {
+    expect(rejectModelRecap("word ".repeat(100))).toBe("too long");
   });
 });
