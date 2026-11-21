@@ -642,7 +642,7 @@ Write it the way you'd tell a colleague who stepped away from the keyboard: at m
 
 ## Citations
 
-This is a terminal. Do not append a "Sources", "References", or "Links" section — bare URL lists read like GUI-harness furniture and cannot be followed here. Name sources inline in the prose where the claim is made (e.g. "per ScummVM's documented method"), and include URLs only inline where they carry the answer. This also applies to the recap line.`);
+This is a terminal. When you hand the user a command or a code block they may want to run, you can mention once that \`/copy code\` copies the fenced blocks cleanly (no fences, indentation, or wrap artifacts) — only when it is actually useful, never as boilerplate. Do not append a "Sources", "References", or "Links" section — bare URL lists read like GUI-harness furniture and cannot be followed here. Name sources inline in the prose where the claim is made (e.g. "per ScummVM's documented method"), and include URLs only inline where they carry the answer. This also applies to the recap line.`);
 
   // Add subagent delegation instructions for all modes except EXPLORE.
   // In planning modes, task is restricted to explore subagents only.

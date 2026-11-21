@@ -74,7 +74,7 @@ export interface SlashDispatchHost {
   cmdQueue(arg: string): void;
   cmdQuiet(): void | Promise<void>;
   cmdVerbose(): void | Promise<void>;
-  cmdCopy(): void | Promise<void>;
+  cmdCopy(arg: string): void | Promise<void>;
   cmdSide(arg: string): Promise<void>;
   showThinkingSettingsHint(): void;
   cmdCompact(arg: string): Promise<void>;
@@ -123,7 +123,7 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   queue: (h, arg) => h.cmdQueue(arg),
   quiet: (h) => h.cmdQuiet(),
   verbose: (h) => h.cmdVerbose(),
-  copy: (h) => h.cmdCopy(),
+  copy: (h, arg) => h.cmdCopy(arg),
   side: (h, arg) => h.cmdSide(arg),
   "show-think": (h) => h.showThinkingSettingsHint(),
   "hide-think": (h) => h.showThinkingSettingsHint(),
