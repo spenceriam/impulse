@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.2] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Prune-first compaction pipeline
+
+  ### Changed
+  - **#183** -- Compaction is now four phases instead of one summarize-everything step: (1) the largest old tool outputs are pruned first, up to a budget, before any summarizer call; (2) the system prompt and first exchange are protected verbatim so the goal anchor survives; (3) the kept tail is sized by a token budget (20% of the window) rather than a fixed 20 messages; (4) the existing 9-section summarizer runs unchanged on the middle. Oversized-output sessions prune and continue instead of thrashing, since the tail no longer grows with message count.
+
+
 ## [1.21.1] - 2026-11-21
 
   **Type:** patch
