@@ -659,9 +659,9 @@ function classifyBashSegment(tokens: string[]): HumanizedCommand {
   if (tokens[0] === "function" || /\(\)\s*\{?$/.test(tokens[0]!)) {
     return hc("Defining a function", "defined a function");
   }
-  // A bare flag is not a command ("sudo -v" after stripping sudo, `-v` alone)
-  // — never "ran -v" (#180).
-  if (bin.startsWith("-")) {
+  // A bare flag or shell variable is not a command ("sudo -v" after stripping
+  // sudo, `-v` alone, `$body`) — never "ran -v" / "ran $body" (#180 / #188).
+  if (bin.startsWith("-") || bin.startsWith("$")) {
     return hc("Running a terminal command", "ran a terminal command");
   }
 
@@ -997,16 +997,27 @@ export function lastFailureNextLabel(events: QuietRecapEvent[]): string | null {
     if (ev.outcome !== "failed" && ev.outcome !== "blocked") continue;
     // Prefer concrete retry target from fact/arg; bash args humanize so the
     // Next line never echoes a raw command (#163).
+    let target: string | null = null;
     if (ev.arg && !isVagueRecapNoun(ev.arg)) {
-      return ev.name === "bash"
-        ? `retry ${lowerFirst(humanizeBashCommand(ev.arg).live)}`
-        : `retry ${truncateArg(ev.arg, 40)}`;
-    }
-    if (ev.fact) {
+      if (ev.name === "bash") {
+        const human = humanizeBashCommand(ev.arg);
+        // Generic fallback means the command wasn't recognizable — there is
+        // nothing specific to retry.
+        target =
+          human.live === "Running a terminal command" ? null : lowerFirst(human.live);
+      } else {
+        target = truncateArg(ev.arg, 40);
+      }
+    } else if (ev.fact) {
       const m = ev.fact.match(/^ran (.+?)(?: failed| blocked| aborted)?$/);
-      if (m?.[1]) return `retry ${m[1]}`;
+      if (m?.[1] && m[1] !== "a terminal command") target = m[1];
     }
-    return `retry ${quietOutcomeVerb(ev.name)}`;
+    // A retry of the identical call changes nothing — say what to check
+    // instead of recommending a blind retry (#188).
+    if (!target) {
+      return `check the ${quietOutcomeVerb(ev.name)} step that ${ev.outcome}`;
+    }
+    return `retry ${target}`;
   }
   return null;
 }
@@ -1126,9 +1137,20 @@ export function formatQuietRecap(
     const f = failed[failed.length - 1]!;
     const failFact = resolveRecapFact(f);
     if (failFact) {
-      const key = failFact.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
+      // Drop a success fact about the same target — "checked issue #20" twice
+      // (once failed) is noise, not information (#188). The failure fact
+      // carries the outcome suffix, so compare on the base.
+      const baseKey = (s: string) =>
+        s.toLowerCase().replace(/\s+(?:failed|blocked|aborted)$/, "");
+      const failKey = baseKey(failFact);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (baseKey(parts[i]!) === failKey) {
+          parts.splice(i, 1);
+          break;
+        }
+      }
+      if (!seen.has(failFact.toLowerCase())) {
+        seen.add(failFact.toLowerCase());
         parts.push(failFact);
       }
     }
