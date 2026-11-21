@@ -203,7 +203,7 @@ export async function buildModelPickerState(
     tableOmitModelColumn: false,
     helpLines: opts?.helpLines ?? [
       "↑/↓ navigate   Type to filter   Enter select   m: Manage providers   Esc cancel",
-      "Mod: v vision · r reasoning · xx unknown",
+      "Mod: v vision | r reasoning | xx unknown",
     ],
   });
 
