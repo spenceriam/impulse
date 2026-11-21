@@ -2,14 +2,28 @@ import { Bus, SessionEvents } from "../bus";
 import { SessionStoreInstance, Message } from "./store";
 import { getProviderManager } from "../api/manager";
 import type { ChatMessage } from "../api/types";
+import { load as loadConfig } from "../util/config.js";
+import {
+  COMPACT_TRIGGER_THRESHOLD,
+  COMPACT_WARNING_THRESHOLD,
+  autoCompactEligible,
+  resolveCompactionThreshold,
+  resolveCompactUsage,
+} from "../util/compaction-thresholds.js";
 import {
   MAX_COMPACT_TOOL_MESSAGE_CHARS,
   stubOversizedMessageContent,
 } from "../util/tool-output-cap.js";
 
-// Compact thresholds (exported for context bar + agent loop)
-export const COMPACT_WARNING_THRESHOLD = 0.50;  // Orange % in context bar (50–59%)
-export const COMPACT_TRIGGER_THRESHOLD = 0.60;  // Auto-compact triggers at 60%
+// Canonical threshold/thrash helpers live in util/compaction-thresholds.ts
+// (#182). Re-exported here for existing consumers (context-bar, agent loop).
+export {
+  COMPACT_WARNING_THRESHOLD,
+  COMPACT_TRIGGER_THRESHOLD,
+  MIN_NEW_MESSAGES_AFTER_COMPACT,
+  autoCompactEligible,
+} from "../util/compaction-thresholds.js";
+
 /** Steer-style wrap-up inject when context pressure is high (before hard stop). */
 export const CONTEXT_WRAPUP_THRESHOLD = 0.80;
 /** Safety margin applied to token estimates before emergency compact / hard cutoff. */
@@ -100,7 +114,22 @@ class CompactManagerImpl {
 
     try {
       const session = await SessionStoreInstance.read(sessionID);
-      
+
+      // Provider anchor (#182): the provider-reported prompt_tokens from the
+      // most recent turn, preferred over the chars/token heuristic — same
+      // preference order as the footer's resolveFooterContextUsage.
+      if (session.lastPromptTokens !== undefined && session.lastPromptTokens > 0) {
+        const { usage, source } = resolveCompactUsage({
+          providerTokens: session.lastPromptTokens,
+          estimatedTokens: 0,
+          contextWindow: session.context_window,
+        });
+        if (source === "provider") {
+          this.usageCache.set(sessionID, { value: usage, timestamp: now });
+          return usage;
+        }
+      }
+
       // Base overhead: system prompt + tool definitions
       // System prompt varies by mode but typically 3000-5000 tokens
       // Tool definitions are ~1500 tokens for all built-in tools
@@ -150,11 +179,18 @@ class CompactManagerImpl {
   }
 
   /**
-   * Check if should auto-compact (at 60% threshold)
+   * Check if should auto-compact (per-model resolved threshold, #182)
    */
   async shouldCompact(sessionID: string): Promise<boolean> {
     const usage = await this.calculateContextUsage(sessionID);
-    return usage >= this.config.threshold;
+    const session = await SessionStoreInstance.read(sessionID);
+    const cfg = await loadConfig();
+    const threshold = resolveCompactionThreshold({
+      model: session.model,
+      userThreshold: cfg.compaction?.threshold,
+      modelThresholds: cfg.compaction?.modelThresholds,
+    });
+    return usage >= threshold;
   }
 
   /**
@@ -446,6 +482,16 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
       }
 
       const messagesToCompact = messages.slice(0, -keepRecentCount);
+      if (messagesToCompact.length <= 1) {
+        // Only the prior summary (or nothing meaningful) would be summarized
+        // — never feed the summary back into the summarizer (#179).
+        return {
+          compacted: false,
+          summary: "",
+          removedCount: 0,
+          newMessageCount: messages.length,
+        };
+      }
       const recentMessages = messages.slice(-keepRecentCount);
 
       const summary = await this.summarizeMessages(messagesToCompact, todos);
@@ -532,6 +578,16 @@ IMPORTANT: This summary replaces the entire conversation history. Be thorough an
    */
   async maybeCompact(sessionID: string): Promise<CompactResult | null> {
     if (!(await this.shouldCompact(sessionID))) {
+      return null;
+    }
+
+    const session = await SessionStoreInstance.read(sessionID);
+    // Thrash guard (#179): only compact when enough NEW messages have
+    // accumulated to be worth summarizing. When the recent tail alone exceeds
+    // the threshold, compaction cannot help — compacting once per message
+    // just burns summarizer calls and re-feeds the summary back into itself.
+    // The hard-limit hint (Use /compact or /new) is the graceful path then.
+    if (!autoCompactEligible(session.messages.length, this.config.keepRecentCount)) {
       return null;
     }
 

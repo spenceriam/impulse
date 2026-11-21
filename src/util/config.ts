@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import z from "zod";
 import { writeFileAtomic } from "./atomic-write.js";
+import { COMPACT_TRIGGER_THRESHOLD } from "./compaction-thresholds.js";
 import { clearWindowsShellCache, clearWslCache } from "./windows-shell.js";
 
 // ============================================================
@@ -163,6 +164,21 @@ const ConfigSchema = z.object({
 
   /** Ghost Recap: line after Quiet turns (event-sourced; no extra model call) */
   showRecap: z.boolean().default(true),
+
+  /**
+   * Compaction trigger + per-model overrides (#182). `threshold` is the
+   * default trigger (fraction of the model's context window);
+   * `modelThresholds` maps model-id substrings to overrides — longest
+   * substring wins (Hermes's config shape: { "glm-5.2": 0.40 }).
+   */
+  compaction: z
+    .object({
+      threshold: z.number().min(0).max(1).default(COMPACT_TRIGGER_THRESHOLD),
+      modelThresholds: z
+        .record(z.string(), z.number().min(0).max(1))
+        .default({}),
+    })
+    .default({ threshold: COMPACT_TRIGGER_THRESHOLD, modelThresholds: {} }),
 
   /** Per-model reliability overrides when tool continuations fail */
   modelProfiles: z

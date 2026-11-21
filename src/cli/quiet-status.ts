@@ -653,6 +653,18 @@ function classifyBashSegment(tokens: string[]): HumanizedCommand {
   const sub = tokens[1] ?? "";
   const rest = tokens.join(" ").toLowerCase();
 
+  // Definitions aren't invocations: shell function definitions
+  // (`stats(){…}` / `function stats {…}`) read as "defined a function",
+  // never "ran stats(){}" (#180).
+  if (tokens[0] === "function" || /\(\)\s*\{?$/.test(tokens[0]!)) {
+    return hc("Defining a function", "defined a function");
+  }
+  // A bare flag is not a command ("sudo -v" after stripping sudo, `-v` alone)
+  // — never "ran -v" (#180).
+  if (bin.startsWith("-")) {
+    return hc("Running a terminal command", "ran a terminal command");
+  }
+
   // git family
   if (bin === "git") {
     if (/^(log|show|reflog)$/.test(sub)) return hc("Reviewing recent commits", "reviewed recent changes");
