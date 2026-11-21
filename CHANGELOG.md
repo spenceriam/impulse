@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Failure clustering over trajectory records — the diagnose stage
+
+  ### Added
+  - **#195** -- `clusterFailures` groups failed turns by tool and normalized error signature across trace records, ranking recurring clusters first and flagging ones that span multiple models (a harness signal, not a model limit). `normalizeErrorSignature` collapses volatile parts (hex ids, long numbers, absolute paths, long quoted strings) so the same failure groups together. `buildFailureReport` / `formatFailureReport` render totals plus the top clusters, and `isHarnessBottleneck` marks clusters worth acting on (recurring, multi-model).
+  - **#195** -- `/traces` shows the report in-session; `/traces <sessionID>` narrows to one session.
+
+
 ## [1.18.0] - 2026-11-21
 
   **Type:** minor

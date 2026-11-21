@@ -3979,6 +3979,7 @@ export class ImpulseRenderer {
       cmdMode: (arg) => r.cmdMode(arg),
       showReasoningHint: () => r.showReasoningHint(),
       cmdUsage: () => r.cmdUsage(),
+      cmdTraces: (arg) => r.cmdTraces(arg),
       cmdCheckpoint: () => r.cmdCheckpoint(),
       cmdUndo: (arg) => r.cmdUndo(arg),
       cmdRedo: (arg) => r.cmdRedo(arg),
@@ -5357,6 +5358,35 @@ export class ImpulseRenderer {
     this.setupModelNavigation();
     this.renderModelSetup();
     void this.validateProviderKeys();
+  }
+
+  /**
+   * `/traces` — failure clusters over this project's trajectory records
+   * (#195). `/traces <sessionID>` narrows to one session.
+   */
+  private async cmdTraces(arg: string): Promise<void> {
+    const { listTracedSessions, readTraceRecords } = await import("../harness/trace.js");
+    const { buildFailureReport, formatFailureReport } = await import(
+      "../harness/failure-clusters.js"
+    );
+    const target = arg.trim();
+    const sessionIDs = target
+      ? [target]
+      : await listTracedSessions();
+
+    if (sessionIDs.length === 0) {
+      this.addChatLine(clr.dim("No trace records yet — traces are written per turn."));
+      this.tui.requestRender();
+      return;
+    }
+
+    const records = (
+      await Promise.all(sessionIDs.map((id) => readTraceRecords(id)))
+    ).flat();
+    for (const line of formatFailureReport(buildFailureReport(records))) {
+      this.addChatLine(clr.dim(line));
+    }
+    this.tui.requestRender();
   }
 
   private async cmdUsage(): Promise<void> {
