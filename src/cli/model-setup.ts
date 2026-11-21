@@ -44,7 +44,7 @@ export interface ModelDiscoveryResult {
 
 export const KNOWN_PROVIDER_KEYS = new Set([
   "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
-  "z.ai-api", "kimi", "kimi-api", "minimax", "minimax-api", "deepseek",
+  "z.ai-api", "kimi", "kimi-api", "minimax", "deepseek",
 ]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
@@ -100,17 +100,10 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     needsBaseUrl: true,
   },
   {
+    // One entry: Token Plan and pay-as-you-go share the endpoint, and the key
+    // decides the billing (sk-cp-… = subscription).
     key: "minimax",
-    label: "MiniMax (Token Plan)",
-    envVar: "MINIMAX_API_KEY",
-    defaultModel: "",
-    modelBaseUrl: "https://api.minimax.io/v1",
-    defaultBaseUrl: "https://api.minimax.io/v1",
-    needsBaseUrl: true,
-  },
-  {
-    key: "minimax-api",
-    label: "MiniMax (API / credits)",
+    label: "MiniMax (Token Plan or API key)",
     envVar: "MINIMAX_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://api.minimax.io/v1",

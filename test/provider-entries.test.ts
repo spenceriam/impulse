@@ -15,7 +15,6 @@ describe("first-class provider entries (#211)", () => {
       "kimi",
       "kimi-api",
       "minimax",
-      "minimax-api",
       "deepseek",
     ]) {
       expect(keys.has(key)).toBe(true);
