@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.15.1] - 2026-11-21
 
   **Type:** patch
+  **Title:** In-place update restart + unique manual titles
+
+  ### Fixed
+  - **#141** -- `/update` restarts impulse in the same terminal instead of a new window: neither spawn is `detached` anymore (on Windows that meant a separate console), both inherit the terminal, and the relaunch carries `--resume <id>` as an explicit handoff instead of depending on the resume hint file. Fixed in both implementations (`src/` and the npm wrapper `packages/cli/bin/impulse`).
+  - **#139** -- `set_header` now enforces per-project title uniqueness like the automatic generator: it applies the shared policy against sibling session titles, so a manual title can no longer collide with another session in `/resume`.
+
+
+## [1.15.1] - 2026-11-21
+
+  **Type:** patch
   **Title:** Slash prefix matches, restart resume gate, test isolation, release gate
 
   ### Fixed

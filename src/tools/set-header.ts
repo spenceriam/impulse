@@ -47,7 +47,8 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
       }
 
       // Same policy the automatic generator uses (#139) — one gate, not two.
-      const policy = applyTitlePolicy(title);
+      // Include sibling titles so a manual title cannot collide either.
+      const policy = applyTitlePolicy(title, await SessionManager.siblingTitles());
       if (!policy.ok) {
         return {
           success: false,
@@ -57,7 +58,10 @@ export const setHeader: Tool<SetHeaderInput> = Tool.define(
         };
       }
 
-      const result = await SessionManager.setHeaderTitle(title, { source: "manual" });
+      const result = await SessionManager.setHeaderTitle(
+        policy.title ?? title,
+        { source: "manual" }
+      );
 
       if (result.unchanged) {
         return {
