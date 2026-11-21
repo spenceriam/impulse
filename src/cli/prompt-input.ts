@@ -858,11 +858,14 @@ export class PromptInput implements Component, Focusable {
 
     if (this._secretMode) {
       const valueLength = this.editor.getText().length;
-      const masked =
-        valueLength > 0
-          ? "*".repeat(Math.min(valueLength, Math.max(0, lineCap - ARROW.length)))
-          : "";
-      return [truncateGutterLine(ARROW + masked, width)];
+      if (valueLength === 0) {
+        return [truncateGutterLine(ARROW + "\x1b[2m(paste or type your key)\x1b[0m", width)];
+      }
+      // Length is always visible so a paste is never invisible.
+      const suffix = ` (${valueLength} chars)`;
+      const room = Math.max(0, lineCap - ARROW.length - suffix.length);
+      const masked = "*".repeat(Math.min(valueLength, room));
+      return [truncateGutterLine(ARROW + masked + "\x1b[2m" + suffix + "\x1b[0m", width)];
     }
 
     // Ghost text hint for lone ! (shell bang mode indicator)

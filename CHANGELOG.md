@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.12] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Provider management uses the CLI modal, and `m` actually opens it
+
+  ### Fixed
+  - **#214** -- `m: Manage providers` in `/model` opens the provider list instead of the setup wizard, and `/providers` is an alias for `/login`.
+  - **#214** -- Removing a provider key uses the CLI `ConfirmOverlay` (defaults to the safe choice) instead of the question tool, which is the agent's interface, not the harness's.
+  - **#214** -- Secret prompts always show something: `(paste or type your key)` when empty, and `******** (54 chars)` once a value exists, so a short pasted key is never invisible.
+
+
 ## [1.21.11] - 2026-11-21
 
   **Type:** patch

@@ -4995,10 +4995,13 @@ export class ImpulseRenderer {
 
       state.onRowsUpdated = () => this.tui.requestRender();
 
+      // Provider management is its own list (#214), not the setup wizard:
+      // `m` closes the picker and opens /login, where a key can be set or removed.
       state.overlay.onManageProviders = () => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
-        void this.startModelSetup(config, opts.purpose);
+        this.tui.setFocus(this.promptInput);
+        void this.cmdLogin("login", "");
       };
 
       this.modelPickerHandle = this.showListOverlay(state.overlay);
@@ -5249,33 +5252,24 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    const { QuestionOverlay } = await import("./components/question-overlay.js");
-    const answer = await new Promise<string>((resolve) => {
-      const overlay = new QuestionOverlay({
-        context: `Remove the stored key for ${provider.label}?`,
-        questions: [
-          {
-            topic: "Remove",
-            question: `Delete ${maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "")} from ${provider.label}?`,
-            options: [
-              { label: "Keep it", description: "Nothing changes" },
-              { label: "Remove it", description: "Delete the key and unset models using it" },
-            ],
-          },
+    const { ConfirmOverlay } = await import("./components/confirm-overlay.js");
+    const confirmed = await new Promise<boolean>((resolve) => {
+      const overlay = new ConfirmOverlay(
+        "Remove a provider key",
+        [
+          `Delete ${maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "")} from ${provider.label}?`,
+          "Models using this provider will be unset.",
         ],
-      });
+        { confirmLabel: "Remove it", cancelLabel: "Keep it" }
+      );
       let handle: OverlayHandle | null = null;
-      overlay.onSubmit = (answers: string[][]) => {
+      overlay.onDecision = (ok: boolean) => {
         this.dismissListOverlay(handle);
-        resolve(answers[0]?.[0] ?? "");
-      };
-      overlay.onAbort = () => {
-        this.dismissListOverlay(handle);
-        resolve("");
+        resolve(ok);
       };
       handle = this.showListOverlay(overlay);
     });
-    if (!answer.startsWith("Remove")) {
+    if (!confirmed) {
       this.addChatLine(clr.dim("Kept."));
       this.tui.requestRender();
       return;
