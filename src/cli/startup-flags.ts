@@ -16,6 +16,7 @@ export const KNOWN_BOOLEAN_FLAGS = new Set([
   "-h",
   "--setup",
   "--list-sessions",
+  "--list-traces",
   "--enrich-session-titles",
   "--dry-run",
   "--aa",
@@ -25,7 +26,7 @@ export const KNOWN_BOOLEAN_FLAGS = new Set([
 ]);
 
 /** Flags that consume the following token as a value. */
-export const VALUE_FLAGS = new Set(["--limit", "--project"]);
+export const VALUE_FLAGS = new Set(["--limit", "--project", "--trace"]);
 
 /** Returns the first unrecognized flag token, or undefined. Honors `--` end-of-options. */
 export function findUnknownFlag(argv: string[]): string | undefined {

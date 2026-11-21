@@ -36,6 +36,8 @@ interface AnthropicTool {
   name: string;
   description: string | undefined;
   input_schema: Record<string, unknown>;
+  /** Marks the end of the cacheable tool block (#193). */
+  cache_control?: { type: "ephemeral" };
 }
 
 interface AnthropicMessage {
@@ -87,11 +89,15 @@ interface AnthropicResponse {
 
 function convertTools(tools: ToolDefinition[] | undefined): AnthropicTool[] | undefined {
   if (!tools || tools.length === 0) return undefined;
-  return tools.map((t) => ({
+  const converted: AnthropicTool[] = tools.map((t) => ({
     name: t.function.name,
     description: t.function.description,
     input_schema: t.function.parameters ?? { type: "object", properties: {} },
   }));
+  // One breakpoint at the end of the tool block caches system + tools together
+  // (#193): the tools are the stable, expensive prefix of every request.
+  converted[converted.length - 1]!.cache_control = { type: "ephemeral" };
+  return converted;
 }
 
 function extractMediaType(dataUri: string): string {
