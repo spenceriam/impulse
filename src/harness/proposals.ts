@@ -27,6 +27,8 @@ export interface Proposal {
   area: ProposalArea;
   /** Cluster this came from. */
   tool: string;
+  /** Full error signature of the source cluster (used by validation). */
+  signature: string;
   count: number;
   /** One-line statement of what to change. */
   summary: string;
@@ -111,6 +113,7 @@ export function proposeFromClusters(
       id: `${cluster.tool}:${area}:${cluster.signature.slice(0, 24)}`,
       area,
       tool: cluster.tool,
+      signature: cluster.signature,
       count: cluster.count,
       summary: AREA_SUMMARY[area](cluster),
       rationale:

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Proposal validation gate — held-out evidence before acting
+
+  ### Added
+  - **#195** -- `validateProposals` splits trace records chronologically into baseline and held-out halves and scores each proposal on the held-out half alone: `supported` (recurs there across ≥2 models), `weak` (single recurrence, or one model only), or `already-fixed` (absent from the recent half). `/traces --validate` renders proposals with their verdict and before→after counts. Deterministic — no provider call, no LLM judge, same records always give the same verdict.
+
+
 ## [1.21.0] - 2026-11-21
 
   **Type:** minor
