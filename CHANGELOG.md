@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-21
+
+  **Type:** minor
+  **Title:** Trace replay and CLI surface, Anthropic tool-block cache breakpoint
+
+  ### Added
+  - **#195** -- `--list-traces` lists traced sessions; `--trace <sessionID>` prints one line per recorded turn. `replayTraceRecord` turns a record back into the Quiet event list, so a trace can be re-rendered or re-scored offline without a provider.
+  - **#193** -- Anthropic requests mark the end of the tool block with `cache_control: ephemeral`, caching the system prompt and tool definitions together — the stable, expensive prefix of every request.
+
+
 ## [1.17.0] - 2026-11-21
 
   **Type:** minor

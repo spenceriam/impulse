@@ -189,6 +189,34 @@ if (args.includes("--list-sessions")) {
   process.exit(0);
 }
 
+// ─── --list-traces / --trace <id> ────────────────────────────────────────────
+if (args.includes("--list-traces") || args.includes("--trace")) {
+  const { listTracedSessions, readTraceRecords } = await import("./harness/trace.js");
+  const traceIdx = args.indexOf("--trace");
+  const sessionID = traceIdx >= 0 ? args[traceIdx + 1] : undefined;
+  if (!sessionID) {
+    const ids = await listTracedSessions();
+    console.log(`\nTraced sessions (${ids.length}):\n`);
+    for (const id of ids) console.log(`  ${id}`);
+    if (ids.length === 0) console.log("  (no traces yet — they are written per turn)");
+    console.log("");
+    process.exit(0);
+  }
+  const records = await readTraceRecords(sessionID);
+  if (records.length === 0) {
+    console.error(`No trace records for session ${sessionID}.`);
+    process.exit(1);
+  }
+  for (const record of records) {
+    const tools = record.steps.tools.map((t) => `${t.name}:${t.outcome}`).join(", ");
+    const cached = record.input.cachedTokens ? ` cached:${record.input.cachedTokens}` : "";
+    console.log(
+      `turn ${record.turn}  ${record.mode}  ${record.model}  prompt:${record.input.promptTokens ?? "?"}${cached}  ${record.outcome}${tools ? `  [${tools}]` : ""}`
+    );
+  }
+  process.exit(0);
+}
+
 // ─── --enrich-session-titles ─────────────────────────────────────────────────
 if (args.includes("--enrich-session-titles")) {
   const migrated = await ensureHomeMigrated();

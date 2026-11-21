@@ -15,6 +15,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { Global } from "../global.js";
 import { getCurrentProjectID } from "../session/store.js";
+import type { QuietRecapEvent } from "../cli/quiet-status.js";
 
 /** Bump when the shape changes in a way that breaks readers. */
 export const TRACE_SCHEMA_VERSION = 1;
@@ -130,6 +131,25 @@ export async function readTraceRecords(
   } catch {
     return [];
   }
+}
+
+/**
+ * Replay a record into the event shape the Quiet path consumes, so a trace
+ * can be re-rendered or re-scored offline without a provider (#195).
+ */
+export function replayTraceRecord(record: TraceRecord): QuietRecapEvent[] {
+  return record.steps.tools.map((step) => ({
+    name: step.name,
+    arg: typeof step.args === "string" ? step.args : "",
+    outcome:
+      step.outcome === "success"
+        ? "success"
+        : step.outcome === "failed"
+          ? "failed"
+          : step.outcome === "blocked"
+            ? "blocked"
+            : "aborted",
+  }));
 }
 
 /** Sessions that have trace files, newest first. */
