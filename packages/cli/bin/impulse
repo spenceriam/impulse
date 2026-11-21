@@ -178,16 +178,26 @@ function formatUpdateSuccessLines(latestVersion, installedVersion, relaunch) {
   return lines;
 }
 
-function relaunchImpulse() {
+function relaunchImpulse(sessionId) {
   const env = { ...process.env };
   delete env[INTERNAL_AUTO_UPDATE_ENV];
-  const child = spawn(process.platform === "win32" ? "impulse.cmd" : "impulse", [], {
-    detached: true,
-    stdio: "ignore",
+  // In-place restart (#141): not detached (new console on Windows), inherit
+  // the terminal, and hand the session off explicitly.
+  const resumeArgs = sessionId ? ["--resume", sessionId] : [];
+  const child = spawn(process.platform === "win32" ? "impulse.cmd" : "impulse", resumeArgs, {
+    stdio: "inherit",
     shell: useShellForCommandShims(),
     env,
   });
   child.unref();
+}
+
+function resumeSessionIdFromArgv() {
+  const argv = process.argv.slice(2);
+  const idx = argv.findIndex((a) => a === "--resume" || a === "-r");
+  if (idx < 0) return undefined;
+  const next = argv[idx + 1];
+  return next && !next.startsWith("-") ? next : undefined;
 }
 
 function runUpdate({ relaunch }) {
@@ -197,7 +207,7 @@ function runUpdate({ relaunch }) {
     console.log(`Already on latest (v${current}).`);
     if (relaunch) {
       console.log("  Relaunching impulse...");
-      relaunchImpulse();
+      relaunchImpulse(resumeSessionIdFromArgv());
     }
     return 0;
   }
@@ -226,7 +236,7 @@ function runUpdate({ relaunch }) {
   console.log("--------------------------------------------------------\n");
 
   if (relaunch) {
-    relaunchImpulse();
+    relaunchImpulse(resumeSessionIdFromArgv());
   }
   return 0;
 }
