@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.21.12] - 2026-11-21
+## [1.21.13] - 2026-11-22
 
   **Type:** patch
   **Title:** Provider management uses the CLI modal, and `m` actually opens it
@@ -23,6 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **#214** -- Removing a provider no longer deletes an env var another provider still uses (`ZAI_API_KEY` is shared by Z.ai's two entries), clears `subagentModel` when it pointed at the removed provider, and refuses to remove the last configured provider.
   - **#214** -- Opening provider management from `/model` returns to the model picker when you Esc out.
 
+## [1.21.12] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Provider management uses the CLI modal, and `m` actually opens it
+
+  ### Fixed
+  - **#214** -- `m: Manage providers` in `/model` opens the provider list instead of the setup wizard, and `/providers` is an alias for `/login`.
+  - **#214** -- Removing a provider key uses the established `SelectableListOverlay` (Keep it / Remove it, Esc cancels) instead of the question tool, which is the agent's interface, not the harness's.
+  - **#214** -- `d` in the provider list actually removes the highlighted key: `SelectableListOverlay` gained an `onRemove` hook, fired only when the search box is empty so `d` stays a normal letter while filtering.
+  - **#214** -- Secret prompts always show something: `(paste or type your key)` when empty, and `******** (54 chars)` once a value exists, so a short pasted key is never invisible.
+  - **#214** -- `/login`, `/logout` and `/providers` are registered slash commands (autocomplete and `/help`), not just dispatch entries.
+  - **#214** -- The `--setup` / first-run CLI setup lists the same providers as the app (`MODEL_PROVIDERS`) and runs the same discovery, instead of its own hardcoded four; first-class providers ask only for a key.
+  - **#214** -- A configured provider with no discovered models stays visible in `/model` (its manual model-id row was unreachable before).
+  - **#214** -- Removing a provider no longer deletes an env var another provider still uses (`ZAI_API_KEY` is shared by Z.ai's two entries), clears `subagentModel` when it pointed at the removed provider, and refuses to remove the last configured provider.
+  - **#214** -- Opening provider management from `/model` returns to the model picker when you Esc out.
 
 ## [1.21.11] - 2026-11-21
 
