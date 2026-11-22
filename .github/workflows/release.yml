@@ -244,6 +244,18 @@ jobs:
         with:
           path: artifacts/
 
+      # Fail BEFORE anything reaches npm: the GitHub Release job needs a
+      # CHANGELOG section for this version, and discovering that after the
+      # packages are published leaves a release half-done (#177 class).
+      - name: Verify CHANGELOG has a section for this version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! grep -qE "^## \[$VERSION\] " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for version $VERSION. Add one (## [$VERSION] - YYYY-MM-DD) before releasing."
+            exit 1
+          fi
+          echo "Found CHANGELOG section for $VERSION."
+
       - name: Publish platform packages
         run: |
           VERSION="${{ steps.version.outputs.version }}"
