@@ -45,7 +45,7 @@ export interface ModelDiscoveryResult {
 export const KNOWN_PROVIDER_KEYS = new Set([
   "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
   "z.ai-api", "z.ai-anthropic", "kimi", "kimi-api", "kimi-anthropic",
-  "kimi-cn", "minimax", "minimax-anthropic", "minimax-cn", "deepseek", "deepseek-anthropic",
+  "kimi-cn", "minimax", "minimax-api", "minimax-anthropic", "minimax-cn", "deepseek", "deepseek-anthropic",
 ]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
@@ -100,10 +100,19 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultBaseUrl: "https://api.moonshot.ai/v1",
   },
   {
-    // One entry: Token Plan and pay-as-you-go share the endpoint, and the key
-    // decides the billing (sk-cp-… = subscription).
+    // Split from the API entry on purpose: the endpoint is identical and the
+    // key decides billing (sk-cp-… = subscription), but picking the right row
+    // is how you know which key to paste.
     key: "minimax",
-    label: "MiniMax (Token Plan or API key)",
+    label: "MiniMax (Token Plan)",
+    envVar: "MINIMAX_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.minimax.io/v1",
+    defaultBaseUrl: "https://api.minimax.io/v1",
+  },
+  {
+    key: "minimax-api",
+    label: "MiniMax (API / credits)",
     envVar: "MINIMAX_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://api.minimax.io/v1",

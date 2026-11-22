@@ -18,6 +18,7 @@ describe("first-class provider entries (#211)", () => {
       "kimi-anthropic",
       "kimi-cn",
       "minimax",
+      "minimax-api",
       "minimax-anthropic",
       "minimax-cn",
       "deepseek",
