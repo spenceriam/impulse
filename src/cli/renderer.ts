@@ -327,7 +327,6 @@ import {
 import {
   dispatchSlashCommand,
   hydrateDynamicSkillCommands,
-  listDynamicSkillCommands,
   type SlashDispatchHost,
 } from "./slash-dispatch.js";
 import { DEFAULT_MAX_TURN_QUEUE, TurnQueueManager } from "./turn-queue.js";
@@ -3783,11 +3782,10 @@ export class ImpulseRenderer {
       experimentalUndo: this.experimentalUndoEnabled,
       experimentalGoal: this.experimentalGoalEnabled,
     });
-    const dynamicSkillEntries = listDynamicSkillCommands().map(({ cmd, slug }) => ({
-      cmd: `/${cmd}`,
-      hint: `run the "${slug}" skill`,
-    }));
-    return [...commands, ...dynamicSkillEntries];
+    // Skills are not top-level slash commands (#138): /skill is the single
+    // entry point, so the menu stays ~16 core commands instead of every
+    // installed skill.
+    return commands;
   }
 
   private resetSlashTabCycleIfNeeded(input: string): void {
@@ -7479,7 +7477,16 @@ export class ImpulseRenderer {
       return;
     }
 
-    this.addChatLine(clr.dim("Usage: /skill new | remove <slug> | modify <slug>"));
+    // `/skill <slug>` runs an installed skill (#138) — the single entry point
+    // that replaced per-skill top-level commands.
+    if (slug && sub !== "install") {
+      await this.cmdRunSkillCommand(arg.trim(), "");
+      return;
+    }
+
+    this.addChatLine(
+      clr.dim("Usage: /skill [<slug>] | new | remove <slug> | modify <slug> | install <url>")
+    );
     this.tui.requestRender();
   }
 
