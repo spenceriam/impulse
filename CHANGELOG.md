@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.14] - 2026-11-22
+
+  **Type:** patch
+  **Title:** Skills are reachable only through `/skill`
+
+  ### Changed
+  - **#138** -- Installed skills no longer register as top-level slash commands; the menu stays at the core set and `/skill` is the single entry point. `/skill <slug>` runs an installed skill.
+  - **#138** -- `src/skills/skill-catalog.ts` merges installed skills with the bundled catalog into an installed/available split: a small `basic` set (implement, tdd, code-review, diagnosing-bugs) is scaffolded on first run and the rest is curated (discoverable, installable, never silently re-scaffolded).
+
+
 ## [1.21.13] - 2026-11-22
 
   **Type:** patch
