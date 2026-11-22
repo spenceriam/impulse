@@ -577,7 +577,14 @@ export async function removeProviderFromHomeEnv(
     return;
   }
 
-  if (provider.envVar) values.delete(provider.envVar);
+  // Shared env vars: z.ai / z.ai-anthropic both use ZAI_API_KEY, so removing one
+  // provider must not strip the key another still uses (#214 edge cases A3/B4).
+  if (provider.envVar) {
+    const stillUsed = MODEL_PROVIDERS.some(
+      (p) => p.key !== provider.key && p.envVar === provider.envVar
+    );
+    if (!stillUsed) values.delete(provider.envVar);
+  }
   if (provider.key === "ollama") values.delete("OLLAMA_BASE_URL");
 
   const lines = [...values.entries()].map(([key, value]) => `${key}=${value}`);

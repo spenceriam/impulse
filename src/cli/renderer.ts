@@ -2057,6 +2057,8 @@ export class ImpulseRenderer {
   private traceTurn = 0;
   /** Cold-cache streak tracking for the one-time warning (#194). */
   private readonly coldCacheTracker = new ColdCacheTracker();
+  /** Reopen the model picker after /login when it was opened from there (#214 C1). */
+  private returnToModelPickerAfterLogin = false;
   private streamRenderScheduled = false;
   private streamBusyPhraseSet = false;
   private lastExpandableTool: ToolBlock | null = null;
@@ -5001,6 +5003,8 @@ export class ImpulseRenderer {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
         this.tui.setFocus(this.promptInput);
+        // Come back to the picker once provider management is done (#214 C1).
+        this.returnToModelPickerAfterLogin = true;
         void this.cmdLogin("login", "");
       };
 
@@ -5151,6 +5155,10 @@ export class ImpulseRenderer {
       this.dismissListOverlay(handle);
       handle = null;
       this.tui.setFocus(this.promptInput);
+      if (this.returnToModelPickerAfterLogin) {
+        this.returnToModelPickerAfterLogin = false;
+        void this.openModelPicker({ purpose: "worker" });
+      }
     };
     // `d` removes the key for the highlighted row.
     overlay.onRemove = () => {
@@ -5427,6 +5435,11 @@ export class ImpulseRenderer {
     config: Config,
     providerKey: string
   ): Promise<void> {
+    // Subagent model points at this provider too (#214 edge case B3).
+    if (modelUsesProvider(config.subagentModel, providerKey)) {
+      config.subagentModel = undefined;
+      config.useSubagentModel = false;
+    }
     if (modelUsesProvider(config.defaultModel, providerKey)) {
       config.defaultModel = "";
       config.modelExplicitlySet = false;
@@ -5457,6 +5470,17 @@ export class ImpulseRenderer {
     provider: ModelProviderOption
   ): Promise<void> {
     const config = await loadConfig();
+    // Never strand the user with zero providers (#214 edge case B5): add
+    // another one first, or keep this key.
+    if (countConfiguredProviders(config) <= 1) {
+      this.addChatLine(
+        clr.warn(
+          `${provider.label} is your only provider — add another one before removing it.`
+        )
+      );
+      this.tui.requestRender();
+      return;
+    }
     const key = provider.isCustom
       ? provider.key
       : provider.key;
