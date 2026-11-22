@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Title:** Provider leftovers: generic tier discovery, Anthropic endpoints, region variants, post-save discovery
 
   ### Added
-  - **#211** -- Anthropic-protocol entries for Z.ai, Kimi, MiniMax and DeepSeek, plus China region variants for Kimi (`api.moonshot.cn`) and MiniMax (`api.minimaxi.com`).
+  - **#211** -- Anthropic-protocol entries for Z.ai, Kimi, MiniMax and DeepSeek, plus a China region variant for Kimi (`api.moonshot.cn`).
   - **#214** -- Saving a key from `/login` now discovers that provider's models immediately, so the count is fresh without reopening `/model`.
 
   ### Changed
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Title:** First-class entries for Z.ai, Kimi, MiniMax, DeepSeek
 
   ### Added
-  - **#211** -- Provider entries for Z.ai (Coding Plan and API/balance), Kimi (Coding Plan and Moonshot API), MiniMax (Token Plan and API/credits as separate rows, though the endpoint is shared and the key decides billing), and DeepSeek, each pointing at its documented endpoint so a plan key is never sent to a general endpoint.
+  - **#211** -- Provider entries for Z.ai (Coding Plan and API/balance), Kimi (Coding Plan and Moonshot API), MiniMax Token Plan and MiniMax API as separate rows (the endpoint is shared and the key decides billing), and DeepSeek, each pointing at its documented endpoint so a plan key is never sent to a general endpoint.
   - **#211** -- DeepSeek model discovery reads its machine-readable `/models` metadata: context window, max output, input modalities (vision), and thinking effort levels, all fed into the capability cache and the reasoning cycle.
   - **#211** -- `/login` opens a provider list (key set or not, cached model count) to set or change a key; `/logout [provider]` removes one after confirmation; `d` in the list removes the highlighted key. `m: Manage providers` in `/model` routes here instead of straight into the setup wizard.
   - **#211** -- Secret text inputs mask the value (bullets, only the last two characters visible) so a pasted key is safe in screenshots or screen shares. The submitted value is still the real key.

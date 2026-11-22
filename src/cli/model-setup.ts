@@ -45,7 +45,7 @@ export interface ModelDiscoveryResult {
 export const KNOWN_PROVIDER_KEYS = new Set([
   "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
   "z.ai-api", "z.ai-anthropic", "kimi", "kimi-api", "kimi-anthropic",
-  "kimi-cn", "minimax", "minimax-api", "minimax-anthropic", "minimax-cn", "deepseek", "deepseek-anthropic",
+  "kimi-cn", "minimax", "minimax-api", "minimax-anthropic", "deepseek", "deepseek-anthropic",
 ]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
@@ -104,7 +104,7 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     // key decides billing (sk-cp-… = subscription), but picking the right row
     // is how you know which key to paste.
     key: "minimax",
-    label: "MiniMax (Token Plan)",
+    label: "MiniMax Token Plan",
     envVar: "MINIMAX_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://api.minimax.io/v1",
@@ -112,7 +112,7 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
   },
   {
     key: "minimax-api",
-    label: "MiniMax (API / credits)",
+    label: "MiniMax API",
     envVar: "MINIMAX_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://api.minimax.io/v1",
@@ -167,14 +167,6 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.moonshot.cn/v1",
     defaultBaseUrl: "https://api.moonshot.cn/v1",
-  },
-  {
-    key: "minimax-cn",
-    label: "MiniMax (China)",
-    envVar: "MINIMAX_API_KEY",
-    defaultModel: "",
-    modelBaseUrl: "https://api.minimaxi.com/v1",
-    defaultBaseUrl: "https://api.minimaxi.com/v1",
   },
   {
     key: "__custom_openai__",
