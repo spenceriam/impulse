@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 export interface InstalledSkillMeta {
@@ -128,4 +128,58 @@ export function formatSkillReadyMessage(skillSlug: string, instructionsPath: str
     "Read SKILL.md and follow it.",
     "For interview/grill flows: use the question tool (one topic per call) — never ask in plain chat text.",
   ].join("\n");
+}
+/**
+ * Install a skill from a direct `SKILL.md` URL (#138) into
+ * `.agents/skills/<slug>/SKILL.md`. The slug is the URL's parent folder name,
+ * or `skill` when the URL has no useful path.
+ */
+export async function installSkillFromUrl(
+  cwd: string,
+  rawUrl: string
+): Promise<{ ok: true; slug: string; path: string } | { ok: false; reason: string }> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl.trim());
+  } catch {
+    return { ok: false, reason: "not a URL" };
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return { ok: false, reason: "only http(s) URLs are supported" };
+  }
+
+  let text: string;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
+    text = await res.text();
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message };
+  }
+
+  // Must look like a skill, not an HTML error page.
+  if (!/^---\r?\n[\s\S]*?\r?\n---/.test(text.trim()) || !/^#\s/m.test(text)) {
+    return { ok: false, reason: "the URL did not return a SKILL.md (no frontmatter)" };
+  }
+
+  // Slug = the parent folder of SKILL.md (`…/from-web/SKILL.md` → from-web).
+  // A URL that ends in a generic `skill.md` keeps the folder name instead.
+  const segments = url.pathname.split("/").filter(Boolean);
+  const file = (segments[segments.length - 1] ?? "").replace(/\.md$/i, "").toLowerCase();
+  const parent = segments[segments.length - 2] ?? "";
+  const rawSlug = file === "skill" || file === "skill-md" ? parent : parent || file;
+  const slug =
+    rawSlug
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "skill";
+
+  const dir = join(cwd, ".agents", "skills", slug);
+  if (existsSync(join(dir, "SKILL.md"))) {
+    return { ok: false, reason: `skill "${slug}" already exists` };
+  }
+  mkdirSync(dir, { recursive: true });
+  const target = join(dir, "SKILL.md");
+  writeFileSync(target, text, "utf-8");
+  return { ok: true, slug, path: target };
 }

@@ -8,6 +8,7 @@ import { existsSync, cpSync, mkdirSync, readdirSync, readFileSync, statSync } fr
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { writeJsonAtomic } from "../util/atomic-write.js";
+import { isBasicSkill } from "./skill-catalog.js";
 
 const MARKER_PATH = ".impulse/default-skills.json";
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
@@ -34,6 +35,31 @@ function getDefaultSkillsDir(): string | null {
     join(here, "..", "skills-defaults"),
   ];
   return candidates.find((c) => existsSync(c)) ?? null;
+}
+
+/**
+ * The bundled catalog on disk: slug + description, for the /skill Available
+ * list (#138). Empty when the bundled directory cannot be found.
+ */
+export function listBundledSkills(): Array<{ slug: string; description?: string }> {
+  const defaultsDir = getDefaultSkillsDir();
+  if (!defaultsDir) return [];
+  try {
+    return readdirSync(defaultsDir)
+      .filter((name) => statSync(join(defaultsDir, name)).isDirectory())
+      .map((slug) => {
+        let description: string | undefined;
+        try {
+          const content = readFileSync(join(defaultsDir, slug, "SKILL.md"), "utf-8");
+          description = parseFrontmatterField(content, "description");
+        } catch {
+          /* keep the slug */
+        }
+        return { slug, ...(description ? { description } : {}) };
+      });
+  } catch {
+    return [];
+  }
 }
 
 type ScaffoldMarker = Record<string, string>;
@@ -72,6 +98,12 @@ export async function ensureDefaultSkills(cwd: string): Promise<void> {
   let markerChanged = false;
   const skillsRoot = join(cwd, ".agents", "skills");
 
+  // Basic/curated split (#138): a fresh install scaffolds only the small
+  // basic set. Curated skills stay on disk untouched and installable through
+  // /skill. Once a skill is in the marker it keeps being maintained below,
+  // whether it was basic or curated when it was installed.
+  const freshInstall = Object.keys(marker).length === 0;
+
   for (const slug of defaultSlugs) {
     const bundledSkillMd = join(defaultsDir, slug, "SKILL.md");
     if (!existsSync(bundledSkillMd)) continue;
@@ -89,6 +121,7 @@ export async function ensureDefaultSkills(cwd: string): Promise<void> {
 
     if (!previouslyScaffolded) {
       if (existsSync(installedDir)) continue; // user already has a same-named skill; don't touch it
+      if (freshInstall && !isBasicSkill(slug)) continue; // curated: discoverable, not scaffolded
       mkdirSync(skillsRoot, { recursive: true });
       cpSync(join(defaultsDir, slug), installedDir, { recursive: true });
       marker[slug] = bundledVersion;
@@ -121,4 +154,43 @@ export async function ensureDefaultSkills(cwd: string): Promise<void> {
   if (markerChanged) {
     await writeJsonAtomic(join(cwd, MARKER_PATH), marker);
   }
+}
+
+/**
+ * Install one bundled skill into the project on demand (#138) — the action
+ * behind the "Available" rows in /skill. Respects an existing same-named
+ * skill: never overwrites what the user already has.
+ */
+export async function installBundledSkill(
+  cwd: string,
+  slug: string
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const defaultsDir = getDefaultSkillsDir();
+  if (!defaultsDir) return { ok: false, reason: "bundled skills not found" };
+
+  const source = join(defaultsDir, slug);
+  if (!existsSync(join(source, "SKILL.md"))) {
+    return { ok: false, reason: "no such bundled skill" };
+  }
+  const target = join(cwd, ".agents", "skills", slug);
+  if (existsSync(target)) {
+    return { ok: false, reason: "a skill with that name already exists" };
+  }
+
+  mkdirSync(join(cwd, ".agents", "skills"), { recursive: true });
+  cpSync(source, target, { recursive: true });
+
+  // Record it in the scaffold marker so future bundled updates maintain it
+  // (and so a later delete stays deleted).
+  const marker = readMarker(cwd);
+  let version = "0.0.0";
+  try {
+    version = parseFrontmatterField(readFileSync(join(source, "SKILL.md"), "utf-8"), "version") ?? version;
+  } catch {
+    /* keep the default */
+  }
+  marker[slug] = version;
+  await writeJsonAtomic(join(cwd, MARKER_PATH), marker);
+
+  return { ok: true };
 }

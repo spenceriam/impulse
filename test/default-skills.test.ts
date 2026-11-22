@@ -33,19 +33,19 @@ describe("ensureDefaultSkills", () => {
   });
 
   test("copies a missing default skill into .agents/skills on first run", async () => {
-    writeFixtureSkill("sample-skill");
+    writeFixtureSkill("tdd");
     await ensureDefaultSkills(cwd);
 
-    const installed = path.join(cwd, ".agents", "skills", "sample-skill", "SKILL.md");
+    const installed = path.join(cwd, ".agents", "skills", "tdd", "SKILL.md");
     expect(fs.existsSync(installed)).toBe(true);
     expect(fs.readFileSync(installed, "utf-8")).toContain("Body v1.0.0");
   });
 
   test("a second run with the same version is a no-op (doesn't touch the file)", async () => {
-    writeFixtureSkill("sample-skill");
+    writeFixtureSkill("tdd");
     await ensureDefaultSkills(cwd);
 
-    const installed = path.join(cwd, ".agents", "skills", "sample-skill", "SKILL.md");
+    const installed = path.join(cwd, ".agents", "skills", "tdd", "SKILL.md");
     const firstMtime = fs.statSync(installed).mtimeMs;
 
     await new Promise((r) => setTimeout(r, 10));
@@ -55,27 +55,27 @@ describe("ensureDefaultSkills", () => {
   });
 
   test("refreshes when the bundled version changes and the skill isn't edited", async () => {
-    writeFixtureSkill("sample-skill", { version: "1.0.0" });
+    writeFixtureSkill("tdd", { version: "1.0.0" });
     await ensureDefaultSkills(cwd);
 
-    writeFixtureSkill("sample-skill", { version: "1.1.0", body: "Body v1.1.0 updated" });
+    writeFixtureSkill("tdd", { version: "1.1.0", body: "Body v1.1.0 updated" });
     await ensureDefaultSkills(cwd);
 
-    const installed = path.join(cwd, ".agents", "skills", "sample-skill", "SKILL.md");
+    const installed = path.join(cwd, ".agents", "skills", "tdd", "SKILL.md");
     expect(fs.readFileSync(installed, "utf-8")).toContain("Body v1.1.0 updated");
   });
 
   test("never overwrites a skill the user marked edited: true", async () => {
-    writeFixtureSkill("sample-skill", { version: "1.0.0" });
+    writeFixtureSkill("tdd", { version: "1.0.0" });
     await ensureDefaultSkills(cwd);
 
-    const installed = path.join(cwd, ".agents", "skills", "sample-skill", "SKILL.md");
+    const installed = path.join(cwd, ".agents", "skills", "tdd", "SKILL.md");
     fs.writeFileSync(
       installed,
-      `---\nname: sample-skill\ncommand: sample-skill\nversion: "1.0.0"\nedited: true\ndescription: test skill\n---\n\nMy custom edits.\n`
+      `---\nname: tdd\ncommand: tdd\nversion: "1.0.0"\nedited: true\ndescription: test skill\n---\n\nMy custom edits.\n`
     );
 
-    writeFixtureSkill("sample-skill", { version: "2.0.0", body: "Should not appear" });
+    writeFixtureSkill("tdd", { version: "2.0.0", body: "Should not appear" });
     await ensureDefaultSkills(cwd);
 
     expect(fs.readFileSync(installed, "utf-8")).toContain("My custom edits.");
@@ -83,10 +83,10 @@ describe("ensureDefaultSkills", () => {
   });
 
   test("does not resurrect a default skill the user deleted", async () => {
-    writeFixtureSkill("sample-skill");
+    writeFixtureSkill("tdd");
     await ensureDefaultSkills(cwd);
 
-    const installedDir = path.join(cwd, ".agents", "skills", "sample-skill");
+    const installedDir = path.join(cwd, ".agents", "skills", "tdd");
     fs.rmSync(installedDir, { recursive: true, force: true });
 
     await ensureDefaultSkills(cwd);
@@ -95,13 +95,37 @@ describe("ensureDefaultSkills", () => {
   });
 
   test("does not overwrite a pre-existing user skill with the same slug on first scaffold", async () => {
-    const userSkillDir = path.join(cwd, ".agents", "skills", "sample-skill");
+    const userSkillDir = path.join(cwd, ".agents", "skills", "tdd");
     fs.mkdirSync(userSkillDir, { recursive: true });
-    fs.writeFileSync(path.join(userSkillDir, "SKILL.md"), "---\nname: sample-skill\n---\n\nUser's own skill.\n");
+    fs.writeFileSync(path.join(userSkillDir, "SKILL.md"), "---\nname: tdd\n---\n\nUser's own skill.\n");
 
-    writeFixtureSkill("sample-skill");
+    writeFixtureSkill("tdd");
     await ensureDefaultSkills(cwd);
 
     expect(fs.readFileSync(path.join(userSkillDir, "SKILL.md"), "utf-8")).toContain("User's own skill.");
+  });
+
+  test("a fresh install scaffolds only basic skills (#138)", async () => {
+    writeFixtureSkill("tdd");
+    writeFixtureSkill("triage");
+    await ensureDefaultSkills(cwd);
+
+    expect(fs.existsSync(path.join(cwd, ".agents", "skills", "tdd", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(cwd, ".agents", "skills", "triage", "SKILL.md"))).toBe(false);
+  });
+
+  test("an installed curated skill keeps being maintained (#138)", async () => {
+    writeFixtureSkill("triage", { version: "1.1.0" });
+    // Installed earlier (via /skill) at an older bundled version.
+    const dir = path.join(cwd, ".agents", "skills", "triage");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "SKILL.md"), '---\nname: triage\nversion: "1.0.0"\n---\n\nold\n');
+    const markerPath = path.join(cwd, ".impulse", "default-skills.json");
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, JSON.stringify({ triage: "1.0.0" }));
+
+    await ensureDefaultSkills(cwd);
+
+    expect(fs.readFileSync(path.join(dir, "SKILL.md"), "utf-8")).toContain("Body v1.1.0");
   });
 });
