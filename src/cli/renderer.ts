@@ -305,7 +305,8 @@ import { abortCurrentBashExecution, clearShellSessions } from "../tools/bash.js"
 import { listInstalledSkills, type InstalledSkillMeta } from "../tools/install-skill-source.js";
 import { countRunningBgJobs, cleanupAllBgJobs, BgJobEvents } from "../tools/bg-process-registry.js";
 import { removeSkill } from "../tools/skill-remove.js";
-import { ensureDefaultSkills } from "../skills/default-skills.js";
+import { ensureDefaultSkills, listBundledSkills } from "../skills/default-skills.js";
+import { availableEntries, buildSkillCatalog } from "../skills/skill-catalog.js";
 import { rejectQuestion, resolveQuestion, type Question } from "../tools/question.js";
 import { setCurrentMode } from "../tools/mode-state.js";
 import {
@@ -7318,15 +7319,41 @@ export class ImpulseRenderer {
 
   private showSkillsListOverlay(skills: InstalledSkillMeta[]): void {
     this.dismissSkillsOverlay();
+    // Installed + Available (#138): curated bundled skills that are not
+    // installed are listed too, so they can be discovered and installed.
+    const catalog = buildSkillCatalog(
+      skills.map((s) => ({
+        slug: s.slug,
+        ...(s.description ? { description: s.description } : {}),
+        ...(s.command ? { command: s.command } : {}),
+      })),
+      listBundledSkills()
+    );
+    const available = availableEntries(catalog);
+    const rows: SelectableListRow[] = [
+      ...buildSkillRows(skills),
+      ...available.map((entry) => ({
+        id: `available:${entry.slug}`,
+        label: entry.slug,
+        metaRight: "not installed",
+        ...(entry.description ? { secondary: entry.description } : {}),
+      })),
+    ];
     const overlay = new SelectableListOverlay({
-      title: `Skills (${skills.length})`,
-      rows: buildSkillRows(skills),
+      title: `Skills — ${skills.length} installed, ${available.length} available`,
+      rows,
       boxSizing: "responsive",
       maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      helpLines: ["Up/Down navigate   Enter choose action   Esc close"],
+      helpLines: [
+        "Up/Down navigate   Enter choose action (available: install)   Esc close",
+      ],
     });
     overlay.onSelect = (slug) => {
       this.dismissSkillsOverlay();
+      if (slug.startsWith("available:")) {
+        void this.installAvailableSkill(slug.slice("available:".length));
+        return;
+      }
       const skill = skills.find((s) => s.slug === slug);
       if (skill) this.showSkillActionOverlay(skill);
     };
@@ -7335,6 +7362,18 @@ export class ImpulseRenderer {
       this.tui.setFocus(this.promptInput);
     };
     this.skillsOverlayHandle = this.showListOverlay(overlay);
+  }
+
+  /** Copy a curated bundled skill into the project (the /skill Available list). */
+  private async installAvailableSkill(slug: string): Promise<void> {
+    const { installBundledSkill } = await import("../skills/default-skills.js");
+    const result = await installBundledSkill(process.cwd(), slug);
+    this.addChatLine(
+      result.ok
+        ? clr.dim(`Installed ${slug}. Run it with /skill ${slug}`)
+        : clr.warn(`Could not install ${slug}: ${result.reason}`)
+    );
+    this.tui.requestRender();
   }
 
   private showSkillActionOverlay(skill: InstalledSkillMeta): void {
@@ -7474,6 +7513,18 @@ export class ImpulseRenderer {
           `Modify skill: ${slug}`
         );
       }
+      return;
+    }
+
+    if (sub === "install" && slug) {
+      const { installSkillFromUrl } = await import("../tools/install-skill-source.js");
+      const result = await installSkillFromUrl(process.cwd(), slug);
+      this.addChatLine(
+        result.ok
+          ? clr.dim(`Installed ${result.slug}. Run it with /skill ${result.slug}`)
+          : clr.warn(`Install failed: ${result.reason}`)
+      );
+      this.tui.requestRender();
       return;
     }
 

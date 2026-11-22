@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.15] - 2026-11-22
+
+  **Type:** patch
+  **Title:** Skills: available list, install from URL, basic/curated scaffolding
+
+  ### Added
+  - **#138** -- The skills overlay lists curated bundled skills that aren't installed, marked `not installed`; selecting one installs it into `.agents/skills/` (never overwriting an existing skill, and recorded in the scaffold marker).
+  - **#138** -- `/skill install <url>` installs a skill from a direct `SKILL.md` URL (http/https, frontmatter validated, slug from the URL's folder).
+
+  ### Changed
+  - **#138** -- A fresh install now scaffolds only the basic skills (implement, tdd, code-review, diagnosing-bugs); curated ones stay discoverable in `/skill`. Skills already recorded in the marker keep being maintained either way.
+
+
 ## [1.21.14] - 2026-11-22
 
   **Type:** patch
