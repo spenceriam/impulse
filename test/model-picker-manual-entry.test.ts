@@ -245,3 +245,23 @@ describe("secret input masking (#211)", () => {
     expect(submitted).toBe("sk-secret");
   });
 });
+
+describe("provider with no discovered models stays visible (#214 D1)", () => {
+  test("a configured provider with zero models still renders its manual row", () => {
+    const rows = buildProviderGroupedRows([
+      { providerKey: "minimax-token-plan", label: "minimax-token-plan", infos: [] },
+      { providerKey: "ollama", label: "ollama", infos: [info("deepseek-v4.1-flash")] },
+    ]);
+    const manual = rows.filter((r) => isManualModelRow(r.id)).map((r) => manualRowProviderKey(r.id));
+    expect(manual).toContain("minimax-token-plan");
+    expect(rows.some((r) => r.id === "__header__minimax-token-plan")).toBe(true);
+  });
+
+  test("configured:false hides a provider that returned nothing", () => {
+    const rows = buildProviderGroupedRows([
+      { providerKey: "broken", label: "broken", infos: [], configured: false },
+      { providerKey: "ollama", label: "ollama", infos: [info("x")] },
+    ]);
+    expect(rows.some((r) => r.id.includes("broken"))).toBe(false);
+  });
+});

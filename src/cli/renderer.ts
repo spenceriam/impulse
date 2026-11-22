@@ -2057,6 +2057,8 @@ export class ImpulseRenderer {
   private traceTurn = 0;
   /** Cold-cache streak tracking for the one-time warning (#194). */
   private readonly coldCacheTracker = new ColdCacheTracker();
+  /** Reopen the model picker after /login when it was opened from there (#214 C1). */
+  private returnToModelPickerAfterLogin = false;
   private streamRenderScheduled = false;
   private streamBusyPhraseSet = false;
   private lastExpandableTool: ToolBlock | null = null;
@@ -4995,10 +4997,15 @@ export class ImpulseRenderer {
 
       state.onRowsUpdated = () => this.tui.requestRender();
 
+      // Provider management is its own list (#214), not the setup wizard:
+      // `m` closes the picker and opens /login, where a key can be set or removed.
       state.overlay.onManageProviders = () => {
         this.dismissListOverlay(this.modelPickerHandle);
         this.modelPickerHandle = null;
-        void this.startModelSetup(config, opts.purpose);
+        this.tui.setFocus(this.promptInput);
+        // Come back to the picker once provider management is done (#214 C1).
+        this.returnToModelPickerAfterLogin = true;
+        void this.cmdLogin("login", "");
       };
 
       this.modelPickerHandle = this.showListOverlay(state.overlay);
@@ -5148,9 +5155,13 @@ export class ImpulseRenderer {
       this.dismissListOverlay(handle);
       handle = null;
       this.tui.setFocus(this.promptInput);
+      if (this.returnToModelPickerAfterLogin) {
+        this.returnToModelPickerAfterLogin = false;
+        void this.openModelPicker({ purpose: "worker" });
+      }
     };
     // `d` removes the key for the highlighted row.
-    overlay.onManageProviders = () => {
+    overlay.onRemove = () => {
       void (async () => {
         const selected = overlay.currentRowId();
         const key = selected ? parseProviderLoginRow(selected) : null;
@@ -5249,33 +5260,35 @@ export class ImpulseRenderer {
       this.tui.requestRender();
       return;
     }
-    const { QuestionOverlay } = await import("./components/question-overlay.js");
-    const answer = await new Promise<string>((resolve) => {
-      const overlay = new QuestionOverlay({
-        context: `Remove the stored key for ${provider.label}?`,
-        questions: [
+    const { SelectableListOverlay } = await import(
+      "./components/selectable-list-overlay.js"
+    );
+    const keyPreview = maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "");
+    const confirmed = await new Promise<boolean>((resolve) => {
+      const overlay = new SelectableListOverlay({
+        title: "Remove a provider key",
+        rows: [
+          { id: "keep", label: `Keep it — leave ${provider.label} unchanged` },
           {
-            topic: "Remove",
-            question: `Delete ${maskKeyFull(stored.apiKey ?? stored.baseUrl ?? "")} from ${provider.label}?`,
-            options: [
-              { label: "Keep it", description: "Nothing changes" },
-              { label: "Remove it", description: "Delete the key and unset models using it" },
-            ],
+            id: "remove",
+            label: `Remove it — delete ${keyPreview} and unset models using it`,
           },
         ],
+        maxHeight: LIST_OVERLAY_MAX_HEIGHT,
+        helpLines: ["↑/↓ navigate   Enter select   Esc cancel"],
       });
       let handle: OverlayHandle | null = null;
-      overlay.onSubmit = (answers: string[][]) => {
+      overlay.onSelect = (id: string) => {
         this.dismissListOverlay(handle);
-        resolve(answers[0]?.[0] ?? "");
+        resolve(id === "remove");
       };
-      overlay.onAbort = () => {
+      overlay.onCancel = () => {
         this.dismissListOverlay(handle);
-        resolve("");
+        resolve(false);
       };
       handle = this.showListOverlay(overlay);
     });
-    if (!answer.startsWith("Remove")) {
+    if (!confirmed) {
       this.addChatLine(clr.dim("Kept."));
       this.tui.requestRender();
       return;
@@ -5422,6 +5435,11 @@ export class ImpulseRenderer {
     config: Config,
     providerKey: string
   ): Promise<void> {
+    // Subagent model points at this provider too (#214 edge case B3).
+    if (modelUsesProvider(config.subagentModel, providerKey)) {
+      config.subagentModel = undefined;
+      config.useSubagentModel = false;
+    }
     if (modelUsesProvider(config.defaultModel, providerKey)) {
       config.defaultModel = "";
       config.modelExplicitlySet = false;
@@ -5452,6 +5470,17 @@ export class ImpulseRenderer {
     provider: ModelProviderOption
   ): Promise<void> {
     const config = await loadConfig();
+    // Never strand the user with zero providers (#214 edge case B5): add
+    // another one first, or keep this key.
+    if (countConfiguredProviders(config) <= 1) {
+      this.addChatLine(
+        clr.warn(
+          `${provider.label} is your only provider — add another one before removing it.`
+        )
+      );
+      this.tui.requestRender();
+      return;
+    }
     const key = provider.isCustom
       ? provider.key
       : provider.key;

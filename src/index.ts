@@ -357,58 +357,33 @@ async function runSetup(): Promise<void> {
   const ask = (q: string): Promise<string> =>
     new Promise((res) => rl.question(q, (a) => res(a.trim())));
 
+  // Same provider list as the in-app picker (#214): one source of truth, so
+  // the CLI and TUI cannot drift apart. Fixed-endpoint providers ask only for
+  // a key; custom templates still ask for a name and URL.
+  const { MODEL_PROVIDERS } = await import("./cli/model-setup.js");
   console.log(`
   \x1b[1mImpulse Setup\x1b[0m
   \x1b[90m-----------------------------------------\x1b[0m
   Choose a provider:
-
-    1. Ollama Cloud   \x1b[90m(https://ollama.com)\x1b[0m
-    2. OpenRouter     \x1b[90m(https://openrouter.ai)\x1b[0m
-    3. Custom (OpenAI-compatible)   \x1b[90m(any OpenAI-compatible endpoint)\x1b[0m
-    4. Custom (Anthropic-compatible) \x1b[90m(any Anthropic-compatible endpoint)\x1b[0m
 `);
+  MODEL_PROVIDERS.forEach((p, i) => {
+    const url = p.modelBaseUrl ? `   \x1b[90m(${p.modelBaseUrl})\x1b[0m` : "";
+    console.log(`    ${i + 1}. ${p.label}${url}`);
+  });
+  console.log("");
 
-  const choice = await ask("  Provider [1-4]: ");
+  const choice = await ask(`  Provider [1-${MODEL_PROVIDERS.length}]: `);
+  const picked = MODEL_PROVIDERS[Number.parseInt(choice, 10) - 1] ?? MODEL_PROVIDERS[0]!;
 
-  let providerKey = "";
-  let envVar: string;
-  let label: string;
-  let defaultModel: string;
-  let needsBaseUrl = false;
-  let isCustom = false;
-  let customType: "openai-compatible" | "anthropic-compatible" | undefined;
-
-  switch (choice) {
-    case "2":
-      providerKey = "openrouter";
-      envVar = "OPENROUTER_API_KEY";
-      label = "OpenRouter";
-      defaultModel = "openrouter/anthropic/claude-haiku-4.5";
-      break;
-    case "3":
-      isCustom = true;
-      customType = "openai-compatible";
-      envVar = "";
-      label = "Custom (OpenAI)";
-      needsBaseUrl = true;
-      defaultModel = "";
-      break;
-    case "4":
-      isCustom = true;
-      customType = "anthropic-compatible";
-      envVar = "";
-      label = "Custom (Anthropic)";
-      needsBaseUrl = true;
-      defaultModel = "";
-      break;
-    default:
-      providerKey = "ollama";
-      envVar = "OLLAMA_API_KEY";
-      label = "Ollama Cloud";
-      defaultModel = "ollama/llama3.2";
-      needsBaseUrl = true;
-      break;
-  }
+  let providerKey = picked.key;
+  const envVar = picked.envVar;
+  const label = picked.label;
+  let defaultModel = picked.defaultModel;
+  const isCustom = picked.isCustom === true;
+  const customType = picked.customType;
+  // First-class providers have fixed endpoints (#211): never ask for a URL.
+  let needsBaseUrl = isCustom;
+  let baseUrl: string | undefined = picked.defaultBaseUrl ?? picked.modelBaseUrl;
 
   if (isCustom) {
     const name = await ask("  Provider name (slug, e.g. my-llm): ");
@@ -420,12 +395,12 @@ async function runSetup(): Promise<void> {
     providerKey = name;
   }
 
-  let baseUrl: string | undefined;
   if (needsBaseUrl) {
-    const defaultUrl = customType === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "https://ollama.com";
-    const prompt = isCustom ? `  Endpoint URL [${defaultUrl}]: ` : `  Endpoint URL [https://ollama.com]: `;
-    const entered = await ask(prompt);
-    baseUrl = entered || defaultUrl;
+    const defaultUrl =
+      picked.defaultBaseUrl ??
+      (customType === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "");
+    const entered = await ask(`  Endpoint URL${defaultUrl ? ` [${defaultUrl}]` : ""}: `);
+    baseUrl = entered || defaultUrl || undefined;
   }
 
   const key = await ask(`  ${label} API key: `);
@@ -454,8 +429,30 @@ async function runSetup(): Promise<void> {
       console.log(` \x1b[33m⚠\x1b[0m  ${result.message}`);
       console.log("  Saving config anyway — you can fix the endpoint later with --setup.\n");
     }
-  } else if (isCustom) {
-    // Try model discovery for custom providers
+  } else if (!isCustom) {
+    // First-class providers discover through the same path the app uses, so
+    // modalities, context, and reasoning tiers come from one implementation.
+    process.stdout.write("  Discovering models…");
+    const discovery = await discoverModels(picked, key, baseUrl);
+    if (discovery.success && discovery.models.length > 0) {
+      console.log(` \x1b[32m✓\x1b[0m  ${discovery.message}`);
+      const shown = discovery.models.slice(0, 10);
+      shown.forEach((m, i) => console.log(`    ${i + 1}. ${m}`));
+      if (discovery.models.length > shown.length) {
+        console.log(`    … and ${discovery.models.length - shown.length} more`);
+      }
+      const modelChoice = await ask(`\n  Pick a model (number or full name) [1]: `);
+      const idx = parseInt(modelChoice, 10) - 1;
+      if (!isNaN(idx) && discovery.models[idx]) {
+        defaultModel = `${providerKey}/${discovery.models[idx]}`;
+      } else if (modelChoice && !modelChoice.match(/^\d+$/)) {
+        defaultModel = modelChoice.includes("/") ? modelChoice : `${providerKey}/${modelChoice}`;
+      }
+    } else {
+      console.log(` \x1b[33m⚠\x1b[0m  ${discovery.message}`);
+    }
+  } else {
+    // Custom providers: try model discovery
     process.stdout.write("  Discovering models…");
     const customProv: Parameters<typeof discoverModels>[0] = {
       key: providerKey,

@@ -45,7 +45,7 @@ export interface ModelDiscoveryResult {
 export const KNOWN_PROVIDER_KEYS = new Set([
   "ollama", "openrouter", "openai", "z.ai", "anthropic", "groq", "gemini", "nous",
   "z.ai-api", "z.ai-anthropic", "kimi", "kimi-api", "kimi-anthropic",
-  "kimi-cn", "minimax", "minimax-anthropic", "minimax-cn", "deepseek", "deepseek-anthropic",
+  "kimi-cn", "minimax", "minimax-api", "minimax-anthropic", "deepseek", "deepseek-anthropic",
 ]);
 
 export const MODEL_PROVIDERS: ModelProviderOption[] = [
@@ -100,10 +100,19 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultBaseUrl: "https://api.moonshot.ai/v1",
   },
   {
-    // One entry: Token Plan and pay-as-you-go share the endpoint, and the key
-    // decides the billing (sk-cp-… = subscription).
+    // Split from the API entry on purpose: the endpoint is identical and the
+    // key decides billing (sk-cp-… = subscription), but picking the right row
+    // is how you know which key to paste.
     key: "minimax",
-    label: "MiniMax (Token Plan or API key)",
+    label: "MiniMax Token Plan",
+    envVar: "MINIMAX_API_KEY",
+    defaultModel: "",
+    modelBaseUrl: "https://api.minimax.io/v1",
+    defaultBaseUrl: "https://api.minimax.io/v1",
+  },
+  {
+    key: "minimax-api",
+    label: "MiniMax API",
     envVar: "MINIMAX_API_KEY",
     defaultModel: "",
     modelBaseUrl: "https://api.minimax.io/v1",
@@ -158,14 +167,6 @@ export const MODEL_PROVIDERS: ModelProviderOption[] = [
     defaultModel: "",
     modelBaseUrl: "https://api.moonshot.cn/v1",
     defaultBaseUrl: "https://api.moonshot.cn/v1",
-  },
-  {
-    key: "minimax-cn",
-    label: "MiniMax (China)",
-    envVar: "MINIMAX_API_KEY",
-    defaultModel: "",
-    modelBaseUrl: "https://api.minimaxi.com/v1",
-    defaultBaseUrl: "https://api.minimaxi.com/v1",
   },
   {
     key: "__custom_openai__",
@@ -577,7 +578,14 @@ export async function removeProviderFromHomeEnv(
     return;
   }
 
-  if (provider.envVar) values.delete(provider.envVar);
+  // Shared env vars: z.ai / z.ai-anthropic both use ZAI_API_KEY, so removing one
+  // provider must not strip the key another still uses (#214 edge cases A3/B4).
+  if (provider.envVar) {
+    const stillUsed = MODEL_PROVIDERS.some(
+      (p) => p.key !== provider.key && p.envVar === provider.envVar
+    );
+    if (!stillUsed) values.delete(provider.envVar);
+  }
   if (provider.key === "ollama") values.delete("OLLAMA_BASE_URL");
 
   const lines = [...values.entries()].map(([key, value]) => `${key}=${value}`);

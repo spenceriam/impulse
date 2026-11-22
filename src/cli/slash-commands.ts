@@ -78,6 +78,16 @@ export function buildSlashCommandDefs(
       helpDetail: "Manage persistent user instructions with multiline paste or @path import",
     },
     {
+      cmd: "/login",
+      hint: "manage provider keys",
+      helpDetail: "List providers, set or change an API key (alias: /providers)",
+    },
+    {
+      cmd: "/logout",
+      hint: "[provider] remove a provider key",
+      helpDetail: "Remove a provider's stored API key after confirmation",
+    },
+    {
       cmd: "/model",
       hint: "choose or change model",
       helpDetail: "Choose or change the worker model; configure provider API key and endpoint",

@@ -107,11 +107,20 @@ export function modelInfoToTableCells(
 
 /** Build grouped rows for model picker (exported for tests). */
 export function buildProviderGroupedRows(
-  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>,
+  entries: Array<{
+    providerKey: string;
+    label: string;
+    infos: ModelInfo[];
+    /** Defaults to true; false hides a provider that returned nothing. */
+    configured?: boolean;
+  }>,
   catalog?: CatalogData
 ): SelectableListRow[] {
   const rows: SelectableListRow[] = [];
-  const withModels = entries.filter((e) => e.infos.length > 0);
+  // Keep configured providers even with zero discovered models: a provider
+  // whose /models endpoint lists nothing (MiniMax Token Plan) must still show
+  // up, if only for its manual model-id row (#214 edge case D1).
+  const withModels = entries.filter((e) => e.infos.length > 0 || e.configured !== false);
   let first = true;
 
   for (const entry of withModels) {
@@ -143,7 +152,13 @@ export function buildProviderGroupedRows(
 }
 
 function flatRows(
-  entries: Array<{ providerKey: string; label: string; infos: ModelInfo[] }>,
+  entries: Array<{
+    providerKey: string;
+    label: string;
+    infos: ModelInfo[];
+    /** Defaults to true; false hides a provider that returned nothing. */
+    configured?: boolean;
+  }>,
   catalog?: CatalogData
 ): SelectableListRow[] {
   return buildProviderGroupedRows(entries, catalog);

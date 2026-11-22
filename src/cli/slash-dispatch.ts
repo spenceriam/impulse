@@ -103,6 +103,7 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   think: (h) => h.showReasoningHint(),
   usage: (h) => h.cmdUsage(),
   login: (h) => h.cmdLogin("login", ""),
+  providers: (h) => h.cmdLogin("login", ""),
   logout: (h, arg) => h.cmdLogin("logout", arg),
   traces: (h, arg) => h.cmdTraces(arg),
   checkpoint: (h) => h.cmdCheckpoint(),

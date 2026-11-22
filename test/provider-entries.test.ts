@@ -18,8 +18,8 @@ describe("first-class provider entries (#211)", () => {
       "kimi-anthropic",
       "kimi-cn",
       "minimax",
+      "minimax-api",
       "minimax-anthropic",
-      "minimax-cn",
       "deepseek",
       "deepseek-anthropic",
     ]) {
@@ -87,7 +87,6 @@ describe("Anthropic-protocol and region variants (#211)", () => {
 
   test("region variants point at the China hosts", () => {
     expect(provider("kimi-cn").modelBaseUrl).toBe("https://api.moonshot.cn/v1");
-    expect(provider("minimax-cn").modelBaseUrl).toBe("https://api.minimaxi.com/v1");
   });
 
   test("Anthropic-protocol entries are OpenAI-compat false only by customType", () => {

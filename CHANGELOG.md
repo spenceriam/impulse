@@ -7,13 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.12] - 2026-11-21
+
+  **Type:** patch
+  **Title:** Provider management uses the CLI modal, and `m` actually opens it
+
+  ### Fixed
+  - **#214** -- `m: Manage providers` in `/model` opens the provider list instead of the setup wizard, and `/providers` is an alias for `/login`.
+  - **#214** -- Removing a provider key uses the established `SelectableListOverlay` (Keep it / Remove it, Esc cancels) instead of the question tool, which is the agent's interface, not the harness's.
+  - **#214** -- `d` in the provider list actually removes the highlighted key: `SelectableListOverlay` gained an `onRemove` hook, fired only when the search box is empty so `d` stays a normal letter while filtering.
+  - **#214** -- Secret prompts always show something: `(paste or type your key)` when empty, and `******** (54 chars)` once a value exists, so a short pasted key is never invisible.
+  - **#214** -- `/login`, `/logout` and `/providers` are registered slash commands (autocomplete and `/help`), not just dispatch entries.
+  - **#214** -- The `--setup` / first-run CLI setup lists the same providers as the app (`MODEL_PROVIDERS`) and runs the same discovery, instead of its own hardcoded four; first-class providers ask only for a key.
+  - **#214** -- A configured provider with no discovered models stays visible in `/model` (its manual model-id row was unreachable before).
+  - **#214** -- Removing a provider no longer deletes an env var another provider still uses (`ZAI_API_KEY` is shared by Z.ai's two entries), clears `subagentModel` when it pointed at the removed provider, and refuses to remove the last configured provider.
+  - **#214** -- Opening provider management from `/model` returns to the model picker when you Esc out.
+
+
 ## [1.21.11] - 2026-11-21
 
   **Type:** patch
   **Title:** Provider leftovers: generic tier discovery, Anthropic endpoints, region variants, post-save discovery
 
   ### Added
-  - **#211** -- Anthropic-protocol entries for Z.ai, Kimi, MiniMax and DeepSeek, plus China region variants for Kimi (`api.moonshot.cn`) and MiniMax (`api.minimaxi.com`).
+  - **#211** -- Anthropic-protocol entries for Z.ai, Kimi, MiniMax and DeepSeek, plus a China region variant for Kimi (`api.moonshot.cn`).
   - **#214** -- Saving a key from `/login` now discovers that provider's models immediately, so the count is fresh without reopening `/model`.
 
   ### Changed
@@ -26,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Title:** First-class entries for Z.ai, Kimi, MiniMax, DeepSeek
 
   ### Added
-  - **#211** -- Provider entries for Z.ai (Coding Plan and API/balance), Kimi (Coding Plan and Moonshot API), MiniMax (one entry: Token Plan and pay-as-you-go share the endpoint and the key decides billing), and DeepSeek, each pointing at its documented endpoint so a plan key is never sent to a general endpoint.
+  - **#211** -- Provider entries for Z.ai (Coding Plan and API/balance), Kimi (Coding Plan and Moonshot API), MiniMax Token Plan and MiniMax API as separate rows (the endpoint is shared and the key decides billing), and DeepSeek, each pointing at its documented endpoint so a plan key is never sent to a general endpoint.
   - **#211** -- DeepSeek model discovery reads its machine-readable `/models` metadata: context window, max output, input modalities (vision), and thinking effort levels, all fed into the capability cache and the reasoning cycle.
   - **#211** -- `/login` opens a provider list (key set or not, cached model count) to set or change a key; `/logout [provider]` removes one after confirmation; `d` in the list removes the highlighted key. `m: Manage providers` in `/model` routes here instead of straight into the setup wizard.
   - **#211** -- Secret text inputs mask the value (bullets, only the last two characters visible) so a pasted key is safe in screenshots or screen shares. The submitted value is still the real key.
