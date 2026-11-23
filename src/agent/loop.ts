@@ -94,6 +94,21 @@ import {
 } from "./allow-all-nudge.js";
 import { finalizeAbortedTurn } from "./abort-interruption.js";
 import {
+  missingProviderRoles,
+  resolvePreset,
+  shouldReplan,
+  type OrchestratorPreset,
+  type ReplanTrigger,
+} from "./orchestrator.js";
+import {
+  formatPlanInjection,
+  formatProgressReport,
+  runPlannerPhase,
+} from "./orchestrator-planner.js";
+
+/** Re-plans allowed per turn before the executor must finish on its own. */
+const MAX_PLAN_REVISIONS = 3;
+import {
   isSubstantiveToolBatch,
   PLANNING_LOOP_NUDGE_MESSAGE,
   shouldInjectPlanningLoopNudge,
@@ -147,6 +162,11 @@ import {
 export interface LoopEvents {
   /** Turn is about to start (request being sent) */
   onTurnStart(): void;
+  /** Orchestrator progress (#221): planner start, plan, re-plan, executor start, alert. */
+  onOrchestratorEvent?(event: {
+    kind: "planner-start" | "plan" | "replan" | "executor-start" | "alert";
+    detail?: string;
+  }): void;
   /** Streaming text token from the worker model */
   onToken(text: string): void;
   /** Streaming thinking/reasoning token from the worker model */
@@ -247,6 +267,39 @@ export class AgentLoop {
     return this.pendingSteer;
   }
 
+  /**
+   * Orchestrator (#221): the active preset for this turn, or undefined when
+   * off. A preset whose planner or executor provider has no key is reported
+   * to the user instead of silently running on the wrong model.
+   */
+  private resolveOrchestration(
+    config: Awaited<ReturnType<typeof loadConfig>>
+  ): { preset: OrchestratorPreset } | undefined {
+    const orch = config.orchestrator;
+    if (!orch?.enabled) return undefined;
+    const preset = resolvePreset(orch);
+    if (!preset) return undefined;
+
+    // A provider is usable when a key (or, for Ollama, an endpoint) is stored.
+    const hasProvider = (key: string) => {
+      const stored = (config.providers as Record<string, { apiKey?: string; baseUrl?: string } | undefined>)[key];
+      if (!stored) return false;
+      return Boolean(stored.apiKey || (key === "ollama" && stored.baseUrl));
+    };
+    const missing = missingProviderRoles(preset, hasProvider);
+    if (missing.length > 0) {
+      // Surfaced by the caller as an alert; the turn does not run half-configured.
+      this.orchestratorAlert =
+        `Orchestrator preset "${preset.name}" cannot start: no key for the ${missing.join(" and ")} provider. ` +
+        "Run /login to add a key or /orchestrator <name> to pick another preset.";
+      return undefined;
+    }
+    this.orchestratorAlert = null;
+    return { preset };
+  }
+
+  private orchestratorAlert: string | null = null;
+
   private async injectUserNotes(notes: string[]): Promise<void> {
     const trimmed = notes.map((n) => n.trim()).filter((n) => n.length > 0);
     if (trimmed.length === 0) return;
@@ -308,6 +361,15 @@ export class AgentLoop {
       const { canonicalImpulseModelId } = await import("../harness/model-routing.js");
       const { setCurrentCanonicalModelId } = await import("../harness/request-context.js");
       setCurrentCanonicalModelId(canonicalImpulseModelId(model, config.defaultProvider));
+
+      // ── Orchestrator (#221) ──────────────────────────────────────────────────
+      // The preset's executor is the worker model for this turn; the planner
+      // runs read-only first and hands it a plan.
+      const orchestration = this.resolveOrchestration(config);
+      const executorModel = orchestration ? orchestration.preset.executor.model : model;
+      const executorReasoning = orchestration
+        ? orchestration.preset.executor.reasoning
+        : config.reasoningLevel;
 
       const displayMessage = turnOptions?.displayMessage ?? userMessage;
       this.pendingUserRequest = displayMessage;
@@ -439,6 +501,91 @@ export class AgentLoop {
         lastGeneratedAt = now;
       };
 
+      if (!orchestration && this.orchestratorAlert) {
+        // A preset is active but cannot run. Say so and offer the way out
+        // instead of silently running on the worker model.
+        const message = this.orchestratorAlert;
+        this.orchestratorAlert = null;
+        events.onTurnStart();
+        events.onOrchestratorEvent?.({ kind: "alert", detail: message });
+        events.onToken(message);
+        await SessionManager.addMessage({
+          role: "assistant",
+          content: message,
+          timestamp: new Date().toISOString(),
+        });
+        events.onTurnEnd({
+          inputTokens: 0, outputTokens: 0, contextPct: 0, tokensPerSecond: 0,
+          durationMs: 0, contextTokenSource: "estimate",
+        });
+        return;
+      }
+
+      // ── Orchestrator: planner phase (#221) ───────────────────────────────────
+      // Read-only. A question or explanation is answered here and the turn
+      // ends; otherwise the plan is injected for the executor below.
+      let planRevision = 0;
+      if (orchestration) {
+        // Same prompt the executor's loop uses (memoized), so both roles share it.
+        const plannerSystemPrompt = await generateSystemPrompt(mode, undefined, config, {
+          sessionId: session.id,
+        });
+        events.onOrchestratorEvent?.({ kind: "planner-start", detail: orchestration.preset.planner.model });
+        const outcome = await runPlannerPhase({
+          complete: (opts) => manager.stream(opts),
+          plannerModel: orchestration.preset.planner.model,
+          plannerReasoning: orchestration.preset.planner.reasoning,
+          systemPrompt: plannerSystemPrompt,
+          events,
+          signal,
+        });
+        if (outcome.kind === "aborted") {
+          this.pendingSteer = null;
+          await finalizeAbortedTurn({ iterationText: "", iterationAssistantPersisted: false });
+          return;
+        }
+        if (outcome.kind === "error") {
+          const message = `Orchestrator planner failed: ${outcome.message}`;
+          events.onToken(message);
+          await SessionManager.addMessage({
+            role: "assistant",
+            content: message,
+            timestamp: new Date().toISOString(),
+          });
+          events.onTurnEnd({
+            inputTokens: 0, outputTokens: 0, contextPct: 0, tokensPerSecond: 0,
+            durationMs: 0, contextTokenSource: "estimate",
+          });
+          return;
+        }
+        if (outcome.kind === "answer") {
+          events.onToken(outcome.text);
+          await SessionManager.addMessage({
+            role: "assistant",
+            content: outcome.text,
+            timestamp: new Date().toISOString(),
+          });
+          events.onOrchestratorEvent?.({ kind: "plan", detail: "answered directly by the planner" });
+          events.onTurnEnd({
+            inputTokens: 0, outputTokens: Math.ceil(outcome.text.length / 4), contextPct: 0,
+            tokensPerSecond: 0, durationMs: 0, contextTokenSource: "estimate",
+          });
+          return;
+        }
+        const planHeadline = outcome.plan.split("\n")[0];
+        events.onOrchestratorEvent?.({
+          kind: "plan",
+          ...(planHeadline ? { detail: planHeadline } : {}),
+        });
+        await SessionManager.addMessage({
+          role: "user",
+          content: formatPlanInjection(outcome.plan, planRevision),
+          injected: true,
+          timestamp: new Date().toISOString(),
+        });
+        events.onOrchestratorEvent?.({ kind: "executor-start", detail: executorModel });
+      }
+
       events.onTurnStart();
       // Rebuild system prompt each user turn so project instructions, skills,
       // probes, and other dynamic blocks stay fresh. Within-turn tool iterations
@@ -565,17 +712,20 @@ export class AgentLoop {
         // ── Stream response ─────────────────────────────────────────────────
         // Clamp the configured output budget to a provider-learned cap
         // (recorded from a prior max-tokens rejection, e.g. MiniMax 524288).
-        const learnedMaxOut = getModelMaxOutputTokens(model);
+        // Orchestrator (#221): the executor model runs the tool loop, at the
+        // reasoning level pinned by the preset (not adjustable mid-conversation).
+        const learnedMaxOut = getModelMaxOutputTokens(executorModel);
         const effectiveMaxTokens = learnedMaxOut
           ? Math.min(config.maxOutputTokens, learnedMaxOut)
           : config.maxOutputTokens;
-        let effectiveReasoningLevel =
-          config.reasoningLevel ?? (config.thinking ? "medium" : "off");
-        if (!reliabilityFallbackUsed && this.consecutiveFailures >= 2) {
+        let effectiveReasoningLevel = orchestration
+          ? executorReasoning
+          : config.reasoningLevel ?? (config.thinking ? "medium" : "off");
+        if (!orchestration && !reliabilityFallbackUsed && this.consecutiveFailures >= 2) {
           const { reliabilityFallbackForModel } = await import("../harness/reliability.js");
           const { canonicalImpulseModelId } = await import("../harness/model-routing.js");
           const fallback = reliabilityFallbackForModel(
-            canonicalImpulseModelId(model, config.defaultProvider),
+            canonicalImpulseModelId(executorModel, config.defaultProvider),
             config
           );
           reliabilityFallbackUsed = true;
@@ -591,7 +741,7 @@ export class AgentLoop {
         }
 
         const streamOptions: StreamCompletionOptions = {
-          model,
+          model: executorModel,
           messages: chatMessages,
           ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
           stream: true,
@@ -796,6 +946,11 @@ export class AgentLoop {
         // ── Execute tool calls ──────────────────────────────────────────────
         let allSucceeded = true;
         let todoBatchHadRealUpdate = false;
+        // Orchestrator (#221): what the executor did and how it went, for the
+        // re-plan decision and the planner's progress report.
+        const executorProgress: Array<{ tool: string; ok: boolean; note?: string }> = [];
+        let sameToolFailures = 0;
+        let lastFailedTool = "";
 
         type PendingTaskItem = { tc: PartialToolCall; args: Record<string, unknown> };
         const pendingTaskBatch: PendingTaskItem[] = [];
@@ -1088,6 +1243,17 @@ export class AgentLoop {
           } else {
             this.consecutiveFailures = 0;
           }
+          // Antigravity's "verification step failing twice": the same tool
+          // failing back-to-back. A different tool resets the count.
+          sameToolFailures = !result.success && tc.name === lastFailedTool ? sameToolFailures + 1 : !result.success ? 1 : 0;
+          if (!result.success) lastFailedTool = tc.name;
+          executorProgress.push({
+            tool: tc.name,
+            ok: result.success,
+            ...(!result.success
+              ? { note: String(result.output).slice(0, 200) }
+              : {}),
+          });
 
           if (
             mode === "DEBUG" &&
@@ -1186,6 +1352,61 @@ export class AgentLoop {
 
         const steerPending = this.pendingSteer !== null;
         const batchNotes: string[] = [];
+
+        // ── Orchestrator: re-plan (#221) ──────────────────────────────────────
+        // Control returns to the planner on Antigravity's triggers: the same
+        // verification step failing twice, or the user messaging mid-run.
+        // The planner repairs the plan and the executor resumes from it.
+        if (orchestration && planRevision < MAX_PLAN_REVISIONS) {
+          const trigger: ReplanTrigger | null = shouldReplan({
+            verificationFailures: sameToolFailures,
+            userMessaged: steerPending,
+          });
+          if (trigger) {
+            planRevision += 1;
+            sameToolFailures = 0;
+            lastFailedTool = "";
+            events.onOrchestratorEvent?.({ kind: "replan", detail: trigger });
+            const outcome = await runPlannerPhase({
+              complete: (opts) => manager.stream(opts),
+              plannerModel: orchestration.preset.planner.model,
+              plannerReasoning: orchestration.preset.planner.reasoning,
+              systemPrompt: lastSystemPrompt,
+              events,
+              signal,
+              replanNote:
+                `Trigger: ${trigger}.\n\n` +
+                `Progress so far:\n${formatProgressReport(executorProgress)}\n\n` +
+                `The user's latest message, if any: ${this.pendingSteer ?? "(none)"}`,
+            });
+            if (outcome.kind === "plan") {
+              await SessionManager.addMessage({
+                role: "user",
+                content: formatPlanInjection(outcome.plan, planRevision),
+                injected: true,
+                timestamp: new Date().toISOString(),
+              });
+              const headline = outcome.plan.split("\n")[0];
+              events.onOrchestratorEvent?.({
+                kind: "plan",
+                ...(headline ? { detail: headline } : {}),
+              });
+            } else if (outcome.kind === "answer") {
+              // The planner decided the work is done or the question is answered.
+              await SessionManager.addMessage({
+                role: "assistant",
+                content: outcome.text,
+                timestamp: new Date().toISOString(),
+              });
+              events.onToken(outcome.text);
+              continueLoop = false;
+              break;
+            } else if (outcome.kind === "aborted") {
+              break;
+            }
+            // An error keeps the previous plan: the executor continues on it.
+          }
+        }
 
         if (
           !steerPending &&

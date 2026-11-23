@@ -3036,6 +3036,21 @@ export class ImpulseRenderer {
       onRecap: (text) => {
         this.modelRecapThisTurn = text;
       },
+      onOrchestratorEvent: (event) => {
+        // Quiet: one dim line per phase, never a tool echo.
+        const line =
+          event.kind === "planner-start"
+            ? `Planning with ${event.detail ?? "the planner"}…`
+            : event.kind === "plan"
+              ? `Plan: ${event.detail ?? "ready"}`
+              : event.kind === "replan"
+                ? `Re-planning (${event.detail ?? "trigger"})`
+                : event.kind === "executor-start"
+                  ? `Executing with ${event.detail ?? "the executor"}`
+                  : event.detail ?? "Orchestrator alert";
+        this.addChatLine(clr.dim(line));
+        this.tui.requestRender();
+      },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
       onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
       onTaskBatchPermission: (input) => this.showTaskBatchPermission(input.count),
@@ -4773,6 +4788,11 @@ export class ImpulseRenderer {
     purpose: "worker" | "vision" | "subagent";
     onSubagentPicked?: (fullModel: string) => void | Promise<void>;
     onComplete?: () => void | Promise<void>;
+    /**
+     * Pick-only (#221): return the chosen model and apply nothing. Used by the
+     * orchestrator preset builder, which stores the model under a role.
+     */
+    onPickOnly?: (fullModel: string) => void | Promise<void>;
   }): Promise<void> {
     try {
       const config = await loadConfig();
@@ -4782,6 +4802,8 @@ export class ImpulseRenderer {
         parseModelPickerSelection,
         isManualModelRow,
         manualRowProviderKey,
+        isOrchestratorRow,
+        orchestratorRowPreset,
       } =
         await import("./components/model-picker-overlay.js");
 
@@ -4810,9 +4832,25 @@ export class ImpulseRenderer {
           return;
         }
 
+        // Orchestrator rows (#221): activate the preset, never a plain model.
+        if (isOrchestratorRow(compoundId)) {
+          const presetName = orchestratorRowPreset(compoundId);
+          await this.activateOrchestratorPreset(presetName);
+          await opts.onComplete?.();
+          return;
+        }
+
         const parsed = parseModelPickerSelection(compoundId);
         if (!parsed) {
           await opts.onComplete?.();
+          return;
+        }
+
+        if (opts.onPickOnly) {
+          const full = parsed.modelId.includes("/")
+            ? parsed.modelId
+            : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
+          await opts.onPickOnly(full);
           return;
         }
 
@@ -5143,6 +5181,7 @@ export class ImpulseRenderer {
       purpose: "worker" | "vision" | "subagent";
       onSubagentPicked?: (fullModel: string) => void | Promise<void>;
       onComplete?: () => void | Promise<void>;
+      onPickOnly?: (fullModel: string) => void | Promise<void>;
     }
   ): Promise<void> {
     const { TextInputOverlay } = await import("./components/text-input-overlay.js");
@@ -5156,6 +5195,11 @@ export class ImpulseRenderer {
       this.dismissListOverlay(this.modelPickerHandle);
       this.modelPickerHandle = null;
       this.tui.setFocus(this.promptInput);
+      if (opts.onPickOnly) {
+        const full = value.includes("/") ? value : modelWithProviderPrefix(providerKey, value);
+        void opts.onPickOnly(full);
+        return;
+      }
       void this.applyModelSelection({ providerKey, modelId: value }, opts);
     };
     overlay.onCancel = () => {
@@ -5524,6 +5568,26 @@ export class ImpulseRenderer {
    * `/orchestrator` (#221): list the presets, or start onboarding when none
    * exist. `/orchestrator <name>` activates one; `/orchestrator off` disables.
    */
+  /** Activate an orchestrator preset by name (#221). */
+  private async activateOrchestratorPreset(name: string): Promise<void> {
+    const config = await loadConfig();
+    const current = config.orchestrator ?? { enabled: false, activePreset: "default", presets: {} };
+    if (!current.presets[name]) {
+      this.addChatLine(clr.warn(`No orchestrator preset named '${name}'.`));
+      this.tui.requestRender();
+      return;
+    }
+    config.orchestrator = { ...current, enabled: true, activePreset: name };
+    await saveConfig(config);
+    const preset = current.presets[name]!;
+    this.addChatLine(
+      clr.dim(
+        `Orchestrator '${name}' active: planner ${preset.planner.model}, executor ${preset.executor.model}.`
+      )
+    );
+    this.tui.requestRender();
+  }
+
   private async cmdOrchestrator(arg = ""): Promise<void> {
     if (this.isRunning) return;
     const config = await loadConfig();
@@ -5544,20 +5608,28 @@ export class ImpulseRenderer {
     }
 
     if (target && names.includes(target)) {
-      config.orchestrator = { ...current, enabled: true, activePreset: target };
-      await saveConfig(config);
-      this.addChatLine(clr.dim(`Orchestrator preset: ${target}`));
+      await this.activateOrchestratorPreset(target);
+      return;
+    }
+
+    if (target === "new" || target.startsWith("new ")) {
+      const name = target.slice(3).trim() || "default";
+      await this.buildOrchestratorPreset(name);
+      return;
+    }
+
+    if (target && !names.includes(target)) {
+      this.addChatLine(clr.warn(`No orchestrator preset named '${target}'.`));
       this.tui.requestRender();
       return;
     }
 
     if (names.length === 0) {
-      // Honest about what this build can do: no preset builder yet, and the
-      // planner/executor hand-off is not wired into the turn loop.
-      this.addChatLine(clr.dim("No orchestrator presets, and this build cannot create them yet."));
+      this.addChatLine(clr.dim("No orchestrator presets yet."));
       this.addChatLine(
         clr.dim("A preset pairs a planner model (plans, reviews) with an executor model (does the work).")
       );
+      this.addChatLine(clr.dim("Create one with: /orchestrator new <name>"));
       this.tui.requestRender();
       return;
     }
@@ -5570,6 +5642,68 @@ export class ImpulseRenderer {
       this.addChatLine(clr.dim(`   executor ${preset.executor.model}  [${preset.executor.reasoning}]`));
     }
     this.addChatLine(clr.dim("Use /orchestrator <name> to activate, /orchestrator off to disable."));
+    this.tui.requestRender();
+  }
+
+  /**
+   * Build a preset (#221): pick the planner, then the executor, through the
+   * existing model picker. Each role's reasoning level is the current one at
+   * the moment of selection and is then fixed by the preset.
+   */
+  private async buildOrchestratorPreset(name: string): Promise<void> {
+    if (countConfiguredProviders(await loadConfig()) < 1) {
+      this.addChatLine(clr.warn("Configure a provider first: /login"));
+      this.tui.requestRender();
+      return;
+    }
+    this.addChatLine(clr.dim(`Preset '${name}' — pick the planner model (plans and reviews).`));
+    this.tui.requestRender();
+
+    const pick = (): Promise<string | null> =>
+      new Promise<string | null>((resolve) => {
+        void this.openModelPicker({
+          purpose: "worker",
+          onPickOnly: (fullModel) => {
+            resolve(fullModel);
+          },
+          onComplete: () => resolve(null),
+        });
+      });
+
+    const planner = await pick();
+    if (!planner) {
+      this.addChatLine(clr.dim("Cancelled — preset not created."));
+      this.tui.requestRender();
+      return;
+    }
+    const reasoningNow = this.reasoningLevel;
+    this.addChatLine(clr.dim(`Planner: ${planner}. Now pick the executor model (does the work).`));
+    this.tui.requestRender();
+    const executor = await pick();
+    if (!executor) {
+      this.addChatLine(clr.dim("Cancelled — preset not created."));
+      this.tui.requestRender();
+      return;
+    }
+
+    const config = await loadConfig();
+    const presets = { ...(config.orchestrator?.presets ?? {}) };
+    presets[name] = {
+      name,
+      planner: { model: planner, reasoning: reasoningNow },
+      executor: { model: executor, reasoning: this.reasoningLevel },
+    };
+    config.orchestrator = {
+      enabled: true,
+      activePreset: name,
+      presets,
+    };
+    await saveConfig(config);
+    this.addChatLine(
+      clr.dim(
+        `Orchestrator preset '${name}' active: planner ${planner} (${reasoningNow}), executor ${executor} (${this.reasoningLevel}).`
+      )
+    );
     this.tui.requestRender();
   }
 

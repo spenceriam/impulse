@@ -9,6 +9,7 @@ import {
   type ModelProviderOption,
 } from "../model-setup.js";
 import type { Config } from "../../util/config.js";
+import { orchestratorLabel, resolvePreset } from "../../agent/orchestrator.js";
 import {
   formatContextK,
   formatModelDate,
@@ -41,6 +42,49 @@ const PROVIDER_SEPARATOR = "--------------------";
  * the escape hatch (issue #159).
  */
 export const MANUAL_MODEL_ROW_PREFIX = "__manual__";
+
+/** Row id prefix for the Orchestrator rows (#221). */
+export const ORCHESTRATOR_ROW_PREFIX = "__orchestrator__";
+
+export function isOrchestratorRow(rowId: string): boolean {
+  return rowId.startsWith(ORCHESTRATOR_ROW_PREFIX);
+}
+
+/** Preset name carried by an orchestrator row, or "default" for the main row. */
+export function orchestratorRowPreset(rowId: string): string {
+  return rowId.slice(ORCHESTRATOR_ROW_PREFIX.length) || "default";
+}
+
+/**
+ * Orchestrator rows (#221): always first. `Orchestrator (<main model>)` with
+ * the planner of the active preset, then one row per saved preset.
+ */
+export function buildOrchestratorRows(config: Config): SelectableListRow[] {
+  const orch = config.orchestrator;
+  const names = Object.keys(orch?.presets ?? {});
+  if (names.length === 0) return [];
+
+  const active = resolvePreset(orch);
+  const rows: SelectableListRow[] = [];
+  if (active) {
+    rows.push({
+      id: `${ORCHESTRATOR_ROW_PREFIX}${orch!.activePreset}`,
+      label: orchestratorLabel(active.planner.model),
+      metaRight: orch?.enabled ? "active" : "",
+      secondary: `planner ${active.planner.model} · executor ${active.executor.model}`,
+    });
+  }
+  for (const name of names) {
+    if (name === orch?.activePreset) continue;
+    const preset = orch!.presets[name]!;
+    rows.push({
+      id: `${ORCHESTRATOR_ROW_PREFIX}${name}`,
+      label: `  ${name}`,
+      secondary: `planner ${preset.planner.model} · executor ${preset.executor.model}`,
+    });
+  }
+  return rows;
+}
 
 export function isManualModelRow(rowId: string): boolean {
   return rowId.startsWith(MANUAL_MODEL_ROW_PREFIX);
@@ -114,9 +158,10 @@ export function buildProviderGroupedRows(
     /** Defaults to true; false hides a provider that returned nothing. */
     configured?: boolean;
   }>,
-  catalog?: CatalogData
+  catalog?: CatalogData,
+  orchestratorRows: SelectableListRow[] = []
 ): SelectableListRow[] {
-  const rows: SelectableListRow[] = [];
+  const rows: SelectableListRow[] = [...orchestratorRows];
   // Keep configured providers even with zero discovered models: a provider
   // whose /models endpoint lists nothing (MiniMax Token Plan) must still show
   // up, if only for its manual model-id row (#214 edge case D1).
@@ -159,9 +204,15 @@ function flatRows(
     /** Defaults to true; false hides a provider that returned nothing. */
     configured?: boolean;
   }>,
-  catalog?: CatalogData
+  catalog?: CatalogData,
+  config?: Config
 ): SelectableListRow[] {
-  return buildProviderGroupedRows(entries, catalog);
+  // Orchestrator rows (#221) come first; provider groups follow.
+  return buildProviderGroupedRows(
+    entries,
+    catalog,
+    config ? buildOrchestratorRows(config) : []
+  );
 }
 
 export interface BuildModelPickerOptions {
@@ -228,7 +279,9 @@ export async function buildModelPickerState(
         providerKey: e.providerKey,
         label: e.label,
         infos: filterVision(e.infos),
-      }))
+      })),
+      undefined,
+      opts?.visionOnly ? undefined : config
     ),
     loading: entries.some((e) => e.loading),
     loadingMessage: "  Discovering models…",
@@ -276,7 +329,9 @@ export async function buildModelPickerState(
           providerKey: e.providerKey,
           label: e.label,
           infos: filterVision(e.infos),
-        }))
+        })),
+        undefined,
+        opts?.visionOnly ? undefined : config
       );
       const stillLoading = entries.some((e) => e.loading);
       const anyModels = rows.some(

@@ -78,6 +78,11 @@ export function buildSlashCommandDefs(
       helpDetail: "Manage persistent user instructions with multiline paste or @path import",
     },
     {
+      cmd: "/orchestrator",
+      hint: "[name | new <name> | off]",
+      helpDetail: "Planner + executor presets: list, activate, build, or disable",
+    },
+    {
       cmd: "/login",
       hint: "manage provider keys",
       helpDetail: "List providers, set or change an API key (alias: /providers)",

@@ -95,3 +95,120 @@ describe("missingProviderRoles (#221)", () => {
     expect(missingProviderRoles(preset, () => false)).toEqual(["planner", "executor"]);
   });
 });
+
+import {
+  formatPlanInjection,
+  formatProgressReport,
+  parsePlannerReply,
+  PLANNER_SYSTEM_ADDENDUM,
+} from "../src/agent/orchestrator-planner.js";
+
+describe("parsePlannerReply (#221)", () => {
+  test("a plan block is extracted, prose around it kept", () => {
+    const { plan, prose } = parsePlannerReply(
+      "Looking at this.\n<plan>\n1. Edit auth.ts\n2. Run bun test\n</plan>\nGood luck."
+    );
+    expect(plan).toBe("1. Edit auth.ts\n2. Run bun test");
+    expect(prose).toContain("Looking at this.");
+    expect(prose).toContain("Good luck.");
+  });
+
+  test("no block means a direct answer", () => {
+    const { plan, prose } = parsePlannerReply("The config lives in src/util/config.ts.");
+    expect(plan).toBeNull();
+    expect(prose).toBe("The config lives in src/util/config.ts.");
+  });
+
+  test("an empty or unclosed block is not a plan", () => {
+    expect(parsePlannerReply("<plan></plan>").plan).toBeNull();
+    expect(parsePlannerReply("<plan>never closed").plan).toBeNull();
+  });
+});
+
+describe("plan injection and progress (#221)", () => {
+  test("first plan and revisions are labelled distinctly", () => {
+    expect(formatPlanInjection("do x", 0)).toContain("Plan for this turn");
+    expect(formatPlanInjection("do x", 1)).toContain("Revised plan (revision 2)");
+  });
+
+  test("progress report lists steps with failures called out", () => {
+    const report = formatProgressReport([
+      { tool: "file_read", ok: true },
+      { tool: "bash", ok: false, note: "tests failed" },
+    ]);
+    expect(report).toContain("1. file_read — ok");
+    expect(report).toContain("2. bash — FAILED: tests failed");
+    expect(formatProgressReport([])).toContain("no steps executed yet");
+  });
+
+  test("the planner prompt forbids edits and requires re-plan triggers", () => {
+    expect(PLANNER_SYSTEM_ADDENDUM).toContain("read-only");
+    expect(PLANNER_SYSTEM_ADDENDUM).toContain("Re-plan triggers");
+  });
+});
+
+import {
+  buildOrchestratorRows,
+  buildProviderGroupedRows,
+  isOrchestratorRow,
+  ORCHESTRATOR_ROW_PREFIX,
+  orchestratorRowPreset,
+} from "../src/cli/components/model-picker-overlay.js";
+import type { Config } from "../src/util/config.js";
+
+function configWith(orch: NonNullable<Config["orchestrator"]>): Config {
+  return { orchestrator: orch } as Config;
+}
+
+describe("orchestrator picker rows (#221)", () => {
+  const orch: NonNullable<Config["orchestrator"]> = {
+    enabled: true,
+    activePreset: "default",
+    presets: {
+      default: preset,
+      cheap: {
+        name: "cheap",
+        planner: { model: "ollama/glm-5.3", reasoning: "medium" },
+        executor: { model: "ollama/glm-5.3", reasoning: "low" },
+      },
+    },
+  };
+
+  test("no presets means no rows", () => {
+    expect(buildOrchestratorRows(configWith({ enabled: true, activePreset: "x", presets: {} }))).toEqual([]);
+  });
+
+  test("the active preset is the first row, labelled Orchestrator (<planner>)", () => {
+    const rows = buildOrchestratorRows(configWith(orch));
+    expect(rows[0]!.label).toBe("Orchestrator (claude-opus-5.5)");
+    expect(rows[0]!.metaRight).toBe("active");
+    expect(orchestratorRowPreset(rows[0]!.id)).toBe("default");
+  });
+
+  test("other presets follow, each once", () => {
+    const rows = buildOrchestratorRows(configWith(orch));
+    expect(rows.map((r) => orchestratorRowPreset(r.id))).toEqual(["default", "cheap"]);
+  });
+
+  test("a disabled orchestrator shows the row without 'active'", () => {
+    const rows = buildOrchestratorRows(configWith({ ...orch, enabled: false }));
+    expect(rows[0]!.metaRight).toBe("");
+  });
+
+  test("row helpers round-trip and reject other rows", () => {
+    const id = `${ORCHESTRATOR_ROW_PREFIX}cheap`;
+    expect(isOrchestratorRow(id)).toBe(true);
+    expect(orchestratorRowPreset(id)).toBe("cheap");
+    expect(isOrchestratorRow("ollama\0glm-5.3")).toBe(false);
+  });
+
+  test("orchestrator rows come before provider groups", () => {
+    const rows = buildProviderGroupedRows(
+      [{ providerKey: "ollama", label: "Ollama Cloud", infos: [] }],
+      undefined,
+      buildOrchestratorRows(configWith(orch))
+    );
+    expect(isOrchestratorRow(rows[0]!.id)).toBe(true);
+    expect(rows.some((r) => r.id === "__header__ollama")).toBe(true);
+  });
+});
