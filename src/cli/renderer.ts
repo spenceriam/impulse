@@ -5552,11 +5552,12 @@ export class ImpulseRenderer {
     }
 
     if (names.length === 0) {
-      this.addChatLine(clr.dim("No orchestrator presets yet."));
+      // Honest about what this build can do: no preset builder yet, and the
+      // planner/executor hand-off is not wired into the turn loop.
+      this.addChatLine(clr.dim("No orchestrator presets, and this build cannot create them yet."));
       this.addChatLine(
         clr.dim("A preset pairs a planner model (plans, reviews) with an executor model (does the work).")
       );
-      this.addChatLine(clr.dim("Create one with: /orchestrator new <name>"));
       this.tui.requestRender();
       return;
     }
