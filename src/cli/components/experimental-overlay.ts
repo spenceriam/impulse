@@ -15,7 +15,6 @@ import {
 } from "./overlay-theme.js";
 
 export interface ExperimentalFlags {
-  advisor: boolean;
   undo: boolean;
   goal: boolean;
 }
@@ -30,11 +29,6 @@ export class ExperimentalOverlay implements Component {
   private measureTerminalWidth: number | null = null;
 
   private readonly rows: Array<{ key: keyof ExperimentalFlags; label: string; hint: string }> = [
-    {
-      key: "advisor",
-      label: "Advisor mode",
-      hint: "Strategic advisor + consult_advisor (experimental)",
-    },
     {
       key: "undo",
       label: "Undo / redo",

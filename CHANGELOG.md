@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-11-23
+
+  **Type:** minor
+  **Title:** Orchestrator presets replace the advisor
+
+  ### Added
+  - Orchestrator presets (#221), modeled on Antigravity's Orchestrator: a preset pins a **planner** model (plans, reviews) and an **executor** model (does the work), each a full provider-qualified id so the two may come from different providers. `src/agent/orchestrator.ts` holds the pure policy: the `Orchestrator (<model>)` picker label (20-char truncation), Antigravity's four re-plan triggers in order, a read-only planner tool allowlist, preset resolution, and which roles have no provider key.
+  - `orchestrator` config section: `enabled`, `activePreset`, and named `presets`.
+  - `/orchestrator` lists presets, `/orchestrator <name>` activates one, `/orchestrator off` disables it, and with no presets it explains how to create one.
+
+  ### Removed
+  - The advisor (#221): `/advisor`, the `consult_advisor` tool, the pre-mutation advisor gate, the auto-stuck consultation, the advisor setup purpose and picker, session advisor fields, and the `advisor` experimental flag. Old `advisorModel`/`advisorMode` config keys are ignored.
+
 ## [1.21.17] - 2026-11-23
 
   **Type:** minor

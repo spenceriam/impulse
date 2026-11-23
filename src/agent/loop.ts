@@ -10,16 +10,13 @@
  *  - Tool call accumulation across stream chunks
  *  - Centralized permission flow via the permission module
  *  - Auto-compaction at 60% context fill
- *  - Advisor model consultation (on-demand + auto-stuck detection)
  *  - Abort via AbortController
  */
 
 import type { ChatMessage, ToolDefinition } from "../api/types";
 import type { StreamCompletionOptions } from "../api/provider";
 import { getProviderManager } from "../api/manager";
-import { runAdvisorConsultation } from "./advisor.js";
 import {
-  isExperimentalAdvisorEnabled,
   load as loadConfig,
   resolveSubagentModel,
 } from "../util/config";
@@ -115,7 +112,6 @@ import {
 import { buildDebugInstrumentationNudge } from "./debug-nudge.js";
 import { generateSystemPrompt, invalidatePromptCache } from "../agent/prompts";
 import { setCurrentMode } from "../tools/mode-state";
-import { ADVISOR_GATE_MESSAGE, shouldBlockBeforeAdvisor } from "./advisor-gate.js";
 import { shouldRetryInEnglish } from "./language-guard.js";
 import type { Mode } from "../constants";
 import {
@@ -161,11 +157,6 @@ export interface LoopEvents {
    * event-sourced recap when present.
    */
   onRecap?: (text: string) => void;
-  /** Advisor model is being consulted — streams its response */
-  onAdvisorStart(model: string): void;
-  onAdvisorToken(text: string): void;
-  /** Called when advisor finishes — passes the full response text as summary */
-  onAdvisorEnd(summary: string): void;
   /** Block until user approves or declines an advisor plan (optional). */
   onPlanApproval?: (input: {
     planPath: string;
@@ -234,7 +225,6 @@ export interface RunTurnOptions {
 export class AgentLoop {
   private abortController: AbortController | null = null;
   private consecutiveFailures = 0;
-  private readonly MAX_CONSECUTIVE_FAILURES = 3;
   private pendingImages: Array<{ uri: string; display: string }> = [];
   private pendingUserRequest = "";
   /** Injected before the next model call in the same turn (latest wins). */
@@ -412,44 +402,6 @@ export class AgentLoop {
       // (see checkPlanCompletionHandoff below) so subsequent iterations of this
       // same turn see the AGENT tool set instead of the stale PLAN one.
       let toolDefs: ToolDefinition[] = Tool.getAPIDefinitionsForMode(mode);
-
-      // Add consult_advisor tool if experimental advisor is enabled
-      if (
-        config.advisorModel &&
-        config.advisorMode &&
-        isExperimentalAdvisorEnabled(config)
-      ) {
-        toolDefs.push({
-          type: "function",
-          function: {
-            name: "consult_advisor",
-            description:
-              "Consult the strategic advisor before mutating work. Include an **Executor draft** in context (your approach). " +
-              "Returns plan_markdown in the tool result — do NOT file_read the plan path. " +
-              "MUST be called before file writes, edits, non-readonly bash, or subagent launches.",
-            parameters: {
-              type: "object",
-              properties: {
-                topic: {
-                  type: "string",
-                  description: "Brief topic for the plan filename (3-8 words, e.g. 'refactor-auth-module')",
-                },
-                context: {
-                  type: "string",
-                  description:
-                    "Full context plus **Executor draft**: your reasoning, proposed approach, and what you need from the advisor",
-                },
-                type: {
-                  type: "string",
-                  enum: ["plan", "advisory"],
-                  description: "'plan' for new work / greenfield builds. 'advisory' for course corrections / error recovery",
-                },
-              },
-              required: ["topic", "context"],
-            },
-          },
-        });
-      }
 
       // ── Agentic loop ───────────────────────────────────────────────────────
       let continueLoop = true;
@@ -843,7 +795,6 @@ export class AgentLoop {
 
         // ── Execute tool calls ──────────────────────────────────────────────
         let allSucceeded = true;
-        let advisorCalledThisTurn = false;
         let todoBatchHadRealUpdate = false;
 
         type PendingTaskItem = { tc: PartialToolCall; args: Record<string, unknown> };
@@ -882,26 +833,6 @@ export class AgentLoop {
           const runnable: PendingTaskItem[] = [];
 
           for (const item of batch) {
-            if (
-              config.advisorMode &&
-              isExperimentalAdvisorEnabled(config) &&
-              !advisorCalledThisTurn &&
-              shouldBlockBeforeAdvisor("task", item.args)
-            ) {
-              const toolStart = Date.now();
-              events.onToolStart(item.tc.id, "task", item.args);
-              const durationMs = Date.now() - toolStart;
-              await persistToolResult(item.tc.id, ADVISOR_GATE_MESSAGE);
-              events.onToolEnd(
-                item.tc.id,
-                "task",
-                { success: false, output: ADVISOR_GATE_MESSAGE },
-                durationMs
-              );
-              allSucceeded = false;
-              continue;
-            }
-
             const subagentType = item.args["subagent_type"];
             if (mode === "PLAN" && subagentType !== "explore") {
               const planMsg =
@@ -1080,102 +1011,6 @@ export class AgentLoop {
             continue;
           }
 
-          // Tool gate enforcement
-          if (
-            config.advisorMode &&
-            isExperimentalAdvisorEnabled(config) &&
-            !advisorCalledThisTurn
-          ) {
-            if (shouldBlockBeforeAdvisor(tc.name, args)) {
-              events.onToolStart(tc.id, tc.name, args);
-              allSucceeded = false;
-
-              const blockedMsg: Message = {
-                role: "tool",
-                content: ADVISOR_GATE_MESSAGE,
-                tool_call_id: tc.id,
-                timestamp: new Date().toISOString(),
-              };
-              await SessionManager.addMessage(blockedMsg);
-              events.onToolEnd(tc.id, tc.name, {
-                success: false,
-                output: ADVISOR_GATE_MESSAGE,
-              }, 0);
-              continue;
-            }
-          }
-
-          // Handle advisor tool specially
-          if (tc.name === "consult_advisor" && config.advisorModel) {
-            const toolStart = Date.now();
-            events.onToolStart(tc.id, "consult_advisor", args);
-
-            // Mirror main-loop system prompt (session.system is not populated)
-            const fullSystemPrompt = lastSystemPrompt;
-            const toolDefSummaries = toolDefs.map((t) => ({
-              type: t.type,
-              function: { name: t.function.name, description: t.function.description ?? "" },
-            }));
-
-            const advisorResult = await runAdvisorConsultation({
-              advisorModel: config.advisorModel,
-              fullSystemPrompt,
-              toolDefinitions: toolDefSummaries,
-              fullHistory: chatMessages,
-              topic: String(args["topic"] ?? "advisor-consult"),
-              context: String(args["context"] ?? ""),
-              callType: (args["type"] === "advisory" ? "advisory" : "plan"),
-              events,
-              signal,
-            });
-
-            let userDecision: "proceed" | "decline" | undefined;
-            if (
-              advisorResult.success &&
-              advisorResult.planPath &&
-              advisorResult.planMarkdown &&
-              events.onPlanApproval
-            ) {
-              userDecision = await events.onPlanApproval({
-                planPath: advisorResult.planPath,
-                summary: advisorResult.summary,
-                planMarkdown: advisorResult.planMarkdown,
-              });
-            }
-
-            const resultText = advisorResult.success
-              ? JSON.stringify({
-                  summary: advisorResult.summary,
-                  plan_path: advisorResult.planPath,
-                  plan_markdown: advisorResult.planMarkdown,
-                  user_decision: userDecision,
-                  advisor_model: advisorResult.advisorModel,
-                  self_check_passed: advisorResult.selfCheckPassed,
-                  note:
-                    "Use plan_markdown from this result. Do not file_read plan_path unless verifying on disk.",
-                })
-              : `Advisor error: ${advisorResult.error ?? "unknown error"}`;
-
-            const durationMs = Date.now() - toolStart;
-
-            const advisorToolMsg: Message = {
-              role: "tool",
-              content: resultText,
-              tool_call_id: tc.id,
-              timestamp: new Date().toISOString(),
-            };
-            await SessionManager.addMessage(advisorToolMsg);
-            events.onToolEnd(
-              tc.id,
-              "consult_advisor",
-              { success: advisorResult.success, output: resultText },
-              durationMs
-            );
-
-            advisorCalledThisTurn = true;
-            continue;
-          }
-
           if (tc.name === "task") {
             pendingTaskBatch.push({ tc, args });
             continue;
@@ -1187,8 +1022,7 @@ export class AgentLoop {
           // PLAN mode with plan artifacts (tasks.md) already written, show the
           // execute/proceed/revise/cancel overlay instead of switching modes
           // silently. Bus events can't await a user decision, so this has to
-          // be intercepted here in the tool loop (mirrors the advisor
-          // consult_advisor special-case above).
+          // be intercepted here in the tool loop.
           if (
             tc.name === "set_mode" &&
             args["mode"] === "AGENT" &&
@@ -1330,44 +1164,6 @@ export class AgentLoop {
           } else if (isSubstantiveToolBatch([tc.name]) && tc.name !== "file_write") {
             loopGuard.consecutiveSamePathWrites = 0;
             lastWritePath = "";
-          }
-
-          // Auto-stuck: trigger advisor if too many consecutive failures
-          if (
-            this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES &&
-            config.advisorModel &&
-            isExperimentalAdvisorEnabled(config) &&
-            !signal.aborted
-          ) {
-            this.consecutiveFailures = 0;
-            const stuckContext = `Auto-stuck detection: failed ${this.MAX_CONSECUTIVE_FAILURES} times in a row. Last error: ${result.output}. Need corrective guidance.`;
-            events.onAdvisorStart(config.advisorModel);
-
-            const toolDefSummaries = toolDefs.map((t) => ({
-              type: t.type,
-              function: { name: t.function.name, description: t.function.description ?? "" },
-            }));
-
-            const advisorResult = await runAdvisorConsultation({
-              advisorModel: config.advisorModel,
-              fullSystemPrompt: lastSystemPrompt,
-              toolDefinitions: toolDefSummaries,
-              fullHistory: chatMessages,
-              topic: "auto-stuck-recovery",
-              context: stuckContext,
-              callType: "advisory",
-              events,
-              signal,
-            });
-
-            const guidance = advisorResult.success ? advisorResult.summary : `Advisor error: ${advisorResult.error ?? "unknown"}`;
-
-            const advisorInjection: Message = {
-              role: "assistant",
-              content: `[Advisor guidance: ${guidance}]`,
-              timestamp: new Date().toISOString(),
-            };
-            await SessionManager.addMessage(advisorInjection);
           }
         }
 

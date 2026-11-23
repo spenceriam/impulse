@@ -26,7 +26,6 @@ function sessionModelLabel(s: Session, defaultModel?: string): string {
   if (s.model) label = stripProviderPrefix(s.model);
   else if (defaultModel) label = stripProviderPrefix(defaultModel);
   else label = "—";
-  if (s.advisorMode) label += " (adv)";
   if (s.visionMode) label += visionStatusSuffix();
   return label;
 }

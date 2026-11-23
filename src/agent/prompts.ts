@@ -10,7 +10,6 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { getPermissionBypass } from "../permission/index.js";
 import {
-  isExperimentalAdvisorEnabled,
   isExperimentalGoalEnabled,
   load as loadConfig,
   type Config,
@@ -604,24 +603,6 @@ IMPORTANT: When creating or editing files, ALWAYS use paths relative to or withi
   );
   if (collaborationProfile) {
     parts.push(collaborationProfile);
-  }
-
-  // Add advisor mode directive if experimental advisor is enabled
-  if (cfg.advisorMode && cfg.advisorModel && isExperimentalAdvisorEnabled(cfg)) {
-    const advisorName = cfg.advisorModel.split("/").pop() ?? cfg.advisorModel;
-    parts.push(`## Advisor Mode (ACTIVE — experimental)
-
-Strategic advisor: ${advisorName} via \`consult_advisor\`.
-
-Workflow on work turns:
-1. Use thinking to draft your approach (Executor draft).
-2. Call \`consult_advisor\` with that draft in \`context\` — the advisor will critique it, not rubber-stamp it.
-3. Use \`plan_markdown\` from the tool result (do NOT file_read the plan path).
-4. Verify assumptions against the repo, then act.
-
-Readonly exploration (file_read, grep, glob, ls, explore-only task) may run before consult for context.
-Mutating tools (writes, edits, non-readonly bash, subagents) require consult_advisor first (system gate).
-Advisor output is ADVISORY — trust-but-verify against code and logs.`);
   }
 
   const modeAddition = MODE_ADDITIONS[mode];

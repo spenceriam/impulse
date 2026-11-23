@@ -74,12 +74,6 @@ const ConfigSchema = z.object({
   /** True after user explicitly picks a model via /model or provider setup */
   modelExplicitlySet: z.boolean().default(false).describe("User chose default model"),
 
-  /** Advisor model — optional second model for strategic guidance */
-  advisorModel: z.string().optional().describe("Advisor model for strategic guidance"),
-
-  /** Advisor mode — toggle for advisor/executor pattern */
-  advisorMode: z.boolean().default(false).describe("Whether advisor mode is active"),
-
   /** Vision model — optional separate model for image understanding */
   visionModel: z.string().optional().describe("Vision model for image interpretation"),
 
@@ -103,6 +97,28 @@ const ConfigSchema = z.object({
 
   /** Model for task subagents when useSubagentModel is true (retained when toggled off) */
   subagentModel: z.string().optional().describe("Subagent model override"),
+
+  /**
+   * Orchestrator presets (#221): a planner model plans and reviews while an
+   * executor model does the work. Each role is a full provider-qualified model
+   * id, so the two may come from different providers.
+   */
+  orchestrator: z
+    .object({
+      enabled: z.boolean().default(false),
+      activePreset: z.string().default("default"),
+      presets: z
+        .record(
+          z.string(),
+          z.object({
+            name: z.string(),
+            planner: z.object({ model: z.string(), reasoning: z.string().default("medium") }),
+            executor: z.object({ model: z.string(), reasoning: z.string().default("medium") }),
+          })
+        )
+        .default({}),
+    })
+    .default({ enabled: false, activePreset: "default", presets: {} }),
 
   /** Default mode: AGENT, EXPLORE, PLAN, DEBUG */
   defaultMode: z.string().default("AGENT").describe("Default agent mode"),
@@ -135,11 +151,10 @@ const ConfigSchema = z.object({
   /** Experimental features — off by default until stable */
   experimental: z
     .object({
-      advisor: z.boolean().default(false),
       undo: z.boolean().default(false),
       goal: z.boolean().default(false),
     })
-    .default({ advisor: false, undo: false, goal: false }),
+    .default({ undo: false, goal: false }),
 
   /** Show session summary on /exit and double Ctrl+C */
   statsOnExit: z.boolean().default(false),
@@ -336,7 +351,7 @@ export async function load(options?: { refresh?: boolean }): Promise<Config> {
     cachedConfig !== null &&
     cachedConfigFingerprint === currentFingerprint
   ) {
-    return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
+    return applySessionVision({ ...cachedConfig });
   }
 
   const fileConfig = await loadConfigFile();
@@ -372,18 +387,9 @@ export async function load(options?: { refresh?: boolean }): Promise<Config> {
       fileConfig.showMainThinking === false ? "off" : "summary";
   }
   repairModelExplicitlySet(fileConfig, parsed);
-  // Advisor requires experimental flag
-  if (parsed.advisorMode && !isExperimentalAdvisorEnabled(parsed)) {
-    parsed.advisorMode = false;
-  }
   cachedConfig = parsed;
   cachedConfigFingerprint = await configFileFingerprint();
-  return applySessionVision(applySessionAdvisor({ ...cachedConfig }));
-}
-
-/** Experimental advisor feature enabled in config. */
-export function isExperimentalAdvisorEnabled(config: Config): boolean {
-  return config.experimental?.advisor === true;
+  return applySessionVision({ ...cachedConfig });
 }
 
 export function isExperimentalUndoEnabled(config: Config): boolean {
@@ -394,23 +400,6 @@ export function isExperimentalGoalEnabled(config: Config): boolean {
   return config.experimental?.goal === true;
 }
 
-/** Session-scoped advisor: active only when toggled in-session or restored on resume. */
-export function applySessionAdvisor(config: Config): Config {
-  if (!isExperimentalAdvisorEnabled(config)) {
-    return { ...config, advisorMode: false };
-  }
-  const session = SessionManager.getCurrentSession();
-  if (session?.advisorMode === true) {
-    return {
-      ...config,
-      advisorMode: true,
-      advisorModel: session.advisorModel ?? config.advisorModel,
-    };
-  }
-  return { ...config, advisorMode: false };
-}
-
-/** Session-scoped vision: active only when toggled in-session or restored on resume. */
 export function applySessionVision(config: Config): Config {
   const session = SessionManager.getCurrentSession();
   if (session?.visionMode === true) {

@@ -192,15 +192,6 @@ export function buildSlashCommandDefs(
     },
   ];
 
-  if (opts.experimentalAdvisor) {
-    defs.push({
-      cmd: "/advisor",
-      hint: "on | off | <model>",
-      helpDetail: "Enable, disable, or set the advisor model (experimental)",
-      hidden: true,
-    });
-  }
-
   if (opts.experimentalUndo) {
     defs.push(
       {

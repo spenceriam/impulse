@@ -29,7 +29,6 @@ export const SLASH_ALIASES = {
   sd: "side",
   cpy: "copy",
   sh: "show",
-  ad: "advisor",
   ckp: "checkpoint",
   un: "undo",
   rd: "redo",

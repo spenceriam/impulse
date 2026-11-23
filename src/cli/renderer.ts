@@ -200,7 +200,6 @@ import {
   load as loadConfig,
   save as saveConfig,
   isModelConfigured,
-  isExperimentalAdvisorEnabled,
   isExperimentalGoalEnabled,
   isExperimentalUndoEnabled,
   type ChatDensity,
@@ -590,90 +589,6 @@ export class ImpulseRenderer {
     }
   }
 
-  /** Check if advisor mode should be turned off (all tasks complete) */
-  private async checkAutoOffSuggestion(): Promise<void> {
-    const config = await loadConfig();
-    if (!config.advisorMode || !this.tui) return;
-
-    // Check if todos are all complete
-    const session = SessionManager.getCurrentSession();
-    if (!session?.messages) return;
-
-    // Look for todo_write completions in recent tool calls
-    let allTodosComplete = false;
-    for (let i = session.messages.length - 1; i >= 0; i--) {
-      const msg = session.messages[i]!;
-      if (msg.role === "assistant" && msg.content && typeof msg.content === "string" && msg.content.includes("- [") && msg.content.includes("- [x]")) {
-        // Check if all items are completed
-        const items = msg.content.match(/- \[([ x])\]/g);
-        if (items && items.every(it => it.includes("[x]"))) {
-          allTodosComplete = true;
-          break;
-        }
-      }
-    }
-
-    if (!allTodosComplete) return;
-
-    // Show auto-off overlay
-    const lines = [
-      `${clr.bold("Strategy Complete")}`,
-      this.setupSectionRule(),
-      `All tasks from the advisor plan are complete.`,
-      `The main agent suggests advisor mode is no longer needed.`,
-      "",
-      `${clr.dim("Enter: Keep ON  |  D: Deactivate Advisor  |  Esc: Dismiss")}`,
-    ];
-
-    const overlayContent: Component = {
-      invalidate() {},
-      render(_width: number): string[] { return lines; },
-    };
-
-    type AutoOffDecision = "keep" | "deactivate" | "dismiss";
-    const result = await new Promise<AutoOffDecision>((resolve) => {
-      const handle = this.tui.showOverlay(overlayContent, {
-        anchor: "center",
-        width: "80%",
-        minWidth: this.overlayMin(),
-        maxHeight: 8,
-        margin: { left: 2, right: 2, bottom: 4 },
-      });
-      handle.focus();
-
-      const cleanup = this.tui.addInputListener((data: string) => {
-        if (isEnter(data)) {
-          cleanup();
-          handle.hide();
-          resolve("keep");
-          return { consume: true };
-        }
-        if (data === "d" || data === "D") {
-          cleanup();
-          handle.hide();
-          resolve("deactivate");
-          return { consume: true };
-        }
-        if (isEscape(data)) {
-          cleanup();
-          handle.hide();
-          resolve("dismiss");
-          return { consume: true };
-        }
-        return undefined;
-      });
-    });
-
-    if (result === "deactivate") {
-      config.advisorMode = false;
-      await saveConfig(config);
-      await this.persistSessionAdvisor(false);
-      this.syncAdvisorFromConfig(await loadConfig());
-      this.syncContextBar({ advisorModel: undefined });
-      this.addChatLine(clr.dim("Advisor mode disabled  --  all tasks complete"));
-      this.tui.requestRender();
-    }
-  }
 
   private busyDimBase = false;
 
@@ -2091,7 +2006,6 @@ export class ImpulseRenderer {
   async start(): Promise<void> {
     let config = await loadConfig();
     this.mode = normalizeMode(config.defaultMode) as Mode;
-    this.experimentalAdvisorEnabled = isExperimentalAdvisorEnabled(config);
     this.experimentalUndoEnabled = isExperimentalUndoEnabled(config);
     this.experimentalGoalEnabled = isExperimentalGoalEnabled(config);
     this.reasoningLevel = config.reasoningLevel ?? (config.thinking ? "medium" : "off");
@@ -2131,7 +2045,6 @@ export class ImpulseRenderer {
     }
 
     config = await loadConfig();
-    this.syncAdvisorFromConfig(config);
 
     this.contextWindow = SessionManager.getCurrentSession()?.context_window ?? this.contextWindow;
     this.contextTokens = this.estimateCurrentSessionTokens();
@@ -2438,8 +2351,6 @@ export class ImpulseRenderer {
       contextWindow: this.contextWindow,
       mode: this.mode,
       reasoningLevel: this.reasoningDisplayLabel(),
-      ...(this.advisorModel ? { advisorModel: this.advisorModel } : {}),
-      showAdvisorInBar: this.experimentalAdvisorEnabled && (config.advisorMode ?? false),
       bottomBarVisual: config.bottomBarVisual ?? "full",
     });
     this.syncVisionFromConfig(config);
@@ -2980,38 +2891,6 @@ export class ImpulseRenderer {
     const userMessage = payload.apiText;
     const displayMessage = payload.displayMessage;
     const transcript = userTranscriptText(payload);
-    // Mid-turn config validation: advisor mode ON but config missing?
-    const config = await loadConfig();
-    if (config.advisorMode && !isExperimentalAdvisorEnabled(config)) {
-      this.addChatLine(
-        `${clr.warn("!")} Advisor requires experimental flag. Run ${clr.tool("/experimental")} to enable.`
-      );
-      this.tui.requestRender();
-      return;
-    }
-    if (config.advisorMode && !config.advisorModel) {
-      this.addChatLine(`${clr.warn("!")} Advisor Mode is ON but no advisor model is configured.`);
-      if (this.experimentalAdvisorEnabled) {
-        this.addChatLine(`${clr.dim("Use /advisor to configure, or /advisor off to disable.")}`);
-      } else {
-        this.addChatLine(`${clr.dim("Run /experimental to enable advisor features.")}`);
-      }
-      this.tui.requestRender();
-      return;
-    }
-    if (config.advisorMode && config.advisorModel) {
-      const providerKey = config.advisorModel.split("/")[0] ?? config.defaultProvider;
-      const stored = providerConfig(config, providerKey);
-      if (!isStoredProviderConfigured(providerKey, stored)) {
-        const fix = this.experimentalAdvisorEnabled
-          ? "Use /advisor to reconfigure."
-          : "Run /experimental first.";
-        this.addChatLine(`${clr.warn("!")} Advisor provider (${providerKey}) is not configured. ${fix}`);
-        this.tui.requestRender();
-        return;
-      }
-    }
-
     if (SessionManager.getCurrentSession()) {
       void SessionManager.update({ mode: this.mode });
     }
@@ -3156,15 +3035,6 @@ export class ImpulseRenderer {
       },
       onRecap: (text) => {
         this.modelRecapThisTurn = text;
-      },
-      onAdvisorStart: (_model) => {
-        this.setBusyStatus("", "Advisor consultation…");
-        this.tui.requestRender();
-      },
-      onAdvisorToken: (_text) => { /* buffered */ },
-      onAdvisorEnd: (_summary) => {
-        this.spinStop();
-        this.tui.requestRender();
       },
       onPlanApproval: (input) => this.showPlanApprovalOverlay(input),
       onPlanCompletion: (input) => this.showPlanCompletionOverlay(input),
@@ -3535,15 +3405,12 @@ export class ImpulseRenderer {
         this.drainTurnQueue();
       },
     };
-    await this.refreshActiveContextWindow(config, { discover: true });
+    await this.refreshActiveContextWindow(await loadConfig(), { discover: true });
 
     await this.loop.run(userMessage, this.mode, events, {
       displayMessage,
       segments: payload.segments,
     });
-
-    // Auto-off suggestion: all todos complete + advisor mode ON
-    await this.checkAutoOffSuggestion();
   }
 
   // ?? Helpers ???????????????????????????????????????????????????????????????
@@ -3981,7 +3848,6 @@ export class ImpulseRenderer {
       cmdSkills: (arg) => r.cmdSkills(arg),
       cmdSkill: (arg) => r.cmdSkill(arg),
       cmdRunSkillCommand: (slug, arg) => r.cmdRunSkillCommand(slug, arg),
-      cmdAdvisor: (arg) => r.cmdAdvisor(arg),
       cmdExperimental: () => r.cmdExperimental(),
       cmdSettings: () => r.cmdSettings(),
       cmdInstructions: (arg) => r.cmdInstructions(arg),
@@ -3994,6 +3860,7 @@ export class ImpulseRenderer {
       cmdUsage: () => r.cmdUsage(),
       cmdLogin: (mode, arg) => r.cmdLogin(mode, arg),
       cmdTraces: (arg) => r.cmdTraces(arg),
+      cmdOrchestrator: (arg) => r.cmdOrchestrator(arg),
       cmdCheckpoint: () => r.cmdCheckpoint(),
       cmdUndo: (arg) => r.cmdUndo(arg),
       cmdRedo: (arg) => r.cmdRedo(arg),
@@ -4660,41 +4527,6 @@ export class ImpulseRenderer {
       this.promptInput.setSecretMode(false);
       this.promptInput.clear();
       this.addChatLine(modelStatusLine(`Subagent model: ${selectedModel}`));
-      this.requestLayoutRefresh();
-      return;
-    }
-
-    // Advisor mode: only save advisorModel, don't change default provider/model
-    if (purpose === "advisor" || state.isAdvisorMode) {
-      // Save API key to providers config
-      const providers = { ...(state.config.providers as Record<string, StoredProviderConfig | undefined>) };
-      providers[effectiveKey] = {
-        ...(state.existing ?? {}),
-        ...(apiKey ? { apiKey } : {}),
-        ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
-      ...(provider.customType ? { type: provider.customType } : {}),
-      };
-      state.config.providers = providers as Config["providers"];
-      state.config.advisorModel = selectedModel;
-      state.config.advisorMode = true;
-      await saveConfig(state.config);
-      await this.persistSessionAdvisor(true, selectedModel);
-      await saveHomeEnv(provider, apiKey, state.baseUrl);
-      resetProviderManager();
-      this.syncAdvisorFromConfig(await loadConfig());
-      this.advisorModel = selectedModel;
-      if (reasoningLevel) void this.setReasoningLevel(reasoningLevel);
-      this.syncContextBar({ advisorModel: selectedModel, reasoningLevel: this.reasoningDisplayLabel(reasoningLevel) });
-      if (this.modelSetupInputListener) {
-        this.modelSetupInputListener();
-        this.modelSetupInputListener = null;
-      }
-      this.restorePromptAutocomplete();
-      this.modelSetup = null;
-      this.modelSetupText.setText("");
-      this.promptInput.setSecretMode(false);
-      this.promptInput.clear();
-      this.addChatLine(advisorStatusLine(`Advisor: ${selectedModel}`));
       this.requestLayoutRefresh();
       return;
     }
@@ -5448,14 +5280,8 @@ export class ImpulseRenderer {
       config.visionMode = false;
       await this.persistSessionVision(false);
     }
-    if (modelUsesProvider(config.advisorModel, providerKey)) {
-      config.advisorModel = undefined;
-      config.advisorMode = false;
-      await this.persistSessionAdvisor(false);
-    }
     await saveConfig(config);
     resetProviderManager();
-    this.syncAdvisorFromConfig(config);
     this.syncVisionFromConfig(config);
     this.syncContextBar({
       workerModel: config.defaultModel,
@@ -5691,6 +5517,58 @@ export class ImpulseRenderer {
         }
       }
     }
+    this.tui.requestRender();
+  }
+
+  /**
+   * `/orchestrator` (#221): list the presets, or start onboarding when none
+   * exist. `/orchestrator <name>` activates one; `/orchestrator off` disables.
+   */
+  private async cmdOrchestrator(arg = ""): Promise<void> {
+    if (this.isRunning) return;
+    const config = await loadConfig();
+    const current = config.orchestrator ?? {
+      enabled: false,
+      activePreset: "default",
+      presets: {},
+    };
+    const names = Object.keys(current.presets);
+    const target = arg.trim();
+
+    if (target === "off") {
+      config.orchestrator = { ...current, enabled: false };
+      await saveConfig(config);
+      this.addChatLine(clr.dim("Orchestrator off."));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (target && names.includes(target)) {
+      config.orchestrator = { ...current, enabled: true, activePreset: target };
+      await saveConfig(config);
+      this.addChatLine(clr.dim(`Orchestrator preset: ${target}`));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (names.length === 0) {
+      this.addChatLine(clr.dim("No orchestrator presets yet."));
+      this.addChatLine(
+        clr.dim("A preset pairs a planner model (plans, reviews) with an executor model (does the work).")
+      );
+      this.addChatLine(clr.dim("Create one with: /orchestrator new <name>"));
+      this.tui.requestRender();
+      return;
+    }
+
+    for (const name of names) {
+      const preset = current.presets[name]!;
+      const active = name === current.activePreset && current.enabled ? "  (active)" : "";
+      this.addChatLine(clr.dim(`${name}${active}`));
+      this.addChatLine(clr.dim(`   planner  ${preset.planner.model}  [${preset.planner.reasoning}]`));
+      this.addChatLine(clr.dim(`   executor ${preset.executor.model}  [${preset.executor.reasoning}]`));
+    }
+    this.addChatLine(clr.dim("Use /orchestrator <name> to activate, /orchestrator off to disable."));
     this.tui.requestRender();
   }
 
@@ -6005,7 +5883,6 @@ export class ImpulseRenderer {
     const config = await loadConfig();
     const overlay = new ExperimentalOverlay({
       flags: {
-        advisor: config.experimental?.advisor ?? false,
         undo: config.experimental?.undo ?? false,
         goal: config.experimental?.goal ?? false,
       },
@@ -6035,30 +5912,19 @@ export class ImpulseRenderer {
       overlay.onSubmit = (flags) => {
         void (async () => {
           config.experimental = {
-            advisor: flags.advisor,
             undo: flags.undo,
             goal: flags.goal,
           };
-          if (!flags.advisor) {
-            config.advisorMode = false;
-            await this.persistSessionAdvisor(false);
-            this.syncAdvisorFromConfig(config);
-            this.syncContextBar({ advisorModel: undefined });
-          }
           if (!flags.goal) {
             this.goalState = undefined;
             await this.persistGoalState();
           }
           await saveConfig(config);
-          this.experimentalAdvisorEnabled = flags.advisor;
           this.experimentalUndoEnabled = flags.undo;
           this.experimentalGoalEnabled = flags.goal;
           void this.emitStatusEvent(
-            `Experimental — advisor ${flags.advisor ? "on" : "off"}, undo ${flags.undo ? "on" : "off"}, goal ${flags.goal ? "on" : "off"}`
+            `Experimental — undo ${flags.undo ? "on" : "off"}, goal ${flags.goal ? "on" : "off"}`
           );
-          if (flags.advisor && !config.advisorModel) {
-            this.addChatLine(clr.dim("Configure advisor model via /advisor"));
-          }
           finish();
           this.requestLayoutRefresh();
         })();
@@ -6228,123 +6094,7 @@ export class ImpulseRenderer {
     });
   }
 
-  private async cmdAdvisor(arg: string): Promise<void> {
-    if (this.isRunning) return;
-    const config = await loadConfig();
 
-    if (!this.experimentalAdvisorEnabled) {
-      this.addChatLine(
-        `${clr.warn("!")} Advisor is experimental. Run ${clr.tool("/experimental")} to enable.`
-      );
-      this.tui.requestRender();
-      return;
-    }
-
-    // /advisor off ? toggle OFF
-    if (arg === "off") {
-      config.advisorMode = false;
-      await saveConfig(config);
-      await this.persistSessionAdvisor(false);
-      this.syncAdvisorFromConfig(await loadConfig());
-      this.syncContextBar({
-        advisorModel: undefined,
-        workerModel: config.defaultModel,
-        contextTokens: this.contextTokens,
-        contextWindow: this.contextWindow,
-        mode: this.mode,
-      });
-      this.addChatLine(advisorStatusLine("Advisor mode disabled"));
-      return;
-    }
-
-    // If already ON, /advisor or /advisor on toggles it OFF
-    if (config.advisorMode && (arg === "" || arg === "on")) {
-      config.advisorMode = false;
-      await saveConfig(config);
-      await this.persistSessionAdvisor(false);
-      this.syncAdvisorFromConfig(await loadConfig());
-      this.syncContextBar({
-        advisorModel: undefined,
-        workerModel: config.defaultModel,
-        contextTokens: this.contextTokens,
-        contextWindow: this.contextWindow,
-        mode: this.mode,
-      });
-      this.addChatLine(advisorStatusLine("Advisor mode disabled"));
-      return;
-    }
-
-    // Direct model string: /advisor openrouter/anthropic/claude-opus-4.7
-    if (arg && arg !== "on") {
-      config.advisorModel = arg;
-      config.advisorMode = true;
-      await saveConfig(config);
-      await this.persistSessionAdvisor(true, arg);
-      this.syncAdvisorFromConfig(await loadConfig());
-      this.advisorModel = arg;
-      this.syncContextBar({ advisorModel: arg });
-      this.addChatLine(advisorStatusLine(`Advisor: ${arg} (mode ON)`));
-      return;
-    }
-
-    if (countConfiguredProviders(config) === 0) {
-      await this.startModelSetup(config, "advisor");
-      return;
-    }
-
-    await this.openAdvisorModelPicker();
-  }
-
-  private async openAdvisorModelPicker(): Promise<void> {
-    const config = await loadConfig();
-    const { buildModelPickerState, parseModelPickerSelection } = await import(
-      "./components/model-picker-overlay.js"
-    );
-    const state = await buildModelPickerState(config, {
-      maxHeight: LIST_OVERLAY_MAX_HEIGHT,
-      title: "Switch advisor model",
-    });
-
-    if (state.configuredProviderCount === 0) {
-      await this.startModelSetup(config, "advisor");
-      return;
-    }
-
-    state.overlay.onSelect = async (compoundId: string) => {
-      this.dismissListOverlay(this.modelPickerHandle);
-      this.modelPickerHandle = null;
-      const parsed = parseModelPickerSelection(compoundId);
-      if (!parsed) return;
-      const fullModel = parsed.modelId.includes("/")
-        ? parsed.modelId
-        : modelWithProviderPrefix(parsed.providerKey, parsed.modelId);
-      const cfg = await loadConfig();
-      cfg.advisorModel = fullModel;
-      cfg.advisorMode = true;
-      await saveConfig(cfg);
-      await this.persistSessionAdvisor(true, fullModel);
-      this.syncAdvisorFromConfig(await loadConfig());
-      this.addChatLine(advisorStatusLine(`Advisor: ${fullModel} (mode ON)`));
-      this.tui.requestRender();
-    };
-
-    state.overlay.onCancel = () => {
-      this.dismissListOverlay(this.modelPickerHandle);
-      this.modelPickerHandle = null;
-      this.tui.setFocus(this.promptInput);
-    };
-
-    state.overlay.onManageProviders = () => {
-      this.dismissListOverlay(this.modelPickerHandle);
-      this.modelPickerHandle = null;
-      void this.startModelSetup(config, "advisor");
-    };
-
-    state.onRowsUpdated = () => this.tui.requestRender();
-    this.modelPickerHandle = this.showListOverlay(state.overlay);
-    await state.discover();
-    this.tui.requestRender();
-  }
 
   private async cmdShow(): Promise<void> {
     const session = SessionManager.getCurrentSession();
@@ -6722,31 +6472,12 @@ export class ImpulseRenderer {
     this.lastBandToolHadBody = false;
   }
 
-  private syncAdvisorFromConfig(config: Config): void {
-    const active =
-      config.advisorMode &&
-      this.experimentalAdvisorEnabled &&
-      Boolean(config.advisorModel?.trim());
-    this.advisorModel = active ? config.advisorModel : undefined;
-  }
-
   private syncVisionFromConfig(config: Config): void {
     const active = config.visionMode && Boolean(config.visionModel?.trim());
     this.visionModel = active ? config.visionModel : undefined;
     this.syncContextBar({
       visionModel: this.visionModel,
       visionMode: config.visionMode ?? false,
-    });
-  }
-
-  private async persistSessionAdvisor(
-    advisorMode: boolean,
-    advisorModel?: string
-  ): Promise<void> {
-    if (!SessionManager.getCurrentSession()) return;
-    await SessionManager.update({
-      advisorMode,
-      advisorModel: advisorMode ? advisorModel : undefined,
     });
   }
 
@@ -7067,7 +6798,6 @@ export class ImpulseRenderer {
     this.contextTokens = this.estimateCurrentSessionTokens();
     this.loadGoalFromSession(session);
     void loadConfig().then(async (cfg) => {
-      this.syncAdvisorFromConfig(cfg);
       this.syncVisionFromConfig(cfg);
       await this.refreshActiveContextWindow(cfg, { discover: true });
       this.contextTokens = this.estimateCurrentSessionTokens();
@@ -7641,9 +7371,6 @@ export class ImpulseRenderer {
         this.appendWorkerThinking(text);
         this.requestLayoutRefresh();
       },
-      onAdvisorStart: () => {},
-      onAdvisorToken: () => {},
-      onAdvisorEnd: () => {},
       onToolStart: () => {},
       onToolEnd: () => {},
       onCompacting: () => {},
@@ -7726,9 +7453,6 @@ export class ImpulseRenderer {
         this.appendWorkerThinking(text);
         this.requestLayoutRefresh();
       },
-      onAdvisorStart: () => {},
-      onAdvisorToken: () => {},
-      onAdvisorEnd: () => {},
       onToolStart: () => {},
       onToolEnd: () => {},
       onCompacting: () => {},
