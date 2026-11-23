@@ -20,7 +20,6 @@ import {
   sliceOverlayBody,
 } from "./overlay-scroll-region.js";
 import {
-  capOverlayText,
   intrinsicFramedBoxWidth,
   overlayBottomBorder,
   overlayDim,
@@ -315,7 +314,7 @@ export class QuestionOverlay implements Component {
         const answer = (this.answers[i] ?? []).join(", ") || A.dim + "(no answer)" + A.reset;
         overlayPushWrapped(
           lines,
-          `${A.fg(39, "[" + (i + 1) + "]")} ${capOverlayText(q.question, 120)}`,
+          `${A.fg(39, "[" + (i + 1) + "]")} ${q.question.trim()}`,
           innerWidth,
           boxWidth
         );
@@ -343,9 +342,11 @@ export class QuestionOverlay implements Component {
     }
 
     if (this.context) {
+      // Wrap, never cap (#188-class): a 120-char cut drops the reason the
+      // question is being asked. overlayPushWrapped handles the width.
       overlayPushWrapped(
         lines,
-        `${A.dim}Context:${A.reset} ${capOverlayText(this.context, 120)}`,
+        `${A.dim}Context:${A.reset} ${this.context.trim()}`,
         innerWidth,
         boxWidth
       );
@@ -367,7 +368,7 @@ export class QuestionOverlay implements Component {
 
     overlayPushWrapped(
       lines,
-      `${A.bold}${capOverlayText(this.currentQuestion.question, 120)}${A.reset}`,
+      `${A.bold}${this.currentQuestion.question.trim()}${A.reset}`,
       innerWidth,
       boxWidth
     );
