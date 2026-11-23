@@ -6103,6 +6103,13 @@ export class ImpulseRenderer {
 
     const overlay = new SettingsOverlay({ values: initialValues });
 
+    // Live preview (#160): a small pane under the settings shows the same
+    // scripted turn until you leave the overlay, following the density row.
+    const { ChatPreviewOverlay } = await import("./components/chat-preview-overlay.js");
+    const preview = new ChatPreviewOverlay({ density: initialValues.chatDensity, height: 8 });
+    overlay.onDensityPreview = (density) => preview.setDensity(density);
+    overlay.preview = (width) => preview.render(width);
+
     const applySettingsValues = async (
       values: SettingsValues
     ): Promise<"saved" | "unchanged"> => {

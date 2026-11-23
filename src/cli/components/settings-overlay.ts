@@ -255,6 +255,10 @@ export class SettingsOverlay implements Component {
   onPickVisionOverride?: () => void;
   onClearVisionOverride?: () => void;
   onSubmit?: (values: SettingsValues) => void;
+  /** Density changed (Space on the row) so a live preview can follow it. */
+  onDensityPreview?: (density: ChatDensity) => void;
+  /** Rows rendered under the list, above the footer (the #160 preview). */
+  preview?: (width: number) => string[];
   onAbort?: () => void;
 
   constructor(opts: SettingsOverlayOptions) {
@@ -396,6 +400,7 @@ export class SettingsOverlay implements Component {
     switch (row.key) {
       case "chatDensity":
         this.values.chatDensity = cycleValue(this.values.chatDensity, CHAT_DENSITY_CYCLE);
+        this.onDensityPreview?.(this.values.chatDensity);
         break;
       case "midTurnSubmit":
         this.values.midTurnSubmit = cycleValue(this.values.midTurnSubmit, MID_TURN_CYCLE);
@@ -501,6 +506,15 @@ export class SettingsOverlay implements Component {
         body.push(overlaySideLine(hint, innerWidth, boxWidth));
         rowSpans.push({ start, length: body.length - start });
         flatIndex++;
+      }
+    }
+
+    const previewLines = this.preview ? this.preview(innerWidth) : [];
+    if (previewLines.length > 0) {
+      body.push(overlayEmptyLine(boxWidth));
+      body.push(overlaySideLine(overlayMuted(" Preview"), innerWidth, boxWidth));
+      for (const line of previewLines) {
+        body.push(overlaySideLine(line, innerWidth, boxWidth));
       }
     }
 
