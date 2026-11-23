@@ -404,7 +404,14 @@ export class QuestionOverlay implements Component {
           ? ` ${A.dim}— ${option.description}${A.reset}`
           : "";
       const line = `${pointer} ${marker} ${A.bold}${option.label}${A.reset}${descSuffix}`;
-      overlayPushWrapped(lines, line, innerWidth, boxWidth);
+      // Hanging indent: wrapped continuation lines align under the option
+      // text instead of restarting at the left edge.
+      const indent = " ".repeat(4);
+      wrapTextWithAnsi(line, innerWidth).forEach((part, i) => {
+        lines.push(
+          overlaySideLine(i === 0 ? part : indent + part, innerWidth, boxWidth)
+        );
+      });
     }
 
     const customPointer = this.selectedOption === this.maxSelectableIndex ? A.fg(39, ">") : " ";
