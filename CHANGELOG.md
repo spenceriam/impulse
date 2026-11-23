@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.16] - 2026-11-23
+
+  **Type:** patch
+  **Title:** Question overlay wraps its context instead of cutting it at 120 characters
+
+  ### Fixed
+  - The question overlay truncated `Context:` (and the question text) to 120 characters before wrapping, so a long context ended mid-sentence (`…operating con…`) and the reason for the question was lost. Both now wrap to the overlay width, and a test pins that the end of a long context survives rendering.
+
+
 ## [1.21.15] - 2026-11-22
 
   **Type:** patch
