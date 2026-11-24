@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [1.22.1] - 2026-11-24
+
+  **Type:** patch
+  **Title:** Live permission posture and visible paste indicators
+
+  ### Fixed
+  - **#225** -- Changing Permissions to Full Auto (or Trust, or back to Gated) in `/settings` now takes effect in the running session. Saving the posture re-applies the in-memory bypass via `permissionBypassForMode()`, so no restart is needed and the footer indicator follows immediately.
+  - **#226** -- Pasting ordinary text no longer waits on the 2s OS clipboard file-list probe; that probe now runs only when the paste looks like copied image paths. Every text paste produces a numbered `[Pasted … #N]` hidden-input indicator in the same frame (short single-line pastes included), and submission still sends the real content.
+
 ## [1.22.0] - 2026-11-23
 
   **Type:** minor

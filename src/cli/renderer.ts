@@ -119,6 +119,7 @@ import { loadPromptHistory, savePromptHistory } from "../util/prompt-history-sto
 import {
   getPermissionBypass,
   isAllowAllBypass,
+  permissionBypassForMode,
   resetAllowAllBypass,
   setPermissionBypass,
 } from "../permission/index.js";
@@ -2435,9 +2436,9 @@ export class ImpulseRenderer {
     } else {
       // Persisted posture (#143): /settings was the consent — apply without
       // a disclaimer, and always announce the active mode.
-      const mode = config.permissionMode ?? "gated";
-      this.permissionBypassSource =
-        mode === "trust" ? "trust" : mode === "full-auto" ? "full" : "off";
+      this.permissionBypassSource = permissionBypassForMode(
+        config.permissionMode ?? "gated"
+      );
       this.applyAllowAllForSessionScope();
       this.addChatLine(
         clr.dim(
@@ -6138,6 +6139,10 @@ export class ImpulseRenderer {
       }
       config.userProfile.responsePreference = values.responsePreference;
       await saveConfig(config);
+      // #225: a saved posture must take effect in THIS session. The live
+      // bypass is separate in-memory state, so re-apply it on save.
+      this.permissionBypassSource = permissionBypassForMode(values.permissionMode);
+      this.applyAllowAllForSessionScope();
       invalidatePromptCache();
       this.reasoningLevel = values.reasoningLevel;
       this.syncDisplaySettingsFromConfig(config);
