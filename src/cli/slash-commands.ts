@@ -78,6 +78,11 @@ export function buildSlashCommandDefs(
       helpDetail: "Manage persistent user instructions with multiline paste or @path import",
     },
     {
+      cmd: "/orchestrator",
+      hint: "[name | new <name> | off]",
+      helpDetail: "Planner + executor presets: list, activate, build, or disable",
+    },
+    {
       cmd: "/login",
       hint: "manage provider keys",
       helpDetail: "List providers, set or change an API key (alias: /providers)",
@@ -191,15 +196,6 @@ export function buildSlashCommandDefs(
       hidden: true,
     },
   ];
-
-  if (opts.experimentalAdvisor) {
-    defs.push({
-      cmd: "/advisor",
-      hint: "on | off | <model>",
-      helpDetail: "Enable, disable, or set the advisor model (experimental)",
-      hidden: true,
-    });
-  }
 
   if (opts.experimentalUndo) {
     defs.push(

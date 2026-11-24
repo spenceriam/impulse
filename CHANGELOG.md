@@ -1,11 +1,19 @@
-# Changelog
-
-All notable changes to impulse will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
+
+## [1.22.0] - 2026-11-23
+
+  **Type:** minor
+  **Title:** Orchestrator presets replace the advisor
+
+  ### Added
+  - Orchestrator presets (#221), modeled on Antigravity's Orchestrator: a preset pins a **planner** model (plans and reviews, read-only) and an **executor** model (does the work), each a provider-qualified id so the two may come from different providers. The reasoning level of each role is the one in effect when it is picked, then fixed by the preset.
+  - The turn runs in Antigravity's order: the planner explores read-only and writes a plan with its own re-plan triggers (a question or explanation is answered directly and the turn ends); the executor runs the tool loop on that plan; control returns to the planner when the same verification step fails twice or you message mid-run, and the planner repairs the plan (up to 3 revisions per turn).
+  - The model picker's first row is `Orchestrator (<planner>)` with the saved presets beneath it; selecting one activates it.
+  - `/orchestrator` lists presets, `/orchestrator <name>` activates one, `/orchestrator new <name>` builds one by picking the planner then the executor, and `/orchestrator off` disables it.
+  - A preset whose planner or executor provider has no key stops the turn with an alert naming the missing provider and pointing at `/login` or `/orchestrator <name>`, instead of silently running on the worker model.
+
+  ### Removed
+  - The advisor (#221): `/advisor`, the `consult_advisor` tool, the pre-mutation advisor gate, the auto-stuck consultation, the advisor setup purpose and picker, session advisor fields, and the `advisor` experimental flag. Old `advisorModel`/`advisorMode` config keys are ignored.
 
 ## [1.21.17] - 2026-11-23
 

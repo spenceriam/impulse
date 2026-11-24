@@ -63,10 +63,6 @@ export interface Session {
     /** Who owns the current title. Manual titles are never auto-replaced. */
     source?: "auto" | "manual"
   }
-  /** Per-session advisor toggle (restored on /resume). */
-  advisorMode?: boolean
-  /** Advisor model used when this session had advisor on. */
-  advisorModel?: string
   /** Per-session vision toggle (restored on /resume). */
   visionMode?: boolean
   /** Vision model used when this session had vision on. */

@@ -44,7 +44,6 @@ export interface SlashDispatchHost {
   cmdSkills(arg: string): Promise<void>;
   cmdSkill(arg: string): Promise<void>;
   cmdRunSkillCommand(slug: string, arg: string): Promise<void>;
-  cmdAdvisor(arg: string): Promise<void>;
   cmdExperimental(): Promise<void>;
   cmdSettings(): Promise<void>;
   cmdInstructions(arg: string): Promise<void>;
@@ -57,6 +56,7 @@ export interface SlashDispatchHost {
   cmdUsage(): Promise<void>;
   cmdLogin(mode: "login" | "logout", arg: string): Promise<void>;
   cmdTraces(arg: string): Promise<void>;
+  cmdOrchestrator(arg: string): Promise<void>;
   cmdCheckpoint(): Promise<void>;
   cmdUndo(arg: string): Promise<void>;
   cmdRedo(arg: string): Promise<void>;
@@ -89,7 +89,6 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   ba: (h, arg) => h.cmdBa(arg),
   skills: (h, arg) => h.cmdSkills(arg),
   skill: (h, arg) => h.cmdSkill(arg),
-  advisor: (h, arg) => h.cmdAdvisor(arg),
   experimental: (h) => h.cmdExperimental(),
   settings: (h) => h.cmdSettings(),
   instructions: (h, arg) => h.cmdInstructions(arg),
@@ -106,6 +105,7 @@ const SLASH_DISPATCH: Record<string, SlashHandler> = {
   providers: (h) => h.cmdLogin("login", ""),
   logout: (h, arg) => h.cmdLogin("logout", arg),
   traces: (h, arg) => h.cmdTraces(arg),
+  orchestrator: (h, arg) => h.cmdOrchestrator(arg),
   checkpoint: (h) => h.cmdCheckpoint(),
   undo: (h, arg) => h.cmdUndo(arg),
   redo: (h, arg) => h.cmdRedo(arg),
