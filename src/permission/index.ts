@@ -93,6 +93,19 @@ export function setPermissionBypass(mode: PermissionBypassMode): void {
   bypassMode = mode;
 }
 
+/**
+ * Map the persisted posture from config to the live in-memory bypass
+ * (#225). Both startup and /settings must use this, or a saved Full Auto
+ * stays inert until the next launch.
+ */
+export function permissionBypassForMode(
+  mode: "gated" | "trust" | "full-auto"
+): PermissionBypassMode {
+  if (mode === "trust") return "trust";
+  if (mode === "full-auto") return "full";
+  return "off";
+}
+
 /** Legacy boolean API — true = full bypass (old /allow-all semantics). */
 export function setAllowAllBypass(on: boolean): void {
   bypassMode = on ? "full" : "off";

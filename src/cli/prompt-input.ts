@@ -188,6 +188,18 @@ export function normalizePasteContent(content: string): string {
   return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
+/**
+ * Numbered hidden-input indicator for a text paste (#226). Every text paste
+ * gets one, so a short single-line paste is still visibly a paste instead of
+ * silently becoming typed text.
+ */
+export function textPasteLabel(content: string, seq: number): string {
+  const lines = content.split("\n").filter((l) => l.length > 0).length;
+  return lines > 1
+    ? `[Pasted ${lines} lines  ${content.length} chars #${seq}]`
+    : `[Pasted ${content.length} chars #${seq}]`;
+}
+
 /** Chat transcript / history text: expand collapsed paste tokens to full apiText. */
 export function userTranscriptText(payload: PromptSubmitPayload): string {
   const hasTextPaste = payload.segments.some((s) => s.kind === "paste");
@@ -705,8 +717,13 @@ export class PromptInput implements Component, Focusable {
 
     // Multi-file clipboard copy (Explorer/Finder "Copy") puts a file list on
     // the clipboard while terminals deliver only the FIRST path as text.
-    // Check the platform clipboard file list first; when it holds more files
-    // than the text suggests, inject one token per file (#134).
+    // That OS probe costs up to 2s, so only run it when the paste actually
+    // looks like copied image paths (#134); ordinary text must not wait (#226).
+    if (extractImagePathRefs(content).length === 0) {
+      this._finalizePasteText(content);
+      this.onChange?.(this.editor.getText());
+      return;
+    }
     void readClipboardFileList().then((clip) => {
       if (clip.present && clip.files.length > 1) {
         const imageFiles = clip.files.filter((f) =>
@@ -750,8 +767,6 @@ export class PromptInput implements Component, Focusable {
 
   /** Original text-buffer paste handling (single- or multi-path, text). */
   private _finalizePasteText(content: string): void {
-    const lines = content.split("\n").filter((l) => l.length > 0);
-
     // Paste consisting purely of image paths (one or many, possibly quoted /
     // space-separated / multi-line) → resolve each path directly and insert
     // one [Pasted image #N] token per image at the cursor. Prose that merely
@@ -815,28 +830,20 @@ export class PromptInput implements Component, Focusable {
       }
       this._nextImageIndex = startIndex + imageCount;
       this.editor.handleInput(labels);
-    } else if (lines.length > 1) {
-      const seq = this._nextTextPasteSeq++;
-      const display = `[Pasted ${lines.length} lines  ${content.length} chars #${seq}]`;
-      this._pasteGroups.push({
-        display,
-        content,
-        originalDisplay: display,
-        kind: "text",
-      });
-      this.editor.handleInput(display);
-    } else if (content.length > 120) {
-      const seq = this._nextTextPasteSeq++;
-      const display = `[Pasted ${content.length} chars #${seq}]`;
-      this._pasteGroups.push({
-        display,
-        content,
-        originalDisplay: display,
-        kind: "text",
-      });
-      this.editor.handleInput(display);
     } else {
-      this.editor.handleInput("\x1b[200~" + content + "\x1b[201~");
+      // Any text paste (short or long) becomes a numbered hidden-input
+      // indicator; the real content lives in the paste group and is expanded
+      // on submit (#226).
+      const seq = this._nextTextPasteSeq++;
+      const display = textPasteLabel(content, seq);
+      this._pasteGroups.push({
+        display,
+        content,
+        originalDisplay: display,
+        kind: "text",
+      });
+      this.editor.handleInput(display);
+      this.onChange?.(this.editor.getText());
     }
   }
 
