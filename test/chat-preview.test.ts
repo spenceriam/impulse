@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { visibleWidth } from "@mariozechner/pi-tui";
 import {
   ChatExperiencePicker,
   ChatPreviewOverlay,
@@ -7,14 +8,39 @@ import {
   previewScript,
 } from "../src/cli/components/chat-preview-overlay.js";
 
+const W = 78;
+const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+const frameRows = (density: "quiet" | "verbose", t: number) => {
+  const script = previewScript(density);
+  return strip(frameAt(script, t).rows(W).join("\n"));
+};
+
 describe("preview script (#160)", () => {
-  test("quiet and verbose are different renderings of the same turn", () => {
-    const quiet = previewScript("quiet");
-    const verbose = previewScript("verbose");
-    expect(quiet[0]!.body).toBe(verbose[0]!.body); // same prompt
-    expect(quiet.at(-1)!.body).not.toBe(verbose.at(-1)!.body);
-    expect(verbose.at(-1)!.body).toContain("file_read");
-    expect(quiet.at(-1)!.body).toContain("Recap:");
+  test("quiet and verbose start from the same prompt", () => {
+    expect(frameRows("quiet", 0)).toContain("Review what changed this week");
+    expect(frameRows("verbose", 0)).toContain("Review what changed this week");
+  });
+
+  test("the two densities end differently", () => {
+    expect(frameRows("quiet", 4500)).toContain("Recap:");
+    expect(frameRows("verbose", 4500)).toContain("file_read");
+    expect(frameRows("quiet", 4500)).not.toBe(frameRows("verbose", 4500));
+  });
+
+  test("quiet narration comes from the real formatter, no raw italic markers", () => {
+    const rows = frameRows("quiet", 1300);
+    expect(rows).toContain("CHANGELOG.md");
+    expect(rows).not.toContain("_Reading");
+    expect(rows).toContain("(2s)");
+  });
+
+  test("verbose tool rows are separate chat rows", () => {
+    const rows = frameRows("verbose", 1300);
+    const lines = rows.split("\n").filter((l) => l.trim());
+    const bash = lines.findIndex((l) => l.includes("git log"));
+    const read = lines.findIndex((l) => l.includes("CHANGELOG.md") && l.includes("file_read"));
+    expect(bash).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThan(bash);
   });
 
   test("frameAt picks the last frame at or before the time", () => {
@@ -35,20 +61,33 @@ describe("preview script (#160)", () => {
 describe("ChatPreviewOverlay (#160)", () => {
   test("renders a fixed height so the overlay never jumps", () => {
     const overlay = new ChatPreviewOverlay({ density: "quiet", height: 10 });
-    expect(overlay.render(60)).toHaveLength(10);
-    overlay.tick(Date.now() + 3000);
-    expect(overlay.render(60)).toHaveLength(10);
+    expect(overlay.render(W)).toHaveLength(10);
+    expect(overlay.render(W)).toHaveLength(10);
   });
 
-  test("switching density restarts the loop", () => {
-    const overlay = new ChatPreviewOverlay({ density: "quiet" });
-    overlay.tick(Date.now() + 4500);
+  test("switching density shows the other density's settled turn", () => {
+    const overlay = new ChatPreviewOverlay({ density: "quiet", startAtMs: 4500 });
     overlay.setDensity("verbose");
-    // Density change restarts the loop at the first frame: prompt only, no
-    // tool rows or Recap yet.
-    const out = overlay.render(60).join("\n");
+    const out = strip(overlay.render(W).join("\n"));
     expect(out).toContain("Review what changed this week");
+    expect(out).toContain("file_read");
     expect(out).not.toContain("Recap:");
+  });
+
+  test("later frames show the prose and Recap (the earlier tests missed this)", () => {
+    const real = Date.now;
+    let offset = 0;
+    Date.now = () => real() + offset;
+    try {
+      const overlay = new ChatPreviewOverlay({ density: "quiet", startAtMs: 0 });
+      offset = 4500;
+      const out = strip(overlay.render(W).join("\n"));
+      expect(out).toContain("Worked for 3s using 2 tools");
+      expect(out).toContain("Three commits landed");
+      expect(out).toContain("Recap:");
+    } finally {
+      Date.now = real;
+    }
   });
 
   test("narrow widths do not throw", () => {
@@ -83,7 +122,7 @@ describe("ChatExperiencePicker (#160)", () => {
     expect(text).toContain("Verbose");
     expect(text).toContain("Preview: Quiet");
     for (const line of lines) {
-      expect(line.length).toBeLessThanOrEqual(60);
+      expect(visibleWidth(line.replace(/\x1b\[[0-9;]*m/g, ""))).toBeLessThanOrEqual(60);
     }
   });
 });
