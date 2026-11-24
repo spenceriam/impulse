@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.17] - 2026-11-23
+
+  **Type:** minor
+  **Title:** Chat-experience picker with a live preview
+
+  ### Added
+  - **#160** -- `ChatPreviewOverlay` replays a scripted turn through the real `MarkdownTextBlock`: Quiet and Verbose are the same prompt rendered two ways, looping on a 6s cycle.
+  - **#160** -- First run shows `ChatExperiencePicker` after provider setup and before the profile wizard: arrows/space switch the preview, Enter saves the choice as `chatDensity`, Esc keeps Quiet. Skipped when stdin is not a TTY.
+  - **#160** -- `/settings` renders the same preview under the settings list and follows the density row as it is cycled.
+
 ## [1.21.16] - 2026-11-23
 
   **Type:** patch

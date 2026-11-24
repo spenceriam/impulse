@@ -287,6 +287,16 @@ if (!hasProvider) {
   await runSetup();
 }
 
+// ─── First run: pick the chat experience (#160) ─────────────────────────────
+// Only when there is no prior choice; the profile wizard is the marker that
+// this is a first run, so the picker runs just before it.
+{
+  const cfg = await loadConfig();
+  if (!cfg.userProfile?.name && !cfg.hasSeenWelcome) {
+    await runChatExperiencePicker();
+  }
+}
+
 // ─── Check if user profile exists ─────────────────────────────────────────────
 const currentConfig = await loadConfig();
 if (!currentConfig.userProfile?.name) {
@@ -351,6 +361,38 @@ if (messageArgs.length > 0 && messageArgs[0]) {
 // ─────────────────────────────────────────────────────────────────────────────
 // First-run setup
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * First-run chat-experience picker (#160). Renders the same live preview as
+ * /settings, on the real components. Esc keeps Quiet, so a user who skips
+ * still gets the default.
+ */
+async function runChatExperiencePicker(): Promise<void> {
+  const { ChatExperiencePicker } = await import("./cli/components/chat-preview-overlay.js");
+  const { TUI } = await import("@mariozechner/pi-tui");
+  const { ProcessTerminal } = await import("@mariozechner/pi-tui");
+
+  // A non-interactive stdin (piped, CI) cannot answer an overlay: keep Quiet.
+  if (!process.stdin.isTTY) return;
+
+  const terminal = new ProcessTerminal();
+  const tui = new TUI(terminal);
+  const picker = new ChatExperiencePicker({});
+  const done = new Promise<void>((resolve) => {
+    picker.onConfirm = (density) => {
+      void (async () => {
+        const cfg = await loadConfig();
+        cfg.chatDensity = density;
+        await saveConfig(cfg as Parameters<typeof saveConfig>[0]);
+        tui.stop();
+        resolve();
+      })();
+    };
+  });
+  tui.addChild(picker);
+  tui.start();
+  await done;
+}
 
 async function runSetup(): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
